@@ -1,0 +1,24 @@
+[Unit]
+Description=DEYROUTE node agent (connects to the hub)
+Documentation=https://github.com/localroot4/deyroute
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/deyroute daemon node
+Restart=always
+RestartSec=2
+WatchdogSec=30
+NotifyAccess=main
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+LimitNOFILE=1048576
+Environment=GOMEMLIMIT=64MiB
+RuntimeDirectory=deyroute
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

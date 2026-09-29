@@ -1,0 +1,117 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
+      - uses: golangci/golangci-lint-action@v8
+        with: { version: v2.5.0 }
+      - name: shellcheck installer
+        run: shellcheck installer/install.sh test/integration/*.sh test/integration/scenarios/*.sh
+      - name: installer size budget (<= 250 lines)
+        run: test "$(wc -l < installer/install.sh)" -le 250
+      - name: generated docs up to date
+        run: make check-docs
+
+  unit:
+    runs-on: ubuntu-24.04
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go test -race -count=1 ./...
+      - run: make cover
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  build:
+    runs-on: ubuntu-24.04
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: make build-all
+      - name: static binary check
+        run: |
+          for f in dist/deyroute_linux_*; do
+            file "$f" | grep -q "statically linked" || (echo "$f is not static"; exit 1)
+          done
+      - uses: actions/upload-artifact@v4
+        with: { name: deyroute-binaries, path: dist/deyroute_linux_* }
+
+  smoke:
+    # Phase 0 acceptance: binary runs and the menu opens on Tier 1 distributions.
+    runs-on: ubuntu-24.04
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04", "ubuntu:26.04", "debian:12", "debian:13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: deyroute-binaries, path: dist }
+      - name: run in ${{ matrix.image }}
+        run: |
+          chmod +x dist/deyroute_linux_amd64
+          docker run --rm -v "$PWD/dist:/dist" -v "$PWD/test/smoke:/smoke" "${{ matrix.image }}" sh /smoke/menu.sh /dist/deyroute_linux_amd64
+
+  integration:
+    runs-on: ubuntu-24.04
+    needs: build
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main')
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: ["ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: make build
+      - name: scenarios
+        run: DISTRO=${{ matrix.distro }} make integration
+
+  release:
+    runs-on: ubuntu-24.04
+    needs: [unit, build, smoke, integration]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: install minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: write signing key
+        run: printf '%s' "${{ secrets.MINISIGN_SECRET_KEY }}" > "$RUNNER_TEMP/minisign.key"
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINISIGN_KEY_FILE: ${{ runner.temp }}/minisign.key
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
