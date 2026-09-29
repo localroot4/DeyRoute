@@ -1,0 +1,119 @@
+# DEYROUTE backend manifest (section 5). Embedded in the binary; a signed copy
+# may override it at /etc/deyroute/backends.yaml (`deyroute update manifest`).
+#
+# Every backend binary is verified against sha256 before it is installed;
+# an empty sha256 means "not yet computed" and installation is refused with
+# DEY-S006 (see QUESTIONS.md C.9). scripts/manifest-hashes.sh fills them.
+#
+# Versions were pinned on 2026-09-29 from the upstream tags; the renderer of
+# each backend follows the README of exactly this version (docs/backends/).
+manifest_version: 1
+backends:
+  backhaul:
+    version: v0.7.2
+    repo: Musixal/Backhaul
+    readme: https://github.com/Musixal/Backhaul/blob/v0.7.2/README.md
+    archive: tar.gz
+    binaries: [backhaul]
+    urls:
+      amd64: https://github.com/Musixal/Backhaul/releases/download/v0.7.2/backhaul_linux_amd64.tar.gz
+      arm64: https://github.com/Musixal/Backhaul/releases/download/v0.7.2/backhaul_linux_arm64.tar.gz
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1
+  rathole:
+    version: v0.5.0
+    repo: rapiz1/rathole
+    readme: https://github.com/rapiz1/rathole/blob/v0.5.0/README.md
+    archive: zip
+    binaries: [rathole]
+    urls:
+      amd64: https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-x86_64-unknown-linux-musl.zip
+      arm64: https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-aarch64-unknown-linux-musl.zip
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1
+  frp:
+    version: v0.71.0
+    repo: fatedier/frp
+    readme: https://github.com/fatedier/frp/blob/v0.71.0/README.md
+    archive: tar.gz
+    binaries: [frps, frpc]
+    urls:
+      amd64: https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_amd64.tar.gz
+      arm64: https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_arm64.tar.gz
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1
+  waterwall:
+    version: v1.41
+    repo: radkesvat/WaterWall
+    readme: https://github.com/radkesvat/WaterWall
+    archive: zip
+    binaries: [Waterwall]
+    urls:
+      amd64: https://github.com/radkesvat/WaterWall/releases/download/v1.41/Waterwall-linux-gcc-x64.zip
+      arm64: https://github.com/radkesvat/WaterWall/releases/download/v1.41/Waterwall-linux-gcc-arm64.zip
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1
+  xray:
+    version: v26.3.27
+    repo: XTLS/Xray-core
+    readme: https://github.com/XTLS/Xray-core/blob/v26.3.27/README.md
+    archive: zip
+    binaries: [xray]
+    urls:
+      amd64: https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+      arm64: https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-arm64-v8a.zip
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1
+  hysteria2:
+    version: app/v2.12.3
+    repo: apernet/hysteria
+    readme: https://github.com/apernet/hysteria/blob/app/v2.12.3/README.md
+    archive: raw
+    binaries: [hysteria]
+    urls:
+      amd64: https://github.com/apernet/hysteria/releases/download/app%2Fv2.12.3/hysteria-linux-amd64
+      arm64: https://github.com/apernet/hysteria/releases/download/app%2Fv2.12.3/hysteria-linux-arm64
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1
+  wireguard:
+    # wireguard/kernel uses the in-kernel module (no download);
+    # awg/userspace uses amneziawg-go, built by the DEYROUTE release pipeline
+    # from the pinned module version and published on the owner's mirror.
+    version: v1.0.4
+    repo: amnezia-vpn/amneziawg-go
+    readme: https://github.com/amnezia-vpn/amneziawg-go/blob/v1.0.4/README.md
+    archive: raw
+    binaries: [amneziawg-go]
+    urls:
+      amd64: "{mirror}/backends/amneziawg-go/v1.0.4/amneziawg-go-linux-amd64"
+      arm64: "{mirror}/backends/amneziawg-go/v1.0.4/amneziawg-go-linux-arm64"
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1
+  direct:
+    # direct/native is the relay built into deyroute itself; direct/haproxy uses
+    # the distribution's haproxy package when the owner installs it.
+    version: builtin
+    builtin: true
+    template_version: 1
+  gost:
+    version: v3.2.6
+    repo: go-gost/gost
+    readme: https://github.com/go-gost/gost/blob/v3.2.6/README.md
+    archive: tar.gz
+    binaries: [gost]
+    urls:
+      amd64: https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz
+      arm64: https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_arm64.tar.gz
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1
+  chisel:
+    version: v1.12.1
+    repo: jpillora/chisel
+    readme: https://github.com/jpillora/chisel/blob/v1.12.1/README.md
+    archive: gz
+    binaries: [chisel]
+    urls:
+      amd64: https://github.com/jpillora/chisel/releases/download/v1.12.1/chisel_1.12.1_linux_amd64.gz
+      arm64: https://github.com/jpillora/chisel/releases/download/v1.12.1/chisel_1.12.1_linux_arm64.gz
+    sha256: { amd64: "", arm64: "" }
+    template_version: 1

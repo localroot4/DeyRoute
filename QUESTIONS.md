@@ -99,3 +99,53 @@ stated default until the owner decides · **[ANSWERED]** closed.
     branch; acceptance evidence that needs real servers (VM installs, 72-hour
     test, videos, real-user test) cannot be produced from the build sandbox and
     is listed per phase in `docs/en/acceptance.md` as **pending**.
+14. **[DEFAULT] Config keys beyond the section 4 sample.** Section 4 says the
+    sample lists *all* keys, but other sections require settings that have no
+    key there: `failover.quarantine_s` (§9 defaults), per-port `probe`
+    (auto|tcp|tls|http, §9), tunnel `probe_port` (§14 `--probe-port`),
+    `tls.cert_file`/`tls.key_file` (custom mode, §10), hub `decoy_snis` (§7.4),
+    `public_ip6` (§10 IPv6), `language` (§14), `mirror`, `update_check` (§5),
+    `acme` (email / Cloudflare DNS-01 token file, §10) and per-tunnel
+    `advanced:` (`connection_pool`, Hysteria2 bandwidth/port hopping,
+    `proxy_protocol`, `backhaul_web_port`). They are all **optional** and
+    omitted when empty, so the section 4 sample validates unchanged; any other
+    unknown key is still `DEY-C001`.
+15. **[DEFAULT] Exec allow-list.** Section 15 allows only `systemctl, nft, ss,
+    ip, xray x25519, rathole --genkey`, but section 10 requires detecting and
+    (after confirmation) running `ufw` / `firewall-cmd` / `iptables`, and the
+    backend user `deyroute` must be created. The allow-list is therefore
+    `systemctl, nft, ss, ip, xray, rathole, ufw, firewall-cmd, iptables,
+    systemd-sysusers`. Key material for Rathole Noise and Xray Reality is
+    generated in pure Go (X25519), so `xray x25519`/`rathole --genkey` are
+    allowed but not needed.
+16. **[DEFAULT] Secrets readable by backends.** Section 4 requires every file in
+    `secrets/` to be 0600 root, while section 7 runs backends as user `deyroute`,
+    which then cannot read the tunnel TLS key or token. Rendered backend
+    directories (`/etc/deyroute/backends/<backend>/<tunnel>/…`) are `0750`
+    and their files `0640`, owner `root:deyroute`, and contain the copies the
+    process needs; `secrets/` itself stays 0700/0600 root.
+    Paths are `/etc/deyroute/backends/<backend>/<tunnel>/<node>/<transport>/`
+    (one directory per warm unit; section 2 shows only the first two levels).
+17. **[DEFAULT] Last rung of the default ladder.** The section 4 YAML sample ends
+    with `direct/haproxy`, section 8 says the default ladder ends with
+    `direct/native` (and HAProxy is optional, phase 7). Section 8 is followed:
+    the embedded default ladder ends with `direct/native`.
+18. **[DEFAULT] Telegram from Iran.** `api.telegram.org` is usually unreachable
+    from Iranian datacenters. The hub first posts directly; on failure it asks
+    an online node to perform the same HTTPS POST (`http.post` command) — the
+    same pattern as `fetch.proxy` for GitHub. No other data leaves the servers.
+19. **[DEFAULT] Manifest file location.** `backends.yaml` is embedded from
+    `internal/backend/backends.yaml` (the backend registry owns it); the
+    release publishes and signs that same file.
+20. **[OPEN] AmneziaWG binary.** `amneziawg-go` publishes no release binaries.
+    The manifest points at `{mirror}/backends/amneziawg-go/<ver>/…`; the
+    release pipeline must build it (static, from the pinned module version)
+    and upload it to the owner's mirror. Owner: confirm this is acceptable.
+21. **[DEFAULT] HAProxy.** HAProxy has no official static Linux binaries.
+    `direct/haproxy` (optional, phase 7) uses the distribution's `haproxy`
+    binary when present and is otherwise marked unavailable with DEY-B006.
+22. **[DEFAULT] Extra packages.** `internal/version` (build metadata) and
+    `internal/backend/all` (blank imports that register every backend) are
+    small additions to the section 15 tree; `internal/exec` is named in
+    section 15's coding rules. The `direct/native` relay data plane lives in
+    `internal/backend/direct`.

@@ -7,4 +7,4 @@ if [ -z "${MINISIGN_KEY_FILE:-}" ]; then
 	exit 0
 fi
 printf '%s\n' "${MINISIGN_PASSWORD:-}" | minisign -S -s "$MINISIGN_KEY_FILE" \
-	-m internal/install/backends.yaml -x dist-extra/backends.yaml.minisig
+	-m internal/backend/backends.yaml -x dist-extra/backends.yaml.minisig

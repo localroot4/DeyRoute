@@ -5,7 +5,7 @@ before:
   hooks:
     - go mod verify
     - go test ./...
-    # Signs internal/install/backends.yaml into dist-extra/backends.yaml.minisig
+    # Signs internal/backend/backends.yaml into dist-extra/backends.yaml.minisig
     # when MINISIGN_KEY_FILE is set (CI release job).
     - sh scripts/sign-manifest.sh
 
@@ -34,7 +34,7 @@ checksum:
   algorithm: sha256
   extra_files:
     - glob: ./installer/install.sh
-    - glob: ./internal/install/backends.yaml
+    - glob: ./internal/backend/backends.yaml
 
 # SHA256SUMS is signed with minisign; the public key is hard-coded in
 # installer/install.sh and internal/install (self-update). The secret key
@@ -51,7 +51,7 @@ signs:
 release:
   extra_files:
     - glob: ./installer/install.sh
-    - glob: ./internal/install/backends.yaml
+    - glob: ./internal/backend/backends.yaml
     - glob: ./dist-extra/backends.yaml.minisig
 
 changelog:
