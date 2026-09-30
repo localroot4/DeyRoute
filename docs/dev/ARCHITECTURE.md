@@ -337,3 +337,121 @@ arguments (excluding ctx and callbacks); response `{"result": …}` or
 `{"log": LogLine}` lines then one `{"result": …}` or `{"error": …}` line.
 Client: `api.Dial(socketPath) (Local, error)`; if the socket is missing it
 returns `DEY-X003` (Fix: `systemctl start deyroute-hub`).
+
+## 7. Daemon design (wave 2)
+
+The daemon tree is split into sub-packages so that several people can work in
+parallel without breaking each other's builds:
+
+| Package | Owns |
+| --- | --- |
+| `internal/api` (transport files) | `rpc_gen.go` (generated Local client+server), `localserver.go`, `localclient.go` (`Dial`), `controlserver.go`, `controlclient.go`, `session.go` |
+| `internal/daemon/secrets` | per-tunnel tokens, backend keys (KeyGenerator), tunnel TLS (auto/acme/custom) incl. copies + PKCS#12, join tokens (single use, TTL, per-IP limit), telegram token file |
+| `internal/daemon/render` | the **planner**: desired warm set per tunnel (every rung × every node × side), RenderInput construction (paths, ctl ports, secrets, decoy, net index), hub-side file/drop-in writer, node-side `backend.render` payloads, NAT/firewall spec assembly, canary inputs |
+| `internal/daemon/hub` | hub service: control API handlers (join, sessions, uploads, assets), node registry + heartbeats, event bus (state + events.log + notifier), tunnel controller (install → render → warm units → firewall → failover engine with real Actions), reconcile loop, UDP/skip re-checks, TLS renewal, metrics, updates, Local API implementation |
+| `internal/daemon/node` | node agent: connect/reconnect, hello/heartbeat, command handlers, local API (status/logs/set-hub) |
+| `internal/daemon/setup` | local operations run by the CLI (and TUI) *without* the daemon: setup wizard steps (hub), join (node), uninstall, backup/restore wrappers, public-IP detection, service install |
+| `internal/doctor` | collection helpers, 15 rules, redacted bundle writer |
+
+### 7.1 Paths used by the planner
+- Hub side config dir: `/etc/deyroute/backends/<backend>/<tunnel>/<node>/<transportName>/`;
+  node side the same path on the node. Canary: `/etc/deyroute/backends/<backend>/<tunnel>/canary/`.
+- Binaries: `/var/lib/deyroute/bin/<backend>/<version>/<binary>` (`install.Layout`).
+- Log file: `/var/log/deyroute/tunnels/<tunnel>.log` (both sides).
+- Files the backend reads are written 0640 `root:deyroute` (dirs 0750). TLS copies
+  in the config dir: `tls-cert.pem`, `tls-key.pem`, `ca.crt`, `tls.p12`.
+- Instance: `systemd.InstanceName(tunnel, node, transportID)`; canary
+  `systemd.CanaryInstance(tunnel)`.
+
+### 7.2 Control channel
+- TLS listener with `tlsutil.ServerTLSConfig` (ALPN `deyroute/1`), each accepted
+  conn served by `http2.Server.ServeConn`. Clients use `http2.Transport` with a
+  custom `DialTLSContext` (ALPN `deyroute/1`). `/v1/join` is the only path that
+  accepts a connection without a client certificate; every other path requires
+  a verified client cert whose CN is a known node id.
+- Session: `POST /v1/stream` full duplex NDJSON. Hub side `Session.Call(ctx,
+  name, args, result) error` with per-command ids and timeouts (`DEY-N005`),
+  `Cancel`, `Ping` (RTT), streamed `LogChunk`s. Offline after 15 s without a
+  heartbeat.
+- Join firewall window: while at least one unexpired join token exists the
+  hub renders the firewall with `RestrictControl=false` (control port open to
+  all, protected by the per-IP 5-failures/hour limit); afterwards back to
+  `@nodes` only (QUESTIONS.md C.23).
+- `fetch.proxy`: hub registers an upload id, sends the command; the node
+  downloads, verifies sha256 and POSTs `/v1/upload/<id>`; the hub streams it
+  into the waiting writer. The hub's `install.Fetcher` chain is
+  `[via-node, direct]` once a node has joined (spec §5).
+- Telegram: `notify.ChainSender{HTTPSender, via-node http.post}`.
+
+### 7.3 Tunnel lifecycle on the hub
+1. `TunnelAdd`: validate request → check every listen port (`ports.Checker`,
+   reserved, conflicts with other tunnels) → write config (auto backup first)
+   → steps: install backend on hub (all rungs' backends), install on node(s),
+   render (all rungs, all nodes, both sides), firewall, start (failover engine
+   INIT→STARTING), probe → result "Tunnel main is UP via backhaul/wssmux (41ms)".
+   Each step reports `api.Step` progress; a failing step returns its DEY error.
+2. Rungs whose `Validate` fails or whose UDP probe fails are recorded in
+   `TunnelState.Skipped` with `RecheckAt = now+30m` and event `rung_skipped`
+   (yellow); a periodic job re-tests and clears them (`rung_restored`).
+3. Failover `Actions` (hub implementation): `Start` starts the server side
+   unit first (`Direction.ServerSide()`), then the other side; applies the
+   candidate's NAT (hub firewall + node `firewall.apply`); for `awg` runs the
+   documented post-start configuration. `Stop` stops client side then server
+   side and removes the candidate NAT. `ProbePath` = `health.Path` to
+   `127.0.0.1:<probe port>` with the port's probe kind; `AcceptCleanClose` only
+   when the node reported the target as non-TLS. `NodeService` = cached
+   `probe.tcp` of the probe target on the node (refreshed every probe interval).
+4. Only the active candidate's units run; every other rung is warm (files +
+   drop-in present, unit stopped). NAT rules exist only for the active
+   candidate.
+5. Hub restart: `failover.Reconcile` with the units actually active on the hub
+   (`systemd.Manager.ListInstances`) and on nodes (heartbeat `Units`).
+6. `TunnelDelete`: stop engine, stop and remove every instance on hub and
+   nodes, remove config dirs, NAT/firewall entries, secrets of the tunnel,
+   state (`DeleteTunnel`), config entry.
+
+### 7.4 Local operations (`internal/daemon/setup`)
+```go
+type HubOptions struct { Name string; ControlPort int; PublicIP string; SysctlProfile string; ApplySysctl bool; Yes bool; Root string; Runner exec.Runner; Progress func(api.Step) }
+func SetupHub(ctx, o HubOptions) (*HubResult, error)   // I013 when configured; steps: detect IP, CA + hub cert, control port, config.yaml, firewall, sysctl, units, enable+start deyroute-hub
+type JoinOptions struct { Link string; Name string; Root string; Runner exec.Runner; HTTPClient *http.Client; Progress func(api.Step) }
+func ParseJoinLink(link string) (JoinLink, error)       // dey://TOKEN@HUB_IP:PORT#sha256:… → N006
+func Join(ctx, o JoinOptions) (*JoinResult, error)       // CSR, POST /v1/join with pinned CA, write secrets/config, sysctl, units, start deyroute-node
+func DetectPublicIP(ctx, r exec.Runner) (string, error)  // ip route get 1.1.1.1 → src
+func Uninstall(ctx, o UninstallOptions) error            // stop/disable units, nft table, sysctl revert, paths (keep backups?), binary
+func JoinCommand(installerURL, link string) string       // bash <(curl -fsSL <installer>) join '<link>'
+```
+
+### 7.5 Integration notes from wave 1 (binding for wave 2)
+- `/etc/deyroute` is `0710 root:deyroute` and `/var/lib/deyroute` `0750 root:deyroute`
+  (installer); never chmod them back to 0700 — backends running as `deyroute`
+  must traverse them. `secrets/` stays `0700 root`, `config.yaml` `0600`.
+- Backend version directories are path-escaped (`app/v2.12.3` →
+  `app%2Fv2.12.3`): always build paths with `install.Layout.BinDir/BinaryPath`.
+- NAT-based transports (a candidate whose hub-side `Rendered.NAT` is not
+  empty, i.e. WireGuard/AWG): output-chain DNAT deliberately excludes
+  loopback, so the path probe must dial the hub's public IP (or the tunnel
+  address) instead of `127.0.0.1`.
+- Control port access (spec §3/§11 vs S27 node IP change and join): the hub
+  renders `RestrictControl=true` plus a rate-limited accept for unknown
+  sources (`ct state new limit rate 6/minute`) on the control port only; mTLS
+  and the join limiter protect it. While a join token is valid the port is
+  open without limit. Extend `firewall.Spec` with `UnknownControlRate string`
+  ("" = drop) — QUESTIONS.md C.23.
+- `log.RedactingWriter` returns `*RedactWriter`; call `Close`/`Flush` at the
+  end of in-memory streams. `state.Open` reports recovered corruption via
+  `Store.Recovered()`; log it (X001) and continue.
+- Do not log non-secret values under attribute names `key`/`*_key`/`token`
+  (they are masked); use e.g. `ctl_key`.
+- `health.Path` auto mode: `ClosedNoData` is a failure unless
+  `PathOptions.AcceptCleanClose` (only when the node-side probe of the
+  target showed a non-TLS service that closes immediately).
+- `tlsutil.ServerTLSConfig`/`ClientTLSConfig` enforce ALPN `deyroute/1` via
+  `VerifyConnection`; serve HTTP/2 with `http2.Server.ServeConn` on the
+  accepted `*tls.Conn` (do not rely on "h2"). Nodes use
+  `ClientTLSConfig(ca, cert, key, "")` (chain + ServerAuth, no hostname) so a
+  hub move keeps working.
+- `config.ResolveLadder(t, supports)` takes a protocol-support callback:
+  pass `func(id, proto) bool { _, tr, err := backend.Lookup(id); return err == nil && tr.Supports(proto) }`.
+- Structs built in code must use `config.NewTunnel`/`DefaultFailover` to get
+  boolean defaults (`enabled`, `failback`).
