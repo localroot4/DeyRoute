@@ -95,9 +95,13 @@ func (l Layout) installBackend(ctx context.Context, e backend.ManifestEntry, arc
 	if !validSHA256(sum) {
 		return "", deyerr.New(deyerr.S006, params)
 	}
-	bins := e.Binaries
-	if len(bins) == 0 {
-		bins = []string{e.Binary()}
+	bins, err := entryBinaries(e)
+	if err != nil {
+		return "", err
+	}
+	if strings.Contains(rawURL, "{mirror}") && strings.TrimSpace(mirror) == "" {
+		return "", deyerr.New(deyerr.B001, params).
+			WithDetail("the manifest URL of " + e.Name + " points at the owner mirror and no mirror is configured")
 	}
 	dir := l.BinDir(e.Name, e.Version)
 	switch state, reason := verifyDir(dir, bins, sum); state {
@@ -238,6 +242,23 @@ func verifyBinary(bin string) error {
 	return nil
 }
 
+// entryBinaries returns the executables of e (Binaries, or its name) after
+// checking that each is a plain file name: the manifest must never make us
+// read or write outside the version directory.
+func entryBinaries(e backend.ManifestEntry) ([]string, error) {
+	bins := e.Binaries
+	if len(bins) == 0 {
+		bins = []string{e.Binary()}
+	}
+	for _, b := range bins {
+		if !validComponent(b) {
+			return nil, deyerr.New(deyerr.B008, deyerr.Params{"backend": e.Name}).
+				WithWhy(fmt.Sprintf("the manifest binary name %q is not a plain file name", b))
+		}
+	}
+	return bins, nil
+}
+
 // VerifyBackend checks an installed backend version (every binary matches
 // its .sha256 file). Missing → DEY-B001, mismatch → DEY-S001. Used by
 // doctor and before starting units.
@@ -245,9 +266,12 @@ func (l Layout) VerifyBackend(e backend.ManifestEntry) error {
 	if e.Builtin || e.System {
 		return nil
 	}
-	bins := e.Binaries
-	if len(bins) == 0 {
-		bins = []string{e.Binary()}
+	if !validComponent(e.Name) || !validComponent(versionDir(e.Version)) {
+		return deyerr.New(deyerr.B008, deyerr.Params{"backend": e.Name})
+	}
+	bins, err := entryBinaries(e)
+	if err != nil {
+		return err
 	}
 	dir := l.BinDir(e.Name, e.Version)
 	switch st, reason := verifyDir(dir, bins, ""); st {

@@ -16,11 +16,19 @@ import (
 // traffic amplifier.
 const MaxEchoPacket = 64
 
+// EchoReplyMagic replaces EchoMagic in the replies of ServeUDPEcho. A server
+// never answers a reply, so a spoofed packet cannot make two echo servers
+// (two nodes, or a node and any other UDP echo service) bounce it back and
+// forth forever.
+const EchoReplyMagic = "DEYR"
+
 // UDPEcho sends "DEYE"+nonce packets to a UDP echo server (ServeUDPEcho on
 // the node's <ctl>/udp, section 10) and succeeds when one of them comes back
-// unchanged. tries (default UDPTries) packets are sent, each waiting timeout
-// (default UDPTimeout) for its echo; a late echo of an earlier try still
-// counts. RTT is measured from the send of the packet that came back.
+// with the same nonce: either unchanged (a plain echo) or with the magic
+// replaced by EchoReplyMagic (ServeUDPEcho). tries (default UDPTries)
+// packets are sent, each waiting timeout (default UDPTimeout) for its echo;
+// a late echo of an earlier try still counts. RTT is measured from the send
+// of the packet that came back.
 func UDPEcho(ctx context.Context, addr string, tries int, timeout time.Duration) Result {
 	if tries <= 0 {
 		tries = UDPTries
@@ -79,6 +87,9 @@ func UDPEcho(ctx context.Context, addr string, tries int, timeout time.Duration)
 			}
 			var k [EchoPacketSize]byte
 			copy(k[:], buf[:n])
+			if string(k[:len(EchoReplyMagic)]) == EchoReplyMagic {
+				copy(k[:], EchoMagic)
+			}
 			if at, ok := sent[k]; ok {
 				return Result{OK: true, RTT: time.Since(at)}
 			}
@@ -92,7 +103,9 @@ func UDPEcho(ctx context.Context, addr string, tries int, timeout time.Duration)
 
 // ServeUDPEcho answers UDP echo probes on conn until ctx is done: every
 // packet of at most MaxEchoPacket bytes that starts with "DEYE" is sent back
-// unchanged to its sender; everything else is ignored. It takes ownership of
+// to its sender with the magic replaced by EchoReplyMagic ("DEYR") and the
+// rest unchanged (same size: no amplification; never answered by another
+// echo server: no loops); everything else is ignored. It takes ownership of
 // conn and closes it when it returns. It returns nil when ctx is done or conn
 // was closed, and DEY-X051 when reading fails otherwise.
 func ServeUDPEcho(ctx context.Context, conn net.PacketConn) error {
@@ -117,6 +130,7 @@ func ServeUDPEcho(ctx context.Context, conn net.PacketConn) error {
 		if n < len(magic) || n > MaxEchoPacket || !bytes.HasPrefix(buf[:n], magic) {
 			continue
 		}
+		copy(buf, EchoReplyMagic)
 		// A failed reply (unreachable sender) is the sender's problem.
 		_, _ = conn.WriteTo(buf[:n], from)
 	}

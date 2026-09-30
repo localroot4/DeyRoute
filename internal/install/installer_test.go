@@ -53,6 +53,22 @@ func TestInstallerStatic(t *testing.T) {
 		require.Contains(t, s, want)
 	}
 
+	// The new binary is test-run from /usr/local/bin/.deyroute.new (never from
+	// $TMP: /tmp is often mounted noexec) and removed when it does not run.
+	require.Contains(t, s, `"$BIN_DIR/.deyroute.new" version >/dev/null 2>&1 || { rm -f "$BIN_DIR/.deyroute.new"; die DEY-I003`)
+	require.NotContains(t, s, `"$bin" version`)
+	require.Less(t, strings.Index(s, `install -m 0755 "$bin" "$BIN_DIR/.deyroute.new"`), strings.Index(s, `"$BIN_DIR/.deyroute.new" version`))
+	// Only coreutils/awk/sed for the OpenSSL fallback (no cmp/diffutils).
+	require.NotContains(t, s, "cmp ")
+	// A flag value must not be the next flag (--name --yes).
+	require.Contains(t, s, `need_val() { case "${2:-}" in "" | -*)`)
+	// wget must not multiply the 3 tries by its own default of 20.
+	require.Contains(t, s, "wget -q --tries=1 ")
+	// --version latest means the newest release, as in Source.URL.
+	require.Contains(t, s, `[ "$VERSION" != latest ] || VERSION=""`)
+	// Setup flags on an existing installation are reported, not silently dropped.
+	require.Contains(t, s, "setup/join options ignored: this server is already set up")
+
 	// Directory modes of section 2.
 	for _, want := range []string{
 		"install -d -m 0710 -o root -g deyroute /etc/deyroute\n",

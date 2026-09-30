@@ -109,9 +109,28 @@ func Backup(opts BackupOptions) (string, error) {
 		if !opts.NoEncrypt {
 			name += ".age"
 		}
-		out = filepath.Join(l.Path(config.BackupDir), name)
+		out = uniquePath(filepath.Join(l.Path(config.BackupDir), name))
 	}
 	return writeBackup(l, out, opts, now)
+}
+
+// uniquePath returns p, or p with "-<n>" inserted before ".tar.gz" when p
+// already exists, so two backups taken in the same second never overwrite
+// each other.
+func uniquePath(p string) string {
+	if _, err := os.Lstat(p); os.IsNotExist(err) {
+		return p
+	}
+	i := strings.Index(p, ".tar.gz")
+	if i < 0 {
+		i = len(p)
+	}
+	for n := 1; ; n++ {
+		c := fmt.Sprintf("%s-%d%s", p[:i], n, p[i:])
+		if _, err := os.Lstat(c); os.IsNotExist(err) {
+			return c
+		}
+	}
 }
 
 // AutoBackup writes an unencrypted backup of Root/etc/deyroute into
@@ -429,8 +448,9 @@ type RestoreOptions struct {
 	// Passphrase decrypts .age backups.
 	Passphrase string
 	// Validate checks etc/deyroute/config.yaml of the backup before anything is
-	// replaced (typically config.Parse, which also migrates). Its DEY error
-	// is returned unchanged; other errors become DEY-S005.
+	// replaced. nil uses config.Parse (strict schema, migration, validation);
+	// the daemon passes config.ParseWith with its transport checks. A DEY
+	// error is returned unchanged; other errors become DEY-S005.
 	Validate func(configYAML []byte) error
 	// Now names the pre-restore copy; zero = time.Now().
 	Now time.Time
@@ -545,17 +565,25 @@ func Restore(opts RestoreOptions) (*RestoreResult, error) {
 		return nil, deyerr.New(deyerr.S005, deyerr.Params{"file": file}).WithWhy("the backup contains no etc/deyroute/config.yaml")
 	}
 	res.Config = cfg
-	if opts.Validate != nil {
-		if err := opts.Validate(cfg); err != nil {
-			var de *deyerr.Error
-			if stderrors.As(err, &de) {
-				return nil, err
-			}
-			return nil, deyerr.Wrap(deyerr.S005, err, deyerr.Params{"file": file})
+	validate := opts.Validate
+	if validate == nil {
+		validate = func(b []byte) error { _, err := config.Parse(b); return err }
+	}
+	if err := validate(cfg); err != nil {
+		var de *deyerr.Error
+		if stderrors.As(err, &de) {
+			return nil, err
 		}
+		return nil, deyerr.Wrap(deyerr.S005, err, deyerr.Params{"file": file})
 	}
 
-	if _, err := os.Lstat(etc); err == nil {
+	if cur, err := os.Lstat(etc); err == nil {
+		// The installer of this server set the mode and group of /etc/deyroute
+		// (0710 root:deyroute, so backends can reach backends/); keep them
+		// rather than the source server's.
+		if err := keepDirAccess(tmpDir, cur); err != nil {
+			return nil, err
+		}
 		prev := etc + ".pre-restore-" + now.UTC().Format(BackupTimeLayout)
 		for i := 1; ; i++ {
 			if _, err := os.Lstat(prev); os.IsNotExist(err) {
@@ -579,6 +607,25 @@ func Restore(opts RestoreOptions) (*RestoreResult, error) {
 	swapped = true
 	syncDir(parent)
 	return res, nil
+}
+
+// keepDirAccess gives dir the permission bits (and, as root, the owner) of
+// the directory described by cur.
+func keepDirAccess(dir string, cur fs.FileInfo) error {
+	if !cur.IsDir() {
+		return nil
+	}
+	if err := os.Chmod(dir, cur.Mode().Perm()); err != nil {
+		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": dir})
+	}
+	st, ok := cur.Sys().(*syscall.Stat_t)
+	if !ok || os.Geteuid() != 0 {
+		return nil
+	}
+	if err := os.Lchown(dir, int(st.Uid), int(st.Gid)); err != nil {
+		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": dir})
+	}
+	return nil
 }
 
 type dirMode struct {

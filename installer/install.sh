@@ -39,7 +39,7 @@ Usage: install.sh [options]                  install (or repair/upgrade) deyrout
   --skip-signature  do not verify SHA256SUMS.minisig (testing only)   -h, --help  this help
 EOF
 }
-need_val() { [ -n "${2:-}" ] || { echo "install.sh: $1 needs a value (see --help)" >&2; exit 1; }; }
+need_val() { case "${2:-}" in "" | -*) echo "install.sh: $1 needs a value (see --help)" >&2; exit 1 ;; esac; }
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -47,7 +47,7 @@ parse_args() {
       join) need_val join "${2:-}"; JOIN=$2; shift ;;
       --role) need_val "$1" "${2:-}"; ROLE=$2; shift ;;
       --name) need_val "$1" "${2:-}"; NAME=$2; shift ;;
-      --version) need_val "$1" "${2:-}"; VERSION=${2#v}; shift ;;
+      --version) need_val "$1" "${2:-}"; VERSION=${2#v}; [ "$VERSION" != latest ] || VERSION=""; shift ;;
       --mirror) need_val "$1" "${2:-}"; MIRROR=$2; shift ;;
       --local) need_val "$1" "${2:-}"; LOCAL=$2; shift ;;
       --yes | -y) YES=1 ;; --no-setup) NO_SETUP=1 ;; --skip-signature) SKIP_SIG=1 ;;
@@ -101,7 +101,7 @@ dl() {
   local try
   for try in 1 2 3; do
     if have curl; then curl -fsSL --connect-timeout 15 --max-time 900 -A deyroute-installer -o "$2" "$1" && return 0
-    else wget -q --timeout=15 -U deyroute-installer -O "$2" "$1" && return 0; fi
+    else wget -q --tries=1 --timeout=15 -U deyroute-installer -O "$2" "$1" && return 0; fi
     [ "$try" -eq 3 ] || { warn "download failed: $1 (retry in $((try * 2))s)"; sleep $((try * 2)); }
   done
   return 1
@@ -131,7 +131,7 @@ sig_ok() {
   base64 -d <<<"$MINISIGN_PUBKEY" >"$d/pk" 2>/dev/null || return 1 # "Ed" | key id (8) | Ed25519 key (32)
   sed -n 2p "$2" | base64 -d >"$d/s" 2>/dev/null || return 1        # algorithm (2) | key id (8) | signature (64)
   { [ "$(wc -c <"$d/pk")" -eq 42 ] && [ "$(wc -c <"$d/s")" -eq 74 ]; } || return 1
-  cmp -s <(head -c 10 "$d/pk" | tail -c 8) <(head -c 10 "$d/s" | tail -c 8) || return 1
+  [ "$(head -c 10 "$d/pk" | tail -c 8 | od -An -tx1)" = "$(head -c 10 "$d/s" | tail -c 8 | od -An -tx1)" ] || return 1
   { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; tail -c 32 "$d/pk"; } >"$d/pub.der" # Ed25519 SPKI
   tail -c 64 "$d/s" >"$d/sig"
   case "$(head -c 2 "$d/s")" in
@@ -205,11 +205,10 @@ install_binary() {
   tar -xzf "$ARCHIVE" -C "$TMP/x" 2>/dev/null || fail DEY-I005 "${ARCHIVE##*/}"
   bin=$(find "$TMP/x" -type f -name deyroute -print -quit)
   [ -n "$bin" ] || fail DEY-I005 "${ARCHIVE##*/}"
-  chmod 0755 "$bin"
-  "$bin" version >/dev/null 2>&1 || die DEY-I003 "Unsupported CPU architecture: $(uname -m)" \
-    "the deyroute binary from ${ARCHIVE##*/} does not run on this server" "use the deyroute_<version>_linux_${ARCH}.tar.gz archive"
+  install -m 0755 "$bin" "$BIN_DIR/.deyroute.new" # atomic: temp file, then rename; test-run it here (/tmp may be noexec)
+  "$BIN_DIR/.deyroute.new" version >/dev/null 2>&1 || { rm -f "$BIN_DIR/.deyroute.new"; die DEY-I003 "Unsupported CPU architecture: $(uname -m)" \
+    "the deyroute binary from ${ARCHIVE##*/} does not run on this server" "use the deyroute_<version>_linux_${ARCH}.tar.gz archive"; }
   if [ -f "$BIN_DIR/deyroute" ]; then install -m 0755 "$BIN_DIR/deyroute" /var/lib/deyroute/bin/deyroute.prev; fi
-  install -m 0755 "$bin" "$BIN_DIR/.deyroute.new" # atomic: temp file, then rename
   mv -f "$BIN_DIR/.deyroute.new" "$BIN_DIR/deyroute"
   ln -sfn deyroute "$BIN_DIR/dey"
   say "installed $("$BIN_DIR/deyroute" version 2>/dev/null | awk 'NR == 1')"
@@ -219,6 +218,7 @@ run_setup() {
   local u; local -a args=()
   if [ -f /etc/deyroute/config.yaml ]; then
     say "existing installation found: repairing/upgrading (config untouched)"
+    if [ -n "$JOIN$ROLE$NAME" ]; then warn "setup/join options ignored: this server is already set up"; fi
     for u in deyroute-hub deyroute-node; do
       if systemctl is-active --quiet "$u.service"; then systemctl restart "$u.service"; say "restarted $u"; fi
     done

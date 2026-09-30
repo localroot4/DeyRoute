@@ -306,7 +306,7 @@ func TestNewTelegramValidation(t *testing.T) {
 		assert.True(t, deyerr.HasCode(err, deyerr.C013))
 		assert.Contains(t, err.Error(), "bot_token_file")
 	}
-	for _, chat := range []string{"", "abc", "12 34", "@x"} {
+	for _, chat := range []string{"", "abc", "12 34", "@x", "@abcd", "123456789012345678901"} {
 		_, err := NewTelegram(TelegramOptions{Token: testToken, ChatID: chat})
 		require.Error(t, err, chat)
 		assert.True(t, deyerr.HasCode(err, deyerr.C013))
@@ -384,4 +384,22 @@ func TestNotifyConcurrent(t *testing.T) {
 	wg.Wait()
 	assert.Equal(t, 1, sent)
 	assert.Equal(t, 16*20-1, tg.Suppressed("main", state.EvSwitchTransport))
+}
+
+func TestNewTelegramChatIDMatchesConfig(t *testing.T) {
+	// The rule of config's hub.notify.telegram.chat_id.
+	for _, chat := range []string{"42", "-1001234567890", "@deyroute", "@deyroute_alerts"} {
+		_, err := NewTelegram(TelegramOptions{Token: testToken, ChatID: chat})
+		assert.NoError(t, err, chat)
+	}
+}
+
+func TestNewTelegramIgnoresNilSenders(t *testing.T) {
+	api := newFakeAPI(t)
+	for _, senders := range [][]Sender{{nil, HTTPSender{Client: api.srv.Client()}}, {HTTPSender{Client: api.srv.Client()}, nil, nil}} {
+		tg, err := NewTelegram(TelegramOptions{Token: testToken, ChatID: "42", Senders: senders, APIBase: api.srv.URL})
+		require.NoError(t, err)
+		require.NoError(t, tg.Test(context.Background()))
+	}
+	assert.Len(t, api.requests(), 2)
 }

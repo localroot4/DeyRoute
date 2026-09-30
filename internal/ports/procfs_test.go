@@ -192,6 +192,39 @@ func TestProcFSIsDeyrouteByComm(t *testing.T) {
 	require.Equal(t, "nginx.service", p.Unit(13))
 }
 
+// TestProcFSIsDeyrouteUserUnit: any local user can start a unit called
+// deyroute-tun@… in their own systemd instance; offering to stop "that
+// service" would stop the real system unit of the same name instead.
+func TestProcFSIsDeyrouteUserUnit(t *testing.T) {
+	f := newFakeProc(t)
+	f.proc(20, "backhaul", "0::/user.slice/user-1000.slice/user@1000.service/app.slice/deyroute-tun@main.de-1.backhaul-wssmux.service\n")
+	f.proc(21, "backhaul", "0::/system.slice/system-deyroute\\x2dtun.slice/deyroute-tun@main.de-1.backhaul-wssmux.service\n")
+	f.proc(22, "deyroute", "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-foo.scope\n")
+	p := f.write()
+	require.Equal(t, "deyroute-tun@main.de-1.backhaul-wssmux.service", p.Unit(20))
+	require.False(t, p.IsDeyroute(20))
+	require.True(t, p.IsDeyroute(21))
+	require.Equal(t, "user@1000.service", p.Unit(22))
+	require.False(t, p.IsDeyroute(22))
+}
+
+// TestProcFSOwnerMappedAddress: a socket bound to an IPv4-mapped IPv6
+// address is shown in IPv4 form.
+func TestProcFSOwnerMappedAddress(t *testing.T) {
+	f := newFakeProc(t)
+	f.sock("tcp6", "[::ffff:127.0.0.1]:8443", "0A", 31)
+	f.sock("udp6", "[::ffff:10.0.0.1]:5000", "07", 0)
+	f.proc(310, "caddy", "", 31)
+	p := f.write()
+	pid, _, addr, err := p.Owner(8443, "tcp")
+	require.NoError(t, err)
+	require.Equal(t, 310, pid)
+	require.Equal(t, "127.0.0.1:8443", addr)
+	_, _, addr, err = p.Owner(5000, "udp")
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.1:5000", addr)
+}
+
 func TestProcFSUnitCgroupV1(t *testing.T) {
 	f := newFakeProc(t)
 	f.proc(5, "rathole", "12:pids:/system.slice/system-deyroute\\x2dtun.slice/deyroute-tun@t.n.rathole-tcp.service\n"+

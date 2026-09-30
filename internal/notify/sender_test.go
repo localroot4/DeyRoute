@@ -54,6 +54,34 @@ func TestHTTPSender(t *testing.T) {
 	assert.Len(t, body, maxResponseBody)
 }
 
+func TestHTTPSenderDoesNotFollowRedirects(t *testing.T) {
+	var elsewhere int
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		elsewhere++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer other.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/steal", http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+
+	for _, s := range []HTTPSender{{}, {Client: srv.Client()}} {
+		status, _, err := s.Post(context.Background(), srv.URL+"/botX/sendMessage", "application/json", []byte("{}"))
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusTemporaryRedirect, status)
+	}
+	assert.Zero(t, elsewhere, "the message must not be re-posted to another host")
+
+	// A caller-provided redirect policy is kept.
+	c := srv.Client()
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return nil }
+	status, _, err := HTTPSender{Client: c}.Post(context.Background(), srv.URL, "application/json", []byte("{}"))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Equal(t, 1, elsewhere)
+}
+
 func TestHTTPSenderErrorsHideURL(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	u := srv.URL + "/botSECRET-TOKEN/sendMessage"

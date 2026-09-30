@@ -29,8 +29,9 @@ const (
 )
 
 var (
-	tokenRe  = regexp.MustCompile(`^[0-9]+:[A-Za-z0-9_-]+$`)
-	chatIDRe = regexp.MustCompile(`^(-?[0-9]+|@[A-Za-z0-9_]{4,64})$`)
+	tokenRe = regexp.MustCompile(`^[0-9]+:[A-Za-z0-9_-]+$`)
+	// chatIDRe is the same rule as config's hub.notify.telegram.chat_id.
+	chatIDRe = regexp.MustCompile(`^(-?[0-9]{1,20}|@[A-Za-z0-9_]{5,64})$`)
 )
 
 // TelegramOptions configures NewTelegram.
@@ -42,7 +43,7 @@ type TelegramOptions struct {
 	// Events are aliases or event names; empty selects DefaultEvents.
 	Events []string
 	// Senders are tried in order until one gets a 2xx (direct, then via a
-	// node). Empty: a direct HTTPSender.
+	// node). nil entries are ignored. Empty: a direct HTTPSender.
 	Senders []Sender
 	// Now is the clock of the rate limiter (time.Now when nil).
 	Now func() time.Time
@@ -101,13 +102,19 @@ func NewTelegram(o TelegramOptions) (*Telegram, error) {
 	if err != nil {
 		return nil, err
 	}
+	var senders []Sender
+	for _, s := range o.Senders {
+		if s != nil {
+			senders = append(senders, s)
+		}
+	}
 	var sender Sender = HTTPSender{}
-	switch len(o.Senders) {
+	switch len(senders) {
 	case 0:
 	case 1:
-		sender = o.Senders[0]
+		sender = senders[0]
 	default:
-		sender = ChainSender{Senders: append([]Sender(nil), o.Senders...)}
+		sender = ChainSender{Senders: senders}
 	}
 	now := o.Now
 	if now == nil {

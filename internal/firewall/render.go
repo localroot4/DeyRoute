@@ -199,10 +199,21 @@ func inputRules(n normalized) []string {
 		rules = append(rules, "udp dport "+portSet(n.udp)+" accept")
 	}
 	if drops {
-		rules = append([]string{"ct state established,related accept"}, rules...)
+		rules = append([]string{ruleEstablished, ruleLoopback}, rules...)
 	}
 	return rules
 }
+
+// Rules that precede the drops of the input chain (see the package doc).
+const (
+	// ruleEstablished accepts replies to connections this host opened.
+	ruleEstablished = "ct state established,related accept"
+	// ruleLoopback accepts traffic between local processes: the canary's
+	// 127.0.0.1:<port> and local probes of control ports must not hit the
+	// drops meant for the Internet. Only locally generated packets arrive on
+	// lo (the kernel drops 127.0.0.0/8 from real interfaces).
+	ruleLoopback = `iif "lo" accept`
+)
 
 // natRuleText renders one prerouting/output NAT rule.
 func natRuleText(r natRule) string {

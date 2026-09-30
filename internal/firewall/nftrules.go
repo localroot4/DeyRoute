@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -9,6 +10,7 @@ import (
 type nftTable struct {
 	family, name string
 	sets         map[string][]string // named set → element values
+	maps         map[string][]string // named map → "key : value" entries
 	chains       []*nftChain
 }
 
@@ -42,6 +44,7 @@ func parseNFTRuleset(out string) []*nftTable {
 		ch       *nftChain
 		stack    []nftFrame
 		setName  string
+		setIsMap bool
 		setBody  strings.Builder
 		setDepth int
 		pending  strings.Builder
@@ -56,7 +59,7 @@ func parseNFTRuleset(out string) []*nftTable {
 		if len(stack) == 0 {
 			f := strings.Fields(line)
 			if len(f) >= 3 && f[0] == "table" && strings.HasSuffix(line, "{") {
-				tbl = &nftTable{family: "ip", sets: map[string][]string{}}
+				tbl = &nftTable{family: "ip", sets: map[string][]string{}, maps: map[string][]string{}}
 				if len(f) >= 4 {
 					tbl.family, tbl.name = f[1], f[2]
 				} else {
@@ -82,7 +85,7 @@ func parseNFTRuleset(out string) []*nftTable {
 				ch = &nftChain{name: f[1], policy: vAccept}
 				stack = append(stack, frameChain)
 			case (f[0] == "set" || f[0] == "map") && len(f) >= 3:
-				setName, setDepth = f[1], 0
+				setName, setIsMap, setDepth = f[1], f[0] == "map", 0
 				setBody.Reset()
 				stack = append(stack, frameSet)
 			default:
@@ -116,7 +119,11 @@ func parseNFTRuleset(out string) []*nftTable {
 			}
 		case frameSet:
 			if line == "}" && setDepth == 0 {
-				tbl.sets[setName] = parseElements(setBody.String())
+				if setIsMap {
+					tbl.maps[setName] = parseMapElements(setBody.String())
+				} else {
+					tbl.sets[setName] = parseElements(setBody.String())
+				}
 				stack = stack[:len(stack)-1]
 				continue
 			}
@@ -156,6 +163,31 @@ func parseChainHeader(ch *nftChain, line string) {
 
 // parseElements extracts the values of "elements = { a, b, … }".
 func parseElements(body string) []string {
+	var out []string
+	for _, e := range elementList(body) {
+		// Elements may carry annotations ("1.2.3.4 timeout 1h expires 5m").
+		if f := strings.Fields(e); len(f) > 0 {
+			out = append(out, f[0])
+		}
+	}
+	return out
+}
+
+// parseMapElements extracts the entries of a map's
+// "elements = { 80 : accept, 8080 : jump web }" as "key : value" strings.
+func parseMapElements(body string) []string {
+	var out []string
+	for _, e := range elementList(body) {
+		if e = strings.Join(strings.Fields(e), " "); e != "" {
+			out = append(out, unquote(e))
+		}
+	}
+	return out
+}
+
+// elementList returns the comma-separated items between the braces of the
+// "elements = { … }" statement in body.
+func elementList(body string) []string {
 	i := strings.Index(body, "elements")
 	if i < 0 {
 		return nil
@@ -166,14 +198,7 @@ func parseElements(body string) []string {
 	if start < 0 || end < start {
 		return nil
 	}
-	var out []string
-	for _, e := range strings.Split(body[start+1:end], ",") {
-		// Elements may carry annotations ("1.2.3.4 timeout 1h expires 5m").
-		if f := strings.Fields(e); len(f) > 0 {
-			out = append(out, f[0])
-		}
-	}
-	return out
+	return strings.Split(body[start+1:end], ",")
 }
 
 // ruleset converts the table to the evaluation model for port/proto.
@@ -182,7 +207,7 @@ func (t *nftTable) ruleset(port int, proto string) ruleset {
 	for _, c := range t.chains {
 		ec := &evalChain{policy: c.policy}
 		for _, r := range c.rules {
-			ec.rules = append(ec.rules, nftRule(r, t.sets, port, proto))
+			ec.rules = append(ec.rules, nftRuleIn(r, t.sets, t.maps, port, proto))
 		}
 		rs[c.name] = ec
 	}
@@ -225,56 +250,88 @@ func nftPort(v string) (lo, hi int, ok bool) {
 	return 0, 0, false
 }
 
-// nftRule interprets one rule line for a new IPv4 connection to port/proto.
+// nftRule interprets one rule line for a new IPv4 connection to port/proto
+// in a table without named maps.
 func nftRule(line string, sets map[string][]string, port int, proto string) evalRule {
+	return nftRuleIn(line, sets, nil, port, proto)
+}
+
+// nftRuleIn interprets one rule line of a table with the given named sets
+// and maps.
+func nftRuleIn(line string, sets, maps map[string][]string, port int, proto string) evalRule {
 	toks := tokenize(line, true)
+	// nft prints a rule's comment after its verdict: `… accept comment "x"`.
+	if n := len(toks); n >= 2 && toks[n-2] == "comment" {
+		toks = toks[:n-2]
+	}
 	r := evalRule{text: "nftables: " + line}
-	v, target, end := nftVerdict(toks)
+	v, target, end, unsure := nftVerdict(toks)
 	r.verdict, r.target = v, target
-	p := nftParser{toks: toks[:end], sets: sets, port: port, proto: proto, match: yes}
+	if slices.Contains(toks[:end], ".") {
+		// A concatenation ("ip saddr . tcp dport @allowed"): its key cannot be
+		// evaluated here. It may match; a verdict map may accept.
+		r.match = maybe
+		if slices.Contains(toks, "vmap") {
+			r.verdict = vAccept
+		}
+		return r
+	}
+	p := nftParser{toks: toks[:end], sets: sets, maps: maps, port: port, proto: proto, match: yes}
 	p.run()
 	r.match = p.match
-	if p.vmapSet {
+	if unsure {
+		r.match = and(r.match, maybe)
+	}
+	switch {
+	case p.vmapSet:
 		r.verdict, r.target = p.vmapVerdict, p.vmapTarget
+	case slices.Contains(toks, "vmap"):
+		// A verdict map on a selector the heuristic does not resolve
+		// ("meta mark vmap { … }"): it may accept.
+		r.verdict = vAccept
+		r.match = and(r.match, maybe)
 	}
 	return r
 }
 
 // nftVerdict finds the rule's verdict at its end; end is where the match
-// part stops.
-func nftVerdict(toks []string) (verdict, string, int) {
+// part stops. unsure is true for a verdict the heuristic cannot know
+// (`queue` hands the packet to a userspace program that may accept it; it
+// is modelled as a possible accept).
+func nftVerdict(toks []string) (v verdict, target string, end int, unsure bool) {
 	n := len(toks)
-	for _, t := range toks {
-		if t == "vmap" { // the verdict comes from the map
-			return vNone, "", n
-		}
+	if slices.Contains(toks, "vmap") { // the verdict comes from the map
+		return vNone, "", n, false
 	}
 	if n >= 2 {
 		switch toks[n-2] {
 		case "jump":
-			return vJump, toks[n-1], n - 2
+			return vJump, toks[n-1], n - 2, false
 		case "goto":
-			return vGoto, toks[n-1], n - 2
+			return vGoto, toks[n-1], n - 2, false
 		}
 	}
 	if n >= 1 {
 		switch toks[n-1] {
 		case "accept":
-			return vAccept, "", n - 1
+			return vAccept, "", n - 1, false
 		case "drop":
-			return vDrop, "", n - 1
+			return vDrop, "", n - 1, false
 		case "return":
-			return vReturn, "", n - 1
+			return vReturn, "", n - 1, false
 		case "continue":
-			return vNone, "", n - 1
+			return vNone, "", n - 1, false
 		}
 	}
 	for i, t := range toks {
-		if t == "reject" {
-			return vDrop, "", i
+		switch t {
+		case "reject":
+			return vDrop, "", i, false
+		case "queue":
+			return vAccept, "", i, true
 		}
 	}
-	return vNone, "", n
+	return vNone, "", n, false
 }
 
 // isLogOption reports whether t is an option keyword of the log statement.
@@ -291,6 +348,7 @@ type nftParser struct {
 	toks        []string
 	i           int
 	sets        map[string][]string
+	maps        map[string][]string
 	port        int
 	proto       string
 	match       tri
@@ -441,7 +499,7 @@ func (p *nftParser) l4(t string) {
 	case "dport":
 		op, vals := p.value()
 		if op == "vmap" {
-			p.vmap(vals, func(k string) bool { return p.portIn([]string{k}) == yes })
+			p.vmap(vals, func(k string) tri { return p.portIn([]string{k}) })
 			return
 		}
 		switch op {
@@ -532,6 +590,9 @@ func (p *nftParser) ip() {
 	case "saddr":
 		op, vals := p.value()
 		switch {
+		case op == "vmap":
+			// Only an any-address key applies to every client.
+			p.vmap(vals, func(k string) tri { return boolTri(isAnyAddr(k)) })
 		case op == "==" && len(vals) == 1 && isAnyAddr(vals[0]):
 		case op == "==":
 			p.and(no) // restricted to some sources
@@ -540,6 +601,10 @@ func (p *nftParser) ip() {
 		}
 	case "daddr":
 		op, vals := p.value()
+		if op == "vmap" {
+			p.vmap(vals, destTri)
+			return
+		}
 		loop := false
 		for _, v := range vals {
 			loop = loop || strings.HasPrefix(v, "127.")
@@ -554,7 +619,7 @@ func (p *nftParser) ip() {
 	case "protocol":
 		op, vals := p.value()
 		if op == "vmap" {
-			p.vmap(vals, func(k string) bool { return protoTri(k, p.proto) == yes })
+			p.vmap(vals, func(k string) tri { return protoTri(k, p.proto) })
 			return
 		}
 		p.cmp(op, anyProto(vals, p.proto))
@@ -587,7 +652,7 @@ func (p *nftParser) meta() {
 	case "l4proto":
 		op, vals := p.value()
 		if op == "vmap" {
-			p.vmap(vals, func(k string) bool { return protoTri(k, p.proto) == yes })
+			p.vmap(vals, func(k string) tri { return protoTri(k, p.proto) })
 			return
 		}
 		p.cmp(op, anyProto(vals, p.proto))
@@ -611,7 +676,13 @@ func (p *nftParser) iface() {
 	lo := containsFold(vals, "lo")
 	switch {
 	case op == "vmap":
-		p.and(maybe)
+		// Only "lo" is known not to be the Internet interface.
+		p.vmap(vals, func(k string) tri {
+			if strings.EqualFold(k, "lo") {
+				return no
+			}
+			return maybe
+		})
 	case op == "!=" && lo:
 		// not loopback: every client packet
 	case op == "==" && lo && len(vals) == 1:
@@ -631,7 +702,7 @@ func (p *nftParser) ct() {
 	case "state":
 		op, vals := p.value()
 		if op == "vmap" {
-			p.vmap(vals, func(k string) bool { return strings.EqualFold(k, "new") })
+			p.vmap(vals, func(k string) tri { return boolTri(strings.EqualFold(k, "new")) })
 			return
 		}
 		p.cmp(op, boolTri(containsFold(vals, "new")))
@@ -644,46 +715,88 @@ func (p *nftParser) ct() {
 	}
 }
 
-// vmap resolves a verdict map: the entry whose key matches decides the
-// rule's verdict; without a matching entry the rule does nothing.
-func (p *nftParser) vmap(entries []string, matches func(key string) bool) {
+// vmap resolves a verdict map (inline entries or a named map "@name"): the
+// entry whose key certainly matches decides the rule's verdict. Entries that
+// may match make the rule a possible accept when their verdict can accept
+// (accept, jump, goto), so a later drop is reported as uncertain; without
+// any matching entry the rule does nothing. A map that cannot be read is a
+// possible accept.
+func (p *nftParser) vmap(entries []string, match func(key string) tri) {
+	var all []string
 	for _, e := range entries {
-		k, v, ok := strings.Cut(e, ":")
-		if !ok {
-			continue
-		}
-		if !matches(strings.TrimSpace(k)) {
-			continue
-		}
-		f := strings.Fields(v)
-		if len(f) == 0 {
-			break
-		}
-		p.vmapSet = true
-		switch f[0] {
-		case "accept":
-			p.vmapVerdict = vAccept
-		case "drop", "reject":
-			p.vmapVerdict = vDrop
-		case "return":
-			p.vmapVerdict = vReturn
-		case "jump", "goto":
-			if len(f) < 2 {
+		if name, ok := strings.CutPrefix(e, "@"); ok {
+			m, known := p.maps[name]
+			if !known {
+				p.vmapSet, p.vmapVerdict = true, vAccept
 				p.and(maybe)
 				return
 			}
-			p.vmapVerdict, p.vmapTarget = vJump, f[1]
-			if f[0] == "goto" {
-				p.vmapVerdict = vGoto
-			}
-		default:
-			p.vmapVerdict = vNone
+			all = append(all, m...)
+			continue
 		}
+		all = append(all, e)
+	}
+	mayAccept := false
+	for _, e := range all {
+		// nft prints "key : verdict"; the spaces keep IPv6 keys whole.
+		k, v, ok := strings.Cut(e, " : ")
+		if !ok {
+			k, v, ok = strings.Cut(e, ":")
+		}
+		if !ok {
+			continue
+		}
+		m := match(strings.TrimSpace(k))
+		if m == no {
+			continue
+		}
+		vv, target, ok := mapVerdict(strings.Fields(v))
+		if m == maybe {
+			mayAccept = mayAccept || vv == vAccept || vv == vJump || vv == vGoto || !ok
+			continue
+		}
+		if !ok { // a verdict we cannot read may accept
+			vv, target = vAccept, ""
+			p.and(maybe)
+		}
+		p.vmapSet, p.vmapVerdict, p.vmapTarget = true, vv, target
 		return
 	}
 	p.vmapSet = true
+	if mayAccept {
+		p.vmapVerdict = vAccept
+		p.and(maybe)
+		return
+	}
 	p.vmapVerdict = vNone
 	p.and(no)
+}
+
+// mapVerdict reads the verdict of one verdict-map entry ("accept",
+// "jump web"); ok is false when it is not understood.
+func mapVerdict(f []string) (v verdict, target string, ok bool) {
+	if len(f) == 0 {
+		return vNone, "", false
+	}
+	switch f[0] {
+	case "accept":
+		return vAccept, "", true
+	case "drop", "reject":
+		return vDrop, "", true
+	case "return":
+		return vReturn, "", true
+	case "continue":
+		return vNone, "", true
+	case "jump", "goto":
+		if len(f) < 2 {
+			return vNone, "", false
+		}
+		if f[0] == "goto" {
+			return vGoto, f[1], true
+		}
+		return vJump, f[1], true
+	}
+	return vNone, "", false
 }
 
 // limit skips "limit rate [over] N/second [burst N packets]".

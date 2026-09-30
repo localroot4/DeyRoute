@@ -12,6 +12,46 @@ import (
 
 const iptablesAcceptAll = "-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n"
 
+// firewall-cmd --list-all outputs (firewalld 1.x format).
+const (
+	firewalldTrusted = `trusted (active)
+  target: ACCEPT
+  icmp-block-inversion: no
+  interfaces: eth0
+  sources:
+  services:
+  ports:
+  protocols:
+  forward: yes
+  masquerade: no
+  forward-ports:
+  source-ports:
+  icmp-blocks:
+  rich rules:
+`
+	firewalldPublic = `public (active)
+  target: default
+  icmp-block-inversion: no
+  interfaces: eth0
+  sources:
+  services: cockpit dhcpv6-client ssh
+  ports:
+  protocols:
+  forward: yes
+  masquerade: no
+  forward-ports:
+  source-ports:
+  icmp-blocks:
+  rich rules:
+	rule family="ipv4" port port="2053" protocol="tcp" accept
+	rule family="ipv4" source address="10.0.0.0/8" port port="8443" protocol="tcp" accept
+	rule family="ipv6" port port="5000" protocol="tcp" accept
+	rule family="ipv4" port port="5000" protocol="tcp" reject
+	rule service name="syncthing" accept
+	rule family="ipv4" destination address="203.0.113.5" port port="7000" protocol="udp" accept
+`
+)
+
 // bareFake is a system with nft and an empty iptables, no ufw/firewalld.
 func bareFake() *exec.Fake {
 	return exec.NewFake().
@@ -142,6 +182,71 @@ func TestCheckFirewalld(t *testing.T) {
 	f.Reset()
 	require.NoError(t, Open(ctx, f, Firewalld, 80, "tcp"))
 	require.Equal(t, []string{"firewall-cmd --permanent --add-port=80/tcp", "firewall-cmd --reload"}, f.Lines())
+
+	// A trusted default zone (target ACCEPT) opens everything: --list-ports
+	// is empty but nothing is blocked.
+	trusted := bareFake().
+		On("firewall-cmd --state", exec.OK("running\n")).
+		On("firewall-cmd --list-ports", exec.OK("\n")).
+		On("firewall-cmd --list-services", exec.OK("\n")).
+		On("firewall-cmd --list-all", exec.OK(firewalldTrusted))
+	v, err = Check(ctx, trusted, 8443, "tcp")
+	require.NoError(t, err)
+	require.False(t, v.Blocked)
+	require.False(t, v.Uncertain)
+
+	// Services outside the builtin map are read with --info-service; rich
+	// rules open ports for everyone or make the result uncertain.
+	f3 := bareFake().
+		On("firewall-cmd --state", exec.OK("running\n")).
+		On("firewall-cmd --list-ports", exec.OK("\n")).
+		On("firewall-cmd --list-services", exec.OK("cockpit dhcpv6-client ssh\n")).
+		On("firewall-cmd --list-all", exec.OK(firewalldPublic)).
+		On("firewall-cmd --info-service=cockpit", exec.OK("cockpit\n  ports: 9090/tcp\n  protocols: \n  source-ports: \n")).
+		On("firewall-cmd --info-service=dhcpv6-client", exec.OK("dhcpv6-client\n  ports: 546/udp\n  protocols: \n  destination: ipv6:fe80::/64\n")).
+		On("firewall-cmd --info-service=syncthing", exec.OK("syncthing\n  ports: 22000/tcp 22000/udp 21027/udp\n  protocols: \n"))
+	for _, c := range []portCase{
+		{9090, "tcp", false, false},  // cockpit
+		{546, "udp", false, false},   // dhcpv6-client
+		{22, "tcp", false, false},    // ssh (builtin)
+		{2053, "tcp", false, false},  // rich rule for everyone
+		{22000, "tcp", false, false}, // rich rule with a service
+		{8443, "tcp", true, false},   // rich rule only from 10.0.0.0/8
+		{7000, "udp", false, true},   // rich rule for one destination address
+		{5000, "tcp", true, false},   // ipv6 accept, ipv4 reject
+	} {
+		v, err = Check(ctx, f3, c.port, c.proto)
+		require.NoError(t, err)
+		require.Equal(t, c.blocked, v.Blocked, "%d/%s %s", c.port, c.proto, v.Detail)
+		require.Equal(t, c.uncertain, v.Uncertain, "%d/%s %s", c.port, c.proto, v.Detail)
+	}
+	f3.Reset()
+	v, _ = Check(ctx, f3, 7000, "udp")
+	require.Contains(t, v.Detail, `destination address="203.0.113.5"`)
+	require.Equal(t, 1, f3.Count("firewall-cmd --info-service=syncthing"), "service lookups are cached per check")
+
+	// A zone that opens the whole protocol.
+	proto := bareFake().
+		On("firewall-cmd --state", exec.OK("running\n")).
+		On("firewall-cmd --list-ports", exec.OK("\n")).
+		On("firewall-cmd --list-services", exec.OK("\n")).
+		On("firewall-cmd --list-all", exec.OK("public (active)\n  target: default\n  protocols: udp\n  rich rules: \n"))
+	v, err = Check(ctx, proto, 27015, "udp")
+	require.NoError(t, err)
+	require.False(t, v.Blocked)
+	v, err = Check(ctx, proto, 27015, "tcp")
+	require.NoError(t, err)
+	require.True(t, v.Blocked)
+
+	// The refinement commands failing leaves the task's verdict: blocked.
+	f4 := bareFake().
+		On("firewall-cmd --state", exec.OK("running\n")).
+		On("firewall-cmd --list-ports", exec.OK("\n")).
+		On("firewall-cmd --list-services", exec.OK("mystery\n"))
+	v, err = Check(ctx, f4, 443, "tcp")
+	require.NoError(t, err)
+	require.True(t, v.Blocked)
+	require.True(t, f4.Called("firewall-cmd --info-service=mystery"))
 
 	// Listing fails: uncertain, not blocked.
 	f2 := bareFake().

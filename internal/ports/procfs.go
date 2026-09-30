@@ -76,7 +76,7 @@ func (p ProcFS) Owner(port int, proto string) (pid int, name string, addr string
 			inodes[s.inode] = s
 		}
 	}
-	first := socks[0].addr.String()
+	first := showAddr(socks[0].addr)
 	if len(inodes) == 0 {
 		return 0, "", first, nil
 	}
@@ -84,7 +84,13 @@ func (p ProcFS) Owner(port int, proto string) (pid int, name string, addr string
 	if !ok {
 		return 0, "", first, nil
 	}
-	return foundPID, p.Comm(foundPID), sock.addr.String(), nil
+	return foundPID, p.Comm(foundPID), showAddr(sock.addr), nil
+}
+
+// showAddr formats a socket address for the owner, writing an IPv4-mapped
+// IPv6 address (a dual-stack socket bound to ::ffff:127.0.0.1) as IPv4.
+func showAddr(ap netip.AddrPort) string {
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()).String()
 }
 
 // findInode scans /proc/<pid>/fd/* for a "socket:[inode]" link to any of
@@ -142,14 +148,26 @@ func (p ProcFS) Comm(pid int) string {
 // "*.service" component of /proc/<pid>/cgroup (cgroup v1 or v2), or "".
 // Example: "deyroute-tun@main.de-1.backhaul-wssmux.service".
 func (p ProcFS) Unit(pid int) string {
+	unit, _ := p.unit(pid)
+	return unit
+}
+
+// systemSlice is the cgroup of the units of the system manager (PID 1).
+const systemSlice = "/system.slice/"
+
+// unit returns Unit(pid) and whether that unit belongs to the system
+// manager (its cgroup is under /system.slice/) rather than a user's own
+// systemd instance (/user.slice/user-<uid>.slice/user@<uid>.service/…),
+// where any local user can name a unit as they like.
+func (p ProcFS) unit(pid int) (string, bool) {
 	if pid <= 0 {
-		return ""
+		return "", false
 	}
 	b, err := os.ReadFile(p.path(strconv.Itoa(pid), "cgroup"))
 	if err != nil {
-		return ""
+		return "", false
 	}
-	unit := ""
+	unit, system := "", false
 	for _, line := range strings.Split(string(b), "\n") {
 		// hierarchy-ID:controller-list:cgroup-path
 		parts := strings.SplitN(line, ":", 3)
@@ -159,7 +177,7 @@ func (p ProcFS) Unit(pid int) string {
 		comps := strings.Split(parts[2], "/")
 		for i := len(comps) - 1; i >= 0; i-- {
 			if strings.HasSuffix(comps[i], ".service") {
-				unit = comps[i]
+				unit, system = comps[i], strings.HasPrefix(parts[2], systemSlice)
 				break
 			}
 		}
@@ -167,7 +185,7 @@ func (p ProcFS) Unit(pid int) string {
 			break
 		}
 	}
-	return unit
+	return unit, system
 }
 
 // TunUnitPrefix starts the systemd unit name of every deyroute tunnel
@@ -177,17 +195,20 @@ const TunUnitPrefix = "deyroute-tun@"
 // IsDeyroute reports whether pid is a deyroute tunnel process, the only kind
 // the port check may offer to stop (section 10: "Stop that service (only if
 // it is a deyroute unit)"): its systemd unit (from /proc/<pid>/cgroup) is a
-// deyroute-tun@ instance, or it runs outside any systemd service and its name
-// starts with "deyroute". A process inside another service is never
-// reported, whatever it calls itself (a process name is trivially set),
-// and neither are the deyroute-hub/deyroute-node daemons: stopping them from
-// the port check would stop deyroute itself.
+// deyroute-tun@ instance of the system manager, or it runs outside any
+// systemd service and its name starts with "deyroute". A process inside
+// another service is never reported, whatever it calls itself (a process
+// name is trivially set), and neither is a unit of a user's own systemd
+// instance that merely carries a deyroute-tun@ name (stopping the system unit
+// of that name would stop a real tunnel and leave the port busy), nor the
+// deyroute-hub/deyroute-node daemons: stopping them from the port check would
+// stop deyroute itself.
 func (p ProcFS) IsDeyroute(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	if unit := p.Unit(pid); unit != "" {
-		return strings.HasPrefix(unit, TunUnitPrefix)
+	if unit, system := p.unit(pid); unit != "" {
+		return system && strings.HasPrefix(unit, TunUnitPrefix)
 	}
 	return strings.HasPrefix(p.Comm(pid), "deyroute")
 }

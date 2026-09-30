@@ -7,6 +7,7 @@
 package ports
 
 import (
+	"math/bits"
 	"net"
 	"net/netip"
 	"regexp"
@@ -82,10 +83,10 @@ func FormatList(specs []Spec) string {
 	for i := 0; i < len(specs); {
 		s := specs[i]
 		j := i
-		if s.Target == DefaultTarget(s.Listen) {
+		if hasDefaultTarget(s) {
 			for j+1 < len(specs) {
 				n := specs[j+1]
-				if n.Proto != s.Proto || n.Listen != specs[j].Listen+1 || n.Target != DefaultTarget(n.Listen) {
+				if n.Proto != s.Proto || n.Listen != specs[j].Listen+1 || !hasDefaultTarget(n) {
 					break
 				}
 				j++
@@ -107,10 +108,16 @@ func FormatList(specs []Spec) string {
 	return strings.Join(parts, ",")
 }
 
+// hasDefaultTarget reports whether s forwards to 127.0.0.1:<listen> (an
+// empty target means the default).
+func hasDefaultTarget(s Spec) bool {
+	return s.Target == "" || s.Target == DefaultTarget(s.Listen)
+}
+
 // formatOne renders one spec without its protocol suffix.
 func formatOne(s Spec) string {
 	l := strconv.Itoa(s.Listen)
-	if s.Target == "" || s.Target == DefaultTarget(s.Listen) {
+	if hasDefaultTarget(s) {
 		return l
 	}
 	host, port, err := net.SplitHostPort(s.Target)
@@ -146,13 +153,13 @@ func ParseInput(s string) ([]Spec, error) {
 		return nil, deyerr.New(deyerr.C020, deyerr.Params{"input": s})
 	}
 	// Ranges are never materialised beyond MaxSpecs entries: the distinct
-	// (port, proto) pairs are counted in bit sets, so even a long paste of
-	// "1-65535" items is parsed in linear time.
+	// (port, proto) pairs are counted in bit sets a 64-bit word at a time,
+	// so a paste of thousands of "1-65535" items costs at most 1024 word
+	// operations per item, and duplicates are checked only against the (at
+	// most 64) kept entries.
 	var (
 		out   []Spec
-		seen  [2]portBits         // every (port, proto) given, for the count
-		kept  [2]portBits         // the ones in out
-		index = map[specKey]int{} // kept key → position in out
+		seen  [2]portBits // every (port, proto) given, for the count
 		count int
 	)
 	for _, raw := range items {
@@ -160,28 +167,19 @@ func ParseInput(s string) ([]Spec, error) {
 		if err != nil {
 			return nil, err
 		}
-		pi := protoIndex(it.proto)
-		for p := it.lo; p <= it.hi; p++ {
-			if seen[pi].testAndSet(p) {
-				// Duplicate: identical entries are dropped, a second target
-				// for a kept listen port is an error.
-				if kept[pi].test(p) {
-					prev := out[index[specKey{p, it.proto}]]
-					if t := it.targetFor(p); prev.Target != t {
-						return nil, deyerr.New(deyerr.P021, deyerr.Params{
-							"port": FormatSpec(prev), "target": prev.Target, "other": t,
-						})
-					}
-				}
-				continue
-			}
-			count++
-			if len(out) < MaxSpecs {
-				kept[pi].testAndSet(p)
-				index[specKey{p, it.proto}] = len(out)
-				out = append(out, Spec{Listen: p, Proto: it.proto, Target: it.targetFor(p)})
-			}
+		// Duplicates of kept entries: identical ones are dropped below, a
+		// second target for a kept listen port is an error.
+		if err := it.conflict(out); err != nil {
+			return nil, err
 		}
+		visit := func(p int) bool {
+			out = append(out, Spec{Listen: p, Proto: it.proto, Target: it.targetFor(p)})
+			return len(out) < MaxSpecs
+		}
+		if len(out) >= MaxSpecs {
+			visit = nil
+		}
+		count += seen[protoIndex(it.proto)].addRange(it.lo, it.hi, visit)
 	}
 	if count > MaxSpecs {
 		return nil, deyerr.New(deyerr.P016, deyerr.Params{"count": count})
@@ -189,24 +187,35 @@ func ParseInput(s string) ([]Spec, error) {
 	return out, nil
 }
 
-type specKey struct {
-	listen int
-	proto  string
-}
-
 // portBits is a set of port numbers 0-65535.
 type portBits [65536 / 64]uint64
 
-// testAndSet adds p and reports whether it was already present.
-func (b *portBits) testAndSet(p int) bool {
-	w, m := p>>6, uint64(1)<<(p&63)
-	had := b[w]&m != 0
-	b[w] |= m
-	return had
+// addRange adds the ports lo..hi (0 <= lo <= hi <= 65535) and returns how
+// many of them were not present yet. visit, when not nil, is called with
+// each newly added port in ascending order until it returns false.
+func (b *portBits) addRange(lo, hi int, visit func(p int) bool) int {
+	added := 0
+	for w := lo >> 6; w <= hi>>6; w++ {
+		mask := ^uint64(0)
+		if w == lo>>6 {
+			mask &= ^uint64(0) << (lo & 63)
+		}
+		if w == hi>>6 {
+			mask &= ^uint64(0) >> (63 - (hi & 63))
+		}
+		fresh := mask &^ b[w]
+		b[w] |= mask
+		added += bits.OnesCount64(fresh)
+		for visit != nil && fresh != 0 {
+			p := w<<6 + bits.TrailingZeros64(fresh)
+			fresh &= fresh - 1
+			if !visit(p) {
+				visit = nil
+			}
+		}
+	}
+	return added
 }
-
-// test reports whether p is present.
-func (b *portBits) test(p int) bool { return b[p>>6]&(uint64(1)<<(p&63)) != 0 }
 
 func protoIndex(proto string) int {
 	if proto == ProtoUDP {
@@ -228,6 +237,28 @@ func (it inputItem) targetFor(p int) string {
 		return it.target
 	}
 	return DefaultTarget(p)
+}
+
+// conflict returns DEY-P021 when the item gives one of the kept specs (same
+// protocol, listen port inside the item) a different target; the lowest
+// such port is reported.
+func (it inputItem) conflict(kept []Spec) error {
+	var prev *Spec
+	for i := range kept {
+		k := &kept[i]
+		if k.Proto != it.proto || k.Listen < it.lo || k.Listen > it.hi || k.Target == it.targetFor(k.Listen) {
+			continue
+		}
+		if prev == nil || k.Listen < prev.Listen {
+			prev = k
+		}
+	}
+	if prev == nil {
+		return nil
+	}
+	return deyerr.New(deyerr.P021, deyerr.Params{
+		"port": FormatSpec(*prev), "target": prev.Target, "other": it.targetFor(prev.Listen),
+	})
 }
 
 // parseItem parses one comma-separated item.

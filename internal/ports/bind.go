@@ -32,7 +32,10 @@ type BindResult struct {
 	// Process is "nginx (pid 1234)"; empty when the owner is unknown.
 	Process string `json:"process,omitempty"`
 	// Deyroute is true when the owner is a deyroute process (a deyroute-tun@ unit
-	// or the deyroute binary); only then may the UI offer to stop it.
+	// of the system manager, or the deyroute binary outside any service); only
+	// then may the UI offer to stop it. Stopping goes through Unit
+	// (systemctl stop); when Unit is empty the process is not a unit and is
+	// never killed by PID (the PID may have been reused since the check).
 	Deyroute bool `json:"deyroute,omitempty"`
 	// Unit is the owner's systemd unit when known.
 	Unit string `json:"unit,omitempty"`

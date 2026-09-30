@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,7 @@ var (
 	cmdFirewalldState  = []string{"firewall-cmd", "--state"}
 	cmdFirewalldPorts  = []string{"firewall-cmd", "--list-ports"}
 	cmdFirewalldSvcs   = []string{"firewall-cmd", "--list-services"}
+	cmdFirewalldAll    = []string{"firewall-cmd", "--list-all"}
 	cmdIPTablesInput   = []string{"iptables", "-S", "INPUT"}
 	cmdIPTablesRuleset = []string{"iptables", "-S"}
 )
@@ -143,7 +145,10 @@ func Blocks(ctx context.Context, r exec.Runner, port int, proto string) (blocked
 //     match wins) for source "Anywhere"; no match means the default
 //     incoming policy (deny unless "allow (incoming)").
 //   - firewalld (`--list-ports`, `--list-services` of the default zone,
-//     with https/http/ssh known): blocked when not listed.
+//     with https/http/ssh known): blocked when not listed, unless
+//     `--list-all` shows a zone target ACCEPT, the whole protocol or a rich
+//     rule opening it, or `--info-service` shows another listed service
+//     containing it (a rich rule that may open it makes it uncertain).
 //   - iptables (`iptables -S`): INPUT with jumps into user chains, then
 //     its policy.
 //   - nftables (`nft list ruleset`): every input-hook filter chain of the
@@ -203,9 +208,19 @@ func Check(ctx context.Context, r exec.Runner, port int, proto string) (Verdict,
 		case !ok1 || !ok2:
 			uncertain("firewalld: could not list open ports/services")
 		case !firewalldOpen(portsOut, svcOut, port, proto):
-			return blocked(Firewalld, "firewalld: "+strconv.Itoa(port)+"/"+proto+
-				" is not in the default zone's ports ("+strings.TrimSpace(portsOut)+
-				") or services ("+strings.TrimSpace(svcOut)+")"), nil
+			open, unsure := firewalldRefine(ctx, r, svcOut, port, proto)
+			if err := cancelled(); err != nil {
+				return Verdict{}, err
+			}
+			switch {
+			case open:
+			case unsure != "":
+				uncertain(unsure)
+			default:
+				return blocked(Firewalld, "firewalld: "+strconv.Itoa(port)+"/"+proto+
+					" is not in the default zone's ports ("+strings.TrimSpace(portsOut)+
+					") or services ("+strings.TrimSpace(svcOut)+")"), nil
+			}
 		}
 	}
 	if err := cancelled(); err != nil {
@@ -255,6 +270,64 @@ func Check(ctx context.Context, r exec.Runner, port int, proto string) (Verdict,
 		return Verdict{}, err
 	}
 	return res, nil
+}
+
+// firewalldRefine looks past `--list-ports` and `--list-services` before a
+// port is called blocked by firewalld: a zone whose target is ACCEPT (the
+// trusted zone) or that opens the whole protocol, a rich rule that accepts
+// the port for everyone, or a listed service outside the builtin map whose
+// definition (`--info-service`, at most maxServiceLookups calls) contains
+// the port all open it. unsure explains a rich rule that may open it (the
+// check then reports "not blocked, uncertain"). When the extra commands
+// fail, the port stays blocked as the task's heuristic defines.
+func firewalldRefine(ctx context.Context, r exec.Runner, services string, port int, proto string) (open bool, unsure string) {
+	type info struct {
+		ports  string
+		protos []string
+		ok     bool
+	}
+	cache := map[string]info{}
+	lookup := func(name string) (string, []string, bool) {
+		if ports, protos, ok := builtinService(name); ok {
+			return ports, protos, true
+		}
+		if in, seen := cache[name]; seen {
+			return in.ports, in.protos, in.ok
+		}
+		var in info
+		if len(cache) < maxServiceLookups {
+			if out, ok := run(ctx, r, []string{"firewall-cmd", "--info-service=" + name}); ok {
+				in.ports, in.protos = parseFirewalldService(out)
+				in.ok = true
+			}
+		}
+		cache[name] = in
+		return in.ports, in.protos, in.ok
+	}
+	for _, svc := range strings.Fields(services) {
+		if ports, protos, ok := lookup(svc); ok && (firewalldOpen(ports, "", port, proto) || slices.Contains(protos, proto)) {
+			return true, ""
+		}
+	}
+	out, ok := run(ctx, r, cmdFirewalldAll)
+	if !ok {
+		return false, ""
+	}
+	z := parseFirewalldZone(out)
+	if strings.EqualFold(z.target, "ACCEPT") || slices.Contains(z.protocols, proto) {
+		return true, ""
+	}
+	for _, rr := range z.rich {
+		switch firewalldRich(rr, port, proto, lookup) {
+		case yes:
+			return true, ""
+		case maybe:
+			if unsure == "" {
+				unsure = "firewalld: rich rule may open the port: " + rr
+			}
+		}
+	}
+	return false, unsure
 }
 
 // nftInsertArgv inserts an accept rule at the head of another table's

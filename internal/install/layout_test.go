@@ -177,6 +177,41 @@ func TestInstallBackendErrors(t *testing.T) {
 	require.Equal(t, []string{"app/v2.12.3"}, vers)
 }
 
+// Manifest binary names are plain file names: nothing outside the version
+// directory is ever read or written, not even for the "already installed" check.
+func TestInstallBackendRejectsUnsafeBinaryNames(t *testing.T) {
+	l := Layout{Root: t.TempDir()}
+	m := newMapFetcher()
+	for _, bad := range []string{"../../../etc/passwd", "a/b", ".hidden", ".."} {
+		e := backend.ManifestEntry{Name: "evil", Version: "v1", Archive: KindRaw, Binaries: []string{bad},
+			URLs: map[string]string{"amd64": "https://x/e"}, SHA256: map[string]string{"amd64": sha([]byte("E"))}}
+		_, err := l.InstallBackend(context.Background(), e, "amd64", m, "")
+		requireCode(t, err, deyerr.B008)
+		requireCode(t, l.VerifyBackend(e), deyerr.B008)
+	}
+	require.Zero(t, m.count("https://x/e"))
+	requireCode(t, l.VerifyBackend(backend.ManifestEntry{Name: "../x", Version: "v1"}), deyerr.B008)
+}
+
+// A manifest URL on the owner mirror without a configured mirror fails at
+// once with B001 (no retries against a relative URL).
+func TestInstallBackendNeedsMirror(t *testing.T) {
+	l := Layout{Root: t.TempDir()}
+	raw := []byte("AWG")
+	e := backend.ManifestEntry{Name: "amneziawg", Version: "v0.2.12", Archive: KindRaw, Binaries: []string{"amneziawg-go"},
+		URLs:   map[string]string{"amd64": "{mirror}/backends/amneziawg-go/v0.2.12/amneziawg-go-linux-amd64"},
+		SHA256: map[string]string{"amd64": sha(raw)}}
+	m := newMapFetcher()
+	de := requireCode(t, func() error { _, err := l.InstallBackend(context.Background(), e, "amd64", m, " "); return err }(), deyerr.B001)
+	require.Contains(t, de.Detail, "no mirror is configured")
+	require.Empty(t, m.calls)
+
+	m.files["https://mirror.example/backends/amneziawg-go/v0.2.12/amneziawg-go-linux-amd64"] = raw
+	dir, err := l.InstallBackend(context.Background(), e, "amd64", m, "https://mirror.example/")
+	require.NoError(t, err)
+	requireBinary(t, filepath.Join(dir, "amneziawg-go"), "AWG")
+}
+
 func TestInstalledVersionsAndRemove(t *testing.T) {
 	l := Layout{Root: t.TempDir()}
 	for _, v := range []string{"v1.10.0", "v1.2.0", "v1.9.1", ".stage-123"} {

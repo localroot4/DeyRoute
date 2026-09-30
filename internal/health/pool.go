@@ -36,6 +36,16 @@ func (p *Pool) Size() int { return cap(p.sem) }
 // ctx's error when ctx is done first, or ErrPoolClosed after Close; in both
 // cases fn is not run.
 func (p *Pool) Go(ctx context.Context, fn func()) error {
+	// select picks randomly among ready cases: check first so a done ctx or
+	// a closed pool never runs fn even when a slot is free.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case <-p.done:
+		return ErrPoolClosed
+	default:
+	}
 	select {
 	case p.sem <- struct{}{}:
 	case <-ctx.Done():

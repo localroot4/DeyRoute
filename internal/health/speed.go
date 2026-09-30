@@ -18,12 +18,13 @@ import (
 // Built-in traffic generator of `deyroute diag speed` (section 14, phase 7).
 //
 // Protocol (one test per TCP connection): the client sends a 6-byte header
-// "DEYS" | mode | seconds, then
+// "DEYS" | mode | seconds; the server answers one byte, the seconds it
+// grants (the request capped by its own limit), then
 //
 //   - mode 'D' (download): the server streams pseudo-random bytes for the
-//     requested seconds and closes the connection;
+//     granted seconds and closes the connection;
 //   - mode 'U' (upload): the client streams pseudo-random bytes for the
-//     requested seconds and half-closes; the server discards them and
+//     granted seconds and half-closes; the server discards them and
 //     answers 16 bytes: bytes received and receive duration in nanoseconds
 //     (both big-endian uint64);
 //   - mode 'P' (ping): each byte the client sends is echoed (at most
@@ -57,7 +58,8 @@ const (
 
 // SpeedResult is the outcome of MeasureSpeed.
 type SpeedResult struct {
-	// Seconds is the duration requested for each direction.
+	// Seconds is the duration of each direction (the requested seconds,
+	// capped by the server).
 	Seconds       float64
 	DownloadMbps  float64
 	UploadMbps    float64
@@ -111,7 +113,15 @@ func serveSpeedConn(c net.Conn, maxSecs int) {
 		secs = maxSecs
 	}
 	dur := time.Duration(secs) * time.Second
-	switch hdr[len(speedMagic)] {
+	mode := hdr[len(speedMagic)]
+	if mode != speedModeDown && mode != speedModeUp && mode != speedModePing {
+		return
+	}
+	_ = c.SetWriteDeadline(time.Now().Add(speedGrace))
+	if _, err := c.Write([]byte{byte(secs)}); err != nil { //nolint:gosec // G115: secs is 1..MaxSpeedSeconds
+		return
+	}
+	switch mode {
 	case speedModeDown:
 		_ = c.SetReadDeadline(time.Time{})
 		stream, err := newRandStream()
@@ -184,10 +194,11 @@ func MeasureSpeed(ctx context.Context, addr string, seconds int) (SpeedResult, e
 		return res, speedErr(addr, "ping", err.Error())
 	}
 	res.RTT = rtt
-	n, d, err := speedDownload(ctx, addr, seconds)
+	n, d, granted, err := speedDownload(ctx, addr, seconds)
 	if err != nil {
 		return res, speedErr(addr, "download", err.Error())
 	}
+	res.Seconds = float64(granted)
 	res.DownloadBytes, res.DownloadMbps = n, mbps(n, d)
 	n, d, err = speedUpload(ctx, addr, seconds)
 	if err != nil {
@@ -197,15 +208,16 @@ func MeasureSpeed(ctx context.Context, addr string, seconds int) (SpeedResult, e
 	return res, nil
 }
 
-// speedDial connects and sends the header; the connection's deadline is the
-// earlier of ctx's and now+limit, and ctx cancellation interrupts it.
-func speedDial(ctx context.Context, addr string, mode byte, secs int, limit time.Duration) (net.Conn, func(), error) {
+// speedDial connects, sends the header and reads the seconds the server
+// grants; the connection's deadline is the earlier of ctx's and now+limit,
+// and ctx cancellation interrupts it.
+func speedDial(ctx context.Context, addr string, mode byte, secs int, limit time.Duration) (net.Conn, int, func(), error) {
 	ctx, cancel := context.WithTimeout(ctx, limit)
 	c, err := dialTCP(ctx, addr)
 	if err != nil {
 		reason := reasonFor(ctx, err)
 		cancel()
-		return nil, nil, errors.New(reason)
+		return nil, 0, nil, errors.New(reason)
 	}
 	setDeadlineFrom(ctx, c)
 	stopWatch := interruptOnDone(ctx, c)
@@ -220,14 +232,25 @@ func speedDial(ctx context.Context, addr string, mode byte, secs int, limit time
 	if _, err := c.Write(hdr); err != nil {
 		reason := reasonFor(ctx, err)
 		done()
-		return nil, nil, errors.New(reason)
+		return nil, 0, nil, errors.New(reason)
 	}
-	return c, done, nil
+	var ack [1]byte
+	if _, err := io.ReadFull(c, ack[:]); err != nil {
+		reason := reasonFor(ctx, err)
+		done()
+		return nil, 0, nil, errors.New(reason)
+	}
+	granted := int(ack[0])
+	if granted < 1 || granted > MaxSpeedSeconds {
+		done()
+		return nil, 0, nil, errors.New("not a speed test generator")
+	}
+	return c, granted, done, nil
 }
 
 // speedPing returns the median of speedPings 1-byte round trips.
 func speedPing(ctx context.Context, addr string) (time.Duration, error) {
-	c, done, err := speedDial(ctx, addr, speedModePing, 0, speedGrace)
+	c, _, done, err := speedDial(ctx, addr, speedModePing, 1, speedGrace)
 	if err != nil {
 		return 0, err
 	}
@@ -237,10 +260,10 @@ func speedPing(ctx context.Context, addr string) (time.Duration, error) {
 	for i := 0; i < speedPings; i++ {
 		start := time.Now()
 		if _, err := c.Write(one); err != nil {
-			return 0, errors.New(Classify(err))
+			return 0, errors.New(reasonFor(ctx, err))
 		}
 		if _, err := io.ReadFull(c, one); err != nil {
-			return 0, errors.New(Classify(err))
+			return 0, errors.New(reasonFor(ctx, err))
 		}
 		rtts = append(rtts, time.Since(start))
 	}
@@ -250,10 +273,10 @@ func speedPing(ctx context.Context, addr string) (time.Duration, error) {
 
 // speedDownload receives for secs seconds; the duration runs from the first
 // to the last byte received.
-func speedDownload(ctx context.Context, addr string, secs int) (int64, time.Duration, error) {
-	c, done, err := speedDial(ctx, addr, speedModeDown, secs, time.Duration(secs)*time.Second+speedGrace)
+func speedDownload(ctx context.Context, addr string, secs int) (int64, time.Duration, int, error) {
+	c, granted, done, err := speedDial(ctx, addr, speedModeDown, secs, time.Duration(secs)*time.Second+speedGrace)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	defer done()
 	buf := make([]byte, speedChunk)
@@ -273,24 +296,24 @@ func speedDownload(ctx context.Context, addr string, secs int) (int64, time.Dura
 			break
 		}
 		if err != nil {
-			return total, last.Sub(first), errors.New(Classify(err))
+			return total, last.Sub(first), granted, errors.New(reasonFor(ctx, err))
 		}
 	}
 	if total == 0 {
-		return 0, 0, errors.New("no data received")
+		return 0, 0, granted, errors.New("no data received")
 	}
-	return total, last.Sub(first), nil
+	return total, last.Sub(first), granted, nil
 }
 
 // speedUpload sends for secs seconds, half-closes and reads the server's
 // count and receive duration.
 func speedUpload(ctx context.Context, addr string, secs int) (int64, time.Duration, error) {
-	dur := time.Duration(secs) * time.Second
-	c, done, err := speedDial(ctx, addr, speedModeUp, secs, 2*dur+speedGrace)
+	c, granted, done, err := speedDial(ctx, addr, speedModeUp, secs, 2*time.Duration(secs)*time.Second+speedGrace)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer done()
+	dur := time.Duration(granted) * time.Second
 	stream, err := newRandStream()
 	if err != nil {
 		return 0, 0, err

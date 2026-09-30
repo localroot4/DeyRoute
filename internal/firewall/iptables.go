@@ -55,12 +55,13 @@ func parseIPTables(out string, port int, proto string) ruleset {
 		}
 	}
 	// Jumps to targets that are neither chains nor known targets (an
-	// extension target such as DOCKER or a module we do not know) are
-	// treated as non-terminating "maybe" rules.
+	// extension target such as NFQUEUE, which hands the packet to a program
+	// that may accept it) are treated as rules that may accept: a later drop
+	// is then reported as uncertain, never as a certain block.
 	for _, c := range rs {
 		for i, r := range c.rules {
 			if (r.verdict == vJump || r.verdict == vGoto) && rs[r.target] == nil {
-				c.rules[i].verdict = vNone
+				c.rules[i].verdict = vAccept
 				c.rules[i].match = and(r.match, maybe)
 			}
 		}

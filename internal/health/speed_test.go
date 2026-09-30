@@ -52,6 +52,10 @@ func TestSpeedServerClampsSeconds(t *testing.T) {
 	require.NoError(t, err)
 	start := time.Now()
 	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	var ack [1]byte
+	_, err = io.ReadFull(c, ack[:])
+	require.NoError(t, err)
+	assert.Equal(t, byte(1), ack[0], "the server grants its own cap")
 	n, err := io.Copy(io.Discard, c)
 	require.NoError(t, err)
 	assert.Positive(t, n)
@@ -68,11 +72,37 @@ func TestSpeedServerUploadReply(t *testing.T) {
 	_, err = c.Write(make([]byte, 1000))
 	require.NoError(t, err)
 	require.NoError(t, c.(*net.TCPConn).CloseWrite())
-	var reply [16]byte
+	var reply [17]byte
 	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, err = io.ReadFull(c, reply[:])
 	require.NoError(t, err)
-	assert.Equal(t, uint64(1000), binary.BigEndian.Uint64(reply[:8]))
+	assert.Equal(t, byte(1), reply[0], "granted seconds")
+	assert.Equal(t, uint64(1000), binary.BigEndian.Uint64(reply[1:9]))
+}
+
+func TestMeasureSpeedHonoursServerCap(t *testing.T) {
+	// The generator allows 1 s, the client asks for 3 s: the upload must use
+	// the granted second instead of failing when the server stops reading.
+	addr := speedServer(t, 1)
+	start := time.Now()
+	res, err := MeasureSpeed(context.Background(), addr, 3)
+	require.NoError(t, err)
+	assert.Equal(t, 1.0, res.Seconds)
+	assert.Positive(t, res.UploadBytes)
+	assert.Less(t, time.Since(start), 6*time.Second)
+}
+
+func TestMeasureSpeedRejectsNonGenerator(t *testing.T) {
+	// A service that answers the header with a byte that is not a valid
+	// grant (for example an HTTP server) is reported, not measured.
+	addr := testServer(t, func(c net.Conn) {
+		defer c.Close()
+		readSome(c)
+		_, _ = c.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+	})
+	_, err := MeasureSpeed(context.Background(), addr, 1)
+	require.Error(t, err)
+	assert.Equal(t, "not a speed test generator", deyerr.As(err).Why())
 }
 
 func TestSpeedServerRejectsGarbage(t *testing.T) {
@@ -105,7 +135,10 @@ func TestMeasureSpeedErrors(t *testing.T) {
 	pingOnly := testServer(t, func(c net.Conn) {
 		defer c.Close()
 		hdr := make([]byte, speedHeaderSize)
-		if _, err := io.ReadFull(c, hdr); err != nil || hdr[4] != speedModePing {
+		if _, err := io.ReadFull(c, hdr); err != nil {
+			return
+		}
+		if _, err := c.Write([]byte{1}); err != nil || hdr[4] != speedModePing {
 			return
 		}
 		one := make([]byte, 1)

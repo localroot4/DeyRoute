@@ -144,6 +144,69 @@ func TestFirewalldOpen(t *testing.T) {
 	require.False(t, firewalldOpen("bogus 443", "", 443, "tcp"))
 }
 
+func TestFirewalldRich(t *testing.T) {
+	cases := []struct {
+		rule  string
+		port  int
+		proto string
+		want  tri
+	}{
+		{`rule family="ipv4" port port="443" protocol="tcp" accept`, 443, "tcp", yes},
+		{`rule family="ipv4" port port="443" protocol="tcp" accept`, 443, "udp", no},
+		{`rule family="ipv4" port port="2000-2010" protocol="udp" accept`, 2005, "udp", yes},
+		{`rule port port="443" protocol="tcp" accept limit value="10/m"`, 443, "tcp", yes},
+		{`rule family="ipv6" port port="443" protocol="tcp" accept`, 443, "tcp", no},
+		{`rule family="ipv4" source address="10.0.0.0/8" port port="443" protocol="tcp" accept`, 443, "tcp", no},
+		{`rule family="ipv4" source ipset="allowed" accept`, 443, "tcp", no},
+		{`rule family="ipv4" source address="0.0.0.0/0" port port="443" protocol="tcp" accept`, 443, "tcp", yes},
+		{`rule family="ipv4" source NOT address="198.51.100.7" port port="443" protocol="tcp" accept`, 443, "tcp", maybe},
+		{`rule family="ipv4" destination address="203.0.113.5" port port="443" protocol="tcp" accept`, 443, "tcp", maybe},
+		{`rule family="ipv4" port port="443" protocol="tcp" log prefix="https " level="info" accept`, 443, "tcp", yes},
+		{`rule family="ipv4" port port="443" protocol="tcp" reject`, 443, "tcp", no},
+		{`rule family="ipv4" port port="443" protocol="tcp" drop`, 443, "tcp", no},
+		{`rule family="ipv4" port port="443" protocol="tcp" log prefix="x"`, 443, "tcp", no},
+		{`rule service name="https" accept`, 443, "tcp", yes},
+		{`rule service name="https" accept`, 80, "tcp", no},
+		{`rule service name="cockpit" accept`, 9090, "tcp", maybe},
+		{`rule protocol value="tcp" accept`, 443, "tcp", yes},
+		{`rule protocol value="udp" accept`, 443, "tcp", no},
+		{`rule family="ipv4" accept`, 443, "tcp", yes},
+		{`rule family="ipv4" source-port port="53" protocol="udp" accept`, 53, "udp", no},
+		{`rule family="ipv4" forward-port port="443" protocol="tcp" to-port="8443" accept`, 443, "tcp", maybe},
+		{`rule family="ipv4" icmp-type name="echo-request" accept`, 443, "tcp", no},
+		{`not a rule`, 443, "tcp", maybe},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, firewalldRich(c.rule, c.port, c.proto, nil), "%s (%d/%s)", c.rule, c.port, c.proto)
+	}
+
+	// A resolver turns unknown services into their ports.
+	lookup := func(name string) (string, []string, bool) {
+		switch name {
+		case "cockpit":
+			return "9090/tcp", nil, true
+		case "gre-all":
+			return "", []string{"udp"}, true
+		}
+		return "", nil, false
+	}
+	require.Equal(t, yes, firewalldRich(`rule service name="cockpit" accept`, 9090, "tcp", lookup))
+	require.Equal(t, no, firewalldRich(`rule service name="cockpit" accept`, 9091, "tcp", lookup))
+	require.Equal(t, yes, firewalldRich(`rule service name="gre-all" accept`, 1, "udp", lookup))
+	require.Equal(t, maybe, firewalldRich(`rule service name="other" accept`, 1, "udp", lookup))
+
+	z := parseFirewalldZone("public (active)\n  target: %%REJECT%%\n  protocols: gre tcp\n  rich rules: \n\trule family=\"ipv4\" accept\n  rule outside the rich section\n")
+	require.Equal(t, "%%REJECT%%", z.target)
+	require.Equal(t, []string{"gre", "tcp"}, z.protocols)
+	require.Equal(t, []string{`rule family="ipv4" accept`, "rule outside the rich section"}, z.rich)
+	z = parseFirewalldZone("public\n  rich rules: \n  target: default\n  rule family=\"ipv4\" accept\n")
+	require.Empty(t, z.rich, "rules are only read inside the rich rules section")
+
+	ports, protos := parseFirewalldService("svc\n  ports: 80/tcp 443/tcp\n  protocols: udplite\n  summary: x: y\n")
+	require.Equal(t, "80/tcp 443/tcp", ports)
+	require.Equal(t, []string{"udplite"}, protos)
+}
+
 func TestIPTables(t *testing.T) {
 	out := fixture(t, "iptables_S.txt")
 	cases := []portCase{
@@ -195,6 +258,20 @@ func TestIPTables(t *testing.T) {
 	}
 	for _, c := range cases {
 		b, u, detail := parseIPTables(rhel, c.port, c.proto).blocks("INPUT")
+		require.Equal(t, c.blocked, b, "%d/%s %s", c.port, c.proto, detail)
+		require.Equal(t, c.uncertain, u, "%d/%s %s", c.port, c.proto, detail)
+	}
+
+	// An extension target that is not a chain (NFQUEUE hands the packet to
+	// an IPS that may accept it) is never skipped as if it did nothing.
+	queue := "-P INPUT DROP\n-A INPUT -p tcp --dport 443 -j NFQUEUE --queue-num 0\n-A INPUT -p tcp --dport 22 -j ACCEPT\n"
+	cases = []portCase{
+		{443, "tcp", false, true},
+		{22, "tcp", false, false},
+		{80, "tcp", true, false},
+	}
+	for _, c := range cases {
+		b, u, detail := parseIPTables(queue, c.port, c.proto).blocks("INPUT")
 		require.Equal(t, c.blocked, b, "%d/%s %s", c.port, c.proto, detail)
 		require.Equal(t, c.uncertain, u, "%d/%s %s", c.port, c.proto, detail)
 	}
@@ -286,6 +363,33 @@ func TestNFTParse(t *testing.T) {
 	require.Equal(t, "policy drop", detail)
 }
 
+// TestNFTCommentsAndMaps uses a ruleset listed by nft 1.0.9: comments after
+// verdicts, a named verdict map with a jump, and concatenations. A commented
+// accept used to be read as a non-terminating rule, so every commented open
+// port of a policy-drop chain was reported blocked.
+func TestNFTCommentsAndMaps(t *testing.T) {
+	tables := parseNFTRuleset(fixture(t, "nft_comments.txt"))
+	require.Len(t, tables, 1)
+	fw := tables[0]
+	require.Equal(t, []string{"8080 : accept", "8081 : drop", "8082 : jump web"}, fw.maps["svc"])
+	cases := []portCase{
+		{443, "tcp", false, false},  // accept comment "https"
+		{53, "udp", false, false},   // accept comment "dns"
+		{8080, "tcp", false, false}, // map: accept
+		{8081, "tcp", true, false},  // map: drop
+		{8082, "tcp", false, false}, // map: jump web, which accepts 8082
+		{22, "tcp", false, true},    // jump web returns; then concatenations may accept
+		{9999, "tcp", false, true},
+	}
+	for _, c := range cases {
+		b, u, detail := fw.ruleset(c.port, c.proto).blocks("input")
+		require.Equal(t, c.blocked, b, "%d/%s %s", c.port, c.proto, detail)
+		require.Equal(t, c.uncertain, u, "%d/%s %s", c.port, c.proto, detail)
+	}
+	_, _, detail := fw.ruleset(9999, "tcp").blocks("input")
+	require.Contains(t, detail, "ip saddr . tcp dport @allowed accept")
+}
+
 func TestNFTRuleForms(t *testing.T) {
 	sets := map[string][]string{"web": {"80", "https"}}
 	cases := []struct {
@@ -345,7 +449,9 @@ func TestNFTRuleForms(t *testing.T) {
 		{`iif "lo" accept`, 443, "tcp", no, vAccept},
 		{`iif lo accept`, 443, "tcp", no, vAccept},
 		{`iifname { "eth0", "lo" } accept`, 443, "tcp", maybe, vAccept},
-		{`iifname vmap { "lo" : accept }`, 443, "tcp", maybe, vNone},
+		{`iifname vmap { "lo" : accept }`, 443, "tcp", no, vNone},
+		{`iifname vmap { "lo" : accept, "eth0" : drop }`, 443, "tcp", no, vNone}, // a maybe-drop is ignored
+		{`iifname vmap { "lo" : accept, "eth0" : jump wan }`, 443, "tcp", maybe, vAccept},
 		{`oif "eth0" accept`, 443, "tcp", yes, vAccept},
 		{`ct state new accept`, 443, "tcp", yes, vAccept},
 		{`ct state { established, related } accept`, 443, "tcp", no, vAccept},
@@ -357,7 +463,7 @@ func TestNFTRuleForms(t *testing.T) {
 		{`ct state vmap { new : goto in_new }`, 443, "tcp", yes, vGoto},
 		{`ct state vmap { new : return }`, 443, "tcp", yes, vReturn},
 		{`ct state vmap { new : continue }`, 443, "tcp", yes, vNone},
-		{`ct state vmap { new : jump }`, 443, "tcp", maybe, vNone},
+		{`ct state vmap { new : jump }`, 443, "tcp", maybe, vAccept}, // unreadable verdict: may accept
 		{`fib daddr type local accept`, 443, "tcp", yes, vAccept},
 		{`fib daddr type { broadcast, multicast } drop`, 443, "tcp", no, vDrop},
 		{`fib daddr type != local drop`, 443, "tcp", no, vDrop},
@@ -380,6 +486,33 @@ func TestNFTRuleForms(t *testing.T) {
 		{`tcp dport vmap { 22 : accept }`, 443, "tcp", no, vNone},
 		{`tcp dport vmap { 443 }`, 443, "tcp", no, vNone},
 		{`meta l4proto vmap { udp : drop }`, 443, "tcp", no, vNone},
+		{`tcp dport vmap { https : accept }`, 443, "tcp", yes, vAccept},
+		{`tcp dport vmap { 443:accept }`, 443, "tcp", yes, vAccept},
+		{`meta l4proto tcp ip daddr vmap { 2001:db8::1 : drop }`, 443, "tcp", no, vNone}, // a maybe-drop is ignored
+		{`ip daddr vmap { 203.0.113.5 : accept }`, 443, "tcp", maybe, vAccept},
+		{`ip daddr vmap { 127.0.0.0/8 : accept }`, 443, "tcp", no, vNone},
+		{`ip daddr vmap { 0.0.0.0/0 : drop }`, 443, "tcp", yes, vDrop},
+		{`ip saddr vmap { 10.0.0.0/8 : accept }`, 443, "tcp", no, vNone},
+		{`ip saddr vmap { 0.0.0.0/0 : jump in }`, 443, "tcp", yes, vJump},
+		{`meta mark vmap { 0x1 : accept }`, 443, "tcp", maybe, vAccept},
+		{`udp dport vmap { 443 : accept }`, 443, "tcp", no, vAccept},
+		{`tcp dport vmap { webports : accept }`, 443, "tcp", maybe, vAccept}, // unknown service name
+		{`tcp dport vmap { webports : drop }`, 443, "tcp", no, vNone},
+		// nft prints the comment after the verdict.
+		{`tcp dport 443 accept comment "https"`, 443, "tcp", yes, vAccept},
+		{`tcp dport 443 counter packets 0 bytes 0 accept comment "a \"quoted\" drop"`, 443, "tcp", yes, vAccept},
+		{`tcp dport 22 jump web comment "ssh"`, 22, "tcp", yes, vJump},
+		{`tcp dport 443 drop comment "no"`, 443, "tcp", yes, vDrop},
+		// Named verdict maps: unknown ones may accept.
+		{`tcp dport vmap @missing`, 443, "tcp", maybe, vAccept},
+		// Concatenations cannot be evaluated: they may match.
+		{`ip saddr . tcp dport @allowed accept`, 443, "tcp", maybe, vAccept},
+		{`ip daddr . tcp dport { 10.9.9.9 . 9100 } drop`, 443, "tcp", maybe, vDrop},
+		{`ip saddr . tcp dport vmap @m`, 443, "tcp", maybe, vAccept},
+		// queue hands the packet to a program that may accept it.
+		{`tcp dport 443 queue flags bypass to 0`, 443, "tcp", maybe, vAccept},
+		{`tcp dport 443 queue num 0 bypass`, 443, "tcp", maybe, vAccept},
+		{`tcp dport 80 queue to 0`, 443, "tcp", no, vAccept},
 	}
 	for _, c := range cases {
 		r := nftRule(c.rule, sets, c.port, c.proto)
@@ -388,6 +521,20 @@ func TestNFTRuleForms(t *testing.T) {
 	}
 	r := nftRule(`ct state vmap { new : jump in_new }`, nil, 443, "tcp")
 	require.Equal(t, "in_new", r.target)
+
+	// Named verdict maps are resolved from the table.
+	maps := map[string][]string{"svc": {"8080 : accept", "8081 : drop", "8082 : jump web"}}
+	for _, c := range []struct {
+		port    int
+		match   tri
+		verdict verdict
+		target  string
+	}{{8080, yes, vAccept, ""}, {8081, yes, vDrop, ""}, {8082, yes, vJump, "web"}, {9000, no, vNone, ""}} {
+		r = nftRuleIn(`tcp dport vmap @svc`, nil, maps, c.port, "tcp")
+		require.Equal(t, c.match, r.match, c.port)
+		require.Equal(t, c.verdict, r.verdict, c.port)
+		require.Equal(t, c.target, r.target, c.port)
+	}
 
 	// Unknown blocks, table flags, chain comments and multi-line rules.
 	text := `table inet t {

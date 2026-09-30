@@ -20,7 +20,7 @@ func init() {
 	scryptWorkFactor = 10
 }
 
-const hubConfig = "schema_version: 1\nrole: hub\nhub:\n  name: ir-1\n  control_port: 44433\n"
+const hubConfig = "schema_version: 1\nrole: hub\nhub:\n  name: ir-1\n  public_ip: 203.0.113.10\n  control_port: 44433\n"
 
 // seedEtc writes a small /etc/deyroute tree under root.
 func seedEtc(t *testing.T, root string) {
@@ -59,8 +59,10 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	require.NotContains(t, string(raw), "CA KEY")
 
 	// Restore onto another server that already has a (different) config.
+	// Its /etc/deyroute has a mode set by its installer that must survive.
 	dst := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dst, "etc/deyroute"), 0o700))
+	require.NoError(t, os.Chmod(filepath.Join(dst, "etc/deyroute"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(dst, "etc/deyroute/config.yaml"), []byte("old"), 0o600))
 
 	// Wrong passphrase → S004, nothing changed.
@@ -90,7 +92,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	etc := filepath.Join(dst, "etc/deyroute")
 	require.Equal(t, "CA KEY", readString(t, filepath.Join(etc, "secrets/ca.key")))
 	require.Equal(t, "tok", readString(t, filepath.Join(etc, "secrets/backend-tokens/main.token")))
-	require.Equal(t, os.FileMode(0o710), modeOf(t, etc))
+	require.Equal(t, os.FileMode(0o750), modeOf(t, etc), "the local installer's mode of /etc/deyroute is kept")
 	require.Equal(t, os.FileMode(0o700), modeOf(t, filepath.Join(etc, "secrets")))
 	require.Equal(t, os.FileMode(0o600), modeOf(t, filepath.Join(etc, "secrets/ca.key")))
 	require.Equal(t, os.FileMode(0o750), modeOf(t, filepath.Join(etc, "backends/xray/main")))
@@ -126,6 +128,14 @@ func TestBackupPlainAndValidation(t *testing.T) {
 	require.Nil(t, res.Events)
 	require.Equal(t, "override", res.Manifest.HubName)
 	require.Equal(t, hubConfig, readString(t, filepath.Join(dst, "etc/deyroute/config.yaml")))
+	require.Equal(t, os.FileMode(0o710), modeOf(t, filepath.Join(dst, "etc/deyroute")), "no local dir: the backup's mode")
+
+	// Without a Validate callback the schema is still checked (config.Parse).
+	bad := tarGz(t, []tarEntry{{Name: "manifest.json", Body: `{"format":"deyroute-backup","format_version":1}`},
+		{Name: "etc/deyroute/config.yaml", Body: "schema_version: 1\nrole: hub\nbogus_key: 1\n"}})
+	_, err = Restore(RestoreOptions{Root: dst, Path: bad})
+	requireCode(t, err, deyerr.C001)
+	require.Equal(t, hubConfig, readString(t, filepath.Join(dst, "etc/deyroute/config.yaml")), "nothing replaced")
 
 	// Validation errors: DEY errors pass through, others become S005.
 	cfgErr := deyerr.New(deyerr.C001, deyerr.Params{"key": "bogus", "line": 3})
@@ -147,6 +157,16 @@ func TestBackupErrors(t *testing.T) {
 	p, err := Backup(BackupOptions{Root: root, NoEncrypt: true, Now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)})
 	require.NoError(t, err)
 	require.Equal(t, "deyroute-backup-20260102T030405Z.tar.gz", filepath.Base(p))
+	// A second backup in the same second never overwrites the first.
+	p2, err := Backup(BackupOptions{Root: root, NoEncrypt: true, Now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)})
+	require.NoError(t, err)
+	require.Equal(t, "deyroute-backup-20260102T030405Z-1.tar.gz", filepath.Base(p2))
+	p3, err := Backup(BackupOptions{Root: root, Passphrase: "pw", Now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)})
+	require.NoError(t, err)
+	require.Equal(t, "deyroute-backup-20260102T030405Z.tar.gz.age", filepath.Base(p3))
+	names, err := backupNames(filepath.Dir(p))
+	require.NoError(t, err)
+	require.Len(t, names, 3)
 	_, err = Backup(BackupOptions{Root: root, NoEncrypt: true, Events: strings.NewReader(strings.Repeat("x", 10)),
 		OutPath: filepath.Join(root, "etc/deyroute/config.yaml", "impossible")})
 	requireCode(t, err, deyerr.X032)
@@ -208,7 +228,7 @@ func TestRestoreRejectsInvalidBackups(t *testing.T) {
 	}
 	// Unknown entries are ignored (forward compatibility).
 	root := t.TempDir()
-	p := tarGz(t, []tarEntry{{Name: "manifest.json", Body: manifest}, {Name: "etc/deyroute/config.yaml", Body: "c"}, {Name: "future.bin", Body: "?"}})
+	p := tarGz(t, []tarEntry{{Name: "manifest.json", Body: manifest}, {Name: "etc/deyroute/config.yaml", Body: hubConfig}, {Name: "future.bin", Body: "?"}})
 	_, err := Restore(RestoreOptions{Root: root, Path: p})
 	require.NoError(t, err)
 }

@@ -12,6 +12,7 @@ table inet deyroute {
 	chain input {
 		type filter hook input priority -10; policy accept;
 		ct state established,related accept
+		iif "lo" accept
 		tcp dport 44433 ip saddr @nodes accept
 		tcp dport 44433 ip6 saddr @nodes6 accept
 		tcp dport 44433 drop

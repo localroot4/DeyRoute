@@ -98,6 +98,21 @@ func TestHistoryHighFor(t *testing.T) {
 	fill(h, t0, now.Add(-DegradedFor), 0)
 	fill(h, now.Add(-DegradedFor).Add(5*time.Second), now.Add(time.Second), 40*ms)
 	assert.False(t, h.HighFor(now, 3, 10*time.Minute, time.Minute), "zero baseline")
+
+	// Probes resumed after a gap: 3 high samples within 10 s are not "high
+	// for 60 s".
+	h = base()
+	fill(h, now.Add(-10*time.Second), now.Add(time.Second), 90*ms)
+	assert.False(t, h.HighFor(now, 3, 10*time.Minute, time.Minute), "high only for 10 s")
+	fill(h, now.Add(5*time.Second), now.Add(31*time.Second), 90*ms)
+	assert.True(t, h.HighFor(now.Add(30*time.Second), 3, 10*time.Minute, time.Minute),
+		"high for 40 s with no normal sample in the minute")
+
+	// Samples stamped after now are not part of the decision.
+	h = base()
+	fill(h, now.Add(-DegradedFor).Add(5*time.Second), now.Add(time.Second), 40*ms)
+	h.Add(now.Add(time.Minute), 12*ms)
+	assert.True(t, h.HighFor(now, 3, 10*time.Minute, time.Minute), "future sample ignored")
 }
 
 func TestHistoryConcurrent(t *testing.T) {

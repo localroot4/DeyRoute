@@ -2,8 +2,10 @@ package firewall
 
 import (
 	"flag"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,6 +119,7 @@ func TestRenderSection11Shape(t *testing.T) {
 		"chain input {",
 		"type filter hook input priority -10; policy accept;",
 		"ct state established,related accept",
+		`iif "lo" accept`,
 		"tcp dport 44433 ip saddr @nodes accept",
 		"tcp dport 44433 drop",
 		"tcp dport 30000-31999 ip saddr @nodes accept",
@@ -180,6 +183,35 @@ func TestRenderNormalizes(t *testing.T) {
 	require.Contains(t, out, "set nodes6")
 	require.Contains(t, out, "elements = { 2001:db8::1 }")
 	require.Contains(t, out, "tcp dport 44433 ip6 saddr @nodes6 accept")
+}
+
+// TestRenderNATOrderIndependent: rules that tie on protocol and ports are
+// ordered by interface, address and target port, so every input order
+// renders the same table.
+func TestRenderNATOrderIndependent(t *testing.T) {
+	rules := []backend.NATRule{
+		{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443},
+		{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 8443},
+		{Proto: "tcp", DportLow: 443, ToAddr: "10.77.4.2", ToPort: 443},
+		{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443, Iface: "eth1"},
+		{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443, Iface: "eth0"},
+		{Proto: "tcp", DportLow: 443, DportHigh: 450, ToAddr: "10.77.3.2"},
+		{Proto: "udp", DportLow: 443, ToPort: 30000},
+		{Proto: "tcp", DportLow: 80, ToAddr: "fd77::2"},
+	}
+	want := Render(Spec{NAT: rules})
+	rng := rand.New(rand.NewPCG(7, 7))
+	for i := 0; i < 50; i++ {
+		shuffled := slices.Clone(rules)
+		rng.Shuffle(len(shuffled), func(a, b int) { shuffled[a], shuffled[b] = shuffled[b], shuffled[a] })
+		require.Equal(t, want, Render(Spec{NAT: shuffled}))
+	}
+	pre := want[strings.Index(want, "chain prerouting"):strings.Index(want, "chain output")]
+	require.Less(t, strings.Index(pre, "tcp dport 80 "), strings.Index(pre, "tcp dport 443 "))
+	require.Less(t, strings.Index(pre, `dnat ip to 10.77.3.2:443`), strings.Index(pre, `dnat ip to 10.77.3.2:8443`))
+	require.Less(t, strings.Index(pre, `iifname "eth0"`), strings.Index(pre, `iifname "eth1"`))
+	require.Contains(t, pre, "udp dport 443 redirect to :30000")
+	require.Contains(t, pre, "dnat ip6 to fd77::2")
 }
 
 func TestPortSet(t *testing.T) {

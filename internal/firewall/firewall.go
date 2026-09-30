@@ -23,7 +23,10 @@
 // (ct state established,related) because the balanced sysctl profile widens
 // ip_local_port_range to 10240-65535, which overlaps 30000-31999: without
 // that rule the replies to an outgoing connection whose local port falls in
-// the backend range would be dropped.
+// the backend range would be dropped. Loopback traffic (iif "lo") is
+// accepted next: the drops are meant for the Internet, and local processes
+// reach these ports over 127.0.0.1 (the canary unit's loopback port of
+// section 9, local probes and diagnostics).
 //
 // NAT (section 7.7 WireGuard/AmneziaWG on the hub, section 7.6 Hysteria2
 // port hopping on the node): a DNAT rule forwards a listen port to a
@@ -169,8 +172,11 @@ func (s Spec) Validate() error {
 	if len(probs) == 0 {
 		return nil
 	}
-	return deyerr.Wrap(deyerr.P019, deyerr.Plain("invalid firewall spec: "+strings.Join(probs, "; ")),
-		deyerr.Params{"firewall": string(NFTables)})
+	detail := strings.Join(probs, "; ")
+	return deyerr.Wrap(deyerr.P019, deyerr.Plain("invalid firewall spec: "+detail),
+		deyerr.Params{"firewall": string(NFTables)}).
+		WithWhy("the rules deyroute generated for table inet deyroute are invalid, so nft was not run").
+		WithDetail(detail)
 }
 
 // parseNodeIP parses a node address; zones and unspecified addresses are

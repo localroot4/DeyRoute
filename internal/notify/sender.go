@@ -22,11 +22,17 @@ type Sender interface {
 
 // defaultClient is used by an HTTPSender without Client. It honours
 // https_proxy / HTTPS_PROXY from the environment (http.DefaultTransport).
-var defaultClient = &http.Client{Timeout: 20 * time.Second}
+var defaultClient = &http.Client{Timeout: 20 * time.Second, CheckRedirect: noRedirect}
+
+// noRedirect makes a client return 3xx responses instead of following them:
+// the Bot API never redirects, and the message must not be re-posted to a
+// host other than the configured one.
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // HTTPSender posts directly with an *http.Client (a 20 s default client when
-// nil). Its errors never contain the request URL, which for Telegram holds
-// the bot token.
+// nil). Redirects are never followed (a 3xx is returned as the status). Its
+// errors never contain the request URL, which for Telegram holds the bot
+// token.
 type HTTPSender struct {
 	Client *http.Client
 }
@@ -36,6 +42,10 @@ func (s HTTPSender) Post(ctx context.Context, rawURL, contentType string, body [
 	client := s.Client
 	if client == nil {
 		client = defaultClient
+	} else if client.CheckRedirect == nil {
+		c := *client
+		c.CheckRedirect = noRedirect
+		client = &c
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
 	if err != nil {

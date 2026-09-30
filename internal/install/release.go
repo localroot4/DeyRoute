@@ -40,8 +40,8 @@ type Release struct {
 }
 
 // DownloadRelease fetches SHA256SUMS and SHA256SUMS.minisig from the first
-// source that serves a validly signed pair (signature failure = DEY-S001 when
-// no source is valid), picks the archive for Arch/Version from it, downloads
+// source that serves a validly signed pair listing the archive for
+// Arch/Version (signature failure = DEY-S001 when no source is valid), downloads
 // it from the same source first and the others after (sha256-verified), and
 // extracts the deyroute binary. Nothing is installed.
 func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) {
@@ -59,7 +59,7 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 	ro := opt.Retry.withDefaults()
 	sigCode := ro.MismatchCode
 	var (
-		sums            map[string]string
+		ver, file, sum  string
 		srcIdx          = -1
 		lastErr, sigErr error
 	)
@@ -86,15 +86,18 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 			sigErr = err
 			continue
 		}
-		sums, srcIdx = parsed, i
+		// A mirror that lags behind (or lacks this arch) is not fatal: the
+		// next source may list the archive.
+		v, fl, sm, err := ReleaseFromSums(parsed, opt.Arch, opt.Version)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		ver, file, sum, srcIdx = v, fl, sm, i
 		break
 	}
-	if sums == nil {
+	if srcIdx < 0 {
 		return nil, firstErr(sigErr, lastErr, deyerr.New(ro.FailCode, deyerr.Params{"file": SumsFile}))
-	}
-	ver, file, sum, err := ReleaseFromSums(sums, opt.Arch, opt.Version)
-	if err != nil {
-		return nil, err
 	}
 	// The archive is verified by the signed checksum, so any source may serve
 	// it; start with the one that served SHA256SUMS.

@@ -60,6 +60,25 @@ func TestDownloadRelease(t *testing.T) {
 	require.Equal(t, "deyroute 1.4.0", readString(t, SelfUpdater{Root: root}.BinaryPath()))
 }
 
+// A mirror whose (validly signed) SHA256SUMS lacks this arch does not stop
+// the search: the next source is tried.
+func TestDownloadReleaseSkipsSourceWithoutArch(t *testing.T) {
+	k := newTestKey(t)
+	m := newMapFetcher()
+	mirror := Source{Name: SourceMirror, BaseURL: "https://mirror.example"}
+	gh := Source{Name: SourceGitHub, BaseURL: GitHubReleases}
+	newFakeRelease(t, k, "1.4.0", "arm64").publish(m, mirror, "", "1.4.0", "arm64")
+	rel := newFakeRelease(t, k, "1.4.0", "amd64")
+	rel.publish(m, gh, "", "1.4.0", "amd64")
+	r, err := DownloadRelease(context.Background(), ReleaseOptions{
+		Fetcher: m, Sources: []Source{mirror, gh}, Arch: "amd64", PublicKey: k.pubString(), WorkDir: t.TempDir(),
+		Retry: RetryOptions{Sleep: (&noSleep{}).sleep},
+	})
+	require.NoError(t, err)
+	require.Equal(t, SourceGitHub, r.Source)
+	requireBinary(t, r.Binary, "deyroute 1.4.0")
+}
+
 func TestDownloadReleaseErrors(t *testing.T) {
 	k := newTestKey(t)
 	gh := Source{Name: SourceGitHub, BaseURL: GitHubReleases}

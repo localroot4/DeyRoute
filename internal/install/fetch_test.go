@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -318,4 +319,50 @@ func TestHelpers(t *testing.T) {
 	ctx := WithExpectedSHA256(context.Background(), "ABC")
 	require.Equal(t, "abc", ExpectedSHA256(ctx))
 	require.Equal(t, "", ExpectedSHA256(context.Background()))
+}
+
+func TestRedactURL(t *testing.T) {
+	require.Equal(t, "https://get.example/v1/x", RedactURL("https://get.example/v1/x"))
+	require.Equal(t, "https://owner:%2A%2A%2A@mirror.example/latest/SHA256SUMS",
+		RedactURL("https://owner:s3cret@mirror.example/latest/SHA256SUMS"))
+	require.Equal(t, "https://%2A%2A%2A@mirror.example/x", RedactURL("https://tokenonly@mirror.example/x"))
+	require.Equal(t, "https://***@bad host/x", RedactURL("https://u:p@bad host/x"))
+	require.NotContains(t, RedactURL("::u:p@x"), "u:p")
+}
+
+// Credentials of an owner mirror never appear in errors (they reach logs and
+// the three-line DEY output).
+func TestFetchErrorsHideURLCredentials(t *testing.T) {
+	srv, _ := flakyServer(t, nil, 1000)
+	u := strings.Replace(srv.URL, "http://", "http://owner:s3cret@", 1)
+	f := HTTPFetcher{Client: srv.Client()}
+	err := f.Fetch(context.Background(), u+"/nope", io.Discard)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "s3cret")
+	err = FetchVerified(context.Background(), f, []string{u + "/file"}, sha([]byte("x")),
+		filepath.Join(t.TempDir(), "f"), RetryOptions{Sleep: (&noSleep{}).sleep})
+	requireCode(t, err, deyerr.I004)
+	require.NotContains(t, err.Error(), "s3cret")
+
+	m := newMapFetcher()
+	m.files["https://owner:s3cret@m.example/f"] = []byte("other bytes")
+	err = FetchVerified(context.Background(), m, []string{"https://owner:s3cret@m.example/f"}, sha([]byte("x")),
+		filepath.Join(t.TempDir(), "f"), RetryOptions{Sleep: (&noSleep{}).sleep})
+	requireCode(t, err, deyerr.S001)
+	require.NotContains(t, err.Error(), "s3cret")
+}
+
+// A URL that is not http(s) (e.g. "{mirror}" resolved to nothing) fails at
+// once instead of being retried with backoff.
+func TestHTTPFetcherRejectsNonHTTPURLs(t *testing.T) {
+	for _, u := range []string{"/backends/x.tar.gz", "file:///etc/shadow", "ftp://x/y"} {
+		err := HTTPFetcher{}.Fetch(context.Background(), u, io.Discard)
+		require.Error(t, err, u)
+		require.True(t, IsPermanent(err), u)
+	}
+	ns := &noSleep{}
+	err := FetchVerified(context.Background(), HTTPFetcher{}, []string{"/x"}, sha([]byte("x")),
+		filepath.Join(t.TempDir(), "f"), RetryOptions{Sleep: ns.sleep})
+	requireCode(t, err, deyerr.I004)
+	require.Empty(t, ns.waited)
 }

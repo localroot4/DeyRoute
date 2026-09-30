@@ -66,6 +66,22 @@ func TestPathAutoCleanClose(t *testing.T) {
 	assert.Empty(t, r.Err)
 }
 
+func TestPathAutoImmediateClose(t *testing.T) {
+	// The peer closes right after accept, before the ClientHello arrives.
+	addr := testServer(t, func(c net.Conn) { _ = c.Close() })
+	for i := 0; i < 50; i++ {
+		// Depending on timing the kernel reports a clean EOF (success with
+		// AcceptCleanClose) or a reset (never a success); either way no
+		// data was seen.
+		r := Path(context.Background(), addr, KindAuto, time.Second, PathOptions{AcceptCleanClose: true})
+		assert.True(t, r.ClosedNoData, "%d: %s", i, r.Err)
+		assert.True(t, r.OK || r.Err == ReasonReset, "%d: %s", i, r.Err)
+		r = Path(context.Background(), addr, KindAuto, time.Second, PathOptions{})
+		assert.False(t, r.OK)
+		assert.True(t, r.ClosedNoData, r.Err)
+	}
+}
+
 func TestPathAutoTimeout(t *testing.T) {
 	addr := blackholeServer(t)
 	start := time.Now()
@@ -342,6 +358,8 @@ func TestClassify(t *testing.T) {
 		{&net.OpError{Op: "read", Err: timeoutErr{}}, ReasonTimeout},
 		{&net.OpError{Op: "remote error", Err: errors.New("tls: handshake failure")}, "tls: handshake failure"},
 		{errors.New(strings.Repeat("x", 200)), strings.Repeat("x", 120)},
+		// A multi-byte rune across the cut is dropped, not split.
+		{errors.New(strings.Repeat("x", 119) + "é" + strings.Repeat("x", 10)), strings.Repeat("x", 119)},
 	}
 	for _, c := range cases {
 		assert.Equal(t, c.want, Classify(c.err), "%v", c.err)

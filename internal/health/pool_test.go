@@ -51,6 +51,20 @@ func TestPoolGoBlocksAndHonoursContext(t *testing.T) {
 	p.Close()
 }
 
+func TestPoolGoDoneContextNeverRuns(t *testing.T) {
+	// A free slot and a done ctx are both ready: fn must never run.
+	p := NewPool(8)
+	defer p.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var ran atomic.Int32
+	for i := 0; i < 200; i++ {
+		assert.ErrorIs(t, p.Go(ctx, func() { ran.Add(1) }), context.Canceled)
+	}
+	p.Close()
+	assert.Zero(t, ran.Load())
+}
+
 func TestPoolCloseReleasesWaiters(t *testing.T) {
 	p := NewPool(1)
 	release := make(chan struct{})

@@ -109,9 +109,11 @@ func (h *History) Median(since time.Time) time.Duration {
 }
 
 // HighFor reports whether the RTT has been high for dur: there are at least
-// 3 samples in (now-dur, now] and every one of them exceeds factor times the
-// median of the baseline, the samples in [now-window, now-dur]. The
-// baseline needs at least 3 samples. Zero or negative arguments take the
+// 3 samples in (now-dur, now], the oldest of them is at least dur/2 old (so
+// a few samples right after a gap do not count as a whole minute), and every
+// one of them exceeds factor times the median of the baseline, the samples
+// in [now-window, now-dur]. The baseline needs at least 3 samples. Samples
+// newer than now are ignored. Zero or negative arguments take the
 // section 9 defaults (factor 3, window 10 minutes, dur 60 seconds).
 func (h *History) HighFor(now time.Time, factor float64, window, dur time.Duration) bool {
 	if factor <= 0 {
@@ -127,10 +129,15 @@ func (h *History) HighFor(now time.Time, factor float64, window, dur time.Durati
 	baseFrom := now.Add(-window)
 	h.mu.Lock()
 	var base, recent []time.Duration
+	oldestRecent := now
 	for _, s := range h.samples {
 		switch {
+		case s.At.After(now):
 		case s.At.After(recentFrom):
 			recent = append(recent, s.RTT)
+			if s.At.Before(oldestRecent) {
+				oldestRecent = s.At
+			}
 		case !s.At.Before(baseFrom):
 			base = append(base, s.RTT)
 		}
@@ -138,6 +145,9 @@ func (h *History) HighFor(now time.Time, factor float64, window, dur time.Durati
 	h.mu.Unlock()
 	const minSamples = 3
 	if len(recent) < minSamples || len(base) < minSamples {
+		return false
+	}
+	if oldestRecent.After(now.Add(-dur / 2)) {
 		return false
 	}
 	m := median(base)

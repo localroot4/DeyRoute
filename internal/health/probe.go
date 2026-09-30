@@ -234,6 +234,13 @@ func tlsProbe(ctx context.Context, addr string, strict bool, opts PathOptions) R
 		} else {
 			res.OK = true
 		}
+	case ctx.Err() == nil && (isPeerReset(obs.readErr) || isPeerReset(herr)):
+		// The peer sent no byte and the connection ended in a reset (it
+		// closed before our ClientHello arrived, or aborted). Recorded as
+		// closed-without-data but never a success, even with
+		// AcceptCleanClose: only a clean FIN may count.
+		res.ClosedNoData = true
+		res.Err = ReasonReset
 	case errors.Is(obs.readErr, io.EOF) && ctx.Err() == nil:
 		res.ClosedNoData = true
 		res.RTT = connected
@@ -404,7 +411,8 @@ func interruptOnDone(ctx context.Context, c interface{ SetDeadline(time.Time) er
 func closeQuietly(c io.Closer) { _ = c.Close() }
 
 // EchoMagic prefixes every echo packet (UDP and TCP nonce probes). The UDP
-// echo server answers only packets that start with it.
+// echo server answers only packets that start with it, and replies with
+// EchoReplyMagic in its place.
 const EchoMagic = "DEYE"
 
 // EchoPacketSize is the size of a probe packet: magic + 16-byte nonce.
@@ -511,7 +519,12 @@ func Classify(err error) string {
 	}
 	msg := strings.TrimSpace(inner.Error())
 	if len(msg) > 120 {
-		msg = msg[:120]
+		msg = strings.ToValidUTF8(msg[:120], "")
 	}
 	return msg
+}
+
+// isPeerReset reports a reset/broken pipe caused by the peer closing first.
+func isPeerReset(err error) bool {
+	return err != nil && (errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE))
 }

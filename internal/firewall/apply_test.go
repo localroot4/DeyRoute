@@ -51,11 +51,14 @@ func TestApplyErrors(t *testing.T) {
 	require.True(t, deyerr.HasCode(err, deyerr.X030))
 	require.Empty(t, deyerr.As(err).Detail)
 
-	// Invalid spec: nothing runs.
+	// Invalid spec: nothing runs, and the error says so (not "the firewall
+	// tool returned an error").
 	f = exec.NewFake()
 	err = Apply(ctx, f, Spec{ListenTCP: []int{0}})
 	require.True(t, deyerr.HasCode(err, deyerr.P019))
 	require.Empty(t, f.Calls())
+	require.Contains(t, deyerr.As(err).Why(), "nft was not run")
+	require.Equal(t, "listen port 0/tcp out of range", deyerr.As(err).Detail)
 }
 
 func TestRemove(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,9 +149,14 @@ func (h HTTPFetcher) Fetch(ctx context.Context, url string, w io.Writer) error {
 	if ua == "" {
 		ua = "deyroute/" + version.Version
 	}
+	shown := RedactURL(url)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return Permanent(err)
+		return Permanent(fmt.Errorf("GET %s: invalid URL", shown))
+	}
+	if req.URL.Scheme != "https" && req.URL.Scheme != "http" {
+		// e.g. "{mirror}" resolved without a mirror: retrying cannot help.
+		return Permanent(fmt.Errorf("GET %s: not an http(s) URL", shown))
 	}
 	req.Header.Set("User-Agent", ua)
 	// Checksums are over the exact bytes: never let a transparent
@@ -162,7 +168,7 @@ func (h HTTPFetcher) Fetch(ctx context.Context, url string, w io.Writer) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("GET %s: HTTP %s", url, resp.Status)
+		err := fmt.Errorf("GET %s: HTTP %s", shown, resp.Status)
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 &&
 			resp.StatusCode != http.StatusRequestTimeout && resp.StatusCode != http.StatusTooManyRequests {
 			return Permanent(err)
@@ -170,17 +176,17 @@ func (h HTTPFetcher) Fetch(ctx context.Context, url string, w io.Writer) error {
 		return err
 	}
 	if resp.ContentLength > limit {
-		return Permanent(fmt.Errorf("GET %s: %w (%d > %d bytes)", url, ErrTooLarge, resp.ContentLength, limit))
+		return Permanent(fmt.Errorf("GET %s: %w (%d > %d bytes)", shown, ErrTooLarge, resp.ContentLength, limit))
 	}
 	n, err := io.Copy(w, io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return fmt.Errorf("GET %s: %w", url, err)
+		return fmt.Errorf("GET %s: %w", shown, err)
 	}
 	if n > limit {
-		return Permanent(fmt.Errorf("GET %s: %w (> %d bytes)", url, ErrTooLarge, limit))
+		return Permanent(fmt.Errorf("GET %s: %w (> %d bytes)", shown, ErrTooLarge, limit))
 	}
 	if resp.ContentLength >= 0 && n != resp.ContentLength {
-		return fmt.Errorf("GET %s: short body (%d of %d bytes)", url, n, resp.ContentLength)
+		return fmt.Errorf("GET %s: short body (%d of %d bytes)", shown, n, resp.ContentLength)
 	}
 	return nil
 }
@@ -365,7 +371,7 @@ func retryURLs(ctx context.Context, urls []string, o RetryOptions, file string,
 			if err == nil {
 				return i, nil
 			}
-			lastErr = fmt.Errorf("%s (try %d/%d): %w", u, try, o.Tries, err)
+			lastErr = fmt.Errorf("%s (try %d/%d): %w", RedactURL(u), try, o.Tries, err)
 			var mm *errMismatch
 			if stderrors.As(err, &mm) {
 				mismatch = mm
@@ -445,7 +451,7 @@ func FetchVerified(ctx context.Context, f Fetcher, urls []string, sha256hex stri
 			return err
 		}
 		if got != want {
-			return &errMismatch{want: want, got: got, url: u}
+			return &errMismatch{want: want, got: got, url: RedactURL(u)}
 		}
 		return nil
 	})
@@ -531,6 +537,31 @@ func (l *limitedBuffer) Write(p []byte) (int, error) {
 	}
 	l.b = append(l.b, p...)
 	return len(p), nil
+}
+
+// RedactURL hides the password of a URL with user info (an owner mirror such
+// as https://user:secret@mirror.example) so it never reaches errors or logs.
+// Anything that does not parse is reduced to its scheme and host part.
+func RedactURL(u string) string {
+	p, err := neturl.Parse(u)
+	if err != nil {
+		if i := strings.Index(u, "@"); i >= 0 {
+			if j := strings.Index(u, "://"); j >= 0 && j < i {
+				return u[:j+3] + "***@" + u[i+1:]
+			}
+			return "***@" + u[i+1:]
+		}
+		return u
+	}
+	if p.User == nil {
+		return u
+	}
+	if _, has := p.User.Password(); has {
+		p.User = neturl.UserPassword(p.User.Username(), "***")
+	} else {
+		p.User = neturl.User("***")
+	}
+	return p.String()
 }
 
 func baseOfURL(u string) string {

@@ -2,6 +2,7 @@ package ports
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"testing"
 	"time"
@@ -168,8 +169,11 @@ func TestFormat(t *testing.T) {
 		})
 	}
 	require.Equal(t, "", FormatList(nil))
-	// A spec without a target formats like the default.
+	// A spec without a target formats like the default, also inside runs.
 	require.Equal(t, "443", FormatList([]Spec{{Listen: 443, Proto: ProtoTCP}}))
+	require.Equal(t, "443-445/udp", FormatList([]Spec{
+		{Listen: 443, Proto: ProtoUDP}, udp(444), {Listen: 445, Proto: ProtoUDP},
+	}))
 }
 
 func TestProtoHelpers(t *testing.T) {
@@ -216,6 +220,61 @@ func TestParseInputHugePaste(t *testing.T) {
 	require.Equal(t, deyerr.P016, e.Code)
 	require.Equal(t, 2*65535, e.Params["count"])
 	require.Less(t, elapsed, 5*time.Second, "parsing must be linear in the input")
+}
+
+// TestPortBitsAddRange compares the word-wise range insertion with a
+// port-by-port model on random ranges, including word boundaries.
+func TestPortBitsAddRange(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	var b portBits
+	model := make([]bool, 65536)
+	edges := []int{0, 1, 62, 63, 64, 65, 127, 128, 1023, 1024, 65471, 65472, 65534, 65535}
+	pick := func() int {
+		if rng.IntN(2) == 0 {
+			return edges[rng.IntN(len(edges))]
+		}
+		return rng.IntN(65536)
+	}
+	for i := 0; i < 400; i++ {
+		lo, hi := pick(), pick()
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		limit := rng.IntN(5) // visit stops after `limit` new ports (0 = nil visit)
+		var visited []int
+		var visit func(int) bool
+		if limit > 0 {
+			visit = func(p int) bool { visited = append(visited, p); return len(visited) < limit }
+		}
+		var want []int
+		for p := lo; p <= hi; p++ {
+			if !model[p] {
+				model[p] = true
+				want = append(want, p)
+			}
+		}
+		got := b.addRange(lo, hi, visit)
+		require.Equal(t, len(want), got, "range %d-%d", lo, hi)
+		if limit > 0 {
+			require.Equal(t, want[:min(limit, len(want))], visited, "range %d-%d", lo, hi)
+		}
+	}
+	for p := 0; p < 65536; p++ {
+		require.Equal(t, model[p], b[p>>6]&(1<<(p&63)) != 0, p)
+	}
+}
+
+// TestParseInputKeepsFirst64InOrder: past 64 entries nothing more is kept,
+// but conflicts with kept entries are still found.
+func TestParseInputKeepsFirst64InOrder(t *testing.T) {
+	_, err := ParseInput("443:8443,1000-1100,443")
+	require.Equal(t, deyerr.P021, deyerr.As(err).Code)
+	_, err = ParseInput("1000-1100,5000:6000,5000")
+	require.Equal(t, deyerr.P016, deyerr.As(err).Code, "5000 was never kept")
+	require.Equal(t, 102, deyerr.As(err).Params["count"])
+	// The lowest conflicting port is reported.
+	_, err = ParseInput("2005:9005,2001:9001,2000-2010")
+	require.Equal(t, "2001/tcp", deyerr.As(err).Params["port"])
 }
 
 func TestParseInputConflictAfterRange(t *testing.T) {
