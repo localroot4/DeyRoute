@@ -399,7 +399,7 @@ func (v *validator) nodes() {
 	for i, n := range v.c.Nodes {
 		p := itemPath("nodes", n.ID, i)
 		switch {
-		case !ValidID(n.ID):
+		case !ValidNodeID(n.ID):
 			v.add(deyerr.New(deyerr.C007, deyerr.Params{"kind": "node", "id": n.ID}))
 		case seen[n.ID]:
 			v.add(deyerr.New(deyerr.C002, deyerr.Params{"kind": "node", "id": n.ID}))
@@ -654,7 +654,7 @@ func (v *validator) advanced(p string, a *Advanced) {
 }
 
 func (v *validator) nodeSelf(n *NodeSelf) {
-	if !ValidID(n.ID) {
+	if !ValidNodeID(n.ID) {
 		v.add(deyerr.New(deyerr.C007, deyerr.Params{"kind": "node", "id": n.ID}))
 	}
 	if !ValidHostPort(n.HubAddr) {

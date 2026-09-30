@@ -152,3 +152,30 @@ stated default until the owner decides · **[ANSWERED]** closed.
     small additions to the section 15 tree; `internal/exec` is named in
     section 15's coding rules. The `direct/native` relay data plane lives in
     `internal/backend/direct`.
+23. **[DEFAULT] Control port access for joins and node IP changes.** Spec §3/§11
+    open the control port only to joined nodes' IPs (`@nodes`), but a joining
+    node's IP is unknown until it connects, and §11/S27 require a node whose IP
+    changed to reconnect from the new IP. Implemented: while any unexpired join
+    token exists the control port is open to every source (the join window);
+    otherwise `@nodes` is accepted without limit and unknown sources get a
+    rate-limited accept (`ct state new limit rate 6/minute`) before the drop.
+    mTLS client certificates, the single-use 256-bit join tokens and the
+    per-IP limit (5 failures/hour, then a 1-hour block) protect the port.
+    Owner may choose strict mode (drop unknown sources; a moved node then needs
+    `deyroute node set-hub` or a re-join).
+24. **[DEFAULT] Reserved node id.** `canary` cannot be a node id (it names the
+    canary unit directory and control-port keys of every tunnel; §9).
+25. **[OPEN] hello NodeID vs certificate CN.** A node stream whose hello names a
+    different id than its client certificate is accepted under the
+    certificate CN (the CN is what the hub signed) and a warning is logged.
+    Owner: refuse instead?
+26. **[DEFAULT] Join limiter granularity.** Failures are counted per exact IP
+    as §11 says; IPv6 sources can rotate inside a /64. Harmless in practice
+    (256-bit tokens, bounded table); owner may ask for /64 counting.
+27. **[DEFAULT] TLS trust for acme/custom tunnel certificates.** `ca.crt` given to
+    clients holds the internal CA plus the served chain, so clients verify
+    the public chain and host name. Pinning only the leaf would break
+    OpenSSL-based clients without PARTIAL_CHAIN.
+28. **[DEFAULT] Local toolchain vs lint.** golangci-lint v2.5.0 is built with Go
+    1.25 and cannot analyse against the Go 1.26 standard library; CI lints
+    with the go.mod version (1.25) and tests/builds with current stable Go.

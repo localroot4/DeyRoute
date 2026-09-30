@@ -24,6 +24,20 @@ var idRe = regexp.MustCompile(`^[a-z0-9-]{2,32}$`)
 // [a-z0-9-]{2,32} (section 4).
 func ValidID(s string) bool { return idRe.MatchString(s) }
 
+// ReservedNodeIDs cannot be used as node ids: "canary" names the canary
+// unit directory and control-port keys of every tunnel (spec section 9).
+var ReservedNodeIDs = []string{"canary"}
+
+// ValidNodeID is ValidID minus the reserved node ids.
+func ValidNodeID(s string) bool {
+	for _, r := range ReservedNodeIDs {
+		if s == r {
+			return false
+		}
+	}
+	return ValidID(s)
+}
+
 // Slugify derives an id from a display name: lower case, every run of
 // characters outside a-z/0-9 becomes one '-', leading/trailing '-' are
 // trimmed and the result is cut to 32 characters. When fewer than 2

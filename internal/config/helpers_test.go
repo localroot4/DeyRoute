@@ -357,3 +357,14 @@ func TestRemoveClearsTail(t *testing.T) {
 	require.Equal(t, "b", c.Tunnels[0].ID)
 	require.Equal(t, Tunnel{}, full[1], "the vacated slot is zeroed, not a stale duplicate")
 }
+
+func TestReservedNodeID(t *testing.T) {
+	if ValidNodeID("canary") || !ValidNodeID("de-1") || !ValidID("canary") {
+		t.Fatal("canary must be reserved for nodes only")
+	}
+	c := NewHub("ir-1", "5.6.7.8", DefaultControlPort)
+	c.Nodes = append(c.Nodes, Node{ID: "canary", Name: "x", PublicIP: "1.2.3.4"})
+	if err := c.Validate(ValidateOptions{}); !deyerr.HasCode(err, deyerr.C007) {
+		t.Fatalf("want C007 for node id canary, got %v", err)
+	}
+}
