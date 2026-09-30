@@ -10,6 +10,9 @@ type Caps struct {
 	Unicode bool // UTF-8 box drawing and symbols
 	Color   bool // ANSI colors
 	Width   int  // columns; 0 when unknown
+	// Dumb terminals (TERM=dumb or unset) cannot move the cursor: Run then
+	// prints each page as plain lines and reads one answer per line.
+	Dumb bool
 }
 
 // Narrow reports whether tables must drop low-priority columns (< 100 cols).
@@ -26,6 +29,7 @@ func DetectCaps(getenv func(string) string) Caps {
 	if term == "" || term == "dumb" {
 		c.Color = false
 		c.Unicode = false
+		c.Dumb = true
 	}
 	if getenv("NO_COLOR") != "" {
 		c.Color = false

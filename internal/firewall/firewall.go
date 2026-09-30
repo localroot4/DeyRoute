@@ -116,7 +116,21 @@ type Spec struct {
 	// IPv6 renders @nodes6 (and its rules) even when no node has an IPv6
 	// address yet (the hub has a public IPv6, section 10).
 	IPv6 bool
+	// UnknownControlRate, when non-empty and RestrictControl is true, admits
+	// new control-port connections from addresses outside @nodes/@nodes6 at
+	// this nft rate ("6/minute", optionally "… burst 5 packets") right
+	// before the control-port drop, so a node whose public IP changed can
+	// reconnect with its certificate (section 11, QUESTIONS.md C.23). mTLS
+	// and the join limiter protect the port. "" = drop everyone else.
+	UnknownControlRate string
 }
+
+// rateRe is an nft `limit rate` argument deyroute renders: packets per unit
+// with an optional packet burst.
+var rateRe = regexp.MustCompile(`^[1-9][0-9]{0,8}/(second|minute|hour|day)( burst [1-9][0-9]{0,8} packets)?$`)
+
+// validRate reports whether r can be rendered as `limit rate <r>`.
+func validRate(r string) bool { return rateRe.MatchString(r) }
 
 // ifaceRe is a Linux interface name (IFNAMSIZ-1 = 15 bytes; no '/', ':',
 // whitespace or quotes).
@@ -136,6 +150,9 @@ func (s Spec) Validate() error {
 	add := func(format string, a ...any) { probs = append(probs, fmt.Sprintf(format, a...)) }
 	if s.ControlPort != 0 && !validPort(s.ControlPort) {
 		add("control port %d out of range", s.ControlPort)
+	}
+	if s.UnknownControlRate != "" && !validRate(s.UnknownControlRate) {
+		add("unknown control rate %q invalid (want e.g. 6/minute)", s.UnknownControlRate)
 	}
 	if s.CtlLow != 0 || s.CtlHigh != 0 {
 		if !validPort(s.CtlLow) || !validPort(s.CtlHigh) || s.CtlLow > s.CtlHigh {

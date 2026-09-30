@@ -26,6 +26,7 @@ const renderHeader = "# Managed by deyroute. Do not edit: this table is replaced
 type normalized struct {
 	controlPort     int
 	restrict        bool
+	unknownRate     string
 	v4, v6          []netip.Addr
 	withV6          bool
 	ctlLow, ctlHigh int
@@ -36,6 +37,9 @@ type normalized struct {
 
 func normalize(s Spec) normalized {
 	n := normalized{restrict: s.RestrictControl}
+	if validRate(s.UnknownControlRate) {
+		n.unknownRate = s.UnknownControlRate
+	}
 	if validPort(s.ControlPort) {
 		n.controlPort = s.ControlPort
 	}
@@ -173,6 +177,9 @@ func inputRules(n normalized) []string {
 		m := "tcp dport " + strconv.Itoa(n.controlPort)
 		if n.restrict {
 			fromNodes(m)
+			if n.unknownRate != "" {
+				rules = append(rules, m+" ct state new limit rate "+n.unknownRate+" accept")
+			}
 			rules = append(rules, m+" drop")
 			drops = true
 		} else {

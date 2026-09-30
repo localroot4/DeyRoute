@@ -78,6 +78,14 @@ var goldenSpecs = map[string]Spec{
 		s.RestrictControl = false
 		return s
 	}(),
+	// Restricted control port with a rate-limited accept for unknown sources
+	// (a node whose IP changed reconnects with its certificate, C.23).
+	"hub_unknown_rate": func() Spec {
+		s := hubSpec()
+		s.IPv6 = true
+		s.UnknownControlRate = "6/minute"
+		return s
+	}(),
 	// Unrestricted control port and no backend range: no drop rules, so no
 	// conntrack rule either.
 	"hub_accept_only": {ControlPort: 44433, ListenTCP: []int{443}, ListenUDP: []int{443}},
@@ -169,9 +177,10 @@ func TestRenderNormalizes(t *testing.T) {
 		require.Contains(t, err.Error(), frag)
 	}
 
-	bad := Spec{ControlPort: 70000, CtlLow: 31999, CtlHigh: 30000, ListenUDP: []int{-1}}
+	bad := Spec{ControlPort: 70000, CtlLow: 31999, CtlHigh: 30000, ListenUDP: []int{-1}, UnknownControlRate: "6 per minute; drop"}
 	err = bad.Validate()
 	require.ErrorContains(t, err, "control port 70000")
+	require.ErrorContains(t, err, `unknown control rate "6 per minute; drop"`)
 	require.ErrorContains(t, err, "backend control range 31999-30000")
 	require.ErrorContains(t, err, "-1/udp")
 	// Invalid control settings are simply not rendered.
@@ -183,6 +192,43 @@ func TestRenderNormalizes(t *testing.T) {
 	require.Contains(t, out, "set nodes6")
 	require.Contains(t, out, "elements = { 2001:db8::1 }")
 	require.Contains(t, out, "tcp dport 44433 ip6 saddr @nodes6 accept")
+}
+
+func TestRenderUnknownControlRate(t *testing.T) {
+	s := hubSpec()
+	s.UnknownControlRate = "6/minute"
+	require.NoError(t, s.Validate())
+	lines := strings.Split(Render(s), "\n")
+	idx := func(rule string) int {
+		for i, l := range lines {
+			if strings.TrimSpace(l) == rule {
+				return i
+			}
+		}
+		return -1
+	}
+	nodes := idx("tcp dport 44433 ip saddr @nodes accept")
+	limit := idx("tcp dport 44433 ct state new limit rate 6/minute accept")
+	drop := idx("tcp dport 44433 drop")
+	require.True(t, nodes >= 0 && limit == nodes+1 && drop == limit+1, "order nodes/limit/drop: %d %d %d", nodes, limit, drop)
+
+	// A burst is accepted too.
+	s.UnknownControlRate = "10/second burst 20 packets"
+	require.NoError(t, s.Validate())
+	require.Contains(t, Render(s), "tcp dport 44433 ct state new limit rate 10/second burst 20 packets accept")
+
+	// The rate only applies to a restricted control port.
+	s.RestrictControl = false
+	require.NotContains(t, Render(s), "limit rate")
+	require.Contains(t, Render(s), "tcp dport 44433 accept")
+
+	// Invalid rates are not rendered (and reported by Validate).
+	for _, bad := range []string{"6/minutes", "0/minute", "6/minute; drop", "fast", "6/minute burst 5"} {
+		s := hubSpec()
+		s.UnknownControlRate = bad
+		require.Error(t, s.Validate(), bad)
+		require.Equal(t, Render(hubSpec()), Render(s), bad)
+	}
 }
 
 // TestRenderNATOrderIndependent: rules that tie on protocol and ports are
