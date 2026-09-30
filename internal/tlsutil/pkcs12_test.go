@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/pkcs12"
 
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	deylog "github.com/localroot4/deyroute/internal/log"
 )
 
 func TestPKCS12KDFVectors(t *testing.T) {
@@ -177,6 +178,22 @@ func withSerial(tpl *x509.Certificate) *x509.Certificate {
 		tpl.SerialNumber = s
 	}
 	return tpl
+}
+
+// PKCS#12 passwords are written into rendered rathole configs; they must be
+// masked in every log line.
+func TestPKCS12PasswordsAreRedacted(t *testing.T) {
+	pw, err := NewPKCS12Password()
+	require.NoError(t, err)
+	require.NotContains(t, deylog.Redact("pkcs12_password = \""+pw+"\""), pw)
+
+	ca := newTestCA(t)
+	certPEM, keyPEM, err := ca.IssueTunnel("main", []net.IP{net.ParseIP("5.6.7.8")}, nil, time.Now())
+	require.NoError(t, err)
+	chosen := "owner-chosen-p12-pass"
+	_, err = EncodePKCS12(certPEM, keyPEM, chosen)
+	require.NoError(t, err)
+	require.NotContains(t, deylog.Redact("using "+chosen), chosen)
 }
 
 func TestEncodePKCS12Errors(t *testing.T) {

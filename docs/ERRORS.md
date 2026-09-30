@@ -126,6 +126,9 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-B042` | No decoy SNI is reachable | none of {decoys} answered a TLS 1.3 handshake from the hub | set a reachable decoy list in Settings, then retry |
 | `DEY-B043` | Waterwall failed to start | Waterwall exited; its debug log is shown below | fix the cause shown in the log or remove the rung from the ladder |
 | `DEY-B044` | Waterwall Reality handshake failed | the node could not complete the Reality handshake with the hub | check that the decoy SNI is reachable and the password matches on both sides (re-render) |
+| `DEY-B060` | Relay config is invalid: {path} | the direct/native relay could not use its rendered file ({reason}) | re-render the tunnel: deyroute tunnel restart <tunnel>; if it repeats run deyroute doctor |
+| `DEY-B061` | Relay cannot listen on {addr} ({proto}) | {reason} | free the port (ss -lntup shows the owner) or pick another listen port; deyroute port check <port> explains conflicts |
+| `DEY-B062` | Service {target} is not reachable on the node's public address | direct/haproxy connects from the hub straight to the node service, but nothing answered on {tried}; the service listens only on 127.0.0.1 or a firewall blocks it | make the service listen on 0.0.0.0 and allow the hub IP in the node firewall, or use direct/native instead |
 
 ## Failover (DEY-F0xx)
 
@@ -137,6 +140,8 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-F004` | Tunnel {tunnel}: failover is paused | automatic switching was paused by the owner | resume it: deyroute tunnel resume {tunnel} |
 | `DEY-F005` | Tunnel {tunnel}: service {target} is down on node {node} | the service behind the tunnel is not answering on the node; switching transport would not help | start the service on the node (e.g. systemctl restart xray) or add a backup node |
 | `DEY-F006` | Tunnel {tunnel}: cannot switch to {target} | the target transport or node is not part of this tunnel | list options with: deyroute tunnel show {tunnel} |
+| `DEY-F007` | Tunnel {tunnel}: failover engine is not running | the tunnel is disabled, or the hub service is starting or stopping | check deyroute status; enable the tunnel (deyroute tunnel enable {tunnel}) or restart the hub: systemctl restart deyroute-hub |
+| `DEY-F008` | Tunnel {tunnel}: {command} did not finish in time | the request timed out or was cancelled while the failover engine was busy (switching or testing the ladder) | check the current state with: deyroute tunnel show {tunnel}; then retry the command if needed |
 
 ## Security / update (DEY-S0xx)
 

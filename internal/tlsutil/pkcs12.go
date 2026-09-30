@@ -13,6 +13,7 @@ import (
 	"unicode/utf16"
 
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	deylog "github.com/localroot4/deyroute/internal/log"
 )
 
 // PKCS#12 parameters (RFC 7292). SHA-1/3DES PBE with a SHA-1 HMAC is what
@@ -105,12 +106,17 @@ type p12DigestInfo struct {
 
 // NewPKCS12Password returns a random password for a .p12 bundle
 // (backend.Secrets.TLSP12Password): 24 random bytes, base64url.
+// The password is registered with log.RegisterSecret: it is written into
+// rendered backend configs (rathole pkcs12_password) and must never appear
+// in logs.
 func NewPKCS12Password() (string, error) {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
 		return "", internalErr("generate PKCS#12 password", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
+	pw := base64.RawURLEncoding.EncodeToString(b)
+	deylog.RegisterSecret(pw)
+	return pw, nil
 }
 
 // EncodePKCS12 builds a password-protected PKCS#12 (PFX v3) bundle from a
@@ -123,8 +129,10 @@ func NewPKCS12Password() (string, error) {
 // both encrypted with pbeWithSHAAnd3-KeyTripleDES-CBC (2048 iterations);
 // the leaf and key bags share a localKeyId (SHA-1 of the leaf); the whole
 // AuthenticatedSafe is protected by an HMAC-SHA1 (PKCS#12 KDF, ID=3, 2048
-// iterations). The password must be BMP-encodable (no emoji and the like).
+// iterations). The password must be BMP-encodable (no emoji and the like);
+// it is registered with log.RegisterSecret.
 func EncodePKCS12(certPEM, keyPEM []byte, password string) ([]byte, error) {
+	deylog.RegisterSecret(password)
 	chain, err := parseCerts(certPEM)
 	if err != nil {
 		return nil, parseErr("certificate", err)

@@ -136,8 +136,12 @@ func sanitizeCN(s string) string {
 }
 
 // NewCA creates a self-signed Ed25519 CA valid for 20 years. cn is the hub
-// name (or a full "DEYROUTE CA <hub>" name, see CACommonName).
+// name (or a full "DEYROUTE CA <hub>" name, see CACommonName). A zero now
+// means the current time.
 func NewCA(cn string, now time.Time) (*CA, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, internalErr("generate CA key", err)
@@ -257,9 +261,12 @@ func (ca *CA) IssueServer(cn string, ips []net.IP, dns []string, validity time.D
 
 // IssueTunnel issues the tunnel TLS certificate of tunnel (section 10, auto
 // mode): ECDSA P-256, CN "tunnel-<id>", role TunnelOU, SAN = hub IPs
-// (v4/v6) and the domain when set, valid for 3 years from now. At least one
-// SAN is required.
+// (v4/v6) and the domain when set, valid for 3 years from now (a zero now
+// means the CA clock). At least one SAN is required.
 func (ca *CA) IssueTunnel(tunnel string, ips []net.IP, dns []string, now time.Time) (certPEM, keyPEM []byte, err error) {
+	if now.IsZero() {
+		now = ca.now()
+	}
 	sanIPs, sanDNS := splitSANs(ips, dns)
 	if len(sanIPs) == 0 && len(sanDNS) == 0 {
 		return nil, nil, internalErr("issue tunnel certificate", deyerr.Plain("at least one IP or DNS SAN is required"))
@@ -383,6 +390,14 @@ func parseCSR(csrPEM []byte) (*x509.CertificateRequest, error) {
 }
 
 func (ca *CA) leafTemplate(cn string, now time.Time, validity time.Duration) (*x509.Certificate, error) {
+	if now.After(ca.Cert.NotAfter) {
+		// Capping NotAfter below would give a certificate that ends before
+		// it starts; nothing the CA signs verifies any more.
+		return nil, deyerr.New(deyerr.T001, deyerr.Params{
+			"path":   ca.Cert.Subject.CommonName,
+			"expiry": ca.Cert.NotAfter.UTC().Format(dateLayout),
+		}).WithFix("replace the internal CA: deyroute security rotate-ca (nodes that cannot reconnect must join again)")
+	}
 	serial, err := randomSerial()
 	if err != nil {
 		return nil, err

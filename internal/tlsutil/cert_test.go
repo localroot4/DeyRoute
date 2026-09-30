@@ -37,7 +37,9 @@ func TestCertInfoAndDaysLeft(t *testing.T) {
 	require.Equal(t, 0, info.DaysLeft(info.NotAfter.Add(-time.Hour)))
 	require.Equal(t, -1, info.DaysLeft(info.NotAfter.Add(time.Hour)))
 	require.False(t, info.Expired(t0))
-	require.True(t, info.Expired(info.NotAfter))
+	// RFC 5280: NotAfter itself is still valid, as crypto/x509 agrees.
+	require.False(t, info.Expired(info.NotAfter))
+	require.True(t, info.Expired(info.NotAfter.Add(time.Second)))
 
 	caInfo, err := CertInfo(ca.CertPEM)
 	require.NoError(t, err)
@@ -78,10 +80,23 @@ func TestExpiryWarning(t *testing.T) {
 	e := requireCode(t, err, deyerr.T006)
 	require.Equal(t, "Certificate expires in 10 days: tunnel-main", e.Message())
 
-	err = ExpiryWarning(certPEM, exp)
+	// The last second of validity warns; one second later it is expired.
+	e = requireCode(t, ExpiryWarning(certPEM, exp), deyerr.T006)
+	require.Equal(t, "0", e.Params["days"])
+	err = ExpiryWarning(certPEM, exp.Add(time.Second))
 	e = requireCode(t, err, deyerr.T001)
 	require.Equal(t, "Certificate expired: tunnel-main", e.Message())
 	require.Contains(t, e.Why(), exp.Format("2006-01-02"))
+
+	// crypto/x509 uses the same boundary.
+	leaf, err := ParseCert(certPEM)
+	require.NoError(t, err)
+	roots := x509.NewCertPool()
+	roots.AddCert(ca.Cert)
+	_, err = leaf.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: exp})
+	require.NoError(t, err)
+	_, err = leaf.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: exp.Add(time.Second)})
+	require.Error(t, err)
 
 	requireCode(t, ExpiryWarning([]byte("junk"), t0), deyerr.T008)
 
@@ -161,6 +176,17 @@ func TestParsePrivateKeyFormats(t *testing.T) {
 	_, err = ParsePrivateKey(pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: []byte{1}}))
 	e := requireCode(t, err, deyerr.T008)
 	require.Contains(t, e.Why(), "encrypted")
+	// Legacy OpenSSL encryption (openssl ec/rsa -aes256) keeps the block
+	// type; the reason must still say "encrypted", not an ASN.1 error.
+	for _, typ := range []string{"EC PRIVATE KEY", "RSA PRIVATE KEY"} {
+		legacy := pem.EncodeToMemory(&pem.Block{Type: typ, Headers: map[string]string{
+			"Proc-Type": "4,ENCRYPTED",
+			"DEK-Info":  "AES-256-CBC,00112233445566778899AABBCCDDEEFF",
+		}, Bytes: []byte{0x30, 0x03, 0x02, 0x01, 0x01}})
+		_, err = ParsePrivateKey(legacy)
+		e = requireCode(t, err, deyerr.T008)
+		require.Contains(t, e.Why(), "encrypted", typ)
+	}
 	_, err = ParsePrivateKey(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte{1, 2}}))
 	requireCode(t, err, deyerr.T008)
 	_, err = ParsePrivateKey([]byte("nothing"))
@@ -223,7 +249,12 @@ func TestValidateCustom(t *testing.T) {
 	expInter := makeCert(t, rootTpl("OldInter", now.Add(-48*time.Hour), now.Add(-time.Hour)), &root)
 	leaf2 := makeCert(t, leafTpl("x", now.Add(-time.Hour), now.Add(24*time.Hour)), &expInter)
 	p := writeFile(t, dir, "exp-inter.pem", append(append([]byte{}, leaf2.pem...), expInter.pem...))
-	requireCode(t, ValidateCustom(p, writeFile(t, dir, "k2", keyPEMOf(t, leaf2.key)), now), deyerr.T001)
+	e = requireCode(t, ValidateCustom(p, writeFile(t, dir, "k2", keyPEMOf(t, leaf2.key)), now), deyerr.T001)
+	require.Contains(t, e.Detail, "certificate 2 in the file (OldInter)", "the owner learns which certificate expired")
+	require.Empty(t, requireCode(t, ValidateCustom(chainPath, keyPath, now.Add(91*24*time.Hour)), deyerr.T001).Detail)
+
+	// The last second of validity is still valid (RFC 5280).
+	require.NoError(t, ValidateCustom(chainPath, keyPath, leaf.cert.NotAfter))
 
 	// Not yet valid: T005.
 	e = requireCode(t, ValidateCustom(chainPath, keyPath, now.Add(-2*time.Hour)), deyerr.T005)

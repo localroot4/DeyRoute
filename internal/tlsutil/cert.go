@@ -83,8 +83,10 @@ func (i Info) DaysLeft(now time.Time) int {
 	return int(math.Floor(i.NotAfter.Sub(now).Hours() / 24))
 }
 
-// Expired reports whether the certificate is expired at now.
-func (i Info) Expired(now time.Time) bool { return !now.Before(i.NotAfter) }
+// Expired reports whether the certificate is expired at now. NotAfter itself
+// is still inside the validity period (RFC 5280 4.1.2.5, as crypto/x509
+// verifies it).
+func (i Info) Expired(now time.Time) bool { return now.After(i.NotAfter) }
 
 // CertInfo describes the first certificate (the leaf) of pemBytes.
 func CertInfo(pemBytes []byte) (Info, error) {
@@ -189,6 +191,11 @@ func parseKey(pemBytes []byte) (crypto.Signer, error) {
 			key any
 			err error
 		)
+		if strings.Contains(block.Headers["Proc-Type"], "ENCRYPTED") {
+			// Legacy OpenSSL encryption ("Proc-Type: 4,ENCRYPTED" +
+			// DEK-Info) of an "RSA/EC PRIVATE KEY" block.
+			return nil, errEncryptedKey
+		}
 		switch block.Type {
 		case pemPrivateKey:
 			key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
@@ -197,7 +204,7 @@ func parseKey(pemBytes []byte) (crypto.Signer, error) {
 		case pemRSAKey:
 			key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 		case pemEncKey:
-			return nil, deyerr.Plain("encrypted private keys are not supported; decrypt the key first")
+			return nil, errEncryptedKey
 		default:
 			continue
 		}
@@ -216,6 +223,10 @@ func parseKey(pemBytes []byte) (crypto.Signer, error) {
 		}
 	}
 }
+
+// errEncryptedKey is the reason for password-protected key files (PKCS#8
+// "ENCRYPTED PRIVATE KEY" or legacy OpenSSL "Proc-Type: 4,ENCRYPTED").
+var errEncryptedKey = deyerr.Plain("encrypted private keys are not supported; decrypt the key first (openssl pkey -in KEY -out KEY.plain)")
 
 // EncodeCertPEM wraps a DER certificate in a CERTIFICATE PEM block.
 func EncodeCertPEM(der []byte) []byte {
@@ -317,7 +328,7 @@ func CheckExpiry(label string, c *x509.Certificate, now time.Time) error {
 	if c == nil {
 		return deyerr.New(deyerr.T008, deyerr.Params{"path": label, "reason": "no certificate"})
 	}
-	if !now.Before(c.NotAfter) {
+	if now.After(c.NotAfter) {
 		return deyerr.New(deyerr.T001, deyerr.Params{"path": label, "expiry": c.NotAfter.UTC().Format(dateLayout)})
 	}
 	if left := c.NotAfter.Sub(now); left <= WarnBefore {
@@ -354,9 +365,14 @@ func ValidateCustom(certPath, keyPath string, now time.Time) error {
 	if err != nil {
 		return parseErr(certPath, err)
 	}
-	for _, c := range chain {
-		if !now.Before(c.NotAfter) {
-			return deyerr.New(deyerr.T001, deyerr.Params{"path": certPath, "expiry": c.NotAfter.UTC().Format(dateLayout)})
+	for i, c := range chain {
+		if now.After(c.NotAfter) {
+			e := deyerr.New(deyerr.T001, deyerr.Params{"path": certPath, "expiry": c.NotAfter.UTC().Format(dateLayout)})
+			if i > 0 {
+				// The Why line shows only the date; say which one it is.
+				e = e.WithDetail("expired: certificate " + strconv.Itoa(i+1) + " in the file (" + certLabel(c) + "), not the server certificate")
+			}
+			return e
 		}
 		if now.Before(c.NotBefore) {
 			return deyerr.New(deyerr.T005, deyerr.Params{"path": certPath}).

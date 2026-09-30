@@ -310,6 +310,76 @@ func TestRotateCATrustsBoth(t *testing.T) {
 	require.Equal(t, "de-1", cn)
 }
 
+// crypto/x509 accepts a peer certificate that is itself in the root pool, so
+// a leaf that ends up in caPEM (a foreign node certificate appended by
+// mistake, hub.crt next to ca.crt) must not become a trust anchor.
+func TestCAPoolIgnoresLeaves(t *testing.T) {
+	p := newPKI(t)
+	mixed := append(append([]byte{}, p.ca.CertPEM...), p.rogueCert...)
+
+	// Why it matters: with the leaf in ClientCAs, stdlib TLS accepts the
+	// foreign node certificate as is and it carries the node role.
+	naive, err := ServerTLSConfig(p.ca.CertPEM, p.hubCert, p.hubKey)
+	require.NoError(t, err)
+	naive.ClientCAs, err = CertPool(mixed)
+	require.NoError(t, err)
+	cli, err := ClientTLSConfig(p.ca.CertPEM, p.rogueCert, p.rogueKey, "")
+	require.NoError(t, err)
+	state, srvErr, cliErr := handshake(t, naive, cli)
+	require.NoError(t, srvErr)
+	require.NoError(t, cliErr)
+	_, _, ok := PeerIdentity(state)
+	require.True(t, ok, "a plain pool trusts the leaf")
+
+	// ServerTLSConfig keeps only the CA.
+	srv, err := ServerTLSConfig(mixed, p.hubCert, p.hubKey)
+	require.NoError(t, err)
+	_, srvErr, _ = handshake(t, srv, cli)
+	require.Error(t, srvErr, "the foreign node certificate is refused")
+
+	// Same on the node side: a hub-role leaf of another CA pasted into the
+	// node's CA file is not trusted.
+	otherHub, otherKey, err := p.otherCA.IssueServer("hub", []net.IP{p.hubIP}, nil, 0)
+	require.NoError(t, err)
+	evil, err := ServerTLSConfig(p.otherCA.CertPEM, otherHub, otherKey)
+	require.NoError(t, err)
+	for _, name := range []string{"", "127.0.0.1"} {
+		cli, err := ClientTLSConfig(append(append([]byte{}, p.ca.CertPEM...), otherHub...), p.nodeCert, p.nodeKey, name)
+		require.NoError(t, err)
+		_, _, cliErr := handshake(t, evil, cli)
+		require.Error(t, cliErr, "serverName=%q", name)
+	}
+
+	// No CA at all: T008 instead of an empty trust store.
+	_, err = ServerTLSConfig(p.hubCert, p.hubCert, p.hubKey)
+	e := requireCode(t, err, deyerr.T008)
+	require.Contains(t, e.Why(), "no CA certificate")
+	_, err = ClientTLSConfig(p.nodeCert, p.nodeCert, p.nodeKey, "")
+	requireCode(t, err, deyerr.T008)
+}
+
+// The node verifies validity at tls.Config.Time, like crypto/tls itself, in
+// every mode (with and without server name, and when joining).
+func TestClientConfigsUseConfigTime(t *testing.T) {
+	p := newPKI(t)
+	srv, err := ServerTLSConfig(p.ca.CertPEM, p.hubCert, p.hubKey)
+	require.NoError(t, err)
+	future := func() time.Time { return time.Now().Add(HubCertValidity + 24*time.Hour) }
+
+	for _, name := range []string{"", "127.0.0.1"} {
+		cli, err := ClientTLSConfig(p.ca.CertPEM, p.nodeCert, p.nodeKey, name)
+		require.NoError(t, err)
+		cli.Time = future
+		_, _, cliErr := handshake(t, srv, cli)
+		require.Error(t, cliErr, "expired hub certificate, serverName=%q", name)
+	}
+
+	join := JoinClientTLSConfig(p.caFingerprint)
+	join.Time = future
+	_, _, cliErr := handshake(t, srv, join)
+	requireCode(t, cliErr, deyerr.N002)
+}
+
 func TestJoinPinning(t *testing.T) {
 	p := newPKI(t)
 	srv, err := ServerTLSConfig(p.ca.CertPEM, p.hubCert, p.hubKey)

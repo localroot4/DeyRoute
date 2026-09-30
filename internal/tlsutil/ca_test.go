@@ -370,6 +370,52 @@ func TestLeafCappedAtCAExpiry(t *testing.T) {
 	require.Equal(t, ca.Cert.NotAfter, leaf.NotAfter)
 }
 
+// An expired CA must not issue: capping NotAfter at the CA expiry would give
+// certificates that end before they start.
+func TestExpiredCARefusesToIssue(t *testing.T) {
+	ca, err := NewCA("ir-1", t0)
+	require.NoError(t, err)
+	after := ca.Cert.NotAfter.Add(time.Second)
+	ca.Now = func() time.Time { return after }
+
+	_, _, err = ca.IssueServer("hub", nil, []string{"hub"}, 0)
+	e := requireCode(t, err, deyerr.T001)
+	require.Equal(t, "Certificate expired: DEYROUTE CA ir-1", e.Message())
+	require.Contains(t, e.Fix(), "deyroute security rotate-ca")
+
+	_, _, err = ca.IssueTunnel("main", []net.IP{net.ParseIP("5.6.7.8")}, nil, after)
+	requireCode(t, err, deyerr.T001)
+
+	csr, _, err := NewKeyAndCSR("de-1")
+	require.NoError(t, err)
+	_, err = ca.SignCSR(csr, "de-1", 0)
+	requireCode(t, err, deyerr.T001)
+
+	// The last valid second still issues, capped at the CA expiry.
+	last := ca.Cert.NotAfter
+	certPEM, _, err := ca.IssueTunnel("main", []net.IP{net.ParseIP("5.6.7.8")}, nil, last)
+	require.NoError(t, err)
+	leaf, err := ParseCert(certPEM)
+	require.NoError(t, err)
+	require.Equal(t, ca.Cert.NotAfter, leaf.NotAfter)
+	require.True(t, leaf.NotBefore.Before(leaf.NotAfter))
+}
+
+// A zero time (an unset field in the caller) means "now", never year 1.
+func TestZeroTimeMeansNow(t *testing.T) {
+	ca, err := NewCA("ir-1", time.Time{})
+	require.NoError(t, err)
+	require.WithinDuration(t, time.Now().Add(-ClockSkew), ca.Cert.NotBefore, time.Minute)
+
+	fixed := time.Now().Add(-48 * time.Hour).UTC().Truncate(time.Second)
+	ca.Now = func() time.Time { return fixed }
+	certPEM, _, err := ca.IssueTunnel("main", []net.IP{net.ParseIP("5.6.7.8")}, nil, time.Time{})
+	require.NoError(t, err)
+	leaf, err := ParseCert(certPEM)
+	require.NoError(t, err)
+	require.Equal(t, fixed.Add(TunnelCertValidity), leaf.NotAfter, "the CA clock is used")
+}
+
 func TestIssueTunnel(t *testing.T) {
 	ca := newTestCA(t)
 	now := time.Now().UTC().Truncate(time.Second)

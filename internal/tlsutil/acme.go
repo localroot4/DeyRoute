@@ -29,6 +29,7 @@ import (
 	"github.com/go-acme/lego/v4/registration"
 
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	deylog "github.com/localroot4/deyroute/internal/log"
 )
 
 // ACME defaults (section 10).
@@ -134,6 +135,9 @@ func accountSubdir(directory string) string {
 // chain (leaf first) and the PKCS#8 key. Every other failure is DEY-T003;
 // the caller then falls back to auto mode and emits acme_failed.
 func ObtainACME(ctx context.Context, o ACMEOptions) (certPEM, keyPEM []byte, err error) {
+	// The token may surface in lego or Cloudflare error texts that end up in
+	// DEY errors and logs (sections 4 and 11).
+	deylog.RegisterSecret(o.CloudflareToken)
 	o.Domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(o.Domain)), ".")
 	if !ValidDomain(o.Domain) {
 		return nil, nil, acmeErr(o.Domain, nil).WithWhy("'" + o.Domain + "' is not a valid domain name (no IPs, wildcards or single labels)")
@@ -144,7 +148,8 @@ func ObtainACME(ctx context.Context, o ACMEOptions) (certPEM, keyPEM []byte, err
 	if o.HTTPPort == 0 {
 		o.HTTPPort = DefaultACMEHTTPPort
 	}
-	if o.HTTPPort < 1 || o.HTTPPort > 65535 {
+	if o.CloudflareToken == "" && (o.HTTPPort < 1 || o.HTTPPort > 65535) {
+		// HTTPPort is ignored with DNS-01.
 		return nil, nil, acmeErr(o.Domain, nil).WithWhy("the HTTP-01 port " + strconv.Itoa(o.HTTPPort) + " is not a valid port")
 	}
 	// Every HTTP request below is bound to ctx; cancelling it on return
@@ -259,12 +264,16 @@ func ObtainACME(ctx context.Context, o ACMEOptions) (certPEM, keyPEM []byte, err
 }
 
 // CheckDomainResolves verifies that domain resolves to expectedIP (section
-// 10: ACME needs a DNS-only record pointing at the hub). A lookup failure or
-// a record pointing elsewhere (e.g. a CDN proxy) is DEY-T004; the addresses
-// found are attached as detail.
+// 10: ACME needs a DNS-only record pointing at the hub). A lookup failure, a
+// record pointing elsewhere (e.g. a CDN proxy) or an extra address of the
+// same family next to the hub's (Let's Encrypt may validate against any of
+// them) is DEY-T004; the addresses found are attached as detail. Addresses
+// of the other family are not judged: the hub's other address is unknown
+// here.
 func CheckDomainResolves(ctx context.Context, domain, expectedIP string, resolve func(ctx context.Context, host string) ([]string, error)) error {
+	expectedIP = strings.TrimSpace(expectedIP)
 	params := deyerr.Params{"domain": domain, "ip": expectedIP}
-	want := net.ParseIP(strings.TrimSpace(expectedIP))
+	want := net.ParseIP(expectedIP)
 	if want == nil {
 		return deyerr.New(deyerr.T004, params).WithWhy("the hub public IP '" + expectedIP + "' is not a valid IP address")
 	}
@@ -277,16 +286,32 @@ func CheckDomainResolves(ctx context.Context, domain, expectedIP string, resolve
 	if err != nil {
 		return deyerr.Wrap(deyerr.T004, err, params).WithWhy("the DNS lookup of " + domain + " failed: " + err.Error())
 	}
+	wantV4 := want.To4() != nil
+	matched := false
+	var stray []string
 	for _, a := range addrs {
-		if ip := net.ParseIP(a); ip != nil && ip.Equal(want) {
-			return nil
+		ip := net.ParseIP(strings.TrimSpace(a))
+		switch {
+		case ip == nil:
+		case ip.Equal(want):
+			matched = true
+		case (ip.To4() != nil) == wantV4:
+			stray = append(stray, a)
 		}
+	}
+	if matched && len(stray) == 0 {
+		return nil
 	}
 	found := "no addresses"
 	if len(addrs) > 0 {
 		found = strings.Join(addrs, ", ")
 	}
-	return deyerr.New(deyerr.T004, params).WithDetail(domain + " resolves to: " + found)
+	e := deyerr.New(deyerr.T004, params).WithDetail(domain + " resolves to: " + found)
+	if matched {
+		e = e.WithWhy("besides " + expectedIP + " its DNS records also point to " + strings.Join(stray, ", ") + ", which Let's Encrypt may validate against").
+			WithFix("keep only the record for " + expectedIP + " (DNS only) and wait for propagation")
+	}
+	return e
 }
 
 func acmeErr(domain string, err error) *deyerr.Error {
@@ -346,9 +371,13 @@ type ctxTransport struct {
 	timeout time.Duration
 }
 
-// RoundTrip implements http.RoundTripper.
+// RoundTrip implements http.RoundTripper. Like every RoundTripper it closes
+// the request body, also when it fails before calling the base transport.
 func (t *ctxTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if err := t.ctx.Err(); err != nil {
+		if r.Body != nil {
+			_ = r.Body.Close()
+		}
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(t.ctx, t.timeout)

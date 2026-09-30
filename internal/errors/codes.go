@@ -113,6 +113,9 @@ const (
 	B042 Code = "DEY-B042" // no reachable decoy SNI {decoys}
 	B043 Code = "DEY-B043" // waterwall failed to start (Detail = log)
 	B044 Code = "DEY-B044" // waterwall reality handshake failed
+	B060 Code = "DEY-B060" // direct relay config invalid {path} {reason}
+	B061 Code = "DEY-B061" // direct relay cannot listen {addr} {proto} {reason}
+	B062 Code = "DEY-B062" // direct/haproxy target not reachable on a public address {target} {tried}
 )
 
 // Failover (DEY-F0xx).
@@ -123,6 +126,8 @@ const (
 	F004 Code = "DEY-F004" // failover paused {tunnel}
 	F005 Code = "DEY-F005" // service down on node {tunnel} {node} {target}
 	F006 Code = "DEY-F006" // switch target invalid {tunnel} {target}
+	F007 Code = "DEY-F007" // failover engine not running {tunnel}
+	F008 Code = "DEY-F008" // failover command did not finish in time {tunnel} {command}
 )
 
 // Security / update (DEY-S0xx).
@@ -426,6 +431,15 @@ var catalog = map[Code]Info{
 	B044: {B044, "Waterwall Reality handshake failed",
 		"the node could not complete the Reality handshake with the hub",
 		"check that the decoy SNI is reachable and the password matches on both sides (re-render)"},
+	B060: {B060, "Relay config is invalid: {path}",
+		"the direct/native relay could not use its rendered file ({reason})",
+		"re-render the tunnel: deyroute tunnel restart <tunnel>; if it repeats run deyroute doctor"},
+	B061: {B061, "Relay cannot listen on {addr} ({proto})",
+		"{reason}",
+		"free the port (ss -lntup shows the owner) or pick another listen port; deyroute port check <port> explains conflicts"},
+	B062: {B062, "Service {target} is not reachable on the node's public address",
+		"direct/haproxy connects from the hub straight to the node service, but nothing answered on {tried}; the service listens only on 127.0.0.1 or a firewall blocks it",
+		"make the service listen on 0.0.0.0 and allow the hub IP in the node firewall, or use direct/native instead"},
 
 	// ---------------------------------------------------------------- F
 	F001: {F001, "Tunnel {tunnel}: all candidates exhausted",
@@ -446,6 +460,12 @@ var catalog = map[Code]Info{
 	F006: {F006, "Tunnel {tunnel}: cannot switch to {target}",
 		"the target transport or node is not part of this tunnel",
 		"list options with: deyroute tunnel show {tunnel}"},
+	F007: {F007, "Tunnel {tunnel}: failover engine is not running",
+		"the tunnel is disabled, or the hub service is starting or stopping",
+		"check deyroute status; enable the tunnel (deyroute tunnel enable {tunnel}) or restart the hub: systemctl restart deyroute-hub"},
+	F008: {F008, "Tunnel {tunnel}: {command} did not finish in time",
+		"the request timed out or was cancelled while the failover engine was busy (switching or testing the ladder)",
+		"check the current state with: deyroute tunnel show {tunnel}; then retry the command if needed"},
 
 	// ---------------------------------------------------------------- S
 	S001: {S001, "Signature or checksum invalid: {file}",

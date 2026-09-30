@@ -18,7 +18,8 @@ const ALPN = "deyroute/1"
 // presented (VerifyClientCertIfGiven: /v1/join has no client certificate,
 // every other path must check PeerIdentity).
 //
-// caPEM may hold several CA certificates (old + new during rotate-ca).
+// caPEM may hold several CA certificates (old + new during rotate-ca); only
+// CA certificates in it are trusted (see caPool), none at all is DEY-T008.
 // When certPEM holds only the leaf, the CA in caPEM that signed it is
 // appended to the presented chain so that joining nodes can pin it.
 // Session tickets are disabled: every connection performs a full handshake,
@@ -54,10 +55,12 @@ func ServerTLSConfig(caPEM, certPEM, keyPEM []byte) (*tls.Config, error) {
 
 // ClientTLSConfig builds the node side of the control channel: TLS 1.3 only,
 // ALPN "deyroute/1", the node certificate as client certificate (optional:
-// empty certPEM sends none) and trust in caPEM only — the system roots are
-// never used (section 11). The server certificate must be the hub control
-// certificate (role HubOU, see IssueServer): a tunnel certificate of the
-// same CA is refused even though it is a valid ServerAuth certificate.
+// empty certPEM sends none) and trust in the CA certificates of caPEM only —
+// the system roots are never used (section 11). The server certificate must
+// be the hub control certificate (role HubOU, see IssueServer): a tunnel
+// certificate of the same CA is refused even though it is a valid
+// ServerAuth certificate. Validity is checked at the returned config's Time
+// (time.Now when nil), as crypto/tls does.
 //
 // With a serverName the hub certificate must also carry that name (IP or
 // DNS SAN). With an empty serverName only the chain to the pinned CA, the
@@ -87,7 +90,7 @@ func ClientTLSConfig(caPEM, certPEM, keyPEM []byte, serverName string) (*tls.Con
 		// a name) does not weaken anything.
 		cfg.InsecureSkipVerify = true // #nosec G402 -- chain verified in VerifyConnection against the pinned CA pool
 		cfg.VerifyConnection = func(cs tls.ConnectionState) error {
-			if _, err := verifyServerChain(cs.PeerCertificates, pool, "", time.Now()); err != nil {
+			if _, err := verifyServerChain(cs.PeerCertificates, pool, "", configNow(cfg)); err != nil {
 				return err
 			}
 			return verifyHubConnection(cs)
@@ -116,25 +119,26 @@ var errNotHubCert = deyerr.Plain("tlsutil: the server certificate is not the dey
 // only in a chain that contains the CA whose fingerprint is in the join link
 // (PinnedCAVerifier). A mismatch aborts the handshake with DEY-N002.
 func JoinClientTLSConfig(fingerprint string) *tls.Config {
-	verify := PinnedCAVerifier(fingerprint)
-	return &tls.Config{
+	want := normalizePin(fingerprint)
+	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS13,
 		NextProtos: []string{ALPN},
 		// The system roots must not be trusted; the pinned CA check in
 		// VerifyConnection replaces crypto/tls' verification. VerifyConnection
 		// also runs on resumed sessions, unlike VerifyPeerCertificate.
 		InsecureSkipVerify: true, // #nosec G402 -- verified by the pinned CA fingerprint in VerifyConnection
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			raw := make([][]byte, 0, len(cs.PeerCertificates))
-			for _, c := range cs.PeerCertificates {
-				raw = append(raw, c.Raw)
-			}
-			if err := verify(raw, nil); err != nil {
-				return err
-			}
-			return requireALPN(cs)
-		},
 	}
+	cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+		raw := make([][]byte, 0, len(cs.PeerCertificates))
+		for _, c := range cs.PeerCertificates {
+			raw = append(raw, c.Raw)
+		}
+		if err := verifyPinned(raw, want, configNow(cfg)); err != nil {
+			return err
+		}
+		return requireALPN(cs)
+	}
+	return cfg
 }
 
 // PinnedCAVerifier returns a tls.Config.VerifyPeerCertificate callback for
@@ -144,13 +148,20 @@ func JoinClientTLSConfig(fingerprint string) *tls.Config {
 // HubOU). Otherwise it returns DEY-N002 with {expected} and {got}. Use it
 // with InsecureSkipVerify (see JoinClientTLSConfig).
 func PinnedCAVerifier(fingerprint string) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-	want, ok := NormalizeFingerprint(fingerprint)
-	if !ok {
-		want = fingerprint
-	}
+	want := normalizePin(fingerprint)
 	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		return verifyPinned(rawCerts, want, time.Now())
 	}
+}
+
+// normalizePin returns the canonical form of a pinned fingerprint. A
+// malformed pin is kept verbatim: it matches no certificate (fail closed)
+// and is shown as {expected} in DEY-N002.
+func normalizePin(fingerprint string) string {
+	if want, ok := NormalizeFingerprint(fingerprint); ok {
+		return want
+	}
+	return fingerprint
 }
 
 func verifyPinned(rawCerts [][]byte, want string, now time.Time) error {
@@ -207,10 +218,7 @@ func pinErr(want, got string) *deyerr.Error {
 // VerifyCAPEM checks that caPEM (e.g. JoinResponse.CAPEM) contains the CA
 // with the pinned fingerprint and returns it; otherwise DEY-N002.
 func VerifyCAPEM(caPEM []byte, fingerprint string) (*x509.Certificate, error) {
-	want, ok := NormalizeFingerprint(fingerprint)
-	if !ok {
-		want = fingerprint
-	}
+	want := normalizePin(fingerprint)
 	certs, err := parseCerts(caPEM)
 	if err != nil {
 		return nil, deyerr.Wrap(deyerr.N002, err, deyerr.Params{"expected": want, "got": "no certificate"})
@@ -241,22 +249,53 @@ func PeerIdentity(cs tls.ConnectionState) (cn, fingerprint string, ok bool) {
 }
 
 // CertPool builds a pool from every certificate in pemBytes (DEY-T008 when
-// none is found).
+// none is found). Unlike the control-channel configs it keeps non-CA
+// certificates, which crypto/x509 then trusts as themselves.
 func CertPool(pemBytes []byte) (*x509.CertPool, error) {
-	pool, _, err := caPool(pemBytes)
-	return pool, err
+	certs, err := parseCerts(pemBytes)
+	if err != nil {
+		return nil, parseErr("CA certificate", err)
+	}
+	pool := x509.NewCertPool()
+	for _, c := range certs {
+		pool.AddCert(c)
+	}
+	return pool, nil
 }
 
+// caPool builds the trust anchors of the control channel from the CA
+// certificates in caPEM. Other certificates are left out: crypto/x509
+// accepts a peer certificate that is itself in the root pool without any
+// chain, so a leaf pasted into caPEM (hub.crt next to ca.crt, a node
+// certificate of another hub) would be trusted as is. No CA at all is
+// DEY-T008.
 func caPool(caPEM []byte) (*x509.CertPool, []*x509.Certificate, error) {
-	cas, err := parseCerts(caPEM)
+	certs, err := parseCerts(caPEM)
 	if err != nil {
 		return nil, nil, parseErr("CA certificate", err)
 	}
 	pool := x509.NewCertPool()
-	for _, c := range cas {
+	var cas []*x509.Certificate
+	for _, c := range certs {
+		if !c.IsCA {
+			continue
+		}
 		pool.AddCert(c)
+		cas = append(cas, c)
+	}
+	if len(cas) == 0 {
+		return nil, nil, deyerr.New(deyerr.T008, deyerr.Params{"path": "CA certificate", "reason": "no CA certificate found (only server or client certificates)"})
 	}
 	return pool, cas, nil
+}
+
+// configNow is the verification time of cfg: cfg.Time when set (as
+// crypto/tls uses it), otherwise the current time.
+func configNow(cfg *tls.Config) time.Time {
+	if cfg.Time != nil {
+		return cfg.Time()
+	}
+	return time.Now()
 }
 
 // keyPair builds a tls.Certificate from a PEM chain and key, reporting a

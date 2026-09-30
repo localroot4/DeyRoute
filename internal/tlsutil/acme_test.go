@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	deylog "github.com/localroot4/deyroute/internal/log"
 )
 
 func staticResolver(addrs ...string) func(context.Context, string) ([]string, error) {
@@ -35,11 +38,25 @@ func TestValidDomain(t *testing.T) {
 
 func TestCheckDomainResolves(t *testing.T) {
 	ctx := context.Background()
-	require.NoError(t, CheckDomainResolves(ctx, "tun.example.com", "5.6.7.8", staticResolver("9.9.9.9", "5.6.7.8")))
+	require.NoError(t, CheckDomainResolves(ctx, "tun.example.com", "5.6.7.8", staticResolver("5.6.7.8")))
+	require.NoError(t, CheckDomainResolves(ctx, "tun.example.com", " 5.6.7.8 ", staticResolver("5.6.7.8", "5.6.7.8")))
 	require.NoError(t, CheckDomainResolves(ctx, "tun.example.com", "2001:db8::1", staticResolver("2001:0db8:0:0::1")))
+	// Addresses of the other family are not judged (the hub's IPv6 is not
+	// known here); a v4-mapped form counts as IPv4.
+	require.NoError(t, CheckDomainResolves(ctx, "tun.example.com", "5.6.7.8", staticResolver("2001:db8::99", "::ffff:5.6.7.8")))
+
+	// Another address of the same family next to the hub's: Let's Encrypt
+	// may validate against it, so HTTP-01 would fail at random.
+	e := requireCode(t, CheckDomainResolves(ctx, "tun.example.com", "5.6.7.8", staticResolver("9.9.9.9", "5.6.7.8")), deyerr.T004)
+	require.Contains(t, e.Why(), "also point to 9.9.9.9")
+	require.Contains(t, e.Fix(), "keep only the record for 5.6.7.8")
+	require.Contains(t, e.Detail, "9.9.9.9, 5.6.7.8")
+	e = requireCode(t, CheckDomainResolves(ctx, "tun.example.com", "2001:db8::1", staticResolver("2001:db8::1", "2001:db8::2", "1.1.1.1")), deyerr.T004)
+	require.Contains(t, e.Why(), "also point to 2001:db8::2")
+	require.NotContains(t, e.Why(), "1.1.1.1")
 
 	err := CheckDomainResolves(ctx, "tun.example.com", "5.6.7.8", staticResolver("104.16.1.1", "104.16.2.2"))
-	e := requireCode(t, err, deyerr.T004)
+	e = requireCode(t, err, deyerr.T004)
 	require.Equal(t, "Domain tun.example.com does not resolve to the hub", e.Message())
 	require.Contains(t, e.Why(), "5.6.7.8")
 	require.Contains(t, e.Detail, "104.16.1.1, 104.16.2.2")
@@ -79,6 +96,17 @@ func TestObtainACMEPreflight(t *testing.T) {
 
 	_, _, err = ObtainACME(ctx, ACMEOptions{Domain: "tun.example.com"})
 	requireCode(t, err, deyerr.X000)
+
+	// A bad HTTP-01 port is refused, but it is ignored with DNS-01 (the run
+	// goes on and stops at the DNS check here).
+	_, _, err = ObtainACME(ctx, ACMEOptions{Domain: "tun.example.com", AccountDir: dir, HTTPPort: 70000})
+	e = requireCode(t, err, deyerr.T003)
+	require.Contains(t, e.Why(), "70000 is not a valid port")
+	_, _, err = ObtainACME(ctx, ACMEOptions{
+		Domain: "tun.example.com", AccountDir: dir, HTTPPort: -1, CloudflareToken: "cf-token-123456",
+		ExpectedIP: "5.6.7.8", Resolver: staticResolver("1.1.1.1"),
+	})
+	requireCode(t, err, deyerr.T004)
 
 	// DNS pointing elsewhere stops before anything is written or dialled.
 	_, _, err = ObtainACME(ctx, ACMEOptions{
@@ -273,6 +301,39 @@ func TestAccountStore(t *testing.T) {
 	blocker := writeFile(t, t.TempDir(), "file", []byte("x"))
 	_, err = accountStore{dir: filepath.Join(blocker, "sub")}.load("")
 	requireCode(t, err, deyerr.T008)
+}
+
+// trackedBody records whether a request body was closed.
+type trackedBody struct {
+	io.Reader
+	closed atomic.Bool
+}
+
+func (b *trackedBody) Close() error { b.closed.Store(true); return nil }
+
+// The http.RoundTripper contract: RoundTrip closes the request body even
+// when it fails before reaching the base transport.
+func TestCtxTransportClosesBodyWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	tr := &ctxTransport{ctx: ctx, base: http.DefaultTransport, timeout: time.Second}
+	body := &trackedBody{Reader: strings.NewReader("jws")}
+	req, err := http.NewRequest(http.MethodPost, "https://acme.invalid/new-order", body)
+	require.NoError(t, err)
+	resp, err := tr.RoundTrip(req)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, resp)
+	require.True(t, body.closed.Load())
+}
+
+// The Cloudflare token must never reach logs or DEY error texts.
+func TestObtainACMERegistersCloudflareToken(t *testing.T) {
+	token := "cf-test-token-7d1c2b9a"
+	_, _, err := ObtainACME(context.Background(), ACMEOptions{
+		Domain: "1.2.3.4", AccountDir: t.TempDir(), CloudflareToken: token,
+	})
+	requireCode(t, err, deyerr.T003)
+	require.NotContains(t, deylog.Redact("cloudflare said: bad token "+token), token)
 }
 
 func TestBoundClient(t *testing.T) {
