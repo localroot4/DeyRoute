@@ -1,0 +1,14 @@
+schema_version: 1
+role: node
+tuning:
+  sysctl_profile: balanced
+  bbr: true
+security:
+  firewall_managed: true
+  restrict_control_to_nodes: true
+node:
+  id: de-1
+  hub_addr: 5.6.7.8:44433
+  hub_ca_fingerprint: sha256:abababababababababababababababababababababababababababababababab
+  cert_file: /etc/deyroute/secrets/node.crt
+  key_file: /etc/deyroute/secrets/node.key

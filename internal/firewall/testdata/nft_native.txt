@@ -1,0 +1,72 @@
+table inet filter {
+	set allowed_tcp {
+		type inet_service
+		flags interval
+		elements = { 22, 80, 443, 2000-2010, 8000,
+			     8001, 8002, 8003, 8004, 8005,
+			     8006, 8007, 8008, 8009, 8010,
+			     8011, 8012, 8013, 8014, 8015,
+			     8016, 8017, 8018 }
+	}
+
+	set blocklist {
+		type ipv4_addr
+		elements = { 198.51.100.7 }
+	}
+
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state vmap { invalid : drop, established : accept, related : accept }
+		iif "lo" accept
+		ip saddr @blocklist drop
+		fib saddr . iif oif missing drop
+		meta l4proto { icmp, ipv6-icmp } accept
+		tcp flags != syn / fin,syn,rst,ack ct state new drop
+		meta l4proto vmap { tcp : jump tcp_in, udp : jump udp_in }
+		limit rate 5/minute burst 5 packets log prefix "drop" level info
+		counter packets 0 bytes 0 reject with icmpx admin-prohibited
+	}
+
+	chain tcp_in {
+		tcp dport @allowed_tcp accept
+		iifname "eth0" tcp dport 7443 accept
+		tcp dport 7443 drop
+	}
+
+	chain udp_in {
+		udp dport 53 accept
+		udp dport vmap { 27015 : drop, 51820 : accept }
+	}
+
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+	}
+}
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+	}
+}
+table ip6 filter6 {
+	chain input {
+		type filter hook input priority filter; policy drop;
+	}
+}
+table inet deyroute {
+	set nodes {
+		type ipv4_addr
+		elements = { 1.2.3.4, 9.8.7.6 }
+	}
+
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+		ct state established,related accept
+		tcp dport 44433 ip saddr @nodes accept
+		tcp dport 44433 drop
+		tcp dport 30000-31999 ip saddr @nodes accept
+		udp dport 30000-31999 ip saddr @nodes accept
+		tcp dport 30000-31999 drop
+		udp dport 30000-31999 drop
+		tcp dport { 443, 2053 } accept
+	}
+}

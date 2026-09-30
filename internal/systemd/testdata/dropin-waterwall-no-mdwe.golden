@@ -1,0 +1,12 @@
+# Managed by deyroute: rendered from /etc/deyroute/config.yaml on every apply; manual edits are overwritten.
+[Service]
+Type=simple
+WorkingDirectory=/etc/deyroute/backends/waterwall/game/nl-2/reverse-reality
+ExecStart=
+ExecStart=/var/lib/deyroute/bin/waterwall/v1.37/Waterwall
+Environment="WATERWALL_LOG=debug"
+StandardOutput=append:/var/log/deyroute/tunnels/game.log
+StandardError=append:/var/log/deyroute/tunnels/game.log
+ReadWritePaths=/etc/deyroute/backends/waterwall/game/nl-2/reverse-reality/log
+# Waterwall maps writable+executable memory at start-up and is killed under MemoryDenyWriteExecute
+MemoryDenyWriteExecute=false

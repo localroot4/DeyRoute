@@ -47,6 +47,7 @@ const (
 	C018 Code = "DEY-C018" // id is immutable {kind} {id}
 	C019 Code = "DEY-C019" // unsupported schema version {version}
 	C020 Code = "DEY-C020" // invalid port input {input}
+	C050 Code = "DEY-C050" // telegram rejected token/chat id {status} {reason}
 )
 
 // Node / control channel (DEY-N0xx).
@@ -78,6 +79,8 @@ const (
 	P018 Code = "DEY-P018" // no free port found
 	P019 Code = "DEY-P019" // firewall apply failed {firewall}
 	P020 Code = "DEY-P020" // backend control port pool exhausted
+	P021 Code = "DEY-P021" // one listen port given two targets {port} {target} {other}
+	P030 Code = "DEY-P030" // per-tunnel network index pool exhausted {tunnel} {max}
 )
 
 // TLS (DEY-T0xx).
@@ -89,6 +92,8 @@ const (
 	T005 Code = "DEY-T005" // chain invalid {path}
 	T006 Code = "DEY-T006" // cert expiring soon {path} {days}
 	T007 Code = "DEY-T007" // CA missing {path}
+	T008 Code = "DEY-T008" // certificate/key file unreadable or not PEM {path} {reason}
+	T009 Code = "DEY-T009" // certificate signing request invalid {reason}
 )
 
 // Backends (DEY-B0xx). B040-B049 are Waterwall specific.
@@ -129,6 +134,7 @@ const (
 	S005 Code = "DEY-S005" // backup invalid {file}
 	S006 Code = "DEY-S006" // manifest entry missing sha256 {backend} {arch}
 	S007 Code = "DEY-S007" // no previous binary for rollback
+	S008 Code = "DEY-S008" // backup passphrase required
 )
 
 // Internal (DEY-X0xx).
@@ -143,6 +149,17 @@ const (
 	X007 Code = "DEY-X007" // command failed {command}
 	X008 Code = "DEY-X008" // not implemented yet {feature}
 	X009 Code = "DEY-X009" // wrong role for command {role} {need}
+	X020 Code = "DEY-X020" // state db locked by another process {path}
+	X021 Code = "DEY-X021" // state db operation failed {op} {path}
+	X022 Code = "DEY-X022" // log file cannot be opened/written {path}
+	X030 Code = "DEY-X030" // program not installed {command}
+	X031 Code = "DEY-X031" // command timed out / cancelled {command}
+	X032 Code = "DEY-X032" // system file write failed {path}
+	X033 Code = "DEY-X033" // kernel setting (sysctl) write failed {key} {value}
+	X034 Code = "DEY-X034" // invalid systemd unit data {field} {value}
+	X050 Code = "DEY-X050" // telegram message not delivered {reason}
+	X051 Code = "DEY-X051" // probe helper server stopped {service} {addr}
+	X052 Code = "DEY-X052" // speed test failed {addr} {phase} {reason}
 )
 
 var catalog = map[Code]Info{
@@ -251,6 +268,9 @@ var catalog = map[Code]Info{
 	C020: {C020, "Could not understand port input '{input}'",
 		"accepted forms: 443, 443/udp, 443,2053, 2000-2010, 443:8443",
 		"re-enter the ports using one of the accepted forms"},
+	C050: {C050, "Telegram rejected the notification settings (HTTP {status})",
+		"Telegram answered '{reason}': the bot token is wrong, the chat id is unknown, or the bot is not a member of that chat",
+		"send /start to the bot (or add it to the group), then: deyroute notify telegram set --token-file F --chat-id C   and   deyroute notify telegram test"},
 
 	// ---------------------------------------------------------------- N
 	N001: {N001, "Join token is invalid or expired",
@@ -324,6 +344,12 @@ var catalog = map[Code]Info{
 	P020: {P020, "Backend control port pool is exhausted",
 		"all ports in 30000-31999 are allocated",
 		"delete unused tunnels or transports"},
+	P021: {P021, "Port {port} is listed twice with different targets",
+		"one listen port can forward to only one target, but {target} and {other} were both given",
+		"keep a single entry for {port}, e.g. 443:8443 or just 443"},
+	P030: {P030, "No free network index for tunnel {tunnel}",
+		"every per-tunnel subnet index 1-{max} (WireGuard addressing) is already assigned",
+		"delete unused tunnels that use wireguard transports, then retry"},
 
 	// ---------------------------------------------------------------- T
 	T001: {T001, "Certificate expired: {path}",
@@ -347,6 +373,12 @@ var catalog = map[Code]Info{
 	T007: {T007, "Internal CA is missing: {path}",
 		"setup did not complete or secrets were deleted",
 		"restore a backup (deyroute restore FILE) or run setup again"},
+	T008: {T008, "Cannot use certificate or key: {path}",
+		"{reason}",
+		"provide an unencrypted PEM file (BEGIN CERTIFICATE / BEGIN PRIVATE KEY); for files under /etc/deyroute/secrets restore a backup (deyroute restore FILE)"},
+	T009: {T009, "Invalid certificate signing request",
+		"{reason}",
+		"run the join command again on the node; if it keeps failing run deyroute doctor on both servers"},
 
 	// ---------------------------------------------------------------- B
 	B001: {B001, "Could not download {backend} {version}",
@@ -437,6 +469,9 @@ var catalog = map[Code]Info{
 	S007: {S007, "No previous binary to roll back to",
 		"/var/lib/deyroute/bin/deyroute.prev does not exist",
 		"install a specific version: deyroute update --version V"},
+	S008: {S008, "A backup passphrase is required",
+		"backups contain the CA key and tunnel secrets and are encrypted with age by default",
+		"enter a passphrase, or run deyroute backup --no-encrypt and keep the file private"},
 
 	// ---------------------------------------------------------------- X
 	X000: {X000, "Unexpected error",
@@ -469,4 +504,37 @@ var catalog = map[Code]Info{
 	X009: {X009, "This command needs a {need}, but this server is a {role}",
 		"the command only makes sense on the other role",
 		"run it on the {need} server"},
+	X020: {X020, "State database is in use: {path}",
+		"another deyroute process holds the database lock (only one hub or node daemon may run)",
+		"stop the other process (systemctl stop deyroute-hub deyroute-node) or wait for it to exit, then retry"},
+	X021: {X021, "State database operation failed: {op}",
+		"bbolt returned an error for {path} (disk full, I/O error or a damaged record)",
+		"check free space and disk health (df -h /var/lib/deyroute); if it persists run deyroute doctor"},
+	X022: {X022, "Cannot write log file {path}",
+		"the log directory is missing, not writable or the disk is full",
+		"check permissions and free space: ls -ld /var/log/deyroute; df -h /var/log"},
+	X030: {X030, "Program not installed: {command}",
+		"deyroute needs {command} but it is not in PATH or the standard system directories",
+		"install the distribution package that provides {command} (e.g. apt install iproute2 nftables), then retry"},
+	X031: {X031, "External command did not finish: {command}",
+		"it was stopped because its time limit was reached or deyroute was shutting down",
+		"check system load (uptime) and the service log; retry the action"},
+	X032: {X032, "Cannot write system file {path}",
+		"the directory is missing or read-only, the disk is full, or deyroute is not running as root",
+		"run deyroute as root and check free space and mounts: df -h; mount | grep ' / '"},
+	X033: {X033, "Cannot change kernel setting {key}",
+		"writing {value} to /proc/sys failed (read-only /proc/sys in a container, or a value this kernel rejects)",
+		"run on the host as root (not in an unprivileged container); undo all tuning with: deyroute optimize revert"},
+	X034: {X034, "Invalid systemd unit data: {field}='{value}'",
+		"deyroute produced a unit name or setting that systemd would reject or misread",
+		"this is a bug; run deyroute doctor and report the generated file"},
+	X050: {X050, "Telegram message could not be delivered",
+		"api.telegram.org was not reachable directly or through any online node ({reason})",
+		"check outbound HTTPS (or https_proxy) on the hub and nodes, then: deyroute notify telegram test; events are still in: deyroute events"},
+	X051: {X051, "Probe helper {service} on {addr} stopped",
+		"accepting or reading on its socket failed unexpectedly",
+		"restart the service (systemctl restart deyroute-node, or deyroute-hub on the hub); if it repeats run: deyroute doctor"},
+	X052: {X052, "Speed test to {addr} failed during {phase}",
+		"{reason}",
+		"check the tunnel first: deyroute diag probe <tunnel>; then retry with a shorter test: deyroute diag speed <tunnel> --seconds 5"},
 }

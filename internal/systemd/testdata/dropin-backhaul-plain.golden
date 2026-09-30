@@ -1,0 +1,8 @@
+# Managed by deyroute: rendered from /etc/deyroute/config.yaml on every apply; manual edits are overwritten.
+[Service]
+Type=simple
+WorkingDirectory=/etc/deyroute/backends/backhaul/main/de-1/wssmux
+ExecStart=
+ExecStart=/var/lib/deyroute/bin/backhaul/v0.6.5/backhaul -c /etc/deyroute/backends/backhaul/main/de-1/wssmux/config.toml
+StandardOutput=append:/var/log/deyroute/tunnels/main.log
+StandardError=append:/var/log/deyroute/tunnels/main.log

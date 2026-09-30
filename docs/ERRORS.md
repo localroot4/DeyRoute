@@ -56,6 +56,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-C018` | The {kind} id '{id}' cannot be changed | ids are immutable after creation; only the name can change | change the name instead, or delete and re-create |
 | `DEY-C019` | Unsupported schema_version {version} | this deyroute build does not know that schema version | update deyroute (deyroute update) or restore an older config |
 | `DEY-C020` | Could not understand port input '{input}' | accepted forms: 443, 443/udp, 443,2053, 2000-2010, 443:8443 | re-enter the ports using one of the accepted forms |
+| `DEY-C050` | Telegram rejected the notification settings (HTTP {status}) | Telegram answered '{reason}': the bot token is wrong, the chat id is unknown, or the bot is not a member of that chat | send /start to the bot (or add it to the group), then: deyroute notify telegram set --token-file F --chat-id C   and   deyroute notify telegram test |
 
 ## Node / control channel (DEY-N0xx)
 
@@ -89,6 +90,8 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-P018` | No free port found | every candidate port is used or reserved | free a port or enter one manually |
 | `DEY-P019` | Could not apply firewall rules ({firewall}) | the firewall tool returned an error | run deyroute security firewall show and see the log; check that nftables is installed |
 | `DEY-P020` | Backend control port pool is exhausted | all ports in 30000-31999 are allocated | delete unused tunnels or transports |
+| `DEY-P021` | Port {port} is listed twice with different targets | one listen port can forward to only one target, but {target} and {other} were both given | keep a single entry for {port}, e.g. 443:8443 or just 443 |
+| `DEY-P030` | No free network index for tunnel {tunnel} | every per-tunnel subnet index 1-{max} (WireGuard addressing) is already assigned | delete unused tunnels that use wireguard transports, then retry |
 
 ## TLS (DEY-T0xx)
 
@@ -101,6 +104,8 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-T005` | Certificate chain is invalid: {path} | the certificate is not signed by the provided chain | include the full chain (leaf first) in the cert file |
 | `DEY-T006` | Certificate expires in {days} days: {path} | tunnel certificates are renewed automatically 30 days before expiry; this one was not | run: deyroute security tls renew |
 | `DEY-T007` | Internal CA is missing: {path} | setup did not complete or secrets were deleted | restore a backup (deyroute restore FILE) or run setup again |
+| `DEY-T008` | Cannot use certificate or key: {path} | {reason} | provide an unencrypted PEM file (BEGIN CERTIFICATE / BEGIN PRIVATE KEY); for files under /etc/deyroute/secrets restore a backup (deyroute restore FILE) |
+| `DEY-T009` | Invalid certificate signing request | {reason} | run the join command again on the node; if it keeps failing run deyroute doctor on both servers |
 
 ## Backends (DEY-B0xx)
 
@@ -144,6 +149,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-S005` | Backup file is invalid: {file} | it is not a deyroute backup or its schema could not be validated | use a file produced by deyroute backup |
 | `DEY-S006` | Manifest has no sha256 for {backend} ({arch}) | binaries are never installed without a pinned checksum | run deyroute update manifest, or fill sha256 in /etc/deyroute/backends.yaml |
 | `DEY-S007` | No previous binary to roll back to | /var/lib/deyroute/bin/deyroute.prev does not exist | install a specific version: deyroute update --version V |
+| `DEY-S008` | A backup passphrase is required | backups contain the CA key and tunnel secrets and are encrypted with age by default | enter a passphrase, or run deyroute backup --no-encrypt and keep the file private |
 
 ## Internal (DEY-X0xx)
 
@@ -159,4 +165,15 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-X007` | External command failed: {command} | the program returned a non-zero exit status | see the log for its output |
 | `DEY-X008` | Not implemented yet: {feature} | this feature is scheduled for a later release | check CHANGELOG.md for availability |
 | `DEY-X009` | This command needs a {need}, but this server is a {role} | the command only makes sense on the other role | run it on the {need} server |
+| `DEY-X020` | State database is in use: {path} | another deyroute process holds the database lock (only one hub or node daemon may run) | stop the other process (systemctl stop deyroute-hub deyroute-node) or wait for it to exit, then retry |
+| `DEY-X021` | State database operation failed: {op} | bbolt returned an error for {path} (disk full, I/O error or a damaged record) | check free space and disk health (df -h /var/lib/deyroute); if it persists run deyroute doctor |
+| `DEY-X022` | Cannot write log file {path} | the log directory is missing, not writable or the disk is full | check permissions and free space: ls -ld /var/log/deyroute; df -h /var/log |
+| `DEY-X030` | Program not installed: {command} | deyroute needs {command} but it is not in PATH or the standard system directories | install the distribution package that provides {command} (e.g. apt install iproute2 nftables), then retry |
+| `DEY-X031` | External command did not finish: {command} | it was stopped because its time limit was reached or deyroute was shutting down | check system load (uptime) and the service log; retry the action |
+| `DEY-X032` | Cannot write system file {path} | the directory is missing or read-only, the disk is full, or deyroute is not running as root | run deyroute as root and check free space and mounts: df -h; mount \| grep ' / ' |
+| `DEY-X033` | Cannot change kernel setting {key} | writing {value} to /proc/sys failed (read-only /proc/sys in a container, or a value this kernel rejects) | run on the host as root (not in an unprivileged container); undo all tuning with: deyroute optimize revert |
+| `DEY-X034` | Invalid systemd unit data: {field}='{value}' | deyroute produced a unit name or setting that systemd would reject or misread | this is a bug; run deyroute doctor and report the generated file |
+| `DEY-X050` | Telegram message could not be delivered | api.telegram.org was not reachable directly or through any online node ({reason}) | check outbound HTTPS (or https_proxy) on the hub and nodes, then: deyroute notify telegram test; events are still in: deyroute events |
+| `DEY-X051` | Probe helper {service} on {addr} stopped | accepting or reading on its socket failed unexpectedly | restart the service (systemctl restart deyroute-node, or deyroute-hub on the hub); if it repeats run: deyroute doctor |
+| `DEY-X052` | Speed test to {addr} failed during {phase} | {reason} | check the tunnel first: deyroute diag probe <tunnel>; then retry with a shorter test: deyroute diag speed <tunnel> --seconds 5 |
 

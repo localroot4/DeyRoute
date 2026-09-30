@@ -1,0 +1,51 @@
+# Managed by deyroute. Do not edit: this table is replaced on every change.
+table inet deyroute {
+	set nodes {
+		type ipv4_addr
+		elements = { 1.2.3.4, 9.8.7.6 }
+	}
+
+	chain input {
+		type filter hook input priority -10; policy accept;
+		ct state established,related accept
+		tcp dport 44433 ip saddr @nodes accept
+		tcp dport 44433 drop
+		tcp dport 30000-31999 ip saddr @nodes accept
+		udp dport 30000-31999 ip saddr @nodes accept
+		tcp dport 30000-31999 drop
+		udp dport 30000-31999 drop
+	}
+
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		fib daddr type local ip daddr != 127.0.0.0/8 tcp dport 443 dnat ip to 10.77.3.2:443
+		fib daddr type local ip daddr != 127.0.0.0/8 tcp dport 2053 dnat ip to 10.77.3.2:8443
+		fib daddr type local ip daddr != 127.0.0.0/8 tcp dport 3000-3010 dnat ip to 10.77.4.2
+		fib daddr type local ip6 daddr != ::1 tcp dport 5000 dnat ip6 to [fd77::2]:5000
+		iifname "eth0" fib daddr type local ip daddr != 127.0.0.0/8 tcp dport 6000 dnat ip to 10.77.5.2:6000
+		fib daddr type local ip daddr != 127.0.0.0/8 udp dport 27015 dnat ip to 10.77.3.2:27015
+	}
+
+	chain output {
+		type nat hook output priority -100; policy accept;
+		fib daddr type local ip daddr != 127.0.0.0/8 tcp dport 443 dnat ip to 10.77.3.2:443
+		fib daddr type local ip daddr != 127.0.0.0/8 tcp dport 2053 dnat ip to 10.77.3.2:8443
+		fib daddr type local ip daddr != 127.0.0.0/8 tcp dport 3000-3010 dnat ip to 10.77.4.2
+		fib daddr type local ip6 daddr != ::1 tcp dport 5000 dnat ip6 to [fd77::2]:5000
+		fib daddr type local ip daddr != 127.0.0.0/8 udp dport 27015 dnat ip to 10.77.3.2:27015
+	}
+
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		oifname "dey-games" masquerade
+		oifname "dey-main" masquerade
+	}
+
+	chain forward {
+		type filter hook forward priority -10; policy accept;
+		oifname "dey-games" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu
+		iifname "dey-games" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu
+		oifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu
+		iifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu
+	}
+}

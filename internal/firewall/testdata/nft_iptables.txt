@@ -1,0 +1,19 @@
+table ip filter {
+	chain INPUT {
+		type filter hook input priority filter; policy drop;
+		iifname "lo" counter packets 0 bytes 0 accept
+		ct state related,established counter packets 0 bytes 0 accept
+		ip protocol tcp tcp dport 22 counter packets 0 bytes 0 jump f2b-sshd
+		tcp dport 22 counter packets 0 bytes 0 accept
+		ip protocol tcp tcp dport { 80, 443 }  counter packets 0 bytes 0 accept
+		udp dport 1000-2000 counter packets 0 bytes 0 accept
+		ip saddr 10.0.0.0/8 tcp dport 8443 counter packets 0 bytes 0 accept
+		ip protocol icmp counter packets 0 bytes 0 accept
+		counter packets 0 bytes 0 log prefix "drop"
+	}
+
+	chain f2b-sshd {
+		ip saddr 203.0.113.9 counter packets 0 bytes 0 reject
+		counter packets 0 bytes 0 return
+	}
+}

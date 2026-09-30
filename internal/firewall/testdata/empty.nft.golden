@@ -1,0 +1,6 @@
+# Managed by deyroute. Do not edit: this table is replaced on every change.
+table inet deyroute {
+	set nodes {
+		type ipv4_addr
+	}
+}
