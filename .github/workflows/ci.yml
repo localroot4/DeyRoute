@@ -10,6 +10,7 @@ permissions:
   contents: read
 
 env:
+  # Never download toolchains implicitly; setup-go provides the Go version.
   GOTOOLCHAIN: local
 
 jobs:
@@ -36,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version-file: go.mod }
+        with: { go-version: stable }
       - run: go test -race -count=1 ./...
       - run: make cover
       - name: govulncheck
@@ -49,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
-        with: { go-version-file: go.mod }
+        with: { go-version: stable }
       - run: make build-all
       - name: static binary check
         run: |
@@ -87,7 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version-file: go.mod }
+        with: { go-version: stable }
       - run: make build
       - name: scenarios
         run: DISTRO=${{ matrix.distro }} make integration
@@ -102,7 +103,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
-        with: { go-version-file: go.mod }
+        with: { go-version: stable }
       - name: install minisign
         run: sudo apt-get update && sudo apt-get install -y minisign
       - name: write signing key

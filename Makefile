@@ -38,6 +38,7 @@ race: ## unit tests with the race detector
 	CGO_ENABLED=1 go test -race ./...
 
 cover: ## coverage for the packages with a 70% floor (section 15)
+	@mkdir -p $(DIST)
 	go test -coverprofile=$(DIST)/cover.out $(COVER_PKGS)
 	@go run ./scripts/coverfloor -profile $(DIST)/cover.out -min 70
 

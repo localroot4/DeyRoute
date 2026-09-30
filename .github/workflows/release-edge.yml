@@ -44,7 +44,7 @@ jobs:
         if: steps.key.outputs.ok == 'true'
       - uses: actions/setup-go@v5
         if: steps.key.outputs.ok == 'true'
-        with: { go-version-file: go.mod }
+        with: { go-version: stable }
       - name: test
         if: steps.key.outputs.ok == 'true'
         run: go test -count=1 ./...
