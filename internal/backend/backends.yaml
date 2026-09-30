@@ -2,8 +2,8 @@
 # may override it at /etc/deyroute/backends.yaml (`deyroute update manifest`).
 #
 # Every backend binary is verified against sha256 before it is installed;
-# an empty sha256 means "not yet computed" and installation is refused with
-# DEY-S006 (see QUESTIONS.md C.9). scripts/manifest-hashes.sh fills them.
+# an empty sha256 would refuse installation with DEY-S006 (QUESTIONS.md C.9).
+# go run ./scripts/manifest-hashes fills and -check re-verifies them.
 #
 # Versions were pinned on 2026-09-29 from the upstream tags; the renderer of
 # each backend follows the README of exactly this version (docs/backends/).
@@ -18,7 +18,7 @@ backends:
     urls:
       amd64: https://github.com/Musixal/Backhaul/releases/download/v0.7.2/backhaul_linux_amd64.tar.gz
       arm64: https://github.com/Musixal/Backhaul/releases/download/v0.7.2/backhaul_linux_arm64.tar.gz
-    sha256: { amd64: "", arm64: "" }
+    sha256: { amd64: "57bf95c2eabeddb1152d2e94ac42f4310883ce0fb909ee2a57bd53503b2dabbc", arm64: "9a424c97ff16fc3f682e8314c418790d2b5bf3136e008edbb6cd402ea00999f6" }
     template_version: 1
   rathole:
     version: v0.5.0
@@ -34,7 +34,7 @@ backends:
     urls:
       amd64: https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-x86_64-unknown-linux-gnu.zip
       arm64: https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-aarch64-unknown-linux-musl.zip
-    sha256: { amd64: "", arm64: "" }
+    sha256: { amd64: "3e7d0d0f365120cd3cd351d147d1a12ee960c8068b464d4dd533a3821873b80e", arm64: "fa4a6fc63d86f8f1faa7c103a845e4715ce79a048455c0eec897b27237576564" }
     template_version: 1
   frp:
     version: v0.71.0
@@ -48,7 +48,7 @@ backends:
     urls:
       amd64: https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_amd64.tar.gz
       arm64: https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_arm64.tar.gz
-    sha256: { amd64: "", arm64: "" }
+    sha256: { amd64: "84f27e39f11169f7adcef8e8b70c9329de17747b1f14dad9fb95eef5682ea716", arm64: "f33c293c275d8fc68c654b6fba8f10b2551d6463d09a9fc9cffb7227eae82266" }
     template_version: 1
   waterwall:
     # v1.33-v1.43 do not build RealityServer/RealityClient (the option is
@@ -64,7 +64,7 @@ backends:
     urls:
       amd64: https://github.com/radkesvat/WaterWall/releases/download/v1.46.94/Waterwall-linux-gcc-x64.zip
       arm64: https://github.com/radkesvat/WaterWall/releases/download/v1.46.94/Waterwall-linux-gcc-arm64.zip
-    sha256: { amd64: "", arm64: "" }
+    sha256: { amd64: "50c8cf5dca21996f33ccfde974fe400b69a7da1605297b5612979c9c28748e15", arm64: "c0d861cd78eeda61dcc204ce44d0130dfae83869a5a4047ba0161830e0bbdea5" }
     template_version: 1
   xray:
     version: v26.3.27
@@ -78,7 +78,7 @@ backends:
     urls:
       amd64: https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
       arm64: https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-arm64-v8a.zip
-    sha256: { amd64: "", arm64: "" }
+    sha256: { amd64: "23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae", arm64: "4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c" }
     template_version: 1
   hysteria2:
     version: app/v2.12.3
@@ -91,25 +91,26 @@ backends:
     urls:
       amd64: https://github.com/apernet/hysteria/releases/download/app%2Fv2.12.3/hysteria-linux-amd64
       arm64: https://github.com/apernet/hysteria/releases/download/app%2Fv2.12.3/hysteria-linux-arm64
-    sha256: { amd64: "", arm64: "" }
+    sha256: { amd64: "8c7a68a906998b747a0db87586e364f995fbfddb95693ae6e2fdb68a6e920d3e", arm64: "c8dc653c3ba0a28d29a26b8fa52d2086f27c0927afddce95c09965e7174e78b0" }
     template_version: 1
   wireguard:
     # wireguard/kernel uses the in-kernel module (no download; the backend
     # reports this entry as System). awg/userspace installs this entry under
     # its own name (/var/lib/deyroute/bin/awg/<ver>/amneziawg-go): upstream
-    # publishes no binaries, so the DEYROUTE release pipeline builds the pinned
-    # Go module version (proxy.golang.org v1.0.4 = commit 69ca16c4fbfa,
-    # 2025-07-04) statically and uploads it to the owner's mirror
-    # (QUESTIONS.md C.20). See docs/backends/wireguard.md.
+    # publishes no binaries, so scripts/build-backends.sh builds the pinned Go
+    # module version (proxy.golang.org v1.0.4 = commit 69ca16c4fbfa,
+    # 2025-07-04) statically and reproducibly; the files are published on the
+    # DEYROUTE release "backend-builds" (QUESTIONS.md C.20, C.29). See
+    # docs/backends/wireguard.md.
     version: v1.0.4
     repo: amnezia-vpn/amneziawg-go
     readme: https://github.com/amnezia-vpn/amneziawg-go/blob/69ca16c4fbfa868834fd733f4cb38513d460aad9/README.md
     archive: raw
     binaries: [amneziawg-go]
     urls:
-      amd64: "{mirror}/backends/amneziawg-go/v1.0.4/amneziawg-go-linux-amd64"
-      arm64: "{mirror}/backends/amneziawg-go/v1.0.4/amneziawg-go-linux-arm64"
-    sha256: { amd64: "", arm64: "" }
+      amd64: https://github.com/localroot4/DeyRoute/releases/download/backend-builds/amneziawg-go-v1.0.4-linux-amd64
+      arm64: https://github.com/localroot4/DeyRoute/releases/download/backend-builds/amneziawg-go-v1.0.4-linux-arm64
+    sha256: { amd64: "8581b0982d1e97d272dd2926f3e87767602c7a18497bc5d7f9bb7033a13a3a42", arm64: "1a81aee6466e0a54bb70ba2582eacccc5c9b37a72a67b079d562ae239500c2d6" }
     template_version: 1
   direct:
     # direct/native is the relay built into deyroute itself; direct/haproxy uses
@@ -129,19 +130,22 @@ backends:
     urls:
       amd64: https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz
       arm64: https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_arm64.tar.gz
-    sha256: { amd64: "", arm64: "" }
+    sha256: { amd64: "b39037b0380ea001fb3c0c28441c2e10bfc694f90682739a65b53e55dce5238b", arm64: "f674c8f4a033dc1dfd4f0d5e9602fbe5b0d0f81307bf3794f44b5b5d6d622eae" }
     template_version: 1
   chisel:
     version: v1.12.1
     repo: jpillora/chisel
     readme: https://github.com/jpillora/chisel/blob/v1.12.1/README.md
-    archive: gz
+    archive: raw
     binaries: [chisel]
-    # Asset names from .github/goreleaser.yml at v1.12.1 (gz archives,
-    # default name template "chisel_<ver>_<os>_<arch>.gz"). See
-    # docs/backends/chisel.md.
+    # Upstream tagged v1.12.1 (reverse-UDP return peers restricted) but
+    # published no release assets for it, so scripts/build-backends.sh builds
+    # the tagged module exactly like upstream's goreleaser (CGO off,
+    # -trimpath, -s -w, BuildVersion) with a pinned Go toolchain; the build is
+    # reproducible and published on the DEYROUTE release "backend-builds"
+    # (QUESTIONS.md C.29, docs/backends/chisel.md).
     urls:
-      amd64: https://github.com/jpillora/chisel/releases/download/v1.12.1/chisel_1.12.1_linux_amd64.gz
-      arm64: https://github.com/jpillora/chisel/releases/download/v1.12.1/chisel_1.12.1_linux_arm64.gz
-    sha256: { amd64: "", arm64: "" }
+      amd64: https://github.com/localroot4/DeyRoute/releases/download/backend-builds/chisel-v1.12.1-linux-amd64
+      arm64: https://github.com/localroot4/DeyRoute/releases/download/backend-builds/chisel-v1.12.1-linux-arm64
+    sha256: { amd64: "5ca58fda892fcded6d77ea8e67ad28a4f19c6533cc82c17d5a2d96460ba5e63c", arm64: "bbdfd6c0ccd332c62a924842c95a5ada5663e2096717c27afdd36a31cf01f7c9" }
     template_version: 1

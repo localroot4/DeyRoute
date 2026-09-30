@@ -166,10 +166,10 @@ func TestTransportsAndManifest(t *testing.T) {
 	m := New().Manifest()
 	require.Equal(t, "v1.12.1", m.Version)
 	require.Equal(t, "jpillora/chisel", m.Repo)
-	require.Equal(t, "gz", m.Archive)
+	require.Equal(t, "raw", m.Archive)
 	require.Equal(t, []string{"chisel"}, m.Binaries)
-	require.Contains(t, m.URLs["amd64"], "/v1.12.1/chisel_1.12.1_linux_amd64.gz")
-	require.Contains(t, m.URLs["arm64"], "/v1.12.1/chisel_1.12.1_linux_arm64.gz")
+	require.Contains(t, m.URLs["amd64"], "/backend-builds/chisel-v1.12.1-linux-amd64")
+	require.Contains(t, m.URLs["arm64"], "/backend-builds/chisel-v1.12.1-linux-arm64")
 	_, err = New().Probe(context.Background(), fixture(t))
 	require.ErrorIs(t, err, backend.ErrNoProbe)
 }

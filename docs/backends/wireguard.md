@@ -6,7 +6,7 @@
 | Package | `internal/backend/wireguard` — registers **two** backends: `wireguard` (transport `kernel`) and `awg` (transport `userspace`) |
 | `wireguard/kernel` | the in-kernel WireGuard module (every Tier 1 distribution); nothing is downloaded — `Manifest()` reports a `System` entry with version `kernel` |
 | `awg/userspace` | [amnezia-vpn/amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go) **v1.0.4** (Go module version on proxy.golang.org = commit `69ca16c4fbfa`, 2025-07-04; the `v1.0.4` tag is no longer served by raw.githubusercontent.com, so the manifest links the [README of that commit](https://github.com/amnezia-vpn/amneziawg-go/blob/69ca16c4fbfa868834fd733f4cb38513d460aad9/README.md)) |
-| Release assets | upstream publishes **no binaries**: the DEYROUTE release pipeline builds `amneziawg-go` statically from the pinned module version and uploads `amneziawg-go-linux-{amd64,arm64}` to the owner mirror (`{mirror}/backends/amneziawg-go/v1.0.4/…`, raw file; QUESTIONS.md C.20). The `wireguard` block of `backends.yaml` describes this build; the `awg` backend installs it under its own name (`/var/lib/deyroute/bin/awg/v1.0.4/amneziawg-go`). |
+| Release assets | upstream publishes **no binaries**: `scripts/build-backends.sh` builds `amneziawg-go` statically and reproducibly from the pinned module version, and `.github/workflows/backend-builds.yml` publishes `amneziawg-go-v1.0.4-linux-{amd64,arm64}` (raw files) on the DEYROUTE release `backend-builds` after checking their sha256 against the manifest (QUESTIONS.md C.20, C.29). The `wireguard` block of `backends.yaml` describes this build; the `awg` backend installs it under its own name (`/var/lib/deyroute/bin/awg/v1.0.4/amneziawg-go`). |
 | Reference (awg) | v1.0.4 sources: `main.go` (`-f/--foreground`, `WG_PROCESS_FOREGROUND`, `LOG_LEVEL`), `ipc/uapi_unix.go` (socket `/var/run/amneziawg/<iface>.sock`), `device/uapi.go` (UAPI keys `jc jmin jmax s1 s2 h1–h4`, also `i1–i5 j1–j3 itime` which are not used), `device/device.go` `handlePostConfig` (limits) |
 | Reference (kernel) | `include/uapi/linux/wireguard.h` (generic netlink family `wireguard`, `WG_CMD_SET_DEVICE`); constants cross-checked with `golang.org/x/sys/unix` v0.41.0 |
 
@@ -170,7 +170,7 @@ so every junk packet fits a 1280-byte path. `Validate` checks every key
 | masquerade on `dey-<tunnel>` | `dey-<tunnel>` when ≤ 15 characters, else `dey-<prefix>_<n>`; canary `deyc-<n>` | Linux interface names are limited to 15 characters; tunnel ids may have 32 |
 | `wg`-style configuration | generic netlink (kernel) / UAPI socket (awg), driven by `deyroute wg up` | only `ip` may be executed (section 15, QUESTIONS.md C.10); no `wg`/`awg` tools |
 | AWG parameters "Jc/Jmin/Jmax/S1/S2/H1–H4" | UAPI keys `jc jmin jmax s1 s2 h1 h2 h3 h4` | amneziawg-go v1.0.4 `device/uapi.go`; the AWG 1.5/2.0 keys `i1–i5`, `j1–j3`, `itime` are left unset |
-| "`amneziawg-go` binary" | built by the release pipeline, published on the mirror | upstream has no release binaries (QUESTIONS.md C.20) |
+| "`amneziawg-go` binary" | built reproducibly by `scripts/build-backends.sh`, published on the release `backend-builds` | upstream has no release binaries (QUESTIONS.md C.20) |
 | forward to any `target` | targets must be `127.0.0.0/8`, `localhost` or the node's public IP (IPv4) | layer-3 forwarding to another host would need masquerading on the node's uplink (making the node a router for the hub); `DEY-B006` explains it |
 
 ## Known limitations

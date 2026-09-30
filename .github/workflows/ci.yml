@@ -5,6 +5,14 @@ on:
     branches: ["**"]
     tags: ["v*"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      distro:
+        description: "integration distro (ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|debian-12|debian-13|all)"
+        default: ubuntu-24.04
+      scenarios:
+        description: "integration scenario ids, e.g. \"S01 S07\" (empty = all)"
+        default: ""
 
 permissions:
   contents: read
@@ -80,18 +88,33 @@ jobs:
   integration:
     runs-on: ubuntu-24.04
     needs: build
-    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main')
+    # Every scenario of spec section 17 in systemd containers (test/integration).
+    # Runs for main and release tags; any branch can run it by hand
+    # (workflow_dispatch, optionally one distro and a scenario list).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'))
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        distro: ["ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"]
+        distro: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.distro != 'all') && format('["{0}"]', inputs.distro) || '["ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: stable }
-      - run: make build
       - name: scenarios
-        run: DISTRO=${{ matrix.distro }} make integration
+        env:
+          DISTRO: ${{ matrix.distro }}
+          SCENARIOS: ${{ inputs.scenarios }}
+          DEY_ARTIFACTS: ${{ github.workspace }}/dist/integration
+        run: test/integration/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-${{ matrix.distro }}
+          path: dist/integration/
+          if-no-files-found: ignore
 
   release:
     runs-on: ubuntu-24.04

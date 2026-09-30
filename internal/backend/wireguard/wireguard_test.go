@@ -229,8 +229,8 @@ func TestTransportsAndManifest(t *testing.T) {
 	require.Equal(t, "v1.0.4", am.Version)
 	require.Equal(t, []string{"amneziawg-go"}, am.Binaries)
 	require.Equal(t, "raw", am.Archive)
-	require.Contains(t, am.URLs["amd64"], "amneziawg-go-linux-amd64")
-	require.Contains(t, am.URLs["arm64"], "amneziawg-go-linux-arm64")
+	require.Contains(t, am.URLs["amd64"], "/backend-builds/amneziawg-go-v1.0.4-linux-amd64")
+	require.Contains(t, am.URLs["arm64"], "/backend-builds/amneziawg-go-v1.0.4-linux-arm64")
 	require.False(t, am.System)
 }
 

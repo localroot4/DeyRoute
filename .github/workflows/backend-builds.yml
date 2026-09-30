@@ -1,0 +1,53 @@
+# Publishes the reproducible backend builds of scripts/build-backends.sh
+# (amneziawg-go, chisel) as assets of the release "backend-builds", which
+# internal/backend/backends.yaml points at. The job refuses to publish files
+# whose sha256 differs from the manifest, and never replaces an asset that is
+# already published (installations pin its hash). The release is a prerelease,
+# so .../releases/latest keeps pointing at the newest deyroute build.
+name: backend-builds
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "dev"]
+    paths:
+      - scripts/build-backends.sh
+      - internal/backend/backends.yaml
+      - .github/workflows/backend-builds.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backend-builds
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: build
+        run: scripts/build-backends.sh dist/backends
+      - name: hashes match the manifest
+        run: go run ./scripts/manifest-hashes -check -only chisel,wireguard -files dist/backends
+      - name: publish missing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=backend-builds
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "Backend builds (used by the deyroute manifest)" \
+              --notes "Reproducible builds of backends without usable upstream binaries; see scripts/build-backends.sh. Never replaced once published."
+          fi
+          have=$(gh release view "$tag" --json assets --jq '.assets[].name')
+          for f in dist/backends/*-linux-*; do
+            n=${f##*/}
+            if grep -qx "$n" <<<"$have"; then echo "kept $n"; else gh release upload "$tag" "$f"; echo "uploaded $n"; fi
+          done
+      - name: published files match the manifest
+        run: go run ./scripts/manifest-hashes -check -only chisel,wireguard

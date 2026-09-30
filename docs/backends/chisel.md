@@ -5,7 +5,7 @@
 | Upstream | [jpillora/chisel](https://github.com/jpillora/chisel) |
 | Pinned version | **v1.12.1** (`internal/backend/backends.yaml`) |
 | Reference | [README at v1.12.1](https://github.com/jpillora/chisel/blob/v1.12.1/README.md) (server/client `--help`, Security, Authentication, TLS guide) and the v1.12.1 sources: `main.go` (server/client options, `AUTH` fallback), `server/server.go` (`--keyfile`, `--authfile`, fingerprint), `share/settings/{remote,users,user}.go` (remote syntax, `UserAddr`, authfile format), `share/ccrypto/keys.go` (`FingerprintKey`), `client/client.go` (`--tls-ca`, `--sni`, fingerprint check) |
-| Release assets | `chisel_1.12.1_linux_amd64.gz`, `chisel_1.12.1_linux_arm64.gz` (`.github/goreleaser.yml`: `archives.formats: [gz]`, default name template; no UPX), binary `chisel` |
+| Release assets | upstream tagged v1.12.1 without publishing assets (v1.12.0 lacks the reverse-UDP return-peer fix this backend needs for `/udp` maps), so `scripts/build-backends.sh` builds the tagged module exactly like upstream's `.github/goreleaser.yml` (CGO off, `-trimpath`, `-s -w`, `share.BuildVersion`) with a pinned Go toolchain; the reproducible raw binaries `chisel-v1.12.1-linux-{amd64,arm64}` are published on the DEYROUTE release `backend-builds` (QUESTIONS.md C.29), binary `chisel` |
 | Package | `internal/backend/chisel` |
 | Direction | Reverse: the hub runs `chisel server --reverse`, the node runs `chisel client` |
 

@@ -179,3 +179,16 @@ stated default until the owner decides · **[ANSWERED]** closed.
 28. **[DEFAULT] Local toolchain vs lint.** golangci-lint v2.5.0 is built with Go
     1.25 and cannot analyse against the Go 1.26 standard library; CI lints
     with the go.mod version (1.25) and tests/builds with current stable Go.
+29. **[DEFAULT] Backend binaries DEYROUTE builds itself.** Two pinned backends
+    have no usable upstream binary: amneziawg-go publishes none (C.20), and
+    chisel tagged v1.12.1 (the fix restricting reverse-UDP return peers, which
+    `chisel/wss` uses for `/udp` maps) without release assets (v1.12.0 lacks
+    the fix). `scripts/build-backends.sh` builds both from the tagged Go
+    modules with a pinned toolchain exactly like upstream (CGO off,
+    `-trimpath`, `-s -w`, chisel's BuildVersion); the output is byte-for-byte
+    reproducible, and `.github/workflows/backend-builds.yml` publishes it on the
+    prerelease `backend-builds` only when the hashes equal the manifest. Every
+    other backend hash in `backends.yaml` was computed from the upstream file
+    and, where upstream publishes checksums (frp, Xray, gost, chisel,
+    hysteria), matches them (`go run ./scripts/manifest-hashes -check`). Owner
+    may mirror these files and override the manifest instead.
