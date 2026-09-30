@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # S23: uninstall restores the system: nft ruleset, sysctl and files as before the install
+# The containers share one kernel, so only network-namespaced sysctls
+# (net.ipv4/net.ipv6) are compared; global keys (fs.*, vm.*, most of net.core)
+# are restored per server from sysctl-before-deyroute.conf, whose removal the
+# file comparison checks.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
 up hub node1 client
 snapshot() {
-  sh_on "$1" "echo '## nft'; nft list ruleset
-    echo '## sysctl'; sysctl -a 2>/dev/null | grep -E '^net\.(core|ipv4|ipv6)\.|^vm\.|^fs\.' |
-      grep -v -E 'conf\.(eth|veth|all|default)[^ ]*\.stable_secret|nf_conntrack_count|tcp_fastopen_key|\.random|dirty_|nr_|inode-|dentry-|file-nr|drop_caches|stat_refresh|min_free|flow_limit|netdev_rss_key|entropy'
+  sh_on "$1" "echo '## nft'; nft list ruleset 2>/dev/null | sed -E 's/counter packets [0-9]+ bytes [0-9]+/counter/'
+    echo '## sysctl'; sysctl -a 2>/dev/null | grep -E '^net\.(ipv4|ipv6)\.' |
+      grep -v -E 'stable_secret|tcp_fastopen_key|\.random|neigh\.|base_reachable|conf\.(eth|veth)'
     echo '## files'; find /etc /usr/local /var/lib /var/log /opt /srv /root -xdev \
       \( -path /var/lib/systemd -o -path /var/log/journal -o -path /etc/ld.so.cache -o -path /var/lib/apt \
          -o -path /var/cache -o -path /var/lib/dpkg -o -path /root/.cache -o -path /etc/machine-id \
