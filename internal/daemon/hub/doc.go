@@ -17,18 +17,27 @@
 //   - the event bus (state.db ring, events.log, Telegram, subscribers);
 //   - the firewall manager (table inet deyroute: @nodes, join window, listen
 //     ports, NAT of the active candidates), debounced;
+//   - the tunnel controllers (tunnels.go, tunnel_*.go): one per enabled
+//     tunnel, planning, installing and rendering every rung on every node,
+//     running the failover engine with the hub's Actions (server side
+//     first, the start check with the last 40 log lines, NAT only for the
+//     active candidate), the canary, the 30-minute re-check, the 60-second
+//     all-ports report and the crash watch (backend_crash);
+//   - the operations (ops_*.go, jobs.go): diag speed, doctor, optimize,
+//     security (rotate tokens and CA, TLS, firewall, audit), Telegram,
+//     updates of deyroute and the backends, and the background jobs (decoy
+//     SNI check, TLS renewal, the optional update check, metrics);
 //   - the Local API on /run/deyroute/daemon.sock used by every CLI command and
-//     the TUI.
+//     the TUI; every method of api.Local is implemented.
 //
-// # Extension
+// # Concurrency
 //
-// The package is built by several engineers in turn. Each concern lives in
-// its own file. Hook methods in hooks.go (reconcileAll, onNodeRemoved,
-// activeHubSides, stopEngines, tunnelView) are the places where the tunnel
-// controller plugs in; the Local API methods that are not implemented yet
-// answer DEY-X008 from the embedded pendingLocal (pending.go). A later file
-// implements a method simply by defining it on *local, which shadows the
-// pending one; the pending method is then deleted.
+// Serve owns every goroutine and waits for all of them. Tunnel operations
+// (Local API changes, reconcile, node removal, cleanups) are serialised by
+// the tunnel manager's opMu; the failover engines never take it. Inside a
+// controller, unitMu serialises the starts, stops and restarts of units and
+// canWork the canary slot. The firewall is computed and applied under one
+// lock, so a newer table is never replaced by an older one.
 //
 // # Testability
 //

@@ -43,6 +43,10 @@ const (
 	// DefaultUnitStartCheck is how long a started hub unit runs before its
 	// state is read (a backend that crashes at once is DEY-B003).
 	DefaultUnitStartCheck = 300 * time.Millisecond
+	// DefaultCrashCheckInterval is how often the crash watch reads the
+	// restart counters of the active candidate's units (section 12 allows
+	// one systemctl show every 5 s per active unit).
+	DefaultCrashCheckInterval = 10 * time.Second
 	// unitStartWatch bounds how long an "activating" hub unit is watched.
 	unitStartWatch = 3 * time.Second
 	// unitStartPoll is the state poll interval while a unit is activating.
@@ -101,6 +105,13 @@ type tunnelCtl struct {
 	// canWork is held while the canary is set up or taken down, so diag
 	// speed can borrow the canary slot (ops_diag.go).
 	canWork sync.Mutex
+	// unitMu serialises starting, stopping and restarting the units of the
+	// tunnel's candidates (the engine's Start/Stop, the restart of the
+	// active candidate after a change, the stray check), so a restart can
+	// never bring back a unit the engine has just stopped.
+	unitMu sync.Mutex
+	// crash is what the crash watch last saw per "<where>|<unit>" (c.mu).
+	crash map[string]crashMark
 
 	engine  *failover.Engine
 	cancel  context.CancelFunc
@@ -131,6 +142,7 @@ func newTunnelCtl(h *Hub, id string) *tunnelCtl {
 		svc:     map[string]svcEntry{},
 		plain:   map[string]plainEntry{},
 		warned:  map[string]bool{},
+		crash:   map[string]crashMark{},
 		first:   make(chan error, 1),
 		kick:    make(chan struct{}, 1),
 		canKick: make(chan struct{}, 1),
@@ -225,6 +237,10 @@ func (c *tunnelCtl) markStarted(sc state.Candidate) {
 	}
 	c.mu.Lock()
 	c.started[sc.Key()] = side
+	// Started by the hub: systemd counts restarts from zero again.
+	for _, k := range crashKeys(c.id, sc) {
+		c.crash[k] = crashMark{known: true}
+	}
 	c.mu.Unlock()
 }
 
@@ -235,6 +251,9 @@ func (c *tunnelCtl) markStopped(sc state.Candidate) (render.Side, bool) {
 	defer c.mu.Unlock()
 	side, ok := c.started[sc.Key()]
 	delete(c.started, sc.Key())
+	for _, k := range crashKeys(c.id, sc) {
+		delete(c.crash, k)
+	}
 	return side, ok
 }
 
@@ -242,6 +261,11 @@ func (c *tunnelCtl) markStopped(sc state.Candidate) (render.Side, bool) {
 func (c *tunnelCtl) isStarted(sc state.Candidate) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.isStartedLocked(sc)
+}
+
+// isStartedLocked is isStarted with c.mu held.
+func (c *tunnelCtl) isStartedLocked(sc state.Candidate) bool {
 	_, ok := c.started[sc.Key()]
 	return ok
 }
@@ -1042,6 +1066,13 @@ func (c *tunnelCtl) launch(parent context.Context, skips map[string]state.Skip) 
 	}
 	if running[st.Active.Key()] {
 		c.markStarted(st.Active)
+		// Restarts counted before this hub process are not new crashes: the
+		// first look of the crash watch is the baseline.
+		c.mu.Lock()
+		for _, k := range crashKeys(c.id, st.Active) {
+			delete(c.crash, k)
+		}
+		c.mu.Unlock()
 		h.log.Info("running tunnel unit adopted", dlog.Tunnel(c.id), dlog.Node(st.Active.Node), dlog.Transport(st.Active.Transport))
 	}
 	if h.canaryRunning(ctx, c.id) {
@@ -1051,9 +1082,17 @@ func (c *tunnelCtl) launch(parent context.Context, skips map[string]state.Skip) 
 	st.Skipped = c.mergeSkips(st.Skipped, skips)
 	eng := failover.NewEngine(ft, engineActions{c}, h.o.FailoverClock, st)
 	c.mu.Lock()
+	if c.stopped {
+		// halted (hub stopping) before it was launched: nothing may start.
+		c.mu.Unlock()
+		cancel()
+		return
+	}
 	c.engine, c.cancel = eng, cancel
-	c.mu.Unlock()
+	// Added under the lock: halt either sees the goroutines or stops them
+	// from being started.
 	c.wg.Add(2)
+	c.mu.Unlock()
 	go func() {
 		defer c.wg.Done()
 		_ = eng.Run(ctx)
@@ -1104,6 +1143,8 @@ func (c *tunnelCtl) stop(ctx context.Context, units bool) {
 			c.h.log.Warn("cannot stop a tunnel unit", dlog.Tunnel(c.id), dlog.Node(sc.Node), dlog.Transport(sc.Transport), dlog.Err(err))
 		}
 	}
+	c.canWork.Lock()
+	defer c.canWork.Unlock()
 	c.canaryDown(sctx)
 }
 
@@ -1165,6 +1206,10 @@ func (c *tunnelCtl) update(ctx context.Context, o updateOpts) error {
 // restartChanged restarts the sides of the active candidate whose rendered
 // files changed (server side first).
 func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, res applyResult, rep *steps) {
+	// The engine cannot start or stop a candidate meanwhile: the restart
+	// never revives a unit it has just stopped.
+	c.unitMu.Lock()
+	defer c.unitMu.Unlock()
 	active := eng.State().Active
 	pc, ok := c.candidate(active)
 	hubCh := ok && res.changedHub[pc.Hub.Instance]
@@ -1199,6 +1244,12 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 		if pc.Transport.Direction.ServerSide() == backend.SideNode {
 			first, second = restartNode, restartHub
 		}
+		// Restarted by the hub: systemd counts restarts from zero again.
+		c.mu.Lock()
+		for _, k := range crashKeys(c.id, active) {
+			c.crash[k] = crashMark{known: true}
+		}
+		c.mu.Unlock()
 		if err := first(); err != nil {
 			return "", err
 		}
@@ -1248,6 +1299,8 @@ func (c *tunnelCtl) ensureRunningOnFresh(ctx context.Context, eng *failover.Engi
 	fresh := c.fresh
 	c.fresh = map[string]bool{}
 	c.mu.Unlock()
+	c.unitMu.Lock()
+	defer c.unitMu.Unlock()
 	active := eng.State().Active
 	if !fresh[active.Node] || !c.isStarted(active) {
 		return
@@ -1284,7 +1337,9 @@ func (c *tunnelCtl) dropNode(ctx context.Context, node string) error {
 		}
 	}
 	if len(t.Nodes) > 0 && t.Nodes[0] == node {
+		c.canWork.Lock()
 		c.canaryDown(ctx)
+		c.canWork.Unlock()
 	}
 	for _, k := range func() []string { c.mu.Lock(); defer c.mu.Unlock(); return sortedKeys(c.started) }() {
 		if sc, err := parseCandidateKey(k); err == nil && sc.Node == node {
@@ -1296,6 +1351,62 @@ func (c *tunnelCtl) dropNode(ctx context.Context, node string) error {
 	delete(c.pending, node)
 	c.mu.Unlock()
 	return c.h.removeNodeCandidates(ctx, t.ID, node, plan.Ladder)
+}
+
+// stopNodeStrays stops the units of the tunnel that run on node although
+// the controller started no candidate there (section 9: only the active
+// candidate runs). After a hub restart the node's units are known only from
+// its first heartbeat, so failover.StrayUnits at launch could not see them.
+// The canary unit may run there only while the canary is up on that node.
+func (c *tunnelCtl) stopNodeStrays(ctx context.Context, node string) {
+	h := c.h
+	ns, _ := h.nodeState(node)
+	var strays []string
+	canary := ""
+	for _, unit := range sortedKeys(ns.Units) {
+		inst, ok := systemd.InstanceOf(unit)
+		if !ok || !unitRunning(ns.Units[unit]) {
+			continue
+		}
+		in, err := systemd.ParseInstance(inst)
+		switch {
+		case err != nil || in.Tunnel != c.id:
+		case in.Canary:
+			canary = inst
+		case in.Node == node:
+			strays = append(strays, inst)
+		}
+	}
+	stop := func(inst string) {
+		cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
+		defer cancel()
+		if err := h.Call(cctx, node, api.CmdUnitStop, api.UnitArgs{Instance: inst}, nil); err != nil {
+			h.log.Warn("cannot stop a tunnel unit that must not run on its node", dlog.Tunnel(c.id), dlog.Node(node),
+				slog.String("instance", inst), dlog.Err(err))
+			return
+		}
+		h.log.Info("tunnel unit that must not run stopped on its node", dlog.Tunnel(c.id), dlog.Node(node), slog.String("instance", inst))
+	}
+	if len(strays) > 0 {
+		c.unitMu.Lock()
+		for _, inst := range strays {
+			in, _ := systemd.ParseInstance(inst)
+			if !c.isStarted(state.Candidate{Node: node, Transport: in.Transport}) {
+				stop(inst)
+			}
+		}
+		c.unitMu.Unlock()
+	}
+	if canary != "" {
+		c.canWork.Lock()
+		c.mu.Lock()
+		up := c.can.ready && c.can.node == node
+		c.mu.Unlock()
+		if !up {
+			stop(canary)
+		}
+		c.canWork.Unlock()
+	}
 }
 
 // removeNodeCandidates removes every rung of tunnel on node: on the node
@@ -1332,14 +1443,20 @@ func (c *tunnelCtl) loop(ctx context.Context) {
 	h := c.h
 	recheck := time.NewTimer(h.o.RecheckInterval)
 	report := time.NewTicker(h.o.ReportInterval)
+	crash := time.NewTicker(h.o.CrashCheckInterval)
 	defer recheck.Stop()
 	defer report.Stop()
+	defer crash.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-c.kick:
-			if err := c.update(ctx, updateOpts{}); err != nil && ctx.Err() == nil {
+			// A node attached: what it needs is installed and rendered
+			// again. When that changed the active candidate's files (a node
+			// whose public IP changed: forward transports dial it), the
+			// active transport restarts on the new files.
+			if err := c.update(ctx, updateOpts{restartActive: true}); err != nil && ctx.Err() == nil {
 				h.log.Info("tunnel sync finished with errors", dlog.Tunnel(c.id), dlog.Err(err))
 			}
 		case <-recheck.C:
@@ -1347,10 +1464,120 @@ func (c *tunnelCtl) loop(ctx context.Context) {
 			recheck.Reset(h.o.RecheckInterval)
 		case <-report.C:
 			c.report(ctx)
+		case <-crash.C:
+			c.checkCrash(ctx)
 		case <-c.canKick:
 			c.canaryWork(ctx)
 		}
 	}
+}
+
+// ---------------------------------------------------------------- crash watch
+
+// Where a unit of a candidate runs (crash watch keys).
+const (
+	crashOnHub  = "hub"
+	crashOnNode = "node"
+	// crashEventGap is the least time between two backend_crash events of
+	// one unit (a crash loop is one event per minute, not one per check).
+	crashEventGap = time.Minute
+)
+
+// crashMark is what the crash watch last saw of one unit.
+type crashMark struct {
+	known    bool // restarts is a baseline (else the next look sets it)
+	restarts int  // systemd's NRestarts
+	failed   bool // the unit was failed
+	emitted  time.Time
+}
+
+// crashKeys are the crash watch keys of the units of candidate sc.
+func crashKeys(tunnel string, sc state.Candidate) []string {
+	unit := systemd.UnitName(systemd.InstanceName(tunnel, sc.Node, sc.Transport))
+	return []string{crashOnHub + "|" + unit, crashOnNode + "|" + unit}
+}
+
+// checkCrash is the crash watch of the active candidate (event
+// backend_crash, section 9): systemd restarts a crashed backend on its own
+// (Restart=always), so only its NRestarts counter tells that it crashed.
+// The hub reads it for its unit (systemctl show) and for the node's unit
+// (unit.status) every CrashCheckInterval. The path probe and the failover
+// engine deal with the effect on the traffic; the event tells the owner
+// that the backend process itself failed.
+func (c *tunnelCtl) checkCrash(ctx context.Context) {
+	h := c.h
+	eng := c.eng()
+	if eng == nil {
+		return
+	}
+	st := eng.State()
+	if st.Active.IsZero() || !runningState(st.State) || !c.isStarted(st.Active) {
+		return
+	}
+	sc := st.Active
+	unit := systemd.UnitName(systemd.InstanceName(c.id, sc.Node, sc.Transport))
+	if us, err := h.o.Systemd.Show(ctx, unit); err == nil {
+		c.noteRestarts(sc, crashOnHub, unit, us.NRestarts, us.Failed())
+	}
+	if !h.Online(sc.Node) {
+		return
+	}
+	var us api.UnitStatus
+	cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
+	err := h.Call(cctx, sc.Node, api.CmdUnitStatus, api.UnitArgs{Instance: systemd.InstanceName(c.id, sc.Node, sc.Transport)}, &us)
+	cancel()
+	if err == nil {
+		c.noteRestarts(sc, crashOnNode, unit, us.NRestarts, us.ActiveState == "failed")
+	}
+}
+
+// noteRestarts compares one look at a unit with the last one and emits
+// backend_crash when systemd restarted it since (or it failed).
+func (c *tunnelCtl) noteRestarts(sc state.Candidate, where, unit string, restarts int, failed bool) {
+	h := c.h
+	now := h.now()
+	key := where + "|" + unit
+	c.mu.Lock()
+	if !c.isStartedLocked(sc) {
+		// Stopped meanwhile: not a crash.
+		c.mu.Unlock()
+		return
+	}
+	m := c.crash[key]
+	more := 0
+	if m.known && restarts > m.restarts {
+		more = restarts - m.restarts
+	}
+	newlyFailed := failed && !m.failed && m.known
+	emit := (more > 0 || newlyFailed) && now.Sub(m.emitted) >= crashEventGap
+	m.known, m.restarts, m.failed = true, restarts, failed
+	if emit {
+		m.emitted = now
+	}
+	c.crash[key] = m
+	c.mu.Unlock()
+	if more == 0 && !newlyFailed {
+		return
+	}
+	place := "the hub"
+	if where == crashOnNode {
+		place = "node " + sc.Node
+	}
+	reason := fmt.Sprintf("%s on %s restarted by systemd %d time(s)", unit, place, more)
+	if newlyFailed && more == 0 {
+		reason = unit + " on " + place + " failed"
+	}
+	e := deyerr.New(deyerr.B011, deyerr.Params{"unit": unit, "where": place, "restarts": restarts})
+	h.log.Warn("tunnel backend crashed", dlog.Tunnel(c.id), dlog.Node(sc.Node), dlog.Transport(sc.Transport),
+		dlog.Code(e.Code), slog.String("reason", reason))
+	if !emit {
+		return
+	}
+	h.Emit(state.Event{
+		Type: state.EvBackendCrash, Level: state.LevelError, Tunnel: c.id, Node: sc.Node,
+		FromTransport: sc.Transport, ToTransport: sc.Transport, Code: string(e.Code), Reason: reason,
+		Message: fmt.Sprintf("Tunnel %s: %s crashed on %s", c.id, sc.Transport, place),
+	})
 }
 
 // recheck re-tests the skipped rungs: failed installations are retried,

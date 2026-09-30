@@ -95,11 +95,12 @@ func (h *Hub) downloadAsset(ctx context.Context, arch, dst string) error {
 	}
 	defer func() { _ = os.RemoveAll(work) }()
 	rel, err := install.DownloadRelease(ctx, install.ReleaseOptions{
-		Fetcher: h.Fetcher(),
-		Sources: h.sources(),
-		Version: version.Version,
-		Arch:    arch,
-		WorkDir: work,
+		Fetcher:   h.Fetcher(),
+		Sources:   h.sources(),
+		Version:   version.Version,
+		Arch:      arch,
+		PublicKey: h.o.MinisignKey,
+		WorkDir:   work,
 	})
 	if err != nil {
 		return err

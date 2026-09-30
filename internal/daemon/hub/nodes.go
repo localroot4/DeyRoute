@@ -143,6 +143,15 @@ func (l *local) NodeRemove(ctx context.Context, id string) error {
 	if err := h.st.DeleteNode(id); err != nil {
 		h.log.Warn("cannot delete the node state", dlog.Node(id), dlog.Err(err))
 	}
+	// Its certificate records go too: a node joining later under the same
+	// id starts clean (and a pending rotate-ca certificate is never
+	// accepted for it).
+	for _, key := range []string{metaNodeCert + id, metaPendingCert + id, metaEchoOrphans + id} {
+		if err := h.st.DeleteMeta(key); err != nil {
+			h.log.Warn("cannot delete a node record", dlog.Node(id), slog.String("record", key), dlog.Err(err))
+		}
+	}
+	h.forgetNodeInstalls(id)
 	h.requestFirewall()
 	if len(affected) > 0 {
 		if err := h.reconcileAll(ctx); err != nil {

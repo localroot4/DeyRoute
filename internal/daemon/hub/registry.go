@@ -3,13 +3,17 @@ package hub
 import (
 	"context"
 	"log/slog"
+	"os"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
+	"github.com/localroot4/deyroute/internal/systemd"
 	"github.com/localroot4/deyroute/internal/version"
 )
 
@@ -123,7 +127,10 @@ func (h *Hub) serveSession(s *api.Session) {
 		h.log.Info("cannot answer the node hello", dlog.Node(s.NodeID), dlog.Err(err))
 		return
 	}
-	h.attach(s, compatible)
+	if !h.attach(s, compatible) {
+		s.Close()
+		return
+	}
 	defer h.detach(s)
 	ping := time.NewTicker(h.o.PingInterval)
 	defer ping.Stop()
@@ -141,10 +148,16 @@ func (h *Hub) serveSession(s *api.Session) {
 }
 
 // attach records a new control stream; a node that was offline comes
-// online (event node_online).
-func (h *Hub) attach(s *api.Session, compatible bool) {
+// online (event node_online). It refuses (false) a node that is no longer
+// in config.yaml: checked under the registry lock, so a NodeRemove either
+// sees this stream (and closes it) or this stream sees the removal.
+func (h *Hub) attach(s *api.Session, compatible bool) bool {
 	now := h.now()
 	h.nodesMu.Lock()
+	if _, ok := h.Config().NodeByID(s.NodeID); !ok {
+		h.nodesMu.Unlock()
+		return false
+	}
 	nr := h.runtimeLocked(s.NodeID)
 	wasOnline := nr.st.Online
 	nr.sess = s
@@ -183,6 +196,7 @@ func (h *Hub) attach(s *api.Session, compatible bool) {
 	}
 	// After `deyroute update` every node follows the hub's version (ops_update.go).
 	h.requestNodeUpdate(s.NodeID, s.Hello.Version)
+	return true
 }
 
 // detach forgets a finished stream. The node stays online until the
@@ -274,6 +288,54 @@ func (h *Hub) monitorLoop(ctx context.Context) {
 			return
 		case <-t.C:
 			h.checkOffline()
+			h.alive.Store(time.Now().UnixNano())
+		}
+	}
+}
+
+// watchdogInterval is how often WATCHDOG=1 is due: half of $WATCHDOG_USEC,
+// 0 when systemd runs no watchdog for this process (section 3: both
+// services run with WatchdogSec).
+func (h *Hub) watchdogInterval() time.Duration {
+	usec := strings.TrimSpace(h.o.Getenv("WATCHDOG_USEC"))
+	if usec == "" {
+		return 0
+	}
+	if pid := strings.TrimSpace(h.o.Getenv("WATCHDOG_PID")); pid != "" && pid != strconv.Itoa(os.Getpid()) {
+		return 0
+	}
+	n, err := strconv.ParseInt(usec, 10, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Microsecond / 2
+}
+
+// watchdogLoop sends WATCHDOG=1 every watchdog interval while the hub is
+// responsive: the offline detector (registry lock, state.db writes) must
+// have completed a pass recently. A hub that hangs stops pinging and
+// systemd restarts it; the tunnel units keep running meanwhile.
+func (h *Hub) watchdogLoop(ctx context.Context) {
+	iv := h.watchdogInterval()
+	if iv <= 0 {
+		return
+	}
+	stale := max(iv, 3*h.o.MonitorInterval)
+	t := time.NewTicker(iv)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if since := time.Since(time.Unix(0, h.alive.Load())); since > stale {
+			h.log.Error("hub is not responsive; the watchdog ping is withheld so systemd restarts it",
+				slog.Duration("stalled", since.Round(time.Second)), dlog.Code(deyerr.X000))
+			continue
+		}
+		if err := h.o.Notify(systemd.StateWatchdog); err != nil {
+			h.log.Warn("watchdog notification failed", dlog.Err(err))
 		}
 	}
 }

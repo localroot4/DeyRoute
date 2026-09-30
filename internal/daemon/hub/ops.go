@@ -52,8 +52,9 @@ type opsState struct {
 	pins     map[string]backend.ManifestEntry // persisted in metaBackendPins
 	pinTrial map[string]backend.ManifestEntry // update backends: version under test
 
-	decoyMu sync.Mutex
-	decoy   string // chosen decoy SNI ("" = not checked yet)
+	decoyMu   sync.Mutex
+	decoy     string        // chosen decoy SNI ("" = not checked yet)
+	decoyKick chan struct{} // a decoy check is wanted now (settings changed)
 
 	updMu  sync.Mutex // serialises update, rollback, update backends/manifest
 	certMu sync.Mutex // serialises TLS renewals
@@ -68,6 +69,7 @@ func (o *opsState) init() {
 	o.pinTrial = map[string]backend.ManifestEntry{}
 	o.restart = make(chan struct{}, 1)
 	o.nodeUpd = make(chan string, nodeUpdateQueue)
+	o.decoyKick = make(chan struct{}, 1)
 }
 
 // loadOps reads the persisted operation records at start.

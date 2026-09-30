@@ -861,9 +861,17 @@ func (h *Hub) removeTunnelUnits(ctx context.Context, t config.Tunnel, ladder []s
 		removed++
 	}
 	var offline []string
+	var echo int
+	if ok, err := h.st.GetMeta(metaCanaryEcho+t.ID, &echo); err != nil || !ok {
+		echo = 0
+	}
 	for _, n := range t.Nodes {
 		if !h.Online(n) {
 			offline = append(offline, n)
+			if echo > 0 && n == t.Nodes[0] {
+				// The canary echo on the primary is stopped when it is back.
+				h.addEchoOrphan(n, echo)
+			}
 			continue
 		}
 		nodeInsts := map[string]bool{systemd.CanaryInstance(t.ID): n == t.Nodes[0]}
@@ -890,10 +898,11 @@ func (h *Hub) removeTunnelUnits(ctx context.Context, t config.Tunnel, ladder []s
 				warn = err
 			}
 		}
-		var echo int
-		if ok, err := h.st.GetMeta(metaCanaryEcho+t.ID, &echo); err == nil && ok && echo > 0 && n == t.Nodes[0] {
+		if echo > 0 && n == t.Nodes[0] {
 			cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
-			_ = h.Call(cctx, n, api.CmdEchoStop, api.EchoArgs{Port: echo}, nil)
+			if err := h.Call(cctx, n, api.CmdEchoStop, api.EchoArgs{Port: echo}, nil); deyerr.HasCode(err, deyerr.N003) {
+				h.addEchoOrphan(n, echo)
+			}
 			cancel()
 		}
 	}

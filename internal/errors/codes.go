@@ -122,6 +122,7 @@ const (
 	B008 Code = "DEY-B008" // backend not in manifest {backend}
 	B009 Code = "DEY-B009" // key generation failed {backend}
 	B010 Code = "DEY-B010" // transport does not support tunnel protocol {transport} {proto}
+	B011 Code = "DEY-B011" // backend crashed, systemd restarted it {unit} {where} {restarts}
 	B040 Code = "DEY-B040" // waterwall json invalid {file}
 	B041 Code = "DEY-B041" // waterwall core.json missing {dir}
 	B042 Code = "DEY-B042" // no reachable decoy SNI {decoys}
@@ -480,6 +481,9 @@ var catalog = map[Code]Info{
 	B010: {B010, "Transport {transport} does not carry {proto}",
 		"the rung cannot forward this tunnel's protocol",
 		"it is removed from this tunnel's ladder automatically"},
+	B011: {B011, "Backend {unit} crashed on {where}",
+		"the backend process exited and systemd restarted it (restarted {restarts} time(s) since it was started); connections through the tunnel were dropped",
+		"see the backend log: deyroute logs <tunnel>; if it keeps crashing the failover engine moves to the next rung, or run: deyroute tunnel restart <tunnel>"},
 	B040: {B040, "Waterwall config is not valid JSON: {file}",
 		"the rendered Waterwall file failed validation before start",
 		"report this with deyroute doctor; the rung is skipped"},

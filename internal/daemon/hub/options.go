@@ -143,6 +143,9 @@ type Options struct {
 	ReportInterval  time.Duration
 	UnitStartCheck  time.Duration
 	UDPProbeTimeout time.Duration
+	// CrashCheckInterval (10 s) is how often the crash watch reads the
+	// restart counters of the active candidate's units (backend_crash).
+	CrashCheckInterval time.Duration
 
 	// Operations (ops_*.go, jobs.go).
 
@@ -256,6 +259,7 @@ func (o Options) withDefaults() Options {
 	setDur(&o.RecheckInterval, DefaultRecheckInterval)
 	setDur(&o.ReportInterval, DefaultReportInterval)
 	setDur(&o.UnitStartCheck, DefaultUnitStartCheck)
+	setDur(&o.CrashCheckInterval, DefaultCrashCheckInterval)
 	setDur(&o.UDPProbeTimeout, health.UDPTimeout)
 	setDur(&o.OfflineAfter, api.OfflineAfter)
 	setDur(&o.PingInterval, DefaultPingInterval)

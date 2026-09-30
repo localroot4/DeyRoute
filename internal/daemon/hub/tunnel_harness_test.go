@@ -115,6 +115,10 @@ func (b *testBackend) Render(in backend.RenderInput, side backend.Side) (backend
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "side=%s\ntransport=%s\ncontrol=%d\ntoken=%s\ncanary=%t\n", side, in.Transport.ID(), in.ControlPort, in.Secrets.Token, in.Canary)
 	var binds []backend.PortUse
+	if side == backend.SideHub && in.Transport.Direction == backend.Forward {
+		// The hub dials the node (forward transports).
+		fmt.Fprintf(&sb, "node=%s\n", in.Node.PublicIP)
+	}
 	for _, p := range in.Tunnel.Ports {
 		if side == backend.SideHub {
 			fmt.Fprintf(&sb, "listen=%s:%d/%s\n", in.ListenAddrOrDefault(), p.Listen, p.Proto)
@@ -169,6 +173,20 @@ type fakeSystemd struct {
 	// canaryTarget, when set, makes a started canary unit proxy its
 	// loopback port to the returned address (diag speed) instead of echoing.
 	canaryTarget func(tunnel string) string
+	// restarts is the NRestarts systemctl show reports per unit.
+	restarts map[string]int
+	// listGate, when set, holds `systemctl list-units` until it is closed.
+	listGate chan struct{}
+}
+
+// setRestarts sets the NRestarts of a unit (a backend systemd restarted).
+func (fs *fakeSystemd) setRestarts(unit string, n int) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if fs.restarts == nil {
+		fs.restarts = map[string]int{}
+	}
+	fs.restarts[unit] = n
 }
 
 func newFakeSystemd(t *testing.T, env *testEnv) *fakeSystemd {
@@ -232,13 +250,20 @@ func (fs *fakeSystemd) handle(c exec.Call) (exec.Response, bool) {
 		}
 		fs.mu.Lock()
 		st := fs.units[unit]
+		nr := fs.restarts[unit]
 		fs.mu.Unlock()
 		sub := map[string]string{"active": "running", "failed": "failed", "inactive": "dead", "": "dead"}[st]
 		if st == "" {
 			st = "inactive"
 		}
-		return exec.OK(fmt.Sprintf("ActiveState=%s\nSubState=%s\nMainPID=0\nNRestarts=0\nResult=success\n", st, sub)), true
+		return exec.OK(fmt.Sprintf("ActiveState=%s\nSubState=%s\nMainPID=0\nNRestarts=%d\nResult=success\n", st, sub, nr)), true
 	case "list-units":
+		fs.mu.Lock()
+		gate := fs.listGate
+		fs.mu.Unlock()
+		if gate != nil {
+			<-gate
+		}
 		fs.mu.Lock()
 		defer fs.mu.Unlock()
 		var lines []string
@@ -494,11 +519,16 @@ type tnode struct {
 	restarted  []string
 	stopped    []string
 	udpBlocked bool
-	echoes     map[int]net.Listener
-	udp        map[int]net.PacketConn
-	wg         sync.WaitGroup
-	stopEcho   context.CancelFunc
-	echoCtx    context.Context
+	// nrestarts is the NRestarts unit.status reports per instance.
+	nrestarts map[string]int
+	// failStart, when set, is the answer of unit.start for an instance
+	// (nil = the unit starts).
+	failStart func(inst string) error
+	echoes    map[int]net.Listener
+	udp       map[int]net.PacketConn
+	wg        sync.WaitGroup
+	stopEcho  context.CancelFunc
+	echoCtx   context.Context
 }
 
 // tunnelNode joins node id, installs the tunnel command handlers and
@@ -510,7 +540,7 @@ func (te *tunnelEnv) tunnelNode(id string) *tnode {
 
 func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 	ctx, cancel := context.WithCancel(context.Background())
-	n := &tnode{fakeNode: fn, env: te, rendered: map[string]api.BackendRenderArgs{},
+	n := &tnode{fakeNode: fn, env: te, rendered: map[string]api.BackendRenderArgs{}, nrestarts: map[string]int{},
 		echoes: map[int]net.Listener{}, udp: map[int]net.PacketConn{}, echoCtx: ctx, stopEcho: cancel}
 	t := te.t
 	t.Cleanup(n.cleanup)
@@ -548,6 +578,12 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 			decode(t, cmd, &args)
 			unit := systemd.UnitName(args.Instance)
 			n.tmu.Lock()
+			if verb == "start" && n.failStart != nil {
+				if err := n.failStart(args.Instance); err != nil {
+					n.tmu.Unlock()
+					return nil, err
+				}
+			}
 			switch verb {
 			case "start":
 				n.started = append(n.started, args.Instance)
@@ -556,6 +592,7 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 			case "stop":
 				n.stopped = append(n.stopped, args.Instance)
 			}
+			nr := n.nrestarts[args.Instance]
 			n.tmu.Unlock()
 			if verb != "status" {
 				te.recordOrder("node " + verb + " " + args.Instance)
@@ -570,7 +607,7 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 					f.units[unit] = "inactive"
 				}
 			}
-			return api.UnitStatus{Unit: unit, ActiveState: f.units[unit]}, nil
+			return api.UnitStatus{Unit: unit, ActiveState: f.units[unit], NRestarts: nr}, nil
 		}
 	}
 	fn.on(api.CmdUnitStart, unitCmd("start"))
@@ -685,6 +722,20 @@ func (n *tnode) startedCount(inst string) int {
 		}
 	}
 	return c
+}
+
+// stoppedList returns the unit.stop calls.
+func (n *tnode) stoppedList() []string {
+	n.tmu.Lock()
+	defer n.tmu.Unlock()
+	return append([]string(nil), n.stopped...)
+}
+
+// setUnit sets the state the node reports for a unit in its heartbeats.
+func (n *tnode) setUnit(inst, st string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.units[systemd.UnitName(inst)] = st
 }
 
 // restartedList returns the unit.restart calls.

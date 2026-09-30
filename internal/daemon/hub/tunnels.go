@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -181,7 +182,13 @@ func (h *Hub) cleanNodeLeftovers(ctx context.Context, node string) {
 	if _, ok := cfg.NodeByID(node); !ok {
 		return
 	}
-	h.removeStaleOnNode(ctx, node, h.keepInstances(cfg))
+	h.removeStaleOnNode(ctx, cfg, node, h.keepInstances(cfg))
+	h.stopEchoOrphans(ctx, node)
+	for _, c := range h.tun.all() {
+		if c.usesNode(node) {
+			c.stopNodeStrays(ctx, node)
+		}
+	}
 }
 
 // waitTunnelsReady waits until the startup reconcile finished (or ctx ends).
@@ -417,28 +424,86 @@ func (h *Hub) removeStale(ctx context.Context, cfg *config.Config, units []syste
 		h.log.Info("stale tunnel unit removed", slog.String("instance", inst))
 	}
 	for _, n := range cfg.Nodes {
-		h.removeStaleOnNode(ctx, n.ID, desired)
+		h.removeStaleOnNode(ctx, cfg, n.ID, desired)
 	}
 }
 
-// removeStaleOnNode removes the instances of node that are not desired.
-func (h *Hub) removeStaleOnNode(ctx context.Context, node string, desired map[string]bool) {
+// removeStaleOnNode removes the instances of node that are not desired. A
+// canary lives only on its tunnel's primary node: one left on a former
+// primary goes too.
+func (h *Hub) removeStaleOnNode(ctx context.Context, cfg *config.Config, node string, desired map[string]bool) {
 	if !h.Online(node) {
 		return
 	}
 	ns, _ := h.nodeState(node)
 	for _, unit := range sortedKeys(ns.Units) {
 		inst, ok := systemd.InstanceOf(unit)
-		if !ok || desired[inst] {
+		if !ok {
 			continue
 		}
 		in, err := systemd.ParseInstance(inst)
 		if err != nil || (!in.Canary && in.Node != node) {
 			continue
 		}
+		if desired[inst] && (!in.Canary || primaryOf(cfg, in.Tunnel) == node) {
+			continue
+		}
 		if err := h.removeNodeInstance(ctx, node, in); err != nil {
 			h.log.Warn("cannot remove a stale tunnel unit on its node", dlog.Node(node), slog.String("instance", inst), dlog.Err(err))
 		}
+	}
+}
+
+// primaryOf is the primary node of tunnel ("" when it has none).
+func primaryOf(cfg *config.Config, tunnel string) string {
+	if t, ok := cfg.Tunnel(tunnel); ok && len(t.Nodes) > 0 {
+		return t.Nodes[0]
+	}
+	return ""
+}
+
+// metaEchoOrphans + node lists canary echo ports a deleted tunnel left on
+// the node while it was offline; they are stopped when it reconnects.
+const metaEchoOrphans = "canary-echo-orphans/"
+
+// addEchoOrphan remembers an echo port to stop on node.
+func (h *Hub) addEchoOrphan(node string, port int) {
+	var ports []int
+	if _, err := h.st.GetMeta(metaEchoOrphans+node, &ports); err != nil {
+		ports = nil
+	}
+	if slices.Contains(ports, port) {
+		return
+	}
+	if err := h.st.PutMeta(metaEchoOrphans+node, append(ports, port)); err != nil {
+		h.log.Warn("cannot remember a canary echo to stop", dlog.Node(node), dlog.Err(err))
+	}
+}
+
+// stopEchoOrphans stops the remembered echo ports on node (first
+// heartbeat after it reconnected).
+func (h *Hub) stopEchoOrphans(ctx context.Context, node string) {
+	var ports []int
+	if ok, err := h.st.GetMeta(metaEchoOrphans+node, &ports); err != nil || !ok {
+		return
+	}
+	var left []int
+	for _, p := range ports {
+		cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
+		err := h.Call(cctx, node, api.CmdEchoStop, api.EchoArgs{Port: p}, nil)
+		cancel()
+		if deyerr.HasCode(err, deyerr.N003) || ctx.Err() != nil {
+			left = append(left, p)
+		}
+	}
+	var err error
+	if len(left) > 0 {
+		err = h.st.PutMeta(metaEchoOrphans+node, left)
+	} else {
+		err = h.st.DeleteMeta(metaEchoOrphans + node)
+	}
+	if err != nil {
+		h.log.Warn("cannot update the canary echoes to stop", dlog.Node(node), dlog.Err(err))
 	}
 }
 
@@ -547,16 +612,21 @@ func (h *Hub) hubWriter() *render.HubWriter {
 // node: the node may have rebooted or lost files, so its install and
 // render caches are cleared and every controller that uses it syncs.
 func (h *Hub) nodeAttached(node string) {
-	h.tun.instMu.Lock()
-	for k := range h.tun.installed {
-		if strings.HasPrefix(k, node+"|") {
-			delete(h.tun.installed, k)
-		}
-	}
-	h.tun.instMu.Unlock()
+	h.forgetNodeInstalls(node)
 	for _, c := range h.tun.all() {
 		if c.usesNode(node) {
 			c.nodeAttached(node)
+		}
+	}
+}
+
+// forgetNodeInstalls drops the installation results of node from the cache.
+func (h *Hub) forgetNodeInstalls(node string) {
+	h.tun.instMu.Lock()
+	defer h.tun.instMu.Unlock()
+	for k := range h.tun.installed {
+		if strings.HasPrefix(k, node+"|") {
+			delete(h.tun.installed, k)
 		}
 	}
 }

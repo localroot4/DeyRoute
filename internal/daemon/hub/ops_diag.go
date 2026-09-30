@@ -293,4 +293,7 @@ func (c *tunnelCtl) releaseCanary() {
 	if want {
 		c.requestCanary(true)
 	}
+	// A change of rung 1 or of the primary node during the test left the
+	// canary as it was: the controller checks it again now.
+	c.kickLoop()
 }

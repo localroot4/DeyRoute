@@ -85,9 +85,36 @@ func every(ctx context.Context, first, interval time.Duration, fn func()) {
 
 // ---------------------------------------------------------------- decoy SNI
 
-// decoyLoop checks the decoy SNIs at start and every DecoyInterval.
+// decoyLoop checks the decoy SNIs at start, every DecoyInterval and when
+// the owner changed the decoy list (requestDecoyCheck).
 func (h *Hub) decoyLoop(ctx context.Context) {
-	every(ctx, 0, h.o.DecoyInterval, func() { h.checkDecoys(ctx) })
+	t := time.NewTimer(0)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-h.ops.decoyKick:
+			if !t.Stop() {
+				select {
+				case <-t.C:
+				default:
+				}
+			}
+		}
+		h.checkDecoys(ctx)
+		t.Reset(h.o.DecoyInterval)
+	}
+}
+
+// requestDecoyCheck asks the decoy job for a check now (the decoy list
+// changed: the first reachable one is used, section 7.4).
+func (h *Hub) requestDecoyCheck() {
+	select {
+	case h.ops.decoyKick <- struct{}{}:
+	default:
+	}
 }
 
 // checkDecoys tests hub.decoy_snis (or the built-in list) in order with a

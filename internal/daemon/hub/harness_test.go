@@ -89,17 +89,19 @@ func prepareEnv(t *testing.T, edit func(c *config.Config), opts ...envOption) (*
 	self := filepath.Join(root, "deyroute-self")
 	require.NoError(t, os.WriteFile(self, env.self, 0o755)) // #nosec G306 -- test binary
 	o := Options{
-		Root:             root,
-		Runner:           env.runner,
-		Logger:           dlog.Discard(),
-		ControlListen:    "127.0.0.1:0",
-		SocketPath:       env.sock,
-		SelfBinary:       self,
-		Arch:             "amd64",
-		DisableFirewall:  true,
-		Notify:           func(string) error { return nil },
-		Getenv:           func(string) string { return "" },
-		OfflineAfter:     time.Second,
+		Root:            root,
+		Runner:          env.runner,
+		Logger:          dlog.Discard(),
+		ControlListen:   "127.0.0.1:0",
+		SocketPath:      env.sock,
+		SelfBinary:      self,
+		Arch:            "amd64",
+		DisableFirewall: true,
+		Notify:          func(string) error { return nil },
+		Getenv:          func(string) string { return "" },
+		// Long enough that a loaded test machine (-race, other packages'
+		// tests) does not miss heartbeats every 50 ms for that long.
+		OfflineAfter:     2 * time.Second,
 		PingInterval:     100 * time.Millisecond,
 		MonitorInterval:  25 * time.Millisecond,
 		FirewallDebounce: 20 * time.Millisecond,

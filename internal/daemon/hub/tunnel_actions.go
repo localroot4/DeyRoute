@@ -160,6 +160,8 @@ func (c *tunnelCtl) isHome(sc state.Candidate) bool {
 // startCandidate starts both sides of sc in the section 9 order.
 func (c *tunnelCtl) startCandidate(ctx context.Context, sc state.Candidate) error {
 	h := c.h
+	c.unitMu.Lock()
+	defer c.unitMu.Unlock()
 	pc, ok := c.candidate(sc)
 	if !ok {
 		b, tr, _ := strings.Cut(sc.Transport, "/")
@@ -217,6 +219,8 @@ func (c *tunnelCtl) startNodeSide(ctx context.Context, pc *render.Candidate) err
 // returned (an offline node is DEY-N003).
 func (c *tunnelCtl) stopCandidate(ctx context.Context, sc state.Candidate) error {
 	h := c.h
+	c.unitMu.Lock()
+	defer c.unitMu.Unlock()
 	inst := systemd.InstanceName(c.id, sc.Node, sc.Transport)
 	in, err := systemd.ParseInstance(inst)
 	if err != nil {

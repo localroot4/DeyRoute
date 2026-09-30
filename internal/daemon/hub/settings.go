@@ -85,6 +85,15 @@ func (h *Hub) applyConfigFile(rep *steps) (api.ApplyResult, error) {
 		if next.Hub.ControlPort != prev.Hub.ControlPort {
 			res.Warnings = append(res.Warnings, "hub.control_port changed: restart deyroute-hub (systemctl restart "+ServiceName+") to listen on the new port")
 		}
+		if !reflect.DeepEqual(prev.Tuning, next.Tuning) && next.Tuning != nil {
+			// Kernel settings change only on the owner's explicit command
+			// (section 12).
+			res.Warnings = append(res.Warnings, "tuning changed: apply it on the hub and the nodes with deyroute optimize apply --profile "+
+				firstNonEmpty(next.Tuning.SysctlProfile, config.SysctlOff))
+		}
+		if firewallManaged(prev) && !firewallManaged(next) {
+			res.Warnings = append(res.Warnings, "security.firewall_managed is false: table inet deyroute is removed and deyroute only suggests firewall commands (deyroute security firewall show)")
+		}
 		return strings.Join(res.Changed, ", "), nil
 	})
 	return res, nil
@@ -171,7 +180,7 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 	if _, err := h.autoBackup(); err != nil {
 		return withLog(err)
 	}
-	rerender := false
+	rerender, decoysChanged := false, false
 	_, err := h.mutate(func(c *config.Config) error {
 		if mode != "" {
 			c.Hub.UIMode = mode
@@ -181,7 +190,7 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 		}
 		if len(decoys) > 0 && !slices.Equal(decoys, c.Hub.DecoySNIs) {
 			c.Hub.DecoySNIs = decoys
-			rerender = true
+			rerender, decoysChanged = true, true
 		}
 		if req.Domain != nil {
 			d := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(*req.Domain), "."))
@@ -196,6 +205,11 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 		return withLog(err)
 	}
 	h.log.Info("settings changed", slog.String("ui_mode", mode), slog.String("language", lang), slog.Bool("rerender", rerender))
+	if decoysChanged {
+		// The new list is tested from the hub; the first reachable decoy
+		// is used (section 7.4). Until then its first entry is.
+		h.requestDecoyCheck()
+	}
 	if rerender {
 		if err := h.reconcileAll(ctx); err != nil {
 			h.log.Warn("reconcile after a settings change failed", dlog.Err(err))

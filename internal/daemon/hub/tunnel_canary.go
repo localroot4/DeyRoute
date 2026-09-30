@@ -91,6 +91,10 @@ func (c *tunnelCtl) canaryWork(ctx context.Context) {
 		// diag speed runs in the canary slot; it kicks the canary when done.
 	case want && !ready && !unusable:
 		if err := c.canaryUp(ctx); err != nil {
+			// A side that did start does not keep running on its own: the
+			// canary is taken down whatever failed (it is built again when
+			// the engine asks, unless it cannot be built at all).
+			c.canaryDown(context.WithoutCancel(ctx))
 			if ctx.Err() != nil {
 				return
 			}
@@ -99,7 +103,6 @@ func (c *tunnelCtl) canaryWork(ctx context.Context) {
 				c.mu.Lock()
 				c.can.unusable = true
 				c.mu.Unlock()
-				c.canaryDown(ctx)
 			}
 			c.h.log.Warn("canary could not be started; failback is blind until the next re-check",
 				dlog.Tunnel(c.id), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
@@ -280,13 +283,26 @@ func (c *tunnelCtl) stopCanaryUnits(ctx context.Context) {
 // the primary node changed): its units stop and its files go, a new one is
 // built when the engine asks again.
 func (c *tunnelCtl) checkCanary(ctx context.Context, t config.Tunnel, plan render.TunnelPlan) {
+	// A canary that matches is kept; while diag speed borrows the slot its
+	// units are the speed test's (releaseCanary makes the controller check
+	// again afterwards).
+	keep := func(cs canaryState) bool {
+		return cs.cand == nil || cs.borrowed ||
+			(len(t.Nodes) > 0 && len(plan.Ladder) > 0 && cs.node == t.Nodes[0] && cs.rung == plan.Ladder[0])
+	}
 	c.mu.Lock()
 	cs := c.can
 	c.mu.Unlock()
-	if cs.cand == nil {
+	if keep(cs) {
 		return
 	}
-	if len(t.Nodes) > 0 && len(plan.Ladder) > 0 && cs.node == t.Nodes[0] && cs.rung == plan.Ladder[0] {
+	// Not while the controller goroutine sets the canary up.
+	c.canWork.Lock()
+	defer c.canWork.Unlock()
+	c.mu.Lock()
+	cs = c.can
+	c.mu.Unlock()
+	if keep(cs) {
 		return
 	}
 	c.canaryDown(ctx)

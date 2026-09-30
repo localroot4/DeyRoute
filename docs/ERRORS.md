@@ -135,6 +135,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-B008` | Backend {backend} is not in the manifest | backends.yaml has no entry for it | run: deyroute update manifest |
 | `DEY-B009` | Key generation failed for {backend} | the backend key tool returned an error | see the log; make sure the backend binary is installed (deyroute update backends) |
 | `DEY-B010` | Transport {transport} does not carry {proto} | the rung cannot forward this tunnel's protocol | it is removed from this tunnel's ladder automatically |
+| `DEY-B011` | Backend {unit} crashed on {where} | the backend process exited and systemd restarted it (restarted {restarts} time(s) since it was started); connections through the tunnel were dropped | see the backend log: deyroute logs <tunnel>; if it keeps crashing the failover engine moves to the next rung, or run: deyroute tunnel restart <tunnel> |
 | `DEY-B040` | Waterwall config is not valid JSON: {file} | the rendered Waterwall file failed validation before start | report this with deyroute doctor; the rung is skipped |
 | `DEY-B041` | Waterwall core.json missing in {dir} | Waterwall must start with WorkingDirectory set to the core.json folder | run deyroute tunnel restart <tunnel> to re-render |
 | `DEY-B042` | No decoy SNI is reachable | none of {decoys} answered a TLS 1.3 handshake from the hub | set a reachable decoy list in Settings, then retry |
