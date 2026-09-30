@@ -42,9 +42,12 @@ stated default until the owner decides · **[ANSWERED]** closed.
    `deyroute`; the actual repository is `localroot4/DeyRoute`. The Go module is
    `github.com/localroot4/deyroute`; the binary, paths, units and all user-visible
    names stay `deyroute` exactly as specified.
-2. **[DEFAULT] Go version.** Spec: Go ≥ 1.22. `go.mod` declares `go 1.24.2`
-   because the pinned Bubble Tea/Bubbles releases require it. All dependency
-   versions are pinned in `go.mod` (see section 15 list).
+2. **[DEFAULT] Go version.** Spec: Go ≥ 1.22. `go.mod` declares `go 1.25.0`:
+   the security fixes for `golang.org/x/net` (GO-2026-5026) and
+   `golang.org/x/text` (GO-2026-5970), reachable through the ACME client,
+   require Go 1.25, and Go 1.24 no longer receives security releases. CI
+   and release builds use the current stable Go (1.26.x), so shipped
+   binaries carry a patched standard library. `govulncheck` runs in CI.
 3. **[DEFAULT] Star (`*`) items in the main menu.** "Advanced only adds starred
    items" is read as: the 13 top-level items always exist with fixed numbers;
    the starred *sub-items* (`thresholds`, `limits`, `view fingerprints`) appear
