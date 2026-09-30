@@ -7,8 +7,8 @@ package install
 // the same value — a test enforces it) refuse files whose signature does not
 // verify against it (spec section 11).
 //
-// PLACEHOLDER: this key was generated for development and its secret key was
-// discarded, so nothing can be signed with it. The owner MUST replace it (here
-// and in installer/install.sh) with the public key of the real release key
-// before the first release; see QUESTIONS.md.
-const MinisignPublicKey = "RWTv3LWjY2Y1kBNezZhjxAw4SzGU5K8tkH8D3Rq76L2iMddh+P0cOvJS"
+// The matching secret key lives only in the repository secret
+// MINISIGN_SECRET_KEY, used by .github/workflows/release-edge.yml and ci.yml.
+// To rotate: go run ./scripts/minisign keygen, update this constant and
+// MINISIGN_PUBKEY in installer/install.sh, and replace the secret.
+const MinisignPublicKey = "RWQtE2Hu1KwstgupEuPAWy+J2tiIgFVTIcReWI+Qh+yGMY3s2xWpyMuO"

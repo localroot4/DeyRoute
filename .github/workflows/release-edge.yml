@@ -1,0 +1,93 @@
+# Development ("edge") releases: every push to main or the development branch
+# publishes a signed GitHub release v<ver>-edge.<run> marked "latest", so the
+# one-line installer always works from GitHub:
+#
+#   bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)
+#
+# Signing needs the repository secret MINISIGN_SECRET_KEY (the key whose public
+# half is internal/install.MinisignPublicKey). Without it the release step is
+# skipped with a notice instead of publishing unsigned files.
+name: release-edge
+
+on:
+  push:
+    branches: [main, "dev"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-edge
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+  BASE_VERSION: 0.1.0
+
+jobs:
+  edge:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: signing key present?
+        id: key
+        env:
+          KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::notice::edge release skipped: add the repository secret MINISIGN_SECRET_KEY (see README)"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == 'true'
+      - uses: actions/setup-go@v5
+        if: steps.key.outputs.ok == 'true'
+        with: { go-version-file: go.mod }
+      - name: test
+        if: steps.key.outputs.ok == 'true'
+        run: go test -count=1 ./...
+      - name: build
+        if: steps.key.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${BASE_VERSION}-edge.${GITHUB_RUN_NUMBER}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            d="dist/deyroute_${VERSION}_linux_${arch}"
+            mkdir -p "$d"
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -o "$d/deyroute" ./cmd/deyroute
+            cp README.md CHANGELOG.md "$d/"
+            tar -C dist -czf "dist/deyroute_${VERSION}_linux_${arch}.tar.gz" "deyroute_${VERSION}_linux_${arch}"
+            rm -rf "$d"
+          done
+          cp installer/install.sh internal/backend/backends.yaml dist/
+          (cd dist && sha256sum deyroute_*.tar.gz install.sh backends.yaml > SHA256SUMS)
+      - name: sign
+        if: steps.key.outputs.ok == 'true'
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        run: |
+          go run ./scripts/minisign sign -in dist/SHA256SUMS
+          go run ./scripts/minisign sign -in dist/backends.yaml
+          go run ./scripts/minisign verify -in dist/SHA256SUMS -pubkey "$(grep -o 'RW[A-Za-z0-9+/=]*' internal/install/keys.go)"
+      - name: publish
+        if: steps.key.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.minisig \
+            dist/install.sh dist/backends.yaml dist/backends.yaml.minisig \
+            --target "$GITHUB_SHA" --latest \
+            --title "DEYROUTE ${VERSION} (development build)" \
+            --notes "Development build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install: bash <(curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.sh)"
+          # Keep only the 5 newest edge releases.
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | test("-edge\\."))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+            while read -r tag; do gh release delete "$tag" --cleanup-tag --yes; done

@@ -47,7 +47,7 @@ func NewRoot(g *Globals) *cobra.Command {
 	root.SetOut(g.Out)
 	root.SetErr(g.Err)
 	root.SetIn(g.In)
-	root.AddCommand(newVersionCmd(g), newMenuCmd(g))
+	root.AddCommand(newVersionCmd(g), newMenuCmd(g), newSetupCmd(), newJoinCmd())
 	return root
 }
 
@@ -141,4 +141,41 @@ func logPanic(r any, stack []byte) {
 	}
 	defer func() { _ = f.Close() }()
 	fmt.Fprintf(f, "{\"level\":\"ERROR\",\"code\":\"DEY-X000\",\"msg\":\"panic\",\"err\":%q,\"stack\":%q}\n", fmt.Sprint(r), string(stack))
+}
+
+// notYet reports a feature that is not in this development build yet.
+func notYet(feature string) error {
+	return deyerr.New(deyerr.X008, deyerr.Params{"feature": feature}).
+		WithFix(i18n.T(i18n.CLINotYetFix))
+}
+
+// newSetupCmd is the setup wizard entry point used by installer/install.sh.
+func newSetupCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: i18n.T(i18n.CLISetupShort),
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return notYet("deyroute setup")
+		},
+	}
+	cmd.Flags().String("role", "", "hub or node")
+	cmd.Flags().String("name", "", "server name, e.g. ir-1")
+	cmd.Flags().Int("control-port", 0, "hub control port (default 44433)")
+	cmd.Flags().Bool("yes", false, i18n.T(i18n.CLIFlagYes))
+	return cmd
+}
+
+// newJoinCmd joins this server to a hub as a node.
+func newJoinCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "join 'dey://TOKEN@HUB_IP:PORT#FINGERPRINT'",
+		Short: i18n.T(i18n.CLIJoinShort),
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return notYet("deyroute join")
+		},
+	}
+	cmd.Flags().String("name", "", "node id, e.g. de-1")
+	return cmd
 }

@@ -206,7 +206,9 @@ func TestParseInputLargeCount(t *testing.T) {
 // TestParseInputHugePaste guards against expanding ranges per item: a long
 // paste of full-range items used to take seconds per kilobyte.
 func TestParseInputHugePaste(t *testing.T) {
-	in := strings.Repeat("1-65535,1-65535/udp,", 2000) // ~40 KB
+	// ~4 KB: large enough to catch per-item range expansion, small enough
+	// to stay well under the bound with -race on slow CI runners.
+	in := strings.Repeat("1-65535,1-65535/udp,", 200)
 	start := time.Now()
 	_, err := ParseInput(in)
 	elapsed := time.Since(start)

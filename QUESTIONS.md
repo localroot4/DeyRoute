@@ -28,7 +28,7 @@ stated default until the owner decides · **[ANSWERED]** closed.
 
 | Item | Default in code | Decide by |
 | --- | --- | --- |
-| Installer URL / mirror (`RELEASE_BASE`) | **[OPEN]** placeholder `https://get.deyroute.example` in `installer/install.sh` and `internal/install` | phase 1 |
+| Installer URL / mirror (`RELEASE_BASE`) | **[DEFAULT]** GitHub only for now: `https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh`; owner CDN can be set later in `RELEASE_BASE` | phase 1 |
 | Domain for ACME | none (`tls.mode: auto`) | phase 3 |
 | Decoy SNI list (Reality/Waterwall) | **[OPEN]** placeholder list in `internal/backend/decoy.go`; owner must supply 3 domains reachable from Iran | phase 6 |
 | Default ladder | as in section 8 | phase 4 |

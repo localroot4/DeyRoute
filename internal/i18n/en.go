@@ -69,6 +69,9 @@ const (
 	CLINeedConfirm  Key = "cli.need_confirm"
 	CLITypeYes      Key = "cli.type_yes"
 	CLIAborted      Key = "cli.aborted"
+	CLISetupShort   Key = "cli.setup.short"
+	CLIJoinShort    Key = "cli.join.short"
+	CLINotYetFix    Key = "cli.not_yet_fix"
 )
 
 var en = map[Key]string{
@@ -141,4 +144,7 @@ var en = map[Key]string{
 	CLINeedConfirm:  "This action needs confirmation; re-run with --yes",
 	CLITypeYes:      "Type yes to continue: ",
 	CLIAborted:      "Aborted.",
+	CLISetupShort:   "Set up this server as a hub or node (wizard)",
+	CLIJoinShort:    "Join this server to a hub as a node",
+	CLINotYetFix:    "this development build installs the binary only; re-run the install command after the next build to upgrade (config is never touched)",
 }

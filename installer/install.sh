@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DEYROUTE installer (spec section 5): installs /usr/local/bin/deyroute, then runs `deyroute setup`;
 # running it again repairs/upgrades (config untouched). See --help, e.g.:
-#   curl -fsSL https://get.deyroute.example/install.sh | sudo bash -s -- --role hub --name ir-1 --yes
+#   curl -fsSL https://raw.githubusercontent.com/localroot4/DeyRoute/main/installer/install.sh | sudo bash -s -- --role hub --name ir-1 --yes
 # Sources in order: --mirror URL (or $DEYROUTE_MIRROR) -> RELEASE_BASE -> GitHub releases, each tried
 # 3 times (backoff 2s, 4s); mirror layout <base>/latest/<file> and <base>/v<ver>/<file>. curl/wget
 # honour https_proxy. Only DEYROUTE release files are downloaded; nothing is installed unless
@@ -10,11 +10,12 @@
 # prehashed "ED" ones (minisign's default) via BLAKE2b-512.
 set -Eeuo pipefail
 
-RELEASE_BASE="https://get.deyroute.example"
-GITHUB_BASE="https://github.com/localroot4/deyroute/releases"
-# Release public key. PLACEHOLDER: must equal internal/install.MinisignPublicKey (a test
-# enforces it); the owner replaces both with the real release key before the first release.
-MINISIGN_PUBKEY="RWTv3LWjY2Y1kBNezZhjxAw4SzGU5K8tkH8D3Rq76L2iMddh+P0cOvJS"
+# RELEASE_BASE: owner CDN tried before GitHub; empty = GitHub only.
+RELEASE_BASE=""
+GITHUB_BASE="https://github.com/localroot4/DeyRoute/releases"
+# Release public key; must equal internal/install.MinisignPublicKey (a test enforces it).
+# The secret key is the repository secret MINISIGN_SECRET_KEY (scripts/minisign keygen).
+MINISIGN_PUBKEY="RWQtE2Hu1KwstgupEuPAWy+J2tiIgFVTIcReWI+Qh+yGMY3s2xWpyMuO"
 BIN_DIR=/usr/local/bin
 VERSION="" MIRROR="${DEYROUTE_MIRROR:-}" LOCAL="" NO_SETUP=0 SKIP_SIG=0
 ROLE="" NAME="" YES=0 JOIN="" ARCH="" ARCHIVE="" TMP=""
@@ -150,7 +151,8 @@ fetch_release() {
   local err=DEY-I004 s kind base name
   local -a srcs=()
   if [ -n "$MIRROR" ]; then srcs+=("mirror ${MIRROR%/}"); fi
-  srcs+=("base ${RELEASE_BASE%/}" "github $GITHUB_BASE")
+  if [ -n "$RELEASE_BASE" ]; then srcs+=("base ${RELEASE_BASE%/}"); fi
+  srcs+=("github $GITHUB_BASE")
   for s in "${srcs[@]}"; do
     kind=${s%% *} base=${s#* }
     say "downloading from $base"

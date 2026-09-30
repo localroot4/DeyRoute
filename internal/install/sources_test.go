@@ -7,10 +7,10 @@ import (
 )
 
 func TestSourcesOrder(t *testing.T) {
+	// With an empty build-time ReleaseBase only the mirror and GitHub remain.
 	got := Sources("https://flag.example/", "https://env.example", "")
 	require.Equal(t, []Source{
 		{Name: SourceMirror, BaseURL: "https://flag.example"},
-		{Name: SourceReleaseBase, BaseURL: ReleaseBase},
 		{Name: SourceGitHub, BaseURL: GitHubReleases},
 	}, got)
 
@@ -21,9 +21,10 @@ func TestSourcesOrder(t *testing.T) {
 		{Name: SourceGitHub, BaseURL: GitHubReleases},
 	}, got)
 
-	// No mirror; a mirror equal to the release base is tried once.
-	require.Len(t, Sources("", "", ""), 2)
-	got = Sources(ReleaseBase+"/", "", "")
+	// No mirror and no release base: GitHub only.
+	require.Len(t, Sources("", "", ""), 1)
+	// A mirror equal to the release base is tried once.
+	got = Sources("https://cdn.example/", "", "https://cdn.example")
 	require.Len(t, got, 2)
 	require.Equal(t, SourceMirror, got[0].Name)
 }
@@ -45,10 +46,10 @@ func TestSourceURLs(t *testing.T) {
 	require.Equal(t, "", Tag("latest"))
 	require.Equal(t, "v1.0.0", Tag("1.0.0"))
 
-	urls := URLs(Sources("https://m.example", "", ""), "1.0.0", SumsFile)
+	urls := URLs(Sources("https://m.example", "", "https://cdn.example"), "1.0.0", SumsFile)
 	require.Equal(t, []string{
 		"https://m.example/v1.0.0/SHA256SUMS",
-		ReleaseBase + "/v1.0.0/SHA256SUMS",
+		"https://cdn.example/v1.0.0/SHA256SUMS",
 		GitHubReleases + "/download/v1.0.0/SHA256SUMS",
 	}, urls)
 }

@@ -9,10 +9,10 @@ import (
 // enforces both).
 const (
 	// ReleaseBase is the build-time default download base (the owner's CDN).
-	// Placeholder until the owner provides a real one (QUESTIONS.md B).
-	ReleaseBase = "https://get.deyroute.example"
+	// Empty until the owner provides one (QUESTIONS.md B): GitHub is used.
+	ReleaseBase = ""
 	// GitHubReleases is the GitHub releases root of the project.
-	GitHubReleases = "https://github.com/localroot4/deyroute/releases"
+	GitHubReleases = "https://github.com/localroot4/DeyRoute/releases"
 	// MirrorEnv is the environment variable naming the owner's mirror.
 	MirrorEnv = "DEYROUTE_MIRROR"
 )
