@@ -23,6 +23,9 @@ const (
 	I012 Code = "DEY-I012" // ca-certificates missing
 	I013 Code = "DEY-I013" // already set up {role}
 	I014 Code = "DEY-I014" // setup step failed {step}
+	I020 Code = "DEY-I020" // public IP not detected {reason}
+	I021 Code = "DEY-I021" // detected IP is private/CGNAT/loopback {ip}
+	I022 Code = "DEY-I022" // uninstall step failed {step}
 )
 
 // Configuration (DEY-C0xx).
@@ -47,6 +50,10 @@ const (
 	C018 Code = "DEY-C018" // id is immutable {kind} {id}
 	C019 Code = "DEY-C019" // unsupported schema version {version}
 	C020 Code = "DEY-C020" // invalid port input {input}
+	C021 Code = "DEY-C021" // unknown tunnel {tunnel}
+	C022 Code = "DEY-C022" // builtin ladder is read-only {ladder}
+	C023 Code = "DEY-C023" // ladder in use {ladder} {tunnels}
+	C024 Code = "DEY-C024" // config.yaml changed during config edit {path} {copy}
 	C050 Code = "DEY-C050" // telegram rejected token/chat id {status} {reason}
 )
 
@@ -67,6 +74,9 @@ const (
 	N013 Code = "DEY-N013" // control API request without a valid node certificate {path}
 	N014 Code = "DEY-N014" // command cancelled {node} {command}
 	N015 Code = "DEY-N015" // control channel protocol error {node} {reason}
+	N020 Code = "DEY-N020" // hub join answer unusable {reason}
+	N050 Code = "DEY-N050" // node refused a hub command {node} {command} {reason}
+	N051 Code = "DEY-N051" // node could not download a file {node} {file}
 )
 
 // Ports / firewall (DEY-P0xx).
@@ -84,6 +94,7 @@ const (
 	P020 Code = "DEY-P020" // backend control port pool exhausted
 	P021 Code = "DEY-P021" // one listen port given two targets {port} {target} {other}
 	P030 Code = "DEY-P030" // per-tunnel network index pool exhausted {tunnel} {max}
+	P031 Code = "DEY-P031" // firewall not managed by deyroute (security.firewall_managed: false)
 )
 
 // TLS (DEY-T0xx).
@@ -222,6 +233,15 @@ var catalog = map[Code]Info{
 	I014: {I014, "Setup step failed: {step}",
 		"a required setup step could not complete",
 		"read the log below, fix the cause and run the installer again (it repairs, never reinstalls)"},
+	I020: {I020, "Could not detect the public IP address of this server",
+		"{reason}",
+		"check the network with: ip route   then enter this server's public IP when setup asks for it"},
+	I021: {I021, "Detected address {ip} is not a public IP",
+		"the route to the internet uses a private, CGNAT or loopback source address; nodes abroad cannot connect to it unless the provider forwards it to this server",
+		"enter the server's real public IP when setup asks (see the provider panel), or later change hub.public_ip in /etc/deyroute/config.yaml and run: deyroute config apply"},
+	I022: {I022, "Uninstall step failed: {step}",
+		"part of the removal could not complete; every other step still ran and the deyroute binary was kept",
+		"fix the cause shown below, then run deyroute uninstall again (it is safe to repeat)"},
 
 	// ---------------------------------------------------------------- C
 	C001: {C001, "Unknown key in config: {key}",
@@ -284,6 +304,18 @@ var catalog = map[Code]Info{
 	C020: {C020, "Could not understand port input '{input}'",
 		"accepted forms: 443, 443/udp, 443,2053, 2000-2010, 443:8443",
 		"re-enter the ports using one of the accepted forms"},
+	C021: {C021, "Unknown tunnel: {tunnel}",
+		"no tunnel with that id exists in config.yaml",
+		"list the tunnels with: deyroute tunnel list"},
+	C022: {C022, "Ladder '{ladder}' is built in and cannot be changed",
+		"the builtin ladders (default, udp-default) follow section 8 of the specification and are read-only here",
+		"create your own ladder: deyroute ladder create <name> --rungs a,b,c   then: deyroute tunnel edit <id> --ladder <name>"},
+	C023: {C023, "Ladder '{ladder}' is in use",
+		"tunnels {tunnels} use this ladder",
+		"move those tunnels to another ladder first (deyroute tunnel edit <id> --ladder default), then delete it"},
+	C024: {C024, "{path} changed while it was being edited",
+		"another deyroute command or the menu saved {path} after the editor was opened; saving the edited copy would undo that change",
+		"your edited copy is kept in {copy}: run deyroute config edit again and make your changes on the current file"},
 	C050: {C050, "Telegram rejected the notification settings (HTTP {status})",
 		"Telegram answered '{reason}': the bot token is wrong, the chat id is unknown, or the bot is not a member of that chat",
 		"send /start to the bot (or add it to the group), then: deyroute notify telegram set --token-file F --chat-id C   and   deyroute notify telegram test"},
@@ -334,6 +366,15 @@ var catalog = map[Code]Info{
 	N015: {N015, "Control channel protocol error with node {node}",
 		"hub and node could not understand each other ({reason}); usually their versions differ",
 		"update the node from the hub (Update -> deyroute), then check: deyroute logs node"},
+	N020: {N020, "The hub's join answer cannot be used",
+		"{reason}",
+		"make sure the hub and this server run the same deyroute version, then create a new join command on the hub (deyroute node join-command) and run it here"},
+	N050: {N050, "Node {node} refused command {command}",
+		"{reason}; the node only writes below /etc/deyroute/backends, runs deyroute's own binaries and reaches only allowed addresses",
+		"update the hub and the node to the same version (Update -> deyroute); if it repeats run deyroute doctor --node {node} and report it"},
+	N051: {N051, "Node {node} could not download {file}",
+		"the node tried the source 3 times without success (no outbound HTTPS, DNS failure, or the server refused); the cause is shown below",
+		"check outbound HTTPS on the node (curl -I https://github.com), or set DEYROUTE_MIRROR on the hub to a reachable mirror"},
 
 	// ---------------------------------------------------------------- P
 	P010: {P010, "Invalid port: {input}",
@@ -375,6 +416,9 @@ var catalog = map[Code]Info{
 	P030: {P030, "No free network index for tunnel {tunnel}",
 		"every per-tunnel subnet index 1-{max} (WireGuard addressing) is already assigned",
 		"delete unused tunnels that use wireguard transports, then retry"},
+	P031: {P031, "deyroute does not manage the firewall",
+		"security.firewall_managed is false: table inet deyroute is not applied, so the control port, the backend control ports and the tunnel ports must be opened by hand",
+		"run deyroute security firewall show for the suggested commands, or set security.firewall_managed: true and run deyroute config apply"},
 
 	// ---------------------------------------------------------------- T
 	T001: {T001, "Certificate expired: {path}",

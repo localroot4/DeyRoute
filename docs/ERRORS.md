@@ -31,6 +31,9 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-I012` | ca-certificates is missing | HTTPS downloads cannot be verified without the system CA bundle | apt-get install -y ca-certificates |
 | `DEY-I013` | This server is already set up as {role} | /etc/deyroute/config.yaml already exists; setup never overwrites it | use the menu to change settings, or run: deyroute uninstall   then set up again |
 | `DEY-I014` | Setup step failed: {step} | a required setup step could not complete | read the log below, fix the cause and run the installer again (it repairs, never reinstalls) |
+| `DEY-I020` | Could not detect the public IP address of this server | {reason} | check the network with: ip route   then enter this server's public IP when setup asks for it |
+| `DEY-I021` | Detected address {ip} is not a public IP | the route to the internet uses a private, CGNAT or loopback source address; nodes abroad cannot connect to it unless the provider forwards it to this server | enter the server's real public IP when setup asks (see the provider panel), or later change hub.public_ip in /etc/deyroute/config.yaml and run: deyroute config apply |
+| `DEY-I022` | Uninstall step failed: {step} | part of the removal could not complete; every other step still ran and the deyroute binary was kept | fix the cause shown below, then run deyroute uninstall again (it is safe to repeat) |
 
 ## Configuration (DEY-C0xx)
 
@@ -56,6 +59,10 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-C018` | The {kind} id '{id}' cannot be changed | ids are immutable after creation; only the name can change | change the name instead, or delete and re-create |
 | `DEY-C019` | Unsupported schema_version {version} | this deyroute build does not know that schema version | update deyroute (deyroute update) or restore an older config |
 | `DEY-C020` | Could not understand port input '{input}' | accepted forms: 443, 443/udp, 443,2053, 2000-2010, 443:8443 | re-enter the ports using one of the accepted forms |
+| `DEY-C021` | Unknown tunnel: {tunnel} | no tunnel with that id exists in config.yaml | list the tunnels with: deyroute tunnel list |
+| `DEY-C022` | Ladder '{ladder}' is built in and cannot be changed | the builtin ladders (default, udp-default) follow section 8 of the specification and are read-only here | create your own ladder: deyroute ladder create <name> --rungs a,b,c   then: deyroute tunnel edit <id> --ladder <name> |
+| `DEY-C023` | Ladder '{ladder}' is in use | tunnels {tunnels} use this ladder | move those tunnels to another ladder first (deyroute tunnel edit <id> --ladder default), then delete it |
+| `DEY-C024` | {path} changed while it was being edited | another deyroute command or the menu saved {path} after the editor was opened; saving the edited copy would undo that change | your edited copy is kept in {copy}: run deyroute config edit again and make your changes on the current file |
 | `DEY-C050` | Telegram rejected the notification settings (HTTP {status}) | Telegram answered '{reason}': the bot token is wrong, the chat id is unknown, or the bot is not a member of that chat | send /start to the bot (or add it to the group), then: deyroute notify telegram set --token-file F --chat-id C   and   deyroute notify telegram test |
 
 ## Node / control channel (DEY-N0xx)
@@ -77,6 +84,9 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-N013` | Control API request refused: no valid node certificate | {path} is only served to nodes that joined this hub (mTLS client certificate of the hub CA, known node id) | join this server again: on the hub run deyroute node join-command and run the printed line here |
 | `DEY-N014` | Command {command} on node {node} was cancelled | the hub stopped waiting for the command (the operation was aborted or the control connection ended) | run the operation again; if it keeps happening check deyroute node test {node} |
 | `DEY-N015` | Control channel protocol error with node {node} | hub and node could not understand each other ({reason}); usually their versions differ | update the node from the hub (Update -> deyroute), then check: deyroute logs node |
+| `DEY-N020` | The hub's join answer cannot be used | {reason} | make sure the hub and this server run the same deyroute version, then create a new join command on the hub (deyroute node join-command) and run it here |
+| `DEY-N050` | Node {node} refused command {command} | {reason}; the node only writes below /etc/deyroute/backends, runs deyroute's own binaries and reaches only allowed addresses | update the hub and the node to the same version (Update -> deyroute); if it repeats run deyroute doctor --node {node} and report it |
+| `DEY-N051` | Node {node} could not download {file} | the node tried the source 3 times without success (no outbound HTTPS, DNS failure, or the server refused); the cause is shown below | check outbound HTTPS on the node (curl -I https://github.com), or set DEYROUTE_MIRROR on the hub to a reachable mirror |
 
 ## Ports / firewall (DEY-P0xx)
 
@@ -95,6 +105,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-P020` | Backend control port pool is exhausted | all ports in 30000-31999 are allocated | delete unused tunnels or transports |
 | `DEY-P021` | Port {port} is listed twice with different targets | one listen port can forward to only one target, but {target} and {other} were both given | keep a single entry for {port}, e.g. 443:8443 or just 443 |
 | `DEY-P030` | No free network index for tunnel {tunnel} | every per-tunnel subnet index 1-{max} (WireGuard addressing) is already assigned | delete unused tunnels that use wireguard transports, then retry |
+| `DEY-P031` | deyroute does not manage the firewall | security.firewall_managed is false: table inet deyroute is not applied, so the control port, the backend control ports and the tunnel ports must be opened by hand | run deyroute security firewall show for the suggested commands, or set security.firewall_managed: true and run deyroute config apply |
 
 ## TLS (DEY-T0xx)
 

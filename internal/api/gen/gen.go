@@ -516,6 +516,63 @@ func emitStub(p *parsed) ([]byte, error) {
 	return formatSource("apitest/stub_gen.go", src)
 }
 
+// GenerateUnimplemented parses the source of local.go and returns the
+// contents of unimpl_gen.go (package api): UnimplementedLocal, a Local whose
+// every method answers DEY-X009 (wrong role). A daemon embeds it and
+// overrides the methods its role serves.
+func GenerateUnimplemented(src []byte) ([]byte, error) {
+	p, err := parseLocal(src)
+	if err != nil {
+		return nil, err
+	}
+	return emitUnimpl(p)
+}
+
+func emitUnimpl(p *parsed) ([]byte, error) {
+	used := map[string]bool{}
+	var body strings.Builder
+
+	body.WriteString("// UnimplementedLocal implements Local by answering DEY-X009 (\"this command\n")
+	body.WriteString("// needs a <Need>, but this server is a <Role>\") for every method. A daemon\n")
+	body.WriteString("// embeds it and overrides the methods its role serves, e.g.\n")
+	body.WriteString("//\n")
+	body.WriteString("//\ttype nodeLocal struct{ api.UnimplementedLocal }\n")
+	body.WriteString("//\n")
+	body.WriteString("//\tl := &nodeLocal{UnimplementedLocal: api.UnimplementedLocal{Role: \"node\", Need: \"hub\"}}\n")
+	body.WriteString("type UnimplementedLocal struct {\n")
+	body.WriteString("\t// Role is the role of this server (hub or node).\n")
+	body.WriteString("\tRole string\n")
+	body.WriteString("\t// Need is the role the unimplemented methods require.\n")
+	body.WriteString("\tNeed string\n")
+	body.WriteString("}\n\n")
+	body.WriteString("// Compile-time check that UnimplementedLocal implements Local.\n")
+	body.WriteString("var _ Local = UnimplementedLocal{}\n\n")
+	body.WriteString("// wrongRole is the DEY-X009 error every method returns.\n")
+	body.WriteString("func (u UnimplementedLocal) wrongRole() error {\n")
+	body.WriteString("\treturn deyerr.New(deyerr.X009, deyerr.Params{\"role\": u.Role, \"need\": u.Need})\n")
+	body.WriteString("}\n\n")
+	for _, m := range p.methods {
+		fmt.Fprintf(&body, "// %s implements Local.%s; it returns DEY-X009.\n", m.Name, m.Name)
+		fmt.Fprintf(&body, "func (u UnimplementedLocal) %s%s {\n", m.Name, signature(m, false, used))
+		if m.Result != nil {
+			fmt.Fprintf(&body, "\tvar zero %s\n\treturn zero, u.wrongRole()\n}\n\n", typeString(m.Result, false, used))
+		} else {
+			body.WriteString("\treturn u.wrongRole()\n}\n\n")
+		}
+	}
+	known := map[string]string{"deyerr": "github.com/localroot4/deyroute/internal/errors"}
+	for k, v := range p.imports {
+		known[k] = v
+	}
+	used["deyerr"] = true
+	imports, err := importBlock([]string{"context"}, used, known, "api")
+	if err != nil {
+		return nil, err
+	}
+	src := header + "package api\n\n" + imports + "\n" + body.String()
+	return formatSource("unimpl_gen.go", src)
+}
+
 func formatSource(name, src string) ([]byte, error) {
 	out, err := format.Source([]byte(src))
 	if err != nil {

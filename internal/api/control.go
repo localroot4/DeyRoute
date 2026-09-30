@@ -155,8 +155,10 @@ const (
 	CmdSetHub          = "set_hub"                 // SetHubArgs → nil
 	CmdUninstall       = "uninstall"               // nil → nil
 	CmdCertRenew       = "cert.renew"              // CertRenewArgs → CertRenewResult (rotate-ca)
+	CmdCertInstall     = "cert.install"            // CertInstallArgs → nil (rotate-ca: signed cert + CA, then reconnect)
 	CmdHTTPPost        = "http.post"               // HTTPPostArgs → HTTPPostResult (telegram via node)
 	CmdEchoStart       = "echo.start"              // EchoArgs → EchoResult (canary loopback echo)
+	CmdEchoStop        = "echo.stop"               // EchoArgs → nil (stops the canary loopback echo on Port)
 	CmdNodeFirewall    = "firewall.apply"          // NodeFirewallArgs → nil (hysteria2 port hopping DNAT)
 	CmdSysctlApply     = "sysctl.apply"            // SysctlArgs → nil
 	CmdSpeedServe      = "speed.serve"             // SpeedServeArgs → nil (built-in generator for diag speed)
@@ -289,6 +291,15 @@ type CertRenewArgs struct {
 // CertRenewResult returns the node's new CSR to be signed, or the installed cert.
 type CertRenewResult struct {
 	CSRPEM string `json:"csr_pem,omitempty"`
+}
+
+// CertInstallArgs completes cert.renew: CertPEM is the certificate the hub
+// signed for the CSR of the last cert.renew, CAPEM the CA certificate(s) the
+// node trusts from now on. The node installs both with the pending key and
+// reconnects with the new credentials.
+type CertInstallArgs struct {
+	CertPEM string `json:"cert_pem"`
+	CAPEM   string `json:"ca_pem"`
 }
 
 // HTTPPostArgs asks a node to POST on the hub's behalf (Telegram API from Iran).

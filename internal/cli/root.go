@@ -1,181 +1,204 @@
-// Package cli holds the cobra commands. Commands are thin: they parse flags,
-// call the daemon through the Local API and print human or --json output.
+// Package cli holds the cobra commands of the deyroute binary (spec section
+// 14). Commands are thin: daemon-backed commands parse flags, make exactly
+// one Local API call (printing its progress) and print human or --json
+// output; local operations (setup, join, backup, restore, uninstall, config,
+// doctor bundles, completion, version) run in-process through
+// internal/daemon/setup, internal/config and internal/doctor.
+//
+// Exit codes: 0 success, 1 user error (DEY-C/P/T/N/B/F/S/I and usage
+// errors), 2 system error (DEY-X), 3 a confirmation is needed but stdin is
+// not a terminal and --yes was not given.
 package cli
 
 import (
+	"context"
+	stderrors "errors"
 	"fmt"
-	"io"
 	"os"
+	"os/signal"
+	"runtime"
 	"runtime/debug"
-	"strconv"
+	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
-	"github.com/localroot4/deyroute/internal/tui"
+	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/version"
 )
 
-// Globals shared by all commands.
-type Globals struct {
-	Debug bool
-	JSON  bool
-	Yes   bool
-	Out   io.Writer
-	Err   io.Writer
-	In    io.Reader
-	// IsTTY reports whether stdin is interactive (confirmation prompts).
-	IsTTY bool
-}
-
-// NewRoot builds the command tree.
+// NewRoot builds the complete command tree bound to g. Missing fields of g
+// get their production defaults first.
 func NewRoot(g *Globals) *cobra.Command {
+	g.defaults()
 	root := &cobra.Command{
 		Use:           "deyroute",
 		Short:         i18n.T(i18n.CLIShort),
 		Long:          i18n.T(i18n.CLILong),
+		Example:       i18n.T(i18n.CLIRootExample),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+			g.command = cmd.CommandPath()
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTUI()
+			return g.runTUI(cmd.Context())
 		},
 	}
-	root.PersistentFlags().BoolVar(&g.Debug, "debug", os.Getenv("DEYROUTE_DEBUG") == "1", i18n.T(i18n.CLIFlagDebug))
+	root.CompletionOptions.DisableDefaultCmd = true
+	root.PersistentFlags().BoolVar(&g.Debug, "debug", g.Debug, i18n.T(i18n.CLIFlagDebug))
+	root.PersistentFlags().BoolVar(&g.JSON, "json", g.JSON, i18n.T(i18n.CLIFlagJSON))
 	root.SetOut(g.Out)
 	root.SetErr(g.Err)
 	root.SetIn(g.In)
-	root.AddCommand(newVersionCmd(g), newMenuCmd(g), newSetupCmd(), newJoinCmd())
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageErr(err.Error()) })
+	root.AddGroup(
+		&cobra.Group{ID: groupStart, Title: i18n.T(i18n.CLIGroupStart)},
+		&cobra.Group{ID: groupManage, Title: i18n.T(i18n.CLIGroupManage)},
+		&cobra.Group{ID: groupDiag, Title: i18n.T(i18n.CLIGroupDiag)},
+		&cobra.Group{ID: groupSystem, Title: i18n.T(i18n.CLIGroupSystem)},
+	)
+	root.SetHelpCommandGroupID(groupSystem)
+	add := func(group string, cmds ...*cobra.Command) {
+		for _, c := range cmds {
+			c.GroupID = group
+			root.AddCommand(c)
+		}
+	}
+	add(groupStart, newSetupCmd(g), newJoinCmd(g), newStatusCmd(g), newVersionCmd(g))
+	add(groupManage, newNodeCmd(g), newHubCmd(g), newTunnelCmd(g), newPortCmd(g), newLadderCmd(g))
+	add(groupDiag, newDiagCmd(g), newLogsCmd(g), newEventsCmd(g), newDoctorCmd(g))
+	add(groupSystem, newOptimizeCmd(g), newSecurityCmd(g), newNotifyCmd(g), newBackupCmd(g), newRestoreCmd(g),
+		newUpdateCmd(g), newConfigCmd(g), newSettingsCmd(g), newUninstallCmd(g), newCompletionCmd(g))
+	root.AddCommand(newMenuCmd(g), newDaemonCmd(g), newRelayCmd(g), newWGCmd(g))
+	root.InitDefaultHelpCmd()
+	for _, c := range root.Commands() {
+		if c.Name() == "help" {
+			c.Short, c.Long = i18n.T(i18n.CLIHelpShort), i18n.T(i18n.CLIHelpLong)
+		}
+	}
+	finishTree(root)
 	return root
 }
 
-func detectCaps() tui.Caps {
-	caps := tui.DetectCaps(os.Getenv)
-	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-		caps.Width = w
-	} else if cols, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil {
-		caps.Width = cols
+// finishTree applies what every command shares: a plain (non-DEY) error
+// returned by a command becomes DEY-X000 (see classify), the -h/--help flag
+// is described through i18n, and a group command without examples of its
+// own lists the first example of each subcommand (spec section 14: every
+// `deyroute <cmd> --help` is complete and has examples).
+func finishTree(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		finishTree(sub)
 	}
-	return caps
-}
-
-func runTUI() error {
-	return tui.Run(tui.Options{Caps: detectCaps()})
-}
-
-// newMenuCmd is a hidden helper: `deyroute menu --once` prints the first
-// screen without a TTY (smoke tests, scenario S24); `deyroute menu` = TUI.
-func newMenuCmd(g *Globals) *cobra.Command {
-	var once bool
-	cmd := &cobra.Command{
-		Use:    "menu",
-		Hidden: true,
-		Args:   cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !once {
-				return runTUI()
+	if run := c.RunE; run != nil {
+		c.RunE = func(cmd *cobra.Command, args []string) error { return classify(run(cmd, args)) }
+	}
+	c.InitDefaultHelpFlag()
+	if f := c.Flags().Lookup("help"); f != nil {
+		f.Usage = i18n.T(i18n.CLIFlagHelp, c.Name())
+	}
+	if c.Example == "" && c.HasParent() && c.HasAvailableSubCommands() {
+		var lines []string
+		for _, sub := range c.Commands() {
+			if !sub.IsAvailableCommand() || sub.Example == "" {
+				continue
 			}
-			_, err := fmt.Fprint(g.Out, tui.NewModel(tui.Options{Caps: detectCaps()}).View())
-			return err
-		},
-	}
-	cmd.Flags().BoolVar(&once, "once", false, "render the first screen once and exit")
-	return cmd
-}
-
-func newVersionCmd(g *Globals) *cobra.Command {
-	return &cobra.Command{
-		Use:   "version",
-		Short: i18n.T(i18n.CLIVersionShort),
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintln(g.Out, version.String())
-			return err
-		},
+			first, _, _ := strings.Cut(sub.Example, "\n")
+			lines = append(lines, first)
+		}
+		c.Example = strings.Join(lines, "\n")
 	}
 }
 
-// Execute runs the CLI and returns the process exit code. Panics are
-// recovered here: the stack goes to the log, the UI shows DEY-X000 only.
-func Execute(args []string) (code int) {
-	g := &Globals{Out: os.Stdout, Err: os.Stderr, In: os.Stdin, IsTTY: term.IsTerminal(int(os.Stdin.Fd()))}
+// classify maps what a command returns to what printError expects. DEY
+// errors, usage errors and the confirmation sentinels stay as they are; an
+// operation interrupted with Ctrl-C (context.Canceled) is errAborted; any
+// other plain error is unexpected: DEY-X000 (exit 2) with the redacted
+// cause as detail, never a usage error (exit 1). Errors that never reach a
+// command (unknown commands, bad arguments and flags) are cobra's usage
+// errors.
+func classify(err error) error {
+	var ue *usageError
+	switch {
+	case err == nil, isDEY(err), stderrors.As(err, &ue), stderrors.Is(err, errNeedConfirm), stderrors.Is(err, errAborted):
+		return err
+	case stderrors.Is(err, context.Canceled):
+		return errAborted
+	}
+	return deyerr.Wrap(deyerr.X000, err, nil).WithDetail(clean(dlog.Redact(err.Error())))
+}
+
+// Command groups of `deyroute --help`.
+const (
+	groupStart  = "start"
+	groupManage = "manage"
+	groupDiag   = "diag"
+	groupSystem = "system"
+)
+
+// Execute runs the CLI with production settings, stopping on SIGINT or
+// SIGTERM, and returns the process exit code.
+func Execute(args []string) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// The first Ctrl-C cancels the running call; once that happened the
+	// signals get their default action again, so a second Ctrl-C ends a
+	// call that does not stop at once.
+	context.AfterFunc(ctx, stop)
+	return Run(ctx, &Globals{}, args)
+}
+
+// Run executes the command line args with g and returns the exit code
+// (section 14: 0, 1, 2 or 3). Panics are recovered: the stack goes to the
+// main log file and the owner sees DEY-X000 only (section 13).
+func Run(ctx context.Context, g *Globals, args []string) (code int) {
+	g.defaults()
+	g.command, g.ctx = "", ctx
+	defer g.closeLog()
 	defer func() {
 		if r := recover(); r != nil {
-			logPanic(r, debug.Stack())
-			e := deyerr.New(deyerr.X000, nil)
-			fmt.Fprint(g.Err, e.Format(tui.DetectCaps(os.Getenv).Unicode))
-			code = deyerr.ExitSystem
+			logPanic(g.Root, r, debug.Stack())
+			code = g.printError(deyerr.New(deyerr.X000, nil))
 		}
 	}()
 	root := NewRoot(g)
 	root.SetArgs(args)
-	if err := root.Execute(); err != nil {
-		return printError(g, err)
+	if err := root.ExecuteContext(ctx); err != nil {
+		return g.printError(err)
 	}
 	return deyerr.ExitOK
 }
 
-func printError(g *Globals, err error) int {
-	e := deyerr.As(err)
-	if e.Code == deyerr.X000 && e.Cause != nil && isUsageError(e.Cause) {
-		fmt.Fprintln(g.Err, e.Cause.Error())
-		return deyerr.ExitUser
-	}
-	fmt.Fprint(g.Err, e.Format(tui.DetectCaps(os.Getenv).Unicode))
-	return e.ExitCode()
-}
-
-// cobra reports flag/arg problems as plain errors; they are user errors.
-func isUsageError(err error) bool {
-	_, isDey := err.(*deyerr.Error)
-	return !isDey
-}
-
-// logPanic appends the panic and stack to the main log file. Best effort.
-func logPanic(r any, stack []byte) {
-	f, err := os.OpenFile(deyerr.DefaultLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+// logPanic appends the panic and its stack to the main log file (best
+// effort; the file may not exist on a server that is not set up).
+func logPanic(root string, r any, stack []byte) {
+	path := rootPath(root, deyerr.DefaultLogPath)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600) // #nosec G304 -- fixed log path under the configured root
 	if err != nil {
 		return
 	}
 	defer func() { _ = f.Close() }()
-	fmt.Fprintf(f, "{\"level\":\"ERROR\",\"code\":\"DEY-X000\",\"msg\":\"panic\",\"err\":%q,\"stack\":%q}\n", fmt.Sprint(r), string(stack))
+	fmt.Fprintf(f, "{\"level\":\"error\",\"component\":\"cli\",\"code\":\"DEY-X000\",\"msg\":\"panic\",\"err\":%q,\"stack\":%q}\n", fmt.Sprint(r), string(stack))
 }
 
-// notYet reports a feature that is not in this development build yet.
-func notYet(feature string) error {
-	return deyerr.New(deyerr.X008, deyerr.Params{"feature": feature}).
-		WithFix(i18n.T(i18n.CLINotYetFix))
-}
-
-// newSetupCmd is the setup wizard entry point used by installer/install.sh.
-func newSetupCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "setup",
-		Short: i18n.T(i18n.CLISetupShort),
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return notYet("deyroute setup")
+func newVersionCmd(g *Globals) *cobra.Command {
+	return &cobra.Command{
+		Use:     "version",
+		Short:   i18n.T(i18n.CLIVersionShort),
+		Example: i18n.T(i18n.CLIVersionExample),
+		Args:    cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			if g.JSON {
+				return g.emitJSON(map[string]any{
+					"version": version.Version, "commit": version.Commit, "date": version.Date, "go": version.GoVersion(),
+				})
+			}
+			g.say(i18n.CLIVersionLine, version.Display(), version.Commit, version.Date,
+				version.GoVersion()+" "+runtime.GOOS+"/"+runtime.GOARCH)
+			return nil
 		},
 	}
-	cmd.Flags().String("role", "", "hub or node")
-	cmd.Flags().String("name", "", "server name, e.g. ir-1")
-	cmd.Flags().Int("control-port", 0, "hub control port (default 44433)")
-	cmd.Flags().Bool("yes", false, i18n.T(i18n.CLIFlagYes))
-	return cmd
-}
-
-// newJoinCmd joins this server to a hub as a node.
-func newJoinCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "join 'dey://TOKEN@HUB_IP:PORT#FINGERPRINT'",
-		Short: i18n.T(i18n.CLIJoinShort),
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return notYet("deyroute join")
-		},
-	}
-	cmd.Flags().String("name", "", "node id, e.g. de-1")
-	return cmd
 }
