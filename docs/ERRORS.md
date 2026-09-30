@@ -74,6 +74,9 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-N010` | A node with id {node} already joined | node ids are unique per hub | use --name to pick another id, or remove the old node on the hub first |
 | `DEY-N011` | Command {command} failed on node {node} | the node reported an error while running the command | see details below and the node log: deyroute logs node |
 | `DEY-N012` | No online node available to download through | the hub fetches files via a node because GitHub is often unreachable from Iran | bring a node online, or set DEYROUTE_MIRROR to a reachable mirror |
+| `DEY-N013` | Control API request refused: no valid node certificate | {path} is only served to nodes that joined this hub (mTLS client certificate of the hub CA, known node id) | join this server again: on the hub run deyroute node join-command and run the printed line here |
+| `DEY-N014` | Command {command} on node {node} was cancelled | the hub stopped waiting for the command (the operation was aborted or the control connection ended) | run the operation again; if it keeps happening check deyroute node test {node} |
+| `DEY-N015` | Control channel protocol error with node {node} | hub and node could not understand each other ({reason}); usually their versions differ | update the node from the hub (Update -> deyroute), then check: deyroute logs node |
 
 ## Ports / firewall (DEY-P0xx)
 
@@ -129,6 +132,9 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-B060` | Relay config is invalid: {path} | the direct/native relay could not use its rendered file ({reason}) | re-render the tunnel: deyroute tunnel restart <tunnel>; if it repeats run deyroute doctor |
 | `DEY-B061` | Relay cannot listen on {addr} ({proto}) | {reason} | free the port (ss -lntup shows the owner) or pick another listen port; deyroute port check <port> explains conflicts |
 | `DEY-B062` | Service {target} is not reachable on the node's public address | direct/haproxy connects from the hub straight to the node service, but nothing answered on {tried}; the service listens only on 127.0.0.1 or a firewall blocks it | make the service listen on 0.0.0.0 and allow the hub IP in the node firewall, or use direct/native instead |
+| `DEY-B070` | WireGuard interface {iface} could not be set up | {reason} | check that the wireguard kernel module loads (modprobe wireguard) and see the tunnel log (deyroute logs <tunnel>); or use awg/userspace, which needs no kernel module |
+| `DEY-B071` | AmneziaWG interface {iface} could not be configured | {reason} | check that the awg unit runs (systemctl status 'deyroute-tun@*awg-userspace*') and read the tunnel log (deyroute logs <tunnel>) |
+| `DEY-B072` | WireGuard config {path} is invalid | {reason} | re-render the tunnel (deyroute tunnel restart <tunnel>); if it repeats run deyroute doctor |
 
 ## Failover (DEY-F0xx)
 
@@ -155,6 +161,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-S006` | Manifest has no sha256 for {backend} ({arch}) | binaries are never installed without a pinned checksum | run deyroute update manifest, or fill sha256 in /etc/deyroute/backends.yaml |
 | `DEY-S007` | No previous binary to roll back to | /var/lib/deyroute/bin/deyroute.prev does not exist | install a specific version: deyroute update --version V |
 | `DEY-S008` | A backup passphrase is required | backups contain the CA key and tunnel secrets and are encrypted with age by default | enter a passphrase, or run deyroute backup --no-encrypt and keep the file private |
+| `DEY-S009` | Cannot use secret file {path} | the file is missing, empty, unreadable or damaged: {reason} | check the file (ls -l {path}); restore it from a backup (deyroute restore FILE) or recreate it through the menu |
 
 ## Internal (DEY-X0xx)
 
@@ -178,7 +185,11 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-X032` | Cannot write system file {path} | the directory is missing or read-only, the disk is full, or deyroute is not running as root | run deyroute as root and check free space and mounts: df -h; mount \| grep ' / ' |
 | `DEY-X033` | Cannot change kernel setting {key} | writing {value} to /proc/sys failed (read-only /proc/sys in a container, or a value this kernel rejects) | run on the host as root (not in an unprivileged container); undo all tuning with: deyroute optimize revert |
 | `DEY-X034` | Invalid systemd unit data: {field}='{value}' | deyroute produced a unit name or setting that systemd would reject or misread | this is a bug; run deyroute doctor and report the generated file |
+| `DEY-X040` | Another deyroute daemon is already running | the local API socket {path} is answered by another process (only one hub or node daemon may run) | stop the other instance first: systemctl stop deyroute-hub deyroute-node; then start the service again |
+| `DEY-X041` | Cannot open the local API socket {path} | {reason} | check that /run/deyroute is writable by root and the path is not used by another file, then: systemctl restart deyroute-hub |
+| `DEY-X042` | The daemon did not finish {method} in time | the call was cancelled or exceeded its time limit before the daemon answered | check the daemon: systemctl status {service}; see deyroute logs hub; then try again |
 | `DEY-X050` | Telegram message could not be delivered | api.telegram.org was not reachable directly or through any online node ({reason}) | check outbound HTTPS (or https_proxy) on the hub and nodes, then: deyroute notify telegram test; events are still in: deyroute events |
 | `DEY-X051` | Probe helper {service} on {addr} stopped | accepting or reading on its socket failed unexpectedly | restart the service (systemctl restart deyroute-node, or deyroute-hub on the hub); if it repeats run: deyroute doctor |
 | `DEY-X052` | Speed test to {addr} failed during {phase} | {reason} | check the tunnel first: deyroute diag probe <tunnel>; then retry with a shorter test: deyroute diag speed <tunnel> --seconds 5 |
+| `DEY-X060` | Doctor file not written: {file} still contains {what} | the final check found secret material that the central filter did not remove, so no file was created (nothing leaked) | send the summary printed on the screen instead of the file and report this bug with the DEY code; logs are in /var/log/deyroute |
 

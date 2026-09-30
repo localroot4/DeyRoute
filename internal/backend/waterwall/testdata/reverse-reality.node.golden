@@ -1,0 +1,125 @@
+# waterwall/reverse-reality node side
+=== file config.json
+{
+  "name": "deyroute-main-de-1-node",
+  "nodes": [
+    {
+      "name": "service-outbound",
+      "type": "TcpConnector",
+      "settings": {
+        "address": "127.0.0.1",
+        "nodelay": true,
+        "port": "dest_context->port"
+      }
+    },
+    {
+      "name": "header-server",
+      "type": "HeaderServer",
+      "settings": {
+        "override": "dest_context->port"
+      },
+      "next": "service-outbound"
+    },
+    {
+      "name": "bridge-service",
+      "type": "Bridge",
+      "settings": {
+        "pair": "bridge-reverse"
+      },
+      "next": "header-server"
+    },
+    {
+      "name": "bridge-reverse",
+      "type": "Bridge",
+      "settings": {
+        "pair": "bridge-service"
+      },
+      "next": "reverse-client"
+    },
+    {
+      "name": "reverse-client",
+      "type": "ReverseClient",
+      "settings": {
+        "minimum-unused": 16
+      },
+      "next": "reality-client"
+    },
+    {
+      "name": "reality-client",
+      "type": "RealityClient",
+      "settings": {
+        "password": "Pw0rdPw0rdPw0rdPw0rdPw0r",
+        "sni": "www.example.com"
+      },
+      "next": "hub-outbound"
+    },
+    {
+      "name": "hub-outbound",
+      "type": "TcpConnector",
+      "settings": {
+        "address": "5.6.7.8",
+        "nodelay": true,
+        "port": 30001
+      }
+    }
+  ]
+}
+=== file core.json
+{
+  "log": {
+    "path": "/tmp/deyroute-waterwall/",
+    "internal": {
+      "loglevel": "INFO",
+      "file": "internal.log",
+      "console": true
+    },
+    "core": {
+      "loglevel": "INFO",
+      "file": "core.log",
+      "console": true
+    },
+    "network": {
+      "loglevel": "INFO",
+      "file": "network.log",
+      "console": true
+    },
+    "dns": {
+      "loglevel": "INFO",
+      "file": "dns.log",
+      "console": true
+    }
+  },
+  "misc": {
+    "workers": 4,
+    "ram-profile": "server",
+    "mtu": 1500,
+    "tcp-tune": false,
+    "try-enabling-bbr": false
+  },
+  "configs": [
+    "config.json"
+  ]
+}
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/waterwall/v1.46.94/Waterwall"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/waterwall/main/de-1/reverse-reality",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": {
+    "MemoryDenyWriteExecute": "the Linux x64 release of Waterwall is a packed executable that restores itself in memory at start (memfd_create + execveat of an anonymous executable file); MemoryDenyWriteExecute (PR_SET_MDWE, inherited across exec) makes that loader fail"
+  },
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+=== nat
+=== masquerade []
+=== ip_forward false

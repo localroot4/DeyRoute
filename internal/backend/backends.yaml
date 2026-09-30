@@ -26,8 +26,13 @@ backends:
     readme: https://github.com/rapiz1/rathole/blob/v0.5.0/README.md
     archive: zip
     binaries: [rathole]
+    # Asset names from .github/workflows/release.yml at v0.5.0
+    # ("rathole-<target>.zip"): x86_64 is only built for the gnu target
+    # (glibc + OpenSSL 3, all features); aarch64 is built for musl with
+    # "--features embedded" (noise and tcp only, no tls). See
+    # docs/backends/rathole.md.
     urls:
-      amd64: https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-x86_64-unknown-linux-musl.zip
+      amd64: https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-x86_64-unknown-linux-gnu.zip
       arm64: https://github.com/rapiz1/rathole/releases/download/v0.5.0/rathole-aarch64-unknown-linux-musl.zip
     sha256: { amd64: "", arm64: "" }
     template_version: 1
@@ -37,20 +42,28 @@ backends:
     readme: https://github.com/fatedier/frp/blob/v0.71.0/README.md
     archive: tar.gz
     binaries: [frps, frpc]
+    # Asset names from package.sh at v0.71.0 ("frp_<ver>_<os>_<arch>.tar.gz",
+    # frps + frpc inside frp_<ver>_<os>_<arch>/); upstream publishes their
+    # hashes in frp_sha256_checksums.txt (.goreleaser.yml).
     urls:
       amd64: https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_amd64.tar.gz
       arm64: https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_arm64.tar.gz
     sha256: { amd64: "", arm64: "" }
     template_version: 1
   waterwall:
-    version: v1.41
+    # v1.33-v1.43 do not build RealityServer/RealityClient (the option is
+    # FALSE and the sources are absent), so reverse-reality cannot run on the
+    # originally pinned v1.41. v1.46.94 is the latest tag and ships Reality v2
+    # again. Asset names from .github/workflows/ci.yaml at v1.46.94
+    # ("Waterwall-<cmake preset>.zip"). See docs/backends/waterwall.md.
+    version: v1.46.94
     repo: radkesvat/WaterWall
-    readme: https://github.com/radkesvat/WaterWall
+    readme: https://github.com/radkesvat/WaterWall/blob/v1.46.94/readme.md
     archive: zip
     binaries: [Waterwall]
     urls:
-      amd64: https://github.com/radkesvat/WaterWall/releases/download/v1.41/Waterwall-linux-gcc-x64.zip
-      arm64: https://github.com/radkesvat/WaterWall/releases/download/v1.41/Waterwall-linux-gcc-arm64.zip
+      amd64: https://github.com/radkesvat/WaterWall/releases/download/v1.46.94/Waterwall-linux-gcc-x64.zip
+      arm64: https://github.com/radkesvat/WaterWall/releases/download/v1.46.94/Waterwall-linux-gcc-arm64.zip
     sha256: { amd64: "", arm64: "" }
     template_version: 1
   xray:
@@ -59,6 +72,9 @@ backends:
     readme: https://github.com/XTLS/Xray-core/blob/v26.3.27/README.md
     archive: zip
     binaries: [xray]
+    # Asset names from .github/workflows/release.yml and
+    # .github/build/friendly-filenames.json at v26.3.27 (linux-64,
+    # linux-arm64-v8a); upstream publishes <asset>.dgst with sha256.
     urls:
       amd64: https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
       arm64: https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-arm64-v8a.zip
@@ -70,18 +86,24 @@ backends:
     readme: https://github.com/apernet/hysteria/blob/app/v2.12.3/README.md
     archive: raw
     binaries: [hysteria]
+    # Raw executables "hysteria-<os>-<arch>" (hyperbole.py, platforms.txt at
+    # app/v2.12.3); the tag contains a slash, hence app%2Fv2.12.3 in the URL.
     urls:
       amd64: https://github.com/apernet/hysteria/releases/download/app%2Fv2.12.3/hysteria-linux-amd64
       arm64: https://github.com/apernet/hysteria/releases/download/app%2Fv2.12.3/hysteria-linux-arm64
     sha256: { amd64: "", arm64: "" }
     template_version: 1
   wireguard:
-    # wireguard/kernel uses the in-kernel module (no download);
-    # awg/userspace uses amneziawg-go, built by the DEYROUTE release pipeline
-    # from the pinned module version and published on the owner's mirror.
+    # wireguard/kernel uses the in-kernel module (no download; the backend
+    # reports this entry as System). awg/userspace installs this entry under
+    # its own name (/var/lib/deyroute/bin/awg/<ver>/amneziawg-go): upstream
+    # publishes no binaries, so the DEYROUTE release pipeline builds the pinned
+    # Go module version (proxy.golang.org v1.0.4 = commit 69ca16c4fbfa,
+    # 2025-07-04) statically and uploads it to the owner's mirror
+    # (QUESTIONS.md C.20). See docs/backends/wireguard.md.
     version: v1.0.4
     repo: amnezia-vpn/amneziawg-go
-    readme: https://github.com/amnezia-vpn/amneziawg-go/blob/v1.0.4/README.md
+    readme: https://github.com/amnezia-vpn/amneziawg-go/blob/69ca16c4fbfa868834fd733f4cb38513d460aad9/README.md
     archive: raw
     binaries: [amneziawg-go]
     urls:
@@ -101,6 +123,9 @@ backends:
     readme: https://github.com/go-gost/gost/blob/v3.2.6/README.md
     archive: tar.gz
     binaries: [gost]
+    # Asset names from .goreleaser.yaml at v3.2.6 (default name template
+    # "gost_<ver>_<os>_<arch>.tar.gz", upstream hashes in checksums.txt);
+    # the linux binaries are UPX-packed. See docs/backends/gost.md.
     urls:
       amd64: https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz
       arm64: https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_arm64.tar.gz
@@ -112,6 +137,9 @@ backends:
     readme: https://github.com/jpillora/chisel/blob/v1.12.1/README.md
     archive: gz
     binaries: [chisel]
+    # Asset names from .github/goreleaser.yml at v1.12.1 (gz archives,
+    # default name template "chisel_<ver>_<os>_<arch>.gz"). See
+    # docs/backends/chisel.md.
     urls:
       amd64: https://github.com/jpillora/chisel/releases/download/v1.12.1/chisel_1.12.1_linux_amd64.gz
       arm64: https://github.com/jpillora/chisel/releases/download/v1.12.1/chisel_1.12.1_linux_arm64.gz

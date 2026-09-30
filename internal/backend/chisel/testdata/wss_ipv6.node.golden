@@ -1,0 +1,39 @@
+# chisel/wss node side
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/chisel/v1.12.1/chisel",
+    "client",
+    "--fingerprint",
+    "cGR7ti/WZmyIJEU78bfdpqgYPLRXS928/t/e6gecBrc=",
+    "--tls-ca",
+    "/etc/deyroute/backends/chisel/main/de-1/wss/ca.crt",
+    "--keepalive",
+    "25s",
+    "--max-retry-interval",
+    "10s",
+    "https://5.6.7.8:30001",
+    "R:[::]:443:127.0.0.1:443",
+    "R:[::]:2053:127.0.0.1:2053",
+    "R:[::]:443:127.0.0.1:443/udp",
+    "R:[::]:27015:10.0.0.5:27016/udp",
+    "R:[::]:9443:[::1]:9444"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/chisel/main/de-1/wss",
+  "Env": {
+    "AUTH": "dey:7272b276741958c4c32917de31c25e40"
+  },
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+=== nat []
+=== masquerade []
+=== ip_forward false

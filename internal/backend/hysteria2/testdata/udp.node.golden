@@ -1,0 +1,51 @@
+# hysteria2/udp node side
+=== file server.yaml
+# Rendered by deyroute for tunnel main, node de-1, transport hysteria2/udp (node side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+listen: ":30001"
+tls:
+  cert: "/etc/deyroute/backends/hysteria2/main/de-1/udp/tls-cert.pem"
+  key: "/etc/deyroute/backends/hysteria2/main/de-1/udp/tls-key.pem"
+  sniGuard: "disable"
+auth:
+  type: "password"
+  password: "tok-test"
+obfs:
+  type: "salamander"
+  salamander:
+    password: "b2Jmcy10ZXN0LXBhc3N3b3JkLWZpeGVkLXZhbHVlLTAx"
+disableUDP: true
+speedTest: false
+acl:
+  inline:
+    - "direct(127.0.0.1, tcp/2053, 127.0.0.1)"
+    - "direct(127.0.0.1, tcp/443, 127.0.0.1)"
+    - "reject(all)"
+masquerade:
+  type: "404"
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/hysteria2/app%2Fv2.12.3/hysteria",
+    "server",
+    "-c",
+    "/etc/deyroute/backends/hysteria2/main/de-1/udp/server.yaml",
+    "--disable-update-check"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/hysteria2/main/de-1/udp",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+udp 0.0.0.0:30001 control
+=== nat
+=== masquerade []
+=== ip_forward false

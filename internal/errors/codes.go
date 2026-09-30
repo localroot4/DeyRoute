@@ -64,6 +64,9 @@ const (
 	N010 Code = "DEY-N010" // node id already joined {node}
 	N011 Code = "DEY-N011" // command failed on node {node} {command}
 	N012 Code = "DEY-N012" // no online node for fetch proxy
+	N013 Code = "DEY-N013" // control API request without a valid node certificate {path}
+	N014 Code = "DEY-N014" // command cancelled {node} {command}
+	N015 Code = "DEY-N015" // control channel protocol error {node} {reason}
 )
 
 // Ports / firewall (DEY-P0xx).
@@ -116,6 +119,9 @@ const (
 	B060 Code = "DEY-B060" // direct relay config invalid {path} {reason}
 	B061 Code = "DEY-B061" // direct relay cannot listen {addr} {proto} {reason}
 	B062 Code = "DEY-B062" // direct/haproxy target not reachable on a public address {target} {tried}
+	B070 Code = "DEY-B070" // wireguard kernel interface setup failed {iface} {reason}
+	B071 Code = "DEY-B071" // amneziawg-go device not configurable {iface} {reason}
+	B072 Code = "DEY-B072" // wireguard wg.json invalid {path} {reason}
 )
 
 // Failover (DEY-F0xx).
@@ -140,6 +146,7 @@ const (
 	S006 Code = "DEY-S006" // manifest entry missing sha256 {backend} {arch}
 	S007 Code = "DEY-S007" // no previous binary for rollback
 	S008 Code = "DEY-S008" // backup passphrase required
+	S009 Code = "DEY-S009" // secret file unreadable or damaged {path} {reason}
 )
 
 // Internal (DEY-X0xx).
@@ -162,9 +169,13 @@ const (
 	X032 Code = "DEY-X032" // system file write failed {path}
 	X033 Code = "DEY-X033" // kernel setting (sysctl) write failed {key} {value}
 	X034 Code = "DEY-X034" // invalid systemd unit data {field} {value}
+	X040 Code = "DEY-X040" // local API socket already served by another daemon {path}
+	X041 Code = "DEY-X041" // local API socket cannot be opened {path} {reason}
+	X042 Code = "DEY-X042" // local API call did not finish {method} {service}
 	X050 Code = "DEY-X050" // telegram message not delivered {reason}
 	X051 Code = "DEY-X051" // probe helper server stopped {service} {addr}
 	X052 Code = "DEY-X052" // speed test failed {addr} {phase} {reason}
+	X060 Code = "DEY-X060" // doctor file refused: a secret survived redaction {file} {what}
 )
 
 var catalog = map[Code]Info{
@@ -314,6 +325,15 @@ var catalog = map[Code]Info{
 	N012: {N012, "No online node available to download through",
 		"the hub fetches files via a node because GitHub is often unreachable from Iran",
 		"bring a node online, or set DEYROUTE_MIRROR to a reachable mirror"},
+	N013: {N013, "Control API request refused: no valid node certificate",
+		"{path} is only served to nodes that joined this hub (mTLS client certificate of the hub CA, known node id)",
+		"join this server again: on the hub run deyroute node join-command and run the printed line here"},
+	N014: {N014, "Command {command} on node {node} was cancelled",
+		"the hub stopped waiting for the command (the operation was aborted or the control connection ended)",
+		"run the operation again; if it keeps happening check deyroute node test {node}"},
+	N015: {N015, "Control channel protocol error with node {node}",
+		"hub and node could not understand each other ({reason}); usually their versions differ",
+		"update the node from the hub (Update -> deyroute), then check: deyroute logs node"},
 
 	// ---------------------------------------------------------------- P
 	P010: {P010, "Invalid port: {input}",
@@ -440,6 +460,15 @@ var catalog = map[Code]Info{
 	B062: {B062, "Service {target} is not reachable on the node's public address",
 		"direct/haproxy connects from the hub straight to the node service, but nothing answered on {tried}; the service listens only on 127.0.0.1 or a firewall blocks it",
 		"make the service listen on 0.0.0.0 and allow the hub IP in the node firewall, or use direct/native instead"},
+	B070: {B070, "WireGuard interface {iface} could not be set up",
+		"{reason}",
+		"check that the wireguard kernel module loads (modprobe wireguard) and see the tunnel log (deyroute logs <tunnel>); or use awg/userspace, which needs no kernel module"},
+	B071: {B071, "AmneziaWG interface {iface} could not be configured",
+		"{reason}",
+		"check that the awg unit runs (systemctl status 'deyroute-tun@*awg-userspace*') and read the tunnel log (deyroute logs <tunnel>)"},
+	B072: {B072, "WireGuard config {path} is invalid",
+		"{reason}",
+		"re-render the tunnel (deyroute tunnel restart <tunnel>); if it repeats run deyroute doctor"},
 
 	// ---------------------------------------------------------------- F
 	F001: {F001, "Tunnel {tunnel}: all candidates exhausted",
@@ -492,6 +521,9 @@ var catalog = map[Code]Info{
 	S008: {S008, "A backup passphrase is required",
 		"backups contain the CA key and tunnel secrets and are encrypted with age by default",
 		"enter a passphrase, or run deyroute backup --no-encrypt and keep the file private"},
+	S009: {S009, "Cannot use secret file {path}",
+		"the file is missing, empty, unreadable or damaged: {reason}",
+		"check the file (ls -l {path}); restore it from a backup (deyroute restore FILE) or recreate it through the menu"},
 
 	// ---------------------------------------------------------------- X
 	X000: {X000, "Unexpected error",
@@ -548,6 +580,15 @@ var catalog = map[Code]Info{
 	X034: {X034, "Invalid systemd unit data: {field}='{value}'",
 		"deyroute produced a unit name or setting that systemd would reject or misread",
 		"this is a bug; run deyroute doctor and report the generated file"},
+	X040: {X040, "Another deyroute daemon is already running",
+		"the local API socket {path} is answered by another process (only one hub or node daemon may run)",
+		"stop the other instance first: systemctl stop deyroute-hub deyroute-node; then start the service again"},
+	X041: {X041, "Cannot open the local API socket {path}",
+		"{reason}",
+		"check that /run/deyroute is writable by root and the path is not used by another file, then: systemctl restart deyroute-hub"},
+	X042: {X042, "The daemon did not finish {method} in time",
+		"the call was cancelled or exceeded its time limit before the daemon answered",
+		"check the daemon: systemctl status {service}; see deyroute logs hub; then try again"},
 	X050: {X050, "Telegram message could not be delivered",
 		"api.telegram.org was not reachable directly or through any online node ({reason})",
 		"check outbound HTTPS (or https_proxy) on the hub and nodes, then: deyroute notify telegram test; events are still in: deyroute events"},
@@ -557,4 +598,7 @@ var catalog = map[Code]Info{
 	X052: {X052, "Speed test to {addr} failed during {phase}",
 		"{reason}",
 		"check the tunnel first: deyroute diag probe <tunnel>; then retry with a shorter test: deyroute diag speed <tunnel> --seconds 5"},
+	X060: {X060, "Doctor file not written: {file} still contains {what}",
+		"the final check found secret material that the central filter did not remove, so no file was created (nothing leaked)",
+		"send the summary printed on the screen instead of the file and report this bug with the DEY code; logs are in /var/log/deyroute"},
 }

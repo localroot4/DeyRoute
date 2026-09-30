@@ -1,0 +1,60 @@
+# wireguard/kernel hub side
+=== file wg.json
+{
+  "mode": "kernel",
+  "side": "hub",
+  "tunnel": "main",
+  "interface": "dey-main",
+  "address": "10.77.7.1/30",
+  "mtu": 1420,
+  "private_key": "AAIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH2A=",
+  "peer": {
+    "public_key": "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns=",
+    "endpoint": "1.2.3.4:30001",
+    "allowed_ips": [
+      "10.77.7.2/32"
+    ],
+    "persistent_keepalive": 25
+  }
+}
+=== unit
+{
+  "ExecStart": [
+    "/usr/local/bin/deyroute",
+    "wg",
+    "up",
+    "--config",
+    "/etc/deyroute/backends/wireguard/main/de-1/kernel/wg.json"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": [
+    [
+      "/usr/local/bin/deyroute",
+      "wg",
+      "down",
+      "--config",
+      "/etc/deyroute/backends/wireguard/main/de-1/kernel/wg.json"
+    ]
+  ],
+  "WorkingDirectory": "/etc/deyroute/backends/wireguard/main/de-1/kernel",
+  "Env": null,
+  "Type": "oneshot",
+  "RemainAfterExit": true,
+  "RunAsRoot": true,
+  "ExtraCaps": [
+    "CAP_NET_ADMIN"
+  ],
+  "DropHardening": null,
+  "AddressFamilies": [
+    "AF_NETLINK"
+  ],
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:443 user
+tcp 0.0.0.0:2053 user
+=== nat
+{Proto:tcp DportLow:443 DportHigh:443 ToAddr:10.77.7.2 ToPort:443 Iface:}
+{Proto:tcp DportLow:2053 DportHigh:2053 ToAddr:10.77.7.2 ToPort:2053 Iface:}
+=== masquerade [dey-main]
+=== ip_forward true

@@ -1,0 +1,48 @@
+# rathole/noise hub side
+=== file server.toml
+# Rendered by deyroute for tunnel main, node de-1, transport rathole/noise (hub side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+[server]
+bind_addr = "0.0.0.0:30002"
+default_token = "tok-test"
+heartbeat_interval = 20
+
+[server.transport]
+type = "noise"
+
+[server.transport.noise]
+pattern = "Noise_NK_25519_ChaChaPoly_BLAKE2s"
+local_private_key = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+
+[server.services.tcp-39001]
+type = "tcp"
+bind_addr = "127.0.0.1:39001"
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/rathole/v0.5.0/rathole",
+    "--server",
+    "/etc/deyroute/backends/rathole/main/de-1/noise/server.toml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/rathole/main/de-1/noise",
+  "Env": {
+    "RUST_LOG": "info"
+  },
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": {
+    "MemoryDenyWriteExecute": "release binaries are UPX-packed; the UPX loader maps the unpacked code executable at start"
+  },
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:30002 control
+tcp 127.0.0.1:39001 user
+=== nat
+=== masquerade []
+=== ip_forward false

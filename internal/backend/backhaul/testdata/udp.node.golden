@@ -1,0 +1,39 @@
+# backhaul/udp node side
+=== file client.toml
+# Rendered by deyroute for tunnel main, node de-1, transport backhaul/udp (node side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+[client]
+remote_addr = "5.6.7.8:30001"
+transport = "udp"
+token = "tok-test"
+connection_pool = 8
+aggressive_pool = false
+dial_timeout = 10
+retry_interval = 3
+sniffer = false
+web_port = 0
+log_level = "info"
+skip_optz = true
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/backhaul/v0.7.2/backhaul",
+    "-c",
+    "/etc/deyroute/backends/backhaul/main/de-1/udp/client.toml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/backhaul/main/de-1/udp",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+=== nat
+=== masquerade []
+=== ip_forward false

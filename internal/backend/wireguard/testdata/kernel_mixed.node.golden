@@ -1,0 +1,64 @@
+# wireguard/kernel node side
+=== file wg.json
+{
+  "mode": "kernel",
+  "side": "node",
+  "tunnel": "main",
+  "interface": "dey-main",
+  "address": "10.77.7.2/30",
+  "mtu": 1420,
+  "private_key": "ICIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=",
+  "listen_port": 30001,
+  "route_localnet": true,
+  "peer": {
+    "public_key": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw=",
+    "allowed_ips": [
+      "10.77.7.1/32"
+    ]
+  }
+}
+=== unit
+{
+  "ExecStart": [
+    "/usr/local/bin/deyroute",
+    "wg",
+    "up",
+    "--config",
+    "/etc/deyroute/backends/wireguard/main/de-1/kernel/wg.json"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": [
+    [
+      "/usr/local/bin/deyroute",
+      "wg",
+      "down",
+      "--config",
+      "/etc/deyroute/backends/wireguard/main/de-1/kernel/wg.json"
+    ]
+  ],
+  "WorkingDirectory": "/etc/deyroute/backends/wireguard/main/de-1/kernel",
+  "Env": null,
+  "Type": "oneshot",
+  "RemainAfterExit": true,
+  "RunAsRoot": true,
+  "ExtraCaps": [
+    "CAP_NET_ADMIN"
+  ],
+  "DropHardening": {
+    "ProtectKernelTunables": "deyroute wg up sets net.ipv4.conf.<iface>.route_localnet=1 so the node can DNAT tunnel traffic to 127.0.0.1 targets"
+  },
+  "AddressFamilies": [
+    "AF_NETLINK"
+  ],
+  "ReadWritePaths": null
+}
+=== binds
+udp 0.0.0.0:30001 control
+=== nat
+{Proto:tcp DportLow:443 DportHigh:443 ToAddr:127.0.0.1 ToPort:443 Iface:dey-main}
+{Proto:tcp DportLow:2053 DportHigh:2053 ToAddr:127.0.0.1 ToPort:2053 Iface:dey-main}
+{Proto:udp DportLow:443 DportHigh:443 ToAddr:127.0.0.1 ToPort:443 Iface:dey-main}
+{Proto:udp DportLow:27015 DportHigh:27015 ToAddr:127.0.0.1 ToPort:27015 Iface:dey-main}
+{Proto:tcp DportLow:8443 DportHigh:8443 ToAddr:1.2.3.4 ToPort:8443 Iface:dey-main}
+=== masquerade []
+=== ip_forward false

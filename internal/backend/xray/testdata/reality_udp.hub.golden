@@ -1,0 +1,130 @@
+# xray/reality hub side
+=== file config.json
+{
+  "_comment": "Rendered by deyroute for tunnel main, node de-1, transport xray/reality (hub side). Regenerated on every apply; do not edit.",
+  "log": {
+    "loglevel": "warning",
+    "access": "none"
+  },
+  "inbounds": [
+    {
+      "tag": "in-tcp-443",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 443,
+        "network": "tcp"
+      }
+    },
+    {
+      "tag": "in-tcp-2053",
+      "listen": "0.0.0.0",
+      "port": 2053,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 2053,
+        "network": "tcp"
+      }
+    },
+    {
+      "tag": "in-udp-443",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 443,
+        "network": "udp"
+      }
+    },
+    {
+      "tag": "in-udp-27015",
+      "listen": "0.0.0.0",
+      "port": 27015,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 27015,
+        "network": "udp"
+      }
+    },
+    {
+      "tag": "in-tcp-8080",
+      "listen": "0.0.0.0",
+      "port": 8080,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "panel.internal",
+        "port": 80,
+        "network": "tcp"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "to-node",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "1.2.3.4",
+            "port": 30001,
+            "users": [
+              {
+                "id": "42179903-4217-4903-8217-990342179903",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision-udp443"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "decoy.example.net",
+          "fingerprint": "chrome",
+          "password": "NQYz58JNLjILJZbIhOYxzDup8G068YX3Db2M4p_7k1E",
+          "shortId": "42179903",
+          "spiderX": "/"
+        }
+      },
+      "mux": {
+        "enabled": false
+      }
+    }
+  ]
+}
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/xray/v26.3.27/xray",
+    "run",
+    "-c",
+    "/etc/deyroute/backends/xray/main/de-1/reality/config.json"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/xray/main/de-1/reality",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:443 user
+tcp 0.0.0.0:2053 user
+udp 0.0.0.0:443 user
+udp 0.0.0.0:27015 user
+tcp 0.0.0.0:8080 user
+=== nat
+=== masquerade []
+=== ip_forward false

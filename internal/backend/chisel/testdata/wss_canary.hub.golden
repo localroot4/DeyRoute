@@ -1,0 +1,52 @@
+# chisel/wss hub side
+=== file server.key
+-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEIB3OFStAEVgi2qvSA9G3OgXe/GdBr0pBkkwMpjwgltjwoAoGCCqGSM49
+AwEHoUQDQgAE5Fih3MsaljqcIU8vu4IGTPH555KjijxRr/9yLMJjKn+c6reGahip
+zsgM/+HvIVFMQZZcAadSXnowrPo0b4JiXA==
+-----END EC PRIVATE KEY-----
+=== file users.json
+{
+  "dey:7272b276741958c4c32917de31c25e40": [
+    "^R:127\\.0\\.0\\.1:39001$"
+  ]
+}
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/chisel/v1.12.1/chisel",
+    "server",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "30002",
+    "--reverse",
+    "--keyfile",
+    "/etc/deyroute/backends/chisel/main/de-1/wss/server.key",
+    "--authfile",
+    "/etc/deyroute/backends/chisel/main/de-1/wss/users.json",
+    "--tls-key",
+    "/etc/deyroute/backends/chisel/main/de-1/wss/tls-key.pem",
+    "--tls-cert",
+    "/etc/deyroute/backends/chisel/main/de-1/wss/tls-cert.pem",
+    "--keepalive",
+    "25s"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/chisel/main/de-1/wss",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:30002 control
+tcp 127.0.0.1:39001 user
+=== nat []
+=== masquerade []
+=== ip_forward false

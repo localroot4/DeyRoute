@@ -1,0 +1,52 @@
+# backhaul/tcp hub side
+=== file server.toml
+# Rendered by deyroute for tunnel main, node de-1, transport backhaul/tcp (hub side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+[server]
+bind_addr = "0.0.0.0:30001"
+transport = "tcp"
+accept_udp = true
+token = "tok-test"
+keepalive_period = 75
+nodelay = true
+heartbeat = 20
+channel_size = 2048
+sniffer = false
+web_port = 0
+log_level = "info"
+skip_optz = true
+ports = [
+  "443=127.0.0.1:443",
+  "2053=127.0.0.1:2053",
+  "27015=127.0.0.1:27015",
+]
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/backhaul/v0.7.2/backhaul",
+    "-c",
+    "/etc/deyroute/backends/backhaul/main/de-1/tcp/server.toml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/backhaul/main/de-1/tcp",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:30001 control
+tcp 0.0.0.0:443 user
+udp 0.0.0.0:443 user
+tcp 0.0.0.0:2053 user
+udp 0.0.0.0:2053 user
+tcp 0.0.0.0:27015 user
+udp 0.0.0.0:27015 user
+=== nat
+=== masquerade []
+=== ip_forward false

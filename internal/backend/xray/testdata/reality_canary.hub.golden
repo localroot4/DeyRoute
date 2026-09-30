@@ -1,0 +1,82 @@
+# xray/reality hub side
+=== file config.json
+{
+  "_comment": "Rendered by deyroute for tunnel main, node de-1, transport xray/reality (hub side). Regenerated on every apply; do not edit.",
+  "log": {
+    "loglevel": "warning",
+    "access": "none"
+  },
+  "inbounds": [
+    {
+      "tag": "in-tcp-39001",
+      "listen": "127.0.0.1",
+      "port": 39001,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 39002,
+        "network": "tcp"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "to-node",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "1.2.3.4",
+            "port": 30001,
+            "users": [
+              {
+                "id": "42179903-4217-4903-8217-990342179903",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "www.example.com",
+          "fingerprint": "chrome",
+          "password": "NQYz58JNLjILJZbIhOYxzDup8G068YX3Db2M4p_7k1E",
+          "shortId": "42179903",
+          "spiderX": "/"
+        }
+      },
+      "mux": {
+        "enabled": false
+      }
+    }
+  ]
+}
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/xray/v26.3.27/xray",
+    "run",
+    "-c",
+    "/etc/deyroute/backends/xray/main/de-1/reality/config.json"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/xray/main/de-1/reality",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 127.0.0.1:39001 user
+=== nat
+=== masquerade []
+=== ip_forward false
