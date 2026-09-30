@@ -23,8 +23,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
       - uses: golangci/golangci-lint-action@v8
         with: { version: v2.5.0 }
-      - name: shellcheck installer
-        run: shellcheck installer/install.sh test/integration/*.sh test/integration/scenarios/*.sh
+      - name: shellcheck scripts
+        run: find installer scripts test -name '*.sh' -print0 | xargs -0 -r shellcheck
       - name: installer size budget (<= 250 lines)
         run: test "$(wc -l < installer/install.sh)" -le 250
       - name: generated docs up to date
