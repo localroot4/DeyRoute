@@ -8,7 +8,7 @@ serve_http node1 8443 1
 T=$(add_tunnel "$NODE1" 8443)
 wait_tunnel_up "$T"
 unit=$(unit_of "$T")
-[ -n "$unit" ] && [ "$unit" != null ] || fail "no active unit for $T"
+{ [ -n "$unit" ] && [ "$unit" != null ]; } || fail "no active unit for $T"
 
 for s in hub node1; do
   pid=$(main_pid "$s" "$unit")

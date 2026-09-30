@@ -85,8 +85,8 @@ install_hub() {
   local s=$1 name=$2; shift 2
   on "$s" bash /dist/install.sh --local "$ARCHIVE" --role hub --name "$name" --yes "$@"
 }
-# join_link [HUB_SERVICE]: a fresh join link from the hub.
-join_link() { dey --on "${1:-hub}" node join-command --json | jq -r .link; }
+# join_link: a fresh join link from the hub.
+join_link() { dey node join-command --json | jq -r .link; }
 # install_node SERVICE [LINK] [flags...]: one-line install + join.
 install_node() {
   local s=$1 link=${2:-}

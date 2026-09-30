@@ -14,7 +14,7 @@ on hub2 bash /dist/install.sh --local "$ARCHIVE" --no-setup >&2
 ann=$(dey hub announce-move "$HUB2_IP:$CONTROL_PORT" --json)
 jq -e --arg n "$NODE1" '.accepted | index($n) != null' <<<"$ann" >/dev/null || fail "announce-move: $ann"
 path=$(sh_on hub "DEYROUTE_BACKUP_PASSPHRASE=it-pass deyroute backup --json" | jq -r .path)
-[ -n "$path" ] && [ "$path" != null ] || fail "backup wrote no file"
+{ [ -n "$path" ] && [ "$path" != null ]; } || fail "backup wrote no file"
 tmp=$(mktemp -d)
 docker cp "$(cid hub):$path" "$tmp/backup" >/dev/null
 docker cp "$tmp/backup" "$(cid hub2):/root/deyroute-backup.tar.gz.age" >/dev/null

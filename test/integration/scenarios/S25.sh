@@ -48,7 +48,7 @@ read -r ok err <<<"$res"
 mem() { on "$1" systemctl show -p MemoryPeak --value "$unit" 2>/dev/null | grep -E '^[0-9]+$' || on "$1" systemctl show -p MemoryCurrent --value "$unit"; }
 mh=$(mem hub) mn=$(mem node1)
 log "ok=$ok err=$err, backend memory: hub $((mh / 1048576)) MB, node $((mn / 1048576)) MB"
-[ "$err" = 0 ] && [ "$ok" = 500 ] || fail "$err of 500 connections failed"
+{ [ "$err" = 0 ] && [ "$ok" = 500 ]; } || fail "$err of 500 connections failed"
 [ "$mh" -le $((150 * 1048576)) ] || fail "hub backend used $((mh / 1048576)) MB"
 [ "$mn" -le $((150 * 1048576)) ] || fail "node backend used $((mn / 1048576)) MB"
 pass

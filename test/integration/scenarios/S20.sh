@@ -22,6 +22,6 @@ jq -e '[.backends[]?, .error? | select(. != null) | (.error.code? // .code?)] | 
   fail "DEY-S001 not reported"
 [ "$(sh_on hub "ls -R /var/lib/deyroute/backends 2>/dev/null; true")" = "$before" ] || fail "hub backends changed"
 [ "$(sh_on node1 "ls -R /var/lib/deyroute/backends 2>/dev/null; true")" = "$before_n" ] || fail "node backends changed"
-[ "$(main_pid hub "$unit")" = "$hp" ] && [ "$(main_pid node1 "$unit")" = "$np" ] || fail "the active candidate was restarted"
+{ [ "$(main_pid hub "$unit")" = "$hp" ] && [ "$(main_pid node1 "$unit")" = "$np" ]; } || fail "the active candidate was restarted"
 tunnel_up "$T" || fail "tunnel not UP"
 pass
