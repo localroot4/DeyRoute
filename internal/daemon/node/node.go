@@ -330,7 +330,12 @@ func (a *agent) run(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 	localErr := make(chan error, 1)
-	wg.Add(3)
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		// Tunnel logs: copy-and-truncate rotation (section 12).
+		dlog.RotateDirLoop(ctx, a.path(systemd.TunnelLogDir), dlog.RotateDirInterval, a.log)
+	}()
 	go func() {
 		defer wg.Done()
 		h := api.NewLocalHandler(a.localAPI(), a.log)

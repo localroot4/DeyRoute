@@ -2,10 +2,12 @@ package log
 
 import (
 	"compress/gzip"
+	"context"
 	stderrors "errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -337,4 +339,100 @@ func syncDir(dir string) {
 	}
 	_ = d.Sync()
 	_ = d.Close()
+}
+
+// RotateCopyTruncate rotates a log that another process keeps open with
+// O_APPEND — the tunnel backends write through systemd
+// StandardOutput=append: — so it cannot be renamed away: when path is
+// larger than maxBytes its content is copied to <path>.rotating, the live
+// file is truncated to zero (the next append lands at offset 0) and the
+// copy becomes <path>.1.gz, older files shifted and only keep kept, as in
+// RotatingWriter. Lines written between the copy and the truncate are lost
+// (logrotate's copytruncate has the same window). It reports whether the
+// file was rotated.
+func RotateCopyTruncate(path string, maxBytes int64, keep int) (bool, error) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxBytes
+	}
+	if keep <= 0 {
+		keep = DefaultKeep
+	}
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() <= maxBytes {
+		return false, nil
+	}
+	w := &RotatingWriter{path: path, keep: keep}
+	if err := copyFile(path, w.pendingPath()); err != nil {
+		_ = os.Remove(w.pendingPath())
+		return false, fmt.Errorf("copy %s: %w", path, err)
+	}
+	if err := os.Truncate(path, 0); err != nil {
+		_ = os.Remove(w.pendingPath())
+		return false, fmt.Errorf("truncate %s: %w", path, err)
+	}
+	return true, w.compressAndShift()
+}
+
+// RotateDir runs RotateCopyTruncate on every *.log file of dir (missing
+// dir: nothing to do) and returns the rotated paths and the first error.
+func RotateDir(dir string, maxBytes int64, keep int) ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*.log"))
+	if err != nil {
+		return nil, err
+	}
+	var rotated []string
+	var first error
+	for _, p := range paths {
+		ok, err := RotateCopyTruncate(p, maxBytes, keep)
+		if ok {
+			rotated = append(rotated, p)
+		}
+		if err != nil && first == nil {
+			first = err
+		}
+	}
+	return rotated, first
+}
+
+// copyFile copies src to dst (mode FileMode).
+func copyFile(src, dst string) error {
+	in, err := os.Open(filepath.Clean(src))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(filepath.Clean(dst), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, FileMode)
+	if err != nil {
+		return err
+	}
+	_, cerr := io.Copy(out, in)
+	if err := out.Close(); cerr == nil {
+		cerr = err
+	}
+	return cerr
+}
+
+// RotateDirInterval is how often the daemons check the tunnel logs.
+const RotateDirInterval = time.Minute
+
+// RotateDirLoop runs RotateDir on dir now and then every interval until ctx
+// ends, logging each rotation and failure to l. The hub and the node agent
+// run it for /var/log/deyroute/tunnels (section 12: 20 MB, 5 files kept).
+func RotateDirLoop(ctx context.Context, dir string, interval time.Duration, l *slog.Logger) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		rotated, err := RotateDir(dir, DefaultMaxBytes, DefaultKeep)
+		for _, p := range rotated {
+			l.Info("tunnel log rotated", slog.String("file", p))
+		}
+		if err != nil {
+			l.Warn("tunnel log rotation failed", Err(err))
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

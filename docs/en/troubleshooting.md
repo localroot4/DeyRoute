@@ -89,8 +89,9 @@ deyroute logs node               # on a node: its own agent
 deyroute events --since 24h --json
 ```
 
-deyroute's own logs are JSON lines with UTC times; logs are rotated at 20 MB
-(5 compressed files kept). For more
+deyroute's own logs are JSON lines with UTC times; logs, including the tunnel
+logs in `/var/log/deyroute/tunnels/`, are rotated at 20 MB (5 compressed files
+kept). For more
 detail run a command with `--debug`, or start the service with
 `DEYROUTE_DEBUG=1`. Secrets never appear in logs (they are printed as `***`).
 
