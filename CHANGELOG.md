@@ -197,6 +197,43 @@ All notable changes to DEYROUTE are documented here. The format follows
   backlog of 1024 (python's 5 made S25 fail 75 of 500 connections).
 - Lab S01 and S03 assert phase 2's join < 30 s (installer or `deyroute join`
   to node online); S08 asserts the client is back <= 3 s after the switch.
+- Backhaul on tunnels with TCP and UDP port maps: the TCP-only Backhaul
+  rungs (tcpmux, ws, wss, wsmux, wssmux) stay in the ladder and run a
+  `backhaul/udp` companion process for the UDP maps in the same unit
+  (`deyroute pair`, second control port; QUESTIONS.md C.42); a node accepts a
+  pair unit only when both command lines are Backhaul binaries. Lab S31
+  (new) checks TCP and UDP through `backhaul/tcpmux` with the real Backhaul
+  and the restart of the pair when the companion dies.
+- A new tunnel whose rung 1 the plan skipped (a UDP rung before the UDP
+  probe passed) starts on the next rung instead of trying the skipped one.
+- `tunnel add` and `port add` report a listen port that another firewall on
+  the hub blocks (ufw, firewalld, iptables, another nftables table) as a
+  yellow step with `DEY-P013` and the command; `port check --open` or the
+  menu runs it after confirmation.
+- Waterwall: `core.json` gets min(4, CPU) workers of the side that runs it
+  (nodes report their CPU count in the hello), the JSON is validated before
+  every start (`DEY-B040`/`DEY-B041`) and a start failure is `DEY-B043`
+  with the log tail.
+- Waterwall and gost run with `MemoryDenyWriteExecute` (checked with the
+  pinned binaries on systemd 255); only rathole keeps the exception.
+- `advanced.backhaul_web_port` is refused by validation (`DEY-C013`) instead
+  of silently skipping every Backhaul rung: the pinned Backhaul cannot keep
+  its stats page on 127.0.0.1.
+- The menu says "client IP: preserved" for direct/haproxy only with the
+  tunnel's `advanced.proxy_protocol` (`proxy_protocol` in TunnelInfo).
+- `port remove`, `tunnel backup remove` and `security firewall disable` ask
+  for a typed `yes` and stop with exit 3 on a non-terminal without `--yes`.
+- `tunnel backup add|remove --node` takes one node; a comma list or a
+  repeated flag is a usage error instead of being sent as one id or
+  dropped.
+- `config edit` keeps the edited copy (and names it) when the same invalid
+  file is saved again.
+- The `--json` error document always has the `log` field.
+- Probe-kind questions in the menu are numbered answers.
+- Backend docs no longer say that sha256s are missing; QUESTIONS.md records
+  the rathole/Waterwall glibc and OpenSSL 3 needs (C.38), frp quic/kcp UDP
+  (C.39), the Waterwall graph sources (C.40) and the awg runtime directory
+  (C.41).
 
 ### Fixed (found by the integration scenarios)
 
@@ -209,7 +246,8 @@ All notable changes to DEYROUTE are documented here. The format follows
   interface is now confined in the forward chain of `inet deyroute` (S17).
 - The first start of an awg/userspace or wireguard/kernel rung failed with
   `DEY-B071`/`DEY-B070` while the node's UDP reachability echo still held the
-  listen port; the configuration is retried for up to 15 s (S33).
+  listen port: the hub now closes the echo when its probe is done, and the
+  configuration is retried for up to 15 s (S33).
 
 ### Added — documentation, integration scenarios, backend hashes
 
