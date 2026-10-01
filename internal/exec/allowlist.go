@@ -20,6 +20,10 @@ var Allowed = []string{
 	"firewall-cmd",
 	"iptables",
 	"systemd-sysusers",
+	// uninstall removes the deyroute system user and group the installer
+	// created (spec section 5: the system is restored; QUESTIONS.md C.30).
+	"userdel",
+	"groupdel",
 }
 
 // operations restricts the programs section 15 allows for one operation

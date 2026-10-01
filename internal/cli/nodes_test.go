@@ -21,7 +21,7 @@ func TestNodeJoinCommand(t *testing.T) {
 	}
 	out := e.ok("node", "join-command")
 	require.Equal(t, DefaultJoinTTL, gotTTL)
-	require.Contains(t, out, "Run this command on each node")
+	require.Contains(t, out, "Run this command on the new node")
 	require.Contains(t, out, "\nbash <(curl -fsSL https://x/install.sh) join 'dey://T@5.6.7.8:44433#sha256:ab'\n")
 	require.Contains(t, out, ", 15m):")
 	require.Equal(t, "1h", shortDuration(time.Hour))
@@ -32,7 +32,9 @@ func TestNodeJoinCommand(t *testing.T) {
 	require.Equal(t, time.Hour, gotTTL)
 	require.Equal(t, "dey://T@5.6.7.8:44433#sha256:ab", doc["link"])
 
-	require.Contains(t, e.fail(1, "node", "join-command", "--ttl", "0s"), "--ttl must be a positive duration")
+	require.Contains(t, e.fail(1, "node", "join-command", "--ttl", "0s"), "--ttl must be between 1m and 24h (got 0s)")
+	require.Contains(t, e.fail(1, "node", "join-command", "--ttl", "2s"), "--ttl must be between 1m and 24h (got 2s)")
+	require.Contains(t, e.fail(1, "node", "join-command", "--ttl", "25h"), "--ttl must be between 1m and 24h")
 	require.Contains(t, e.fail(1, "node", "join-command", "--ttl", "soon"), "invalid argument")
 }
 

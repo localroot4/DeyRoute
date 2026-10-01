@@ -83,6 +83,7 @@ func Uninstall(ctx context.Context, o UninstallOptions) error {
 		paths := e.dataPaths(o.KeepBackups)
 		return strconv.Itoa(len(paths)) + " paths", install.RemovePaths(e.root, paths)
 	})
+	run(StepAccount, func() (string, error) { return e.removeAccount(ctx) })
 	if len(errs) > 0 {
 		e.rep.skip(StepBinary, "kept so that deyroute uninstall can run again")
 		return stderrors.Join(errs...)
@@ -215,4 +216,52 @@ func (e *env) dataPaths(keepBackups bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// removeAccount deletes the system user and group the installer created
+// (config.SystemUser). Accounts that do not exist are not errors; a system
+// without userdel/groupdel keeps them and says so in the step detail.
+func (e *env) removeAccount(ctx context.Context) (string, error) {
+	var removed []string
+	for _, a := range []struct{ db, tool string }{
+		{"etc/passwd", "userdel"},
+		{"etc/group", "groupdel"},
+	} {
+		// userdel usually removes the user's group as well: re-read the
+		// database before each step.
+		if !hasAccount(e.path(a.db), config.SystemUser) {
+			continue
+		}
+		if _, _, err := e.runner.Run(ctx, a.tool, []string{config.SystemUser}, nil); err != nil {
+			if noTool(err) {
+				return a.tool + " is not installed; remove the " + config.SystemUser + " account by hand", nil
+			}
+			return "", err
+		}
+		removed = append(removed, a.db)
+	}
+	if len(removed) == 0 {
+		return "no " + config.SystemUser + " account", nil
+	}
+	return config.SystemUser + " (" + strings.Join(removed, ", ") + ")", nil
+}
+
+// hasAccount reports whether the passwd/group database at path has an entry
+// named name.
+func hasAccount(path, name string) bool {
+	data, err := os.ReadFile(path) // #nosec G304 -- fixed system database below Root
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, name+":") {
+			return true
+		}
+	}
+	return false
+}
+
+// noTool reports a runner error meaning the program is not installed.
+func noTool(err error) bool {
+	return deyerr.HasCode(err, deyerr.X002) || deyerr.HasCode(err, deyerr.X030)
 }

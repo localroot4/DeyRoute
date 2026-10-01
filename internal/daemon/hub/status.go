@@ -204,6 +204,10 @@ func (h *Hub) warnings(cfg *config.Config) []api.Warning {
 		if !ok {
 			continue
 		}
+		if ts.Paused && t.Enabled {
+			e := deyerr.New(deyerr.F004, deyerr.Params{"tunnel": t.ID})
+			out = append(out, api.Warning{Code: string(e.Code), Message: e.Message() + "; " + e.Fix(), Tunnel: t.ID})
+		}
 		for _, key := range sortedKeys(ts.Skipped) {
 			sk := ts.Skipped[key]
 			c, err := parseCandidateKey(key)

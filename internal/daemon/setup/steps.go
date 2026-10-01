@@ -4,6 +4,7 @@ import (
 	"context"
 	stderrors "errors"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/localroot4/deyroute/internal/api"
@@ -35,6 +36,7 @@ const (
 	StepFirewallRemove = "firewall_remove"
 	StepSysctlRevert   = "sysctl_revert"
 	StepFiles          = "files"
+	StepAccount        = "account"
 	StepBinary         = "binary"
 
 	// Restore (also StepSysctl, StepService).
@@ -64,6 +66,7 @@ var defaultTitles = map[string]string{
 	StepFirewallRemove: "Remove firewall table inet deyroute",
 	StepSysctlRevert:   "Restore kernel settings",
 	StepFiles:          "Remove files",
+	StepAccount:        "Remove the deyroute system user",
 	StepBinary:         "Remove deyroute binary",
 	StepRestore:        "Restore backup",
 	StepEvents:         "Save events for import",
@@ -213,4 +216,15 @@ func serviceFailed(err error, unit string) error {
 			"   (status: systemctl status " + unit + ")")
 	}
 	return err
+}
+
+// sysctlDetail is the step detail of a kernel-settings step that applied
+// with warnings: the profile and how many settings were skipped. The
+// warnings themselves are in the result (SysctlWarnings), listed once by the
+// CLI and the TUI.
+func sysctlDetail(profile string, warnings []string) string {
+	if len(warnings) == 1 {
+		return profile + ", 1 setting skipped"
+	}
+	return profile + ", " + strconv.Itoa(len(warnings)) + " settings skipped"
 }

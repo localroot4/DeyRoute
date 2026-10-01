@@ -33,8 +33,8 @@ func newNodeJoinCommandCmd(g *Globals) *cobra.Command {
 		Example: i18n.T(i18n.CLINodeJoinCmdExample),
 		Args:    noArgs(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if ttl <= 0 {
-				return usageErr(i18n.T(i18n.CLIWantPositiveDuration, "--ttl"))
+			if ttl < api.MinJoinTTL || ttl > api.MaxJoinTTL {
+				return usageErr(i18n.T(i18n.CLIJoinTTLRange, ttl))
 			}
 			jc, err := g.joinCommand(cmd.Context(), ttl)
 			if err != nil {

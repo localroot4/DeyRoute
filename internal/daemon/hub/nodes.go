@@ -24,8 +24,8 @@ import (
 // Node operation limits.
 const (
 	// MinJoinTTL and MaxJoinTTL bound `deyroute node join-command --ttl`.
-	MinJoinTTL = time.Minute
-	MaxJoinTTL = 24 * time.Hour
+	MinJoinTTL = api.MinJoinTTL
+	MaxJoinTTL = api.MaxJoinTTL
 	// udpListenSeconds keeps the node's UDP echo open for one test.
 	udpListenSeconds = 10
 	// udpPortTries is how many free control-range ports are tried when the

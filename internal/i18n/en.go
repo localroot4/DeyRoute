@@ -1194,6 +1194,7 @@ const (
 	CLIWantArgsRange             Key = "cli.want_args_range"
 	CLIWantFlag                  Key = "cli.want_flag"
 	CLIWantPositiveDuration      Key = "cli.want_positive_duration"
+	CLIJoinTTLRange              Key = "cli.join_ttl_range"
 	CLIWantCount                 Key = "cli.want_count"
 	CLIWantSeconds               Key = "cli.want_seconds"
 	CLIWantShell                 Key = "cli.want_shell"
@@ -1654,6 +1655,7 @@ var cliEN = map[Key]string{
 	CLIWantArgsRange:             "%s takes %d to %d argument(s), got %d",
 	CLIWantFlag:                  "missing required flag %s",
 	CLIWantPositiveDuration:      "%s must be a positive duration, e.g. 15m or 1h",
+	CLIJoinTTLRange:              "--ttl must be between 1m and 24h (got %s); the default is 15m",
 	CLIWantCount:                 "--count must be between 1 and %d",
 	CLIWantSeconds:               "--seconds must be between 1 and %d",
 	CLIWantShell:                 "unknown shell %q: use bash, zsh or fish",
@@ -1766,7 +1768,7 @@ var cliEN = map[Key]string{
 	CLISetupPrivateIP:            "! %s is not a public IP address: if users cannot reach it, set hub.public_ip with: deyroute config edit",
 	CLISysctlSkipped:             "Kernel profile not applied (no --yes); apply it later with: deyroute optimize apply --profile balanced",
 	CLIJoinCmdLater:              "Show the join command later with: deyroute node join-command",
-	CLIJoinCmdIntro:              "Run this command on each node (valid until %s, %s):",
+	CLIJoinCmdIntro:              "Run this command on the new node (one node per command, valid until %s, %s):",
 	CLISetupNoTTYWhy:             "no terminal is available for the interactive setup",
 	CLISetupNoTTYFix:             "run: deyroute setup --role hub --name NAME --yes   (on a node: deyroute join 'dey://...')",
 	CLISetupNodeNeedsLink:        "a node joins with the link from the hub: deyroute join 'dey://TOKEN@HUB_IP:PORT#FP' [--name N]",

@@ -65,7 +65,7 @@ func TestSetupWizardHub(t *testing.T) {
 		"Role of this server", "[hub]", "Name of this hub [ir-server]", "Public IP of this server [5.6.7.8]",
 		"Not accepted: DEY-C013", "Control port for the nodes [44434]", "Not accepted: DEY-P012 Port 5000/tcp is already in use", "[Y/n]",
 		"Setting up hub ir-server", "✔ " + setup.StepTitle(setup.StepCA), "Hub ir-server is ready: 5.6.7.9, control port 44434.",
-		"! BBR missing", "Run this command on each node (valid until", "\nbash <(curl -fsSL https://x/install.sh) join 'dey://T@5.6.7.8:44433#sha256:ab'\n",
+		"! BBR missing", "Run this command on the new node (one node per command, valid until", "\nbash <(curl -fsSL https://x/install.sh) join 'dey://T@5.6.7.8:44433#sha256:ab'\n",
 	} {
 		require.Contains(t, out, want)
 	}

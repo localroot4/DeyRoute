@@ -192,3 +192,9 @@ stated default until the owner decides · **[ANSWERED]** closed.
     and, where upstream publishes checksums (frp, Xray, gost, chisel,
     hysteria), matches them (`go run ./scripts/manifest-hashes -check`). Owner
     may mirror these files and override the manifest instead.
+30. **[DEFAULT] Uninstall removes the system account.** `deyroute uninstall`
+    deletes the `deyroute` user and group the installer created (spec 5: the
+    system is restored; scenario S23 compares accounts). `userdel` and
+    `groupdel` are therefore on the exec allow-list (`internal/exec`); they are
+    run with the fixed name `deyroute` only. Without them the step says so and
+    the account stays.

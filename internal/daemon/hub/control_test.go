@@ -237,7 +237,7 @@ func TestIncompatibleNode(t *testing.T) {
 		if w.Code == string(deyerr.N004) && w.Node == "de-1" {
 			found = true
 			require.Contains(t, w.Message, "0.0.1")
-			require.Contains(t, w.Message, "Update")
+			require.Contains(t, w.Message, "deyroute update")
 		}
 	}
 	require.True(t, found, "N004 warning in %v", st.Warnings)

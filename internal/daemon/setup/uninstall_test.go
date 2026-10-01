@@ -70,6 +70,31 @@ func (s *fakeSystem) handle(c exec.Call) (exec.Response, bool) {
 		return exec.OK(""), true
 	case line == "systemctl daemon-reload", strings.HasPrefix(line, "systemctl reset-failed "):
 		return exec.OK(""), true
+	case (c.Name == "userdel" || c.Name == "groupdel") && len(c.Args) == 1:
+		db := "etc/passwd"
+		if c.Name == "groupdel" {
+			db = "etc/group"
+		}
+		full := filepath.Join(s.root, db)
+		data, _ := os.ReadFile(full)
+		var keep []string
+		found := false
+		for _, l := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+			if strings.HasPrefix(l, c.Args[0]+":") {
+				found = true
+				continue
+			}
+			keep = append(keep, l)
+		}
+		if !found {
+			return exec.Fail(6, c.Name+": "+c.Args[0]+" does not exist"), true
+		}
+		_ = os.WriteFile(full, []byte(strings.Join(keep, "\n")+"\n"), 0o644)
+		if c.Name == "userdel" {
+			// Debian's USERGROUPS_ENAB: the user's own group goes too.
+			s.dropGroup(c.Args[0])
+		}
+		return exec.OK(""), true
 	case line == "nft delete table inet deyroute":
 		if s.nftErr != "" {
 			return exec.Fail(1, s.nftErr), true
@@ -81,6 +106,22 @@ func (s *fakeSystem) handle(c exec.Call) (exec.Response, bool) {
 		return exec.OK(""), true
 	}
 	return exec.Response{}, false
+}
+
+// dropGroup removes name from etc/group (userdel with USERGROUPS_ENAB).
+func (s *fakeSystem) dropGroup(name string) {
+	full := filepath.Join(s.root, "etc/group")
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return
+	}
+	var keep []string
+	for _, l := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+		if !strings.HasPrefix(l, name+":") {
+			keep = append(keep, l)
+		}
+	}
+	_ = os.WriteFile(full, []byte(strings.Join(keep, "\n")+"\n"), 0o644)
 }
 
 // installedTree creates what an installed hub leaves on disk.
@@ -107,6 +148,8 @@ func installedTree(t *testing.T, root string) {
 		"etc/sysctl.d/99-deyroute.conf":                                 "# managed by deyroute (profile: balanced)\nnet.core.somaxconn = 65535\n",
 		"var/lib/deyroute/sysctl-before-deyroute.conf":                  "net.core.somaxconn = 4096\n",
 		"proc/sys/net/core/somaxconn":                                   "65535\n",
+		"etc/passwd":                                                    "root:x:0:0:root:/root:/bin/bash\ndeyroute:x:999:996:DEYROUTE:/nonexistent:/usr/sbin/nologin\n",
+		"etc/group":                                                     "root:x:0:\ndeyroute:x:996:\n",
 	}
 	for p, content := range files {
 		full := filepath.Join(root, p)
@@ -129,7 +172,7 @@ func TestUninstallOrderAndIdempotence(t *testing.T) {
 	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f, Progress: steps.add}))
 
 	require.Equal(t, []string{
-		"stop_units=ok", "unit_files=ok", "firewall_remove=ok", "sysctl_revert=ok", "files=ok", "binary=ok",
+		"stop_units=ok", "unit_files=ok", "firewall_remove=ok", "sysctl_revert=ok", "files=ok", "account=ok", "binary=ok",
 	}, steps.final())
 
 	// The daemons stop before any tunnel unit (so nothing restarts them),
@@ -195,7 +238,7 @@ func TestUninstallFailingStepKeepsGoingAndKeepsBinary(t *testing.T) {
 	requireCode(t, err, deyerr.P019)
 	require.Contains(t, e.Detail, "Operation not permitted")
 	require.Equal(t, []string{
-		"stop_units=ok", "unit_files=ok", "firewall_remove=failed", "sysctl_revert=ok", "files=ok", "binary=skipped",
+		"stop_units=ok", "unit_files=ok", "firewall_remove=failed", "sysctl_revert=ok", "files=ok", "account=ok", "binary=skipped",
 	}, steps.final())
 	st, _ := steps.get(StepFirewallRemove)
 	require.Equal(t, "DEY-P019", st.Error.Code)
@@ -215,6 +258,8 @@ func TestUninstallWithoutSystemctl(t *testing.T) {
 	missing := exec.Response{Err: deyerr.New(deyerr.X002, nil)}
 	f.OnPrefix("systemctl ", missing)
 	f.On("nft delete table inet deyroute", exec.Response{Err: deyerr.New(deyerr.X030, deyerr.Params{"command": "nft"})})
+	f.On("userdel deyroute", exec.OK(""))
+	f.On("groupdel deyroute", exec.OK(""))
 	steps := &stepLog{}
 	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f, Progress: steps.add}))
 	require.NoFileExists(t, filepath.Join(root, "usr/local/bin/deyroute"))
@@ -239,4 +284,56 @@ func TestUninstallStopErrorsAreCollected(t *testing.T) {
 	require.FileExists(t, filepath.Join(root, "usr/local/bin/deyroute"))
 	require.NoDirExists(t, filepath.Join(root, "etc/deyroute"))
 	require.NoFileExists(t, filepath.Join(root, config.SysctlConfPath))
+}
+
+func TestUninstallRemovesTheSystemAccount(t *testing.T) {
+	root := t.TempDir()
+	installedTree(t, root)
+	sys := newFakeSystem(root)
+	f := sys.runner()
+	steps := &stepLog{}
+	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f, Progress: steps.add}))
+	passwd, err := os.ReadFile(filepath.Join(root, "etc/passwd"))
+	require.NoError(t, err)
+	require.NotContains(t, string(passwd), "deyroute:")
+	require.Contains(t, string(passwd), "root:")
+	group, err := os.ReadFile(filepath.Join(root, "etc/group"))
+	require.NoError(t, err)
+	require.NotContains(t, string(group), "deyroute:")
+	require.Contains(t, f.Lines(), "userdel deyroute")
+	require.NotContains(t, f.Lines(), "groupdel deyroute", "userdel already removed the group")
+
+	// A group left behind (no USERGROUPS_ENAB) is removed on its own; a
+	// second run finds nothing to do.
+	require.NoError(t, os.WriteFile(filepath.Join(root, "etc/group"), []byte("root:x:0:\ndeyroute:x:996:\n"), 0o644))
+	f2 := sys.runner()
+	steps2 := &stepLog{}
+	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f2, Progress: steps2.add}))
+	require.Contains(t, f2.Lines(), "groupdel deyroute")
+	st, _ := steps2.get(StepAccount)
+	require.Contains(t, st.Detail, "etc/group")
+
+	f3 := sys.runner()
+	steps3 := &stepLog{}
+	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f3, Progress: steps3.add}))
+	st, _ = steps3.get(StepAccount)
+	require.Equal(t, "no deyroute account", st.Detail)
+}
+
+func TestUninstallWithoutUserdelKeepsGoing(t *testing.T) {
+	root := t.TempDir()
+	installedTree(t, root)
+	sys := newFakeSystem(root)
+	f := exec.NewFake()
+	f.Handler = func(c exec.Call) (exec.Response, bool) {
+		if c.Name == "userdel" {
+			return exec.Response{Err: deyerr.New(deyerr.X030, deyerr.Params{"program": "userdel"})}, true
+		}
+		return sys.handle(c)
+	}
+	steps := &stepLog{}
+	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f, Progress: steps.add}))
+	st, _ := steps.get(StepAccount)
+	require.Contains(t, st.Detail, "userdel is not installed")
+	require.Equal(t, "ok", st.Status)
 }

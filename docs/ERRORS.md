@@ -72,7 +72,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-N001` | Join token is invalid or expired | tokens are single-use and expire after 15 minutes | on the hub run: deyroute node join-command   and use the new line |
 | `DEY-N002` | Hub CA fingerprint mismatch | the hub presented CA {got}, the join link pins {expected}; this may be a wrong address or interception | copy the join command again from the hub menu; do not edit it |
 | `DEY-N003` | Node {node} is offline | no heartbeat from the node's control connection | check the node: systemctl status deyroute-node   and its network to the hub |
-| `DEY-N004` | Node {node} version {node_version} is incompatible with hub {hub_version} | hub and node must share the same major.minor version | update the node from the hub menu: Update -> deyroute (nodes follow the hub) |
+| `DEY-N004` | Node {node} version {node_version} is incompatible with hub {hub_version} | hub and node must share the same major.minor version | run deyroute update on the hub (its nodes then update from it), or re-run the installer on this node with --version {hub_version} |
 | `DEY-N005` | Command {command} timed out on node {node} | the node did not answer in time | check deyroute node test {node}; see the node log with deyroute logs node |
 | `DEY-N006` | Invalid join link | expected dey://TOKEN@HUB_IP:PORT#SHA256_FINGERPRINT | copy the full line again from the hub (deyroute node join-command) |
 | `DEY-N007` | Too many failed join attempts from {ip} | more than 5 failures in an hour block the address for 1 hour | wait one hour, then use a fresh join command |
@@ -138,7 +138,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-B011` | Backend {unit} crashed on {where} | the backend process exited and systemd restarted it (restarted {restarts} time(s) since it was started); connections through the tunnel were dropped | see the backend log: deyroute logs <tunnel>; if it keeps crashing the failover engine moves to the next rung, or run: deyroute tunnel restart <tunnel> |
 | `DEY-B040` | Waterwall config is not valid JSON: {file} | the rendered Waterwall file failed validation before start | report this with deyroute doctor; the rung is skipped |
 | `DEY-B041` | Waterwall core.json missing in {dir} | Waterwall must start with WorkingDirectory set to the core.json folder | run deyroute tunnel restart <tunnel> to re-render |
-| `DEY-B042` | No decoy SNI is reachable | none of {decoys} answered a TLS 1.3 handshake from the hub | set a reachable decoy list in Settings, then retry |
+| `DEY-B042` | No decoy SNI is reachable | none of {decoys} answered a TLS 1.3 handshake from the hub | list reachable TLS 1.3 sites in hub.decoy_snis with: deyroute config edit |
 | `DEY-B043` | Waterwall failed to start | Waterwall exited; its debug log is shown below | fix the cause shown in the log or remove the rung from the ladder |
 | `DEY-B044` | Waterwall Reality handshake failed | the node could not complete the Reality handshake with the hub | check that the decoy SNI is reachable and the password matches on both sides (re-render) |
 | `DEY-B060` | Relay config is invalid: {path} | the direct/native relay could not use its rendered file ({reason}) | re-render the tunnel: deyroute tunnel restart <tunnel>; if it repeats run deyroute doctor |

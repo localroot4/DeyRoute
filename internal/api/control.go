@@ -29,6 +29,10 @@ const (
 	OfflineAfter = 15 * time.Second
 	// JoinTokenTTL is the default join token lifetime (section 11).
 	JoinTokenTTL = 15 * time.Minute
+	// MinJoinTTL and MaxJoinTTL bound the lifetime an owner may ask for
+	// (`deyroute node join-command --ttl`).
+	MinJoinTTL = time.Minute
+	MaxJoinTTL = 24 * time.Hour
 	// NodeCertValidity is 10 years (section 3).
 	NodeCertValidity = 10 * 365 * 24 * time.Hour
 	// Reconnect backoff bounds (section 3).

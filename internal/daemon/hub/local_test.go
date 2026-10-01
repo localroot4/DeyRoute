@@ -130,6 +130,20 @@ func TestStatusEventsOverSocket(t *testing.T) {
 		require.NotEqual(t, string(deyerr.N004), w.Code)
 	}
 
+	// A paused tunnel is a warning with the command that resumes it.
+	require.NoError(t, env.h.st.PutTunnel(state.TunnelState{ID: "main", State: state.StatePaused, Paused: true,
+		Active: state.Candidate{Node: "de-1", Transport: "backhaul/wssmux"}}))
+	st, err = env.client.Status(ctxT(t))
+	require.NoError(t, err)
+	var paused bool
+	for _, w := range st.Warnings {
+		if w.Code == string(deyerr.F004) && w.Tunnel == "main" {
+			paused = true
+			require.Contains(t, w.Message, "deyroute tunnel resume main")
+		}
+	}
+	require.True(t, paused, "%v", st.Warnings)
+
 	evs, err := env.client.Events(ctxT(t), api.EventQuery{Tunnel: "main"})
 	require.NoError(t, err)
 	require.Len(t, evs, 1)

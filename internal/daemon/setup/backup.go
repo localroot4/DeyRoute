@@ -289,7 +289,7 @@ func Restore(ctx context.Context, o RestoreOptions) (*RestoreResult, error) {
 			e.rep.warn(StepSysctl, profile, err)
 		case len(warnings) > 0:
 			res.SysctlProfile = profile
-			e.rep.warn(StepSysctl, profile+": "+strings.Join(warnings, "; "), nil)
+			e.rep.warn(StepSysctl, sysctlDetail(profile, warnings), nil)
 		default:
 			res.SysctlProfile = profile
 			e.rep.ok(StepSysctl, profile)
