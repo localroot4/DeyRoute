@@ -20,6 +20,7 @@ import (
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/i18n"
+	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/tui"
 )
@@ -192,6 +193,9 @@ type Ops struct {
 	Restore    func(ctx context.Context, o setup.RestoreOptions) (*setup.RestoreResult, error)
 	SetHubAddr func(root, addr string) error
 	Repair     func(ctx context.Context, o setup.RepairOptions) (string, error)
+	// SelfRollback swaps the binary with deyroute.prev (update --rollback
+	// without the daemon).
+	SelfRollback func(root string) error
 }
 
 // defaults fills every unset field with its production value. It is
@@ -296,6 +300,9 @@ func (o *Ops) defaults() {
 	}
 	if o.Repair == nil {
 		o.Repair = setup.Repair
+	}
+	if o.SelfRollback == nil {
+		o.SelfRollback = func(root string) error { return install.SelfUpdater{Root: root}.Rollback() }
 	}
 }
 

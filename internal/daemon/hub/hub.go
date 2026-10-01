@@ -65,9 +65,12 @@ type Hub struct {
 	// ops holds the state of the operations of ops_*.go and jobs.go.
 	ops opsState
 
-	ln    net.Listener
-	ctl   *api.ControlServer
-	local *local
+	ln net.Listener
+	// ctlPort is hub.control_port as it was when ln was bound: the firewall
+	// keeps protecting it until the hub restarts on a changed port.
+	ctlPort int
+	ctl     *api.ControlServer
+	local   *local
 
 	nodesMu sync.Mutex
 	nodes   map[string]*nodeRuntime
@@ -185,7 +188,7 @@ func New(o Options) (_ *Hub, err error) {
 			"addr": o.controlListen(cfg.Hub.ControlPort),
 		}).WithDetail(err.Error()).WithLog(LogFile)
 	}
-	h.ln = ln
+	h.ln, h.ctlPort = ln, cfg.Hub.ControlPort
 	h.ctl = &api.ControlServer{TLSConfig: h.tlsCfg, Handler: controlHandler{h}, Logger: h.log, Clock: o.Now}
 	h.local = &local{h: h}
 	return h, nil
@@ -513,8 +516,19 @@ func (h *Hub) mutate(fn func(c *config.Config) error) (*config.Config, error) {
 
 // autoBackup takes the automatic backup that precedes every owner-initiated
 // apply (section 5: backups/auto/, the last 20 are kept).
-func (h *Hub) autoBackup() (string, error) {
-	p, err := install.AutoBackup(h.o.Root, AutoBackupKeep)
+func (h *Hub) autoBackup() (string, error) { return h.autoBackupOf(nil) }
+
+// autoBackupOf is autoBackup with cfg (when not nil) stored as config.yaml:
+// the configuration that was running before a `config apply`.
+func (h *Hub) autoBackupOf(cfg *config.Config) (string, error) {
+	var data []byte
+	if cfg != nil {
+		var err error
+		if data, err = config.Marshal(cfg); err != nil {
+			return "", err
+		}
+	}
+	p, err := install.AutoBackupConfig(h.o.Root, AutoBackupKeep, data)
 	if err != nil {
 		h.log.Error("automatic backup failed", dlog.Err(err), dlog.Code(deyerr.As(err).Code))
 		return "", err

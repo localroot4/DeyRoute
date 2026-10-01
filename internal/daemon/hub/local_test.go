@@ -1,7 +1,10 @@
 package hub
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -452,6 +455,10 @@ func TestSettingsAndConfigApply(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"hub", "security"}, res.Changed)
 	require.FileExists(t, res.Backup)
+	// The backup holds the configuration that was running, not the edit.
+	saved := backupConfig(t, res.Backup)
+	require.Contains(t, saved, "ui_mode: advanced")
+	require.NotContains(t, saved, "ui_mode: simple")
 	require.Equal(t, "simple", env.h.Config().Hub.UIMode)
 	mu.Lock()
 	require.NotEmpty(t, stepsSeen)
@@ -488,4 +495,24 @@ func TestWrongRoleAndUnknownTunnel(t *testing.T) {
 	require.Equal(t, deyerr.C021, codeOf(env.client.SecurityRotateTokens(ctxT(t), "x", nil)))
 	_, err = env.client.SecurityTLSShow(ctxT(t), "x")
 	require.Equal(t, deyerr.C021, codeOf(err))
+}
+
+// backupConfig returns etc/deyroute/config.yaml of the plain backup at path.
+func backupConfig(t *testing.T, path string) string {
+	t.Helper()
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	gz, err := gzip.NewReader(f)
+	require.NoError(t, err)
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		require.NoError(t, err, "no etc/deyroute/config.yaml in %s", path)
+		if h.Name == "etc/deyroute/config.yaml" {
+			data, err := io.ReadAll(tr)
+			require.NoError(t, err)
+			return string(data)
+		}
+	}
 }

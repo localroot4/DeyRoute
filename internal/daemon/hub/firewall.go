@@ -137,6 +137,11 @@ func (h *Hub) applyFirewall(ctx context.Context) error {
 		}
 	}
 	spec := render.FirewallSpec(cfg, sides, h.joins.Active(), render.DefaultUnknownControlRate)
+	if h.ctlPort != 0 {
+		// The port the control listener is bound to, not a changed
+		// hub.control_port that takes effect only at the next restart.
+		spec.ControlPort = h.ctlPort
+	}
 	managed := firewallManaged(cfg)
 	h.fwMu.Lock()
 	wasManaged := h.fw.done && h.fw.managed

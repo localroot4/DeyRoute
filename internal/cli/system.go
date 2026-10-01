@@ -421,6 +421,26 @@ func newSettingsCmd(g *Globals) *cobra.Command {
 
 // ----------------------------------------------------------------- update
 
+// rollbackLocal is `deyroute update --rollback` without the daemon (it is
+// down, or this is a node): the binary and deyroute.prev are swapped here
+// and the role's service is restarted.
+func (g *Globals) rollbackLocal(ctx context.Context, yes bool) error {
+	if err := g.confirm(i18n.T(i18n.CLIRollbackLost), yes); err != nil {
+		return err
+	}
+	if err := g.Ops.SelfRollback(g.Root); err != nil {
+		return err
+	}
+	unit := g.service() + ".service"
+	rctx, cancel := longCtx(ctx)
+	defer cancel()
+	if _, _, err := g.Runner.Run(rctx, "systemctl", []string{"restart", unit}, nil); err != nil {
+		g.note(i18n.CLIRollbackRestartFailed, unit)
+		return err
+	}
+	return g.done(map[string]any{"rolled_back": true, "daemon_running": false, "service": unit}, i18n.CLIRolledBackLocal, unit)
+}
+
 func newUpdateCmd(g *Globals) *cobra.Command {
 	var check, rollback, yes bool
 	var ver string
@@ -435,6 +455,11 @@ func newUpdateCmd(g *Globals) *cobra.Command {
 				return usageErr(i18n.T(i18n.CLIUpdateFlagsConflict))
 			}
 			l, err := g.local()
+			if rollback && (errDaemonDown(err) || err == nil && g.role() == config.RoleNode) {
+				// A crash-looping daemon after a bad update must still be
+				// rolled back, and a node has no update API of its own.
+				return g.rollbackLocal(cmd.Context(), yes)
+			}
 			if err != nil {
 				return err
 			}

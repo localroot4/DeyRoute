@@ -252,7 +252,7 @@ func TestAutoBackupPrunes(t *testing.T) {
 	base := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
 	var paths []string
 	for i := 0; i < 5; i++ {
-		p, err := autoBackup(root, 3, base.Add(time.Duration(i)*time.Second))
+		p, err := autoBackup(root, 3, base.Add(time.Duration(i)*time.Second), nil)
 		require.NoError(t, err)
 		require.Equal(t, os.FileMode(0o600), modeOf(t, p))
 		paths = append(paths, p)

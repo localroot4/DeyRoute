@@ -2,10 +2,13 @@ package hub
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/localroot4/deyroute/internal/api"
@@ -27,6 +30,9 @@ func (l *local) ConfigApply(ctx context.Context, progress func(api.Step)) (api.A
 	res, err := h.applyConfigFile(rep)
 	if err != nil {
 		return api.ApplyResult{}, withLog(err)
+	}
+	if cfg := h.Config(); h.ctlPort != 0 && cfg.Hub.ControlPort != h.ctlPort {
+		res.Warnings = append(res.Warnings, h.announcePort(ctx, cfg))
 	}
 	// Reconcile outside the config lock: the tunnel controller mutates
 	// config.yaml itself.
@@ -71,7 +77,8 @@ func (h *Hub) applyConfigFile(rep *steps) (api.ApplyResult, error) {
 		res.Changed = []string{}
 	}
 	err = rep.run(stepBackup, func() (string, error) {
-		p, err := h.autoBackup()
+		// config.yaml already holds the edit: back up what was running.
+		p, err := h.autoBackupOf(prev)
 		res.Backup = p
 		return p, err
 	})
@@ -82,9 +89,6 @@ func (h *Hub) applyConfigFile(rep *steps) (api.ApplyResult, error) {
 		h.setConfig(next)
 		h.reloadNotifier(next)
 		h.requestFirewall()
-		if next.Hub.ControlPort != prev.Hub.ControlPort {
-			res.Warnings = append(res.Warnings, "hub.control_port changed: restart deyroute-hub (systemctl restart "+ServiceName+") to listen on the new port")
-		}
 		if !reflect.DeepEqual(prev.Tuning, next.Tuning) && next.Tuning != nil {
 			// Kernel settings change only on the owner's explicit command
 			// (section 12).
@@ -97,6 +101,27 @@ func (h *Hub) applyConfigFile(rep *steps) (api.ApplyResult, error) {
 		return strings.Join(res.Changed, ", "), nil
 	})
 	return res, nil
+}
+
+// announcePort tells every node the hub's new control address after
+// hub.control_port changed (section 5 hub move, same command as
+// announce-move). The nodes store it and dial it at their next reconnect,
+// which happens when the hub restarts on the new port; until then the hub
+// and its firewall stay on the old port. It returns the warning for the
+// owner: restart now, open the port at the provider, and run set-hub on
+// the nodes that were offline.
+func (h *Hub) announcePort(ctx context.Context, cfg *config.Config) string {
+	addr := net.JoinHostPort(cfg.Hub.PublicIP, strconv.Itoa(cfg.Hub.ControlPort))
+	res, _ := (&local{h: h}).HubAnnounceMove(ctx, addr)
+	msg := fmt.Sprintf("hub.control_port changed to %d: allow %d/tcp in the provider firewall, then restart the hub (systemctl restart %s); "+
+		"until then it keeps listening on %d", cfg.Hub.ControlPort, cfg.Hub.ControlPort, ServiceName, h.ctlPort)
+	if len(res.Accepted) > 0 {
+		msg += "; nodes that switch to " + addr + " at the restart: " + strings.Join(res.Accepted, ", ")
+	}
+	if len(res.Offline) > 0 {
+		msg += "; offline nodes, run on each: deyroute node set-hub " + addr + " (" + strings.Join(res.Offline, ", ") + ")"
+	}
+	return msg
 }
 
 // diffConfig lists what changed between two configurations: "hub",

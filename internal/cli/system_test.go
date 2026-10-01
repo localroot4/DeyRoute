@@ -13,6 +13,7 @@ import (
 
 	"github.com/localroot4/deyroute/internal/api"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/state"
 )
 
@@ -343,4 +344,24 @@ func TestUpdateCommands(t *testing.T) {
 
 	e.down()
 	require.Contains(t, e.fail(2, "update", "--check"), "DEY-X003")
+	// With the daemon down (a bad update that crash-loops) the rollback
+	// runs here: swap the binaries, restart the service.
+	swapped := 0
+	e.g.Ops.SelfRollback = func(root string) error {
+		require.Equal(t, e.root, root)
+		swapped++
+		return nil
+	}
+	e.down()
+	e.fake.OnPrefix("systemctl restart ", exec.OK(""))
+	rb := e.ok("update", "--rollback", "--yes")
+	require.Equal(t, 1, swapped)
+	require.True(t, e.fake.Called("systemctl restart deyroute-hub.service"))
+	require.Contains(t, rb, "Rolled back to the previous deyroute binary and restarted deyroute-hub.service.")
+	doc = e.json("update", "--rollback", "--yes")
+	require.Equal(t, false, doc["daemon_running"])
+	e.g.Ops.SelfRollback = func(string) error {
+		return deyerr.New(deyerr.S003, deyerr.Params{"component": "deyroute", "reason": "no deyroute.prev"})
+	}
+	require.Contains(t, e.fail(1, "update", "--rollback", "--yes"), "DEY-S003")
 }

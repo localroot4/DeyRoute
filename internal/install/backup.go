@@ -88,6 +88,10 @@ type BackupOptions struct {
 	// read from config.yaml.
 	Version string
 	HubName string
+	// ConfigYAML, when set, is stored as etc/deyroute/config.yaml instead of
+	// the file on disk: the automatic backup before `config apply` keeps
+	// the configuration that was running, not the edited file.
+	ConfigYAML []byte
 }
 
 // Backup archives Root/etc/deyroute (plus manifest.json and events) into a new
@@ -137,10 +141,16 @@ func uniquePath(p string) string {
 // Root/var/lib/deyroute/backups/auto/ (taken before every apply, spec section
 // 5) and deletes the oldest ones beyond keep (<= 0 → 20).
 func AutoBackup(root string, keep int) (string, error) {
-	return autoBackup(root, keep, time.Now())
+	return autoBackup(root, keep, time.Now(), nil)
 }
 
-func autoBackup(root string, keep int, now time.Time) (string, error) {
+// AutoBackupConfig is AutoBackup with cfg stored as config.yaml (see
+// BackupOptions.ConfigYAML).
+func AutoBackupConfig(root string, keep int, cfg []byte) (string, error) {
+	return autoBackup(root, keep, time.Now(), cfg)
+}
+
+func autoBackup(root string, keep int, now time.Time, cfg []byte) (string, error) {
 	if keep <= 0 {
 		keep = DefaultAutoKeep
 	}
@@ -149,7 +159,7 @@ func autoBackup(root string, keep int, now time.Time) (string, error) {
 	now = now.UTC()
 	// Nanoseconds keep names unique and lexically ordered for pruning.
 	name := BackupPrefix + now.Format("20060102T150405.000000000Z") + ".tar.gz"
-	p, err := writeBackup(l, filepath.Join(dir, name), BackupOptions{Root: root, NoEncrypt: true}, now)
+	p, err := writeBackup(l, filepath.Join(dir, name), BackupOptions{Root: root, NoEncrypt: true, ConfigYAML: cfg}, now)
 	if err != nil {
 		return "", err
 	}
@@ -238,6 +248,7 @@ type backupItem struct {
 	rel  string // archive name, e.g. etc/deyroute/config.yaml
 	abs  string
 	info fs.FileInfo
+	data []byte // content stored instead of abs (BackupOptions.ConfigYAML)
 }
 
 func writeBackup(l Layout, out string, opts BackupOptions, now time.Time) (string, error) {
@@ -258,6 +269,9 @@ func writeBackup(l Layout, out string, opts BackupOptions, now time.Time) (strin
 		man.Version = version.Version
 	}
 	data, rerr := os.ReadFile(filepath.Join(etc, "config.yaml")) // #nosec G304 -- fixed path under root
+	if opts.ConfigYAML != nil {
+		data, rerr = opts.ConfigYAML, nil
+	}
 	if rerr == nil {
 		role, hub, node := configIdentity(data)
 		man.Role, man.NodeID = role, node
@@ -284,7 +298,11 @@ func writeBackup(l Layout, out string, opts BackupOptions, now time.Time) (strin
 		}
 		switch {
 		case info.IsDir(), info.Mode().IsRegular():
-			items = append(items, backupItem{rel: name, abs: p, info: info})
+			it := backupItem{rel: name, abs: p, info: info}
+			if rel == "config.yaml" && opts.ConfigYAML != nil {
+				it.data = opts.ConfigYAML
+			}
+			items = append(items, it)
 			if info.Mode().IsRegular() {
 				man.Files++
 			}
@@ -418,11 +436,18 @@ func writeTarItem(tw *tar.Writer, it backupItem) error {
 		h.Uid, h.Gid = int(st.Uid), int(st.Gid)
 	}
 	h.Format = tar.FormatPAX
+	if it.data != nil {
+		h.Size = int64(len(it.data))
+	}
 	if err := tw.WriteHeader(h); err != nil {
 		return err
 	}
 	if !it.info.Mode().IsRegular() {
 		return nil
+	}
+	if it.data != nil {
+		_, err := tw.Write(it.data)
+		return err
 	}
 	f, err := os.Open(it.abs) // #nosec G304 -- walking our own config tree
 	if err != nil {

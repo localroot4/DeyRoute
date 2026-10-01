@@ -34,7 +34,10 @@ What `deyroute update` does:
 
 Use only one of `--check`, `--version` and `--rollback` at a time.
 `--rollback` restores `deyroute.prev` (`DEY-S007` when there is none; then
-install a specific version with `--version V`).
+install a specific version with `--version V`). It also works when the
+service does not run any more (for example a bad update that keeps
+crashing) and on a node: the binaries are swapped locally and the service
+is restarted.
 
 **Alternative:** running the installer again also upgrades in place and keeps
 the configuration. It works even when the service is down, and on a node:

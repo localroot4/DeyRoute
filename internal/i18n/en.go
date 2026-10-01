@@ -1607,6 +1607,8 @@ const (
 	CLIUpdateFlagsConflict       Key = "cli.update_flags_conflict"
 	CLIRollbackLost              Key = "cli.rollback_lost"
 	CLIRolledBack                Key = "cli.rolled_back"
+	CLIRolledBackLocal           Key = "cli.rolled_back_local"
+	CLIRollbackRestartFailed     Key = "cli.rollback_restart_failed"
 	CLIUpToDate                  Key = "cli.up_to_date"
 	CLIChangelog                 Key = "cli.changelog"
 	CLIUpdateLost                Key = "cli.update_lost"
@@ -2070,6 +2072,8 @@ var cliEN = map[Key]string{
 	CLIUpdateFlagsConflict:       "use only one of --check, --rollback and --version",
 	CLIRollbackLost:              "The previous deyroute binary is restored and the deyroute service restarts; tunnels keep running.",
 	CLIRolledBack:                "Rolled back to deyroute %s.",
+	CLIRolledBackLocal:           "Rolled back to the previous deyroute binary and restarted %s. Check it with: deyroute version",
+	CLIRollbackRestartFailed:     "The binary was rolled back, but %s did not restart:",
 	CLIUpToDate:                  "deyroute %s is up to date.",
 	CLIChangelog:                 "Changes in %s:",
 	CLIUpdateLost:                "Update deyroute %s -> %s: the binary is replaced and the deyroute service restarts (the nodes follow); tunnels keep running. Undo with: deyroute update --rollback",

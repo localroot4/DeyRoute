@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -491,4 +492,40 @@ func TestCanaryOnFormerPrimaryIsRemoved(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return slices.Contains(de.stoppedList(), canaryInst) && slices.Contains(de.removedList(), canaryInst)
 	}, testWait, 20*time.Millisecond)
+}
+
+// A changed hub.control_port takes effect at the next restart: the
+// firewall keeps protecting the port the hub listens on, and the online
+// nodes are told the new address so they reconnect there after the restart.
+func TestConfigApplyControlPortIsAnnounced(t *testing.T) {
+	env, o := prepareEnv(t, nil)
+	o.DisableFirewall = false
+	env.startEnv(o)
+	n := env.joinNode("de-1").start()
+	env.waitOnline("de-1", true)
+	var setHub api.SetHubArgs
+	n.on(api.CmdSetHub, func(_ context.Context, _ *fakeNode, cmd api.Command, _ func([]string)) (any, error) {
+		decode(t, cmd, &setHub)
+		return nil, nil
+	})
+	require.Eventually(t, func() bool { return len(env.nftScripts()) > 0 }, testWait, 10*time.Millisecond)
+
+	path := filepath.Join(env.root, config.DefaultPath)
+	c, err := config.LoadWith(path, testValidate)
+	require.NoError(t, err)
+	c.Hub.ControlPort = 44434
+	require.NoError(t, config.SaveWith(path, c, testValidate))
+	res, err := env.client.ConfigApply(ctxT(t), nil)
+	require.NoError(t, err)
+	joined := strings.Join(res.Warnings, "\n")
+	require.Contains(t, joined, "hub.control_port changed to 44434")
+	require.Contains(t, joined, "until then it keeps listening on 44433")
+	require.Contains(t, joined, "nodes that switch to 127.0.0.1:44434 at the restart: de-1")
+	require.Equal(t, "127.0.0.1:44434", setHub.Addr)
+
+	require.NoError(t, env.h.applyFirewall(ctxT(t)))
+	scripts := env.nftScripts()
+	last := scripts[len(scripts)-1]
+	require.Contains(t, last, "44433", "the listening port stays protected")
+	require.NotContains(t, last, "44434")
 }
