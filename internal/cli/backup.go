@@ -398,6 +398,29 @@ func (g *Globals) restoreLost(path string, info backupInfo, newIP string) string
 	return text
 }
 
+// restoreSummary is what the menu shows after a restore: a changed hub
+// address (the certificate was re-issued) and the next steps.
+func (g *Globals) restoreSummary(info backupInfo, res *setup.RestoreResult) string {
+	var lines []string
+	if res.Role != config.RoleHub {
+		lines = append(lines, i18n.T(i18n.CLIRestoredNode, res.NodeID), i18n.T(i18n.CLIRestoreNextNode))
+	} else {
+		lines = append(lines, i18n.T(i18n.CLIRestoredHub, res.HubName))
+		if res.AddressChanged {
+			lines = append(lines, i18n.T(i18n.CLIRestoreMove, info.PublicIP, res.PublicIP))
+		}
+		addr := res.PublicIP
+		if info.ControlPort > 0 {
+			addr = res.PublicIP + ":" + strconv.Itoa(info.ControlPort)
+		}
+		lines = append(lines, i18n.T(i18n.CLIRestoreNextHub, addr, addr))
+	}
+	if res.PreviousDir != "" {
+		lines = append(lines, i18n.T(i18n.CLIRestorePrevious, res.PreviousDir))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // restoreRun restores a backup (shared by the CLI and the TUI).
 func (g *Globals) restoreRun(ctx context.Context, path, pass, publicIP string, progress func(api.Step)) (*setup.RestoreResult, error) {
 	return g.Ops.Restore(ctx, setup.RestoreOptions{

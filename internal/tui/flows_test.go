@@ -588,11 +588,11 @@ func TestBackupRestoreAndUninstallLocalOps(t *testing.T) {
 			gotPass, gotPlain = pass, plain
 			return "/var/lib/deyroute/backups/b1.tar.gz.age", nil
 		},
-		Restore: func(_ context.Context, path, pass string) error {
+		Restore: func(_ context.Context, path, pass string) (string, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			restored = path == "/tmp/b1" && pass == "s3cret"
-			return nil
+			return "The hub address changes from 5.6.7.8 to 9.9.9.9; the hub certificate is re-issued.", nil
 		},
 		Uninstall: func(_ context.Context, keep, nodes bool) error {
 			mu.Lock()
@@ -627,7 +627,7 @@ func TestBackupRestoreAndUninstallLocalOps(t *testing.T) {
 	h.choose("2").typeLine("/tmp/b1").typeLine("s3cret")
 	h.must("Restoring /tmp/b1 replaces", "Type yes to continue: ")
 	h.typeLine("yes")
-	h.must("Restore complete.")
+	h.must("Restore complete.", "The hub address changes from 5.6.7.8 to 9.9.9.9")
 	h.press("esc", "esc")
 	// uninstall
 	h.choose("12").choose("3")

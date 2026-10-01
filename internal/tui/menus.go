@@ -388,8 +388,14 @@ func restoreForm(a *app) screen {
 				if fn == nil {
 					return nil, uiErr(i18n.TUINotAvailable)
 				}
-				return nil, fn(ctx, path, pass)
-			}, textResult(i18n.T(i18n.TUIBuRestored))))
+				return fn(ctx, path, pass)
+			}, func(_ *app, v any) string {
+				msg := i18n.T(i18n.TUIBuRestored)
+				if s, _ := v.(string); s != "" {
+					msg += "\n\n" + s
+				}
+				return indent(msg) + "\n"
+			}))
 		}))
 	})
 }

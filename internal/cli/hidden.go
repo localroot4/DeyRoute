@@ -50,17 +50,20 @@ func (g *Globals) runTUI(context.Context) error {
 		path, _, _, err := g.backupRun(ctx, out, pass, noEncrypt)
 		return path, err
 	}
-	o.Restore = func(ctx context.Context, path, pass string) error {
+	o.Restore = func(ctx context.Context, path, pass string) (string, error) {
 		info, err := inspectBackup(path, pass)
 		if err != nil {
-			return err
+			return "", err
 		}
 		ip, err := g.restoreAddress(ctx, info, true)
 		if err != nil {
-			return err
+			return "", err
 		}
-		_, err = g.restoreRun(ctx, path, pass, ip, nil)
-		return err
+		res, err := g.restoreRun(ctx, path, pass, ip, nil)
+		if err != nil {
+			return "", err
+		}
+		return g.restoreSummary(info, res), nil
 	}
 	o.Uninstall = func(ctx context.Context, keepBackups, nodes bool) error {
 		_, err := g.uninstallRun(ctx, keepBackups, nodes, nil)

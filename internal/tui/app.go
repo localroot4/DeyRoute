@@ -46,9 +46,11 @@ type Options struct {
 
 	// Local operations run by the cli package without the daemon. A nil
 	// function makes the item answer "not available here".
-	Doctor    func(ctx context.Context) (summary, path string, err error)
-	Backup    func(ctx context.Context, out, passphrase string, noEncrypt bool) (string, error)
-	Restore   func(ctx context.Context, path, passphrase string) error
+	Doctor func(ctx context.Context) (summary, path string, err error)
+	Backup func(ctx context.Context, out, passphrase string, noEncrypt bool) (string, error)
+	// Restore returns what the owner must know afterwards (a changed hub
+	// address, the next steps); "" = the generic "Restore complete".
+	Restore   func(ctx context.Context, path, passphrase string) (string, error)
 	Uninstall func(ctx context.Context, keepBackups, nodes bool) error
 
 	// Now and Location format dashboard times (default time.Now, time.Local).

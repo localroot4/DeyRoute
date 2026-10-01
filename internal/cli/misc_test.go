@@ -215,16 +215,27 @@ func TestTUIWiring(t *testing.T) {
 	var ro setup.RestoreOptions
 	e.g.Ops.Restore = func(_ context.Context, o setup.RestoreOptions) (*setup.RestoreResult, error) {
 		ro = o
-		return &setup.RestoreResult{Role: "hub"}, nil
+		res := &setup.RestoreResult{Role: "hub", HubName: "ir-1", PublicIP: "5.6.7.8"}
+		if o.PublicIP != "" {
+			res.PublicIP, res.AddressChanged = o.PublicIP, true
+		}
+		return res, nil
 	}
 	e.g.DetectIP = func(context.Context) (string, bool, error) { return "9.9.9.9", false, nil }
-	require.NoError(t, got.Restore(context.Background(), bpath, ""))
+	sum, err := got.Restore(context.Background(), bpath, "")
+	require.NoError(t, err)
 	require.Empty(t, ro.PublicIP) // same server
+	require.NotContains(t, sum, "address changes")
 	require.NoError(t, os.Remove(filepath.Join(e.root, "etc/deyroute/config.yaml")))
-	require.NoError(t, got.Restore(context.Background(), bpath, ""))
+	sum, err = got.Restore(context.Background(), bpath, "")
+	require.NoError(t, err)
 	require.Equal(t, "9.9.9.9", ro.PublicIP)
 	require.Nil(t, ro.Progress)
-	require.Error(t, got.Restore(context.Background(), filepath.Join(e.root, "none"), ""))
+	// The menu says that the hub moved and what to do on the nodes.
+	require.Contains(t, sum, "to 9.9.9.9; the hub certificate is re-issued")
+	require.Contains(t, sum, "deyroute hub announce-move 9.9.9.9")
+	_, err = got.Restore(context.Background(), filepath.Join(e.root, "none"), "")
+	require.Error(t, err)
 
 	var uo setup.UninstallOptions
 	e.g.Ops.Uninstall = func(_ context.Context, o setup.UninstallOptions) error { uo = o; return nil }
