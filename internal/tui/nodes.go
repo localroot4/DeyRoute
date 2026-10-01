@@ -166,6 +166,9 @@ func renderNodeInfo(a *app, n api.NodeInfo) string {
 	if !n.LastHeartbeat.IsZero() {
 		t.add(i18n.T(i18n.TUINdLastSeen), n.LastHeartbeat.In(a.opts.Location).Format("2006-01-02 15:04:05"))
 	}
+	if n.LastError != "" {
+		t.add(i18n.T(i18n.TUINdLastError), a.paint(colYellow, clean(n.LastError)))
+	}
 	if len(n.Tunnels) > 0 {
 		t.add(i18n.T(i18n.TUINdTunnels), strings.Join(n.Tunnels, ", "))
 	}
@@ -225,7 +228,7 @@ func testNode(id string) *taskScreen {
 			udp = a.paint(colGreen, s.ok) + " " + i18n.T(i18n.TUIYes) + " (" + ms(r.UDPRTTms) + ")"
 		}
 		t.add(i18n.T(i18n.TUINdUDP), udp)
-		for _, f := range sysFacts(r.SysInfo, id) {
+		for _, f := range SysFacts(r.SysInfo, id) {
 			t.add(f[0], f[1])
 		}
 		return t.String()
@@ -252,11 +255,11 @@ var sysInfoKeys = []struct {
 	{"node_id", i18n.TUISysNodeID},
 }
 
-// sysFacts turns a node's sysinfo into labelled, human values: memory in
-// GiB, the uptime as "10d 00:02". The node id is left out when it is the
-// tested node's (the title shows it); keys a newer node adds follow as
-// they are.
-func sysFacts(info map[string]string, id string) [][2]string {
+// SysFacts turns the sysinfo of node id into labelled, human values
+// (Nodes > Test and `deyroute node test`): memory in GiB, the uptime as
+// "10d 00:02". The node id is left out when it is id (the title shows
+// it); keys a newer node adds follow as they are.
+func SysFacts(info map[string]string, id string) [][2]string {
 	var out [][2]string
 	known := map[string]bool{}
 	for _, k := range sysInfoKeys {

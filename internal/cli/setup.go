@@ -114,7 +114,7 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 	interactive := g.IsTTY && !f.yes
 	if interactive {
 		// The wizard opens with the DEYROUTE banner (section 6: every page).
-		fmt.Fprintln(g.promptOut(), tui.Banner(g.caps(), tui.BannerStatus{})+"\n")
+		fmt.Fprintln(g.promptOut(), tui.Banner(g.outCaps(), tui.BannerStatus{})+"\n")
 	}
 	role := strings.ToLower(strings.TrimSpace(f.role))
 	switch role {

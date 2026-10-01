@@ -4,8 +4,9 @@
 // One Hub value owns every long-running part of the hub process:
 //
 //   - config.yaml as the single source of truth (section 4): every change is
-//     an atomic config.Mutate followed by an apply; runtime facts live in
-//     state.db (bbolt);
+//     an atomic write of the applied configuration (mutate; refused with
+//     DEY-C026 while config.yaml holds an edit that is not applied)
+//     followed by an apply; runtime facts live in state.db (bbolt);
 //   - the Control API server (mTLS, HTTP/2) and its handlers: Join (one-time
 //     tokens, CSR signing, node registration), Authenticate (certificate
 //     fingerprint, node IP change → node_ip_changed), Session (the node

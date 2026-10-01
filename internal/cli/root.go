@@ -14,6 +14,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
 	dlog "github.com/localroot4/deyroute/internal/log"
@@ -156,32 +158,56 @@ func Execute(args []string) int {
 // main log file and the owner sees DEY-X000 only (section 13).
 func Run(ctx context.Context, g *Globals, args []string) (code int) {
 	g.defaults()
-	g.command, g.ctx = "", ctx
+	g.command, g.usageCommand, g.ctx = "", "", ctx
 	defer g.closeLog()
 	defer func() {
 		if r := recover(); r != nil {
-			logPanic(g.Root, r, debug.Stack())
+			logPanic(g.Root, g.component(), r, debug.Stack())
 			code = g.printError(deyerr.New(deyerr.X000, nil))
 		}
 	}()
 	root := NewRoot(g)
 	root.SetArgs(args)
 	if err := root.ExecuteContext(ctx); err != nil {
+		if isUsage(err) {
+			// The deepest command named on the line, for the --help of
+			// DEY-C025 (an unknown flag stops before g.command is set).
+			g.usageCommand = root.CommandPath()
+			if c, _, ferr := root.Find(args); ferr == nil && c != nil {
+				g.usageCommand = c.CommandPath()
+			}
+		}
 		return g.printError(err)
 	}
 	return deyerr.ExitOK
 }
 
-// logPanic appends the panic and its stack to the main log file (best
-// effort; the file may not exist on a server that is not set up).
-func logPanic(root string, r any, stack []byte) {
+// component is the log component of the running command: hub or node for
+// `deyroute daemon hub|node`, cli for everything else.
+func (g *Globals) component() string {
+	switch g.command {
+	case "deyroute daemon " + config.RoleHub:
+		return config.RoleHub
+	case "deyroute daemon " + config.RoleNode:
+		return config.RoleNode
+	}
+	return logComponent
+}
+
+// logPanic appends the panic and its stack to the main log file as one
+// record of the deyroute log format (ts in UTC, level, component, code
+// DEY-X000, msg, err, stack; section 13), written through the central
+// secret filter. Best effort: the file may not exist on a server that is
+// not set up.
+func logPanic(root, component string, r any, stack []byte) {
 	path := rootPath(root, deyerr.DefaultLogPath)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600) // #nosec G304 -- fixed log path under the configured root
 	if err != nil {
 		return
 	}
 	defer func() { _ = f.Close() }()
-	fmt.Fprintf(f, "{\"level\":\"error\",\"component\":\"cli\",\"code\":\"DEY-X000\",\"msg\":\"panic\",\"err\":%q,\"stack\":%q}\n", fmt.Sprint(r), string(stack))
+	slog.New(dlog.NewHandler(f, slog.LevelError, component)).Error("panic",
+		dlog.Code(deyerr.X000), slog.String(dlog.KeyErr, fmt.Sprint(r)), slog.String("stack", string(stack)))
 }
 
 func newVersionCmd(g *Globals) *cobra.Command {

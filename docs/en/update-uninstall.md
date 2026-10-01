@@ -22,7 +22,11 @@ Menu: `11) Update` → `1) Check for updates`, `2) Apply update`,
 
 What `deyroute update` does:
 
-1. checks for a release and shows what changed;
+1. checks for a release and shows what changed: the sections of the
+   release's `CHANGELOG.md` after your version (at most 40 lines, then the
+   release page), fetched like the release itself (through a node or your
+   mirror) and checked against the signed `SHA256SUMS`; a release without
+   it shows the release page address instead;
 2. asks for confirmation (`--yes` skips it; without a terminal `--yes` is
    required);
 3. downloads the release and verifies its checksum and signature — through

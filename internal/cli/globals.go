@@ -132,6 +132,9 @@ type Globals struct {
 	// recorded with every logged error (never its arguments: a join link
 	// carries a token).
 	command string
+	// usageCommand is the command a wrong command line was meant for, whose
+	// --help DEY-C025 names (set by Run).
+	usageCommand string
 }
 
 // logComponent is the "component" field of the CLI log.
@@ -175,8 +178,14 @@ func (g *Globals) closeLog() {
 	g.log, g.logCloser = nil, nil
 }
 
-// logError records one error the CLI printed, with its code and cause.
+// logError records one error the CLI printed, with its code and cause. A
+// wrong command line (DEY-C025) may quote an argument, and a join link
+// carries a token: only its code and the command are recorded.
 func (g *Globals) logError(e *deyerr.Error) {
+	if e.Code == deyerr.C025 {
+		g.logger().Error("invalid command line", dlog.Code(e.Code), slog.String("command", g.usageCommand))
+		return
+	}
 	attrs := []any{dlog.Code(e.Code), dlog.Err(e)}
 	if g.command != "" {
 		attrs = append(attrs, slog.String("command", g.command))
@@ -358,6 +367,17 @@ func (g *Globals) service() string {
 
 // caps returns the terminal capabilities.
 func (g *Globals) caps() tui.Caps { return g.Caps() }
+
+// outCaps is caps for colored text printed on stdout: no color when stdout
+// is not a terminal, so a summary piped into a file or a message is plain
+// text (section 13).
+func (g *Globals) outCaps() tui.Caps {
+	c := g.caps()
+	if !g.OutTTY {
+		c.Color = false
+	}
+	return c
+}
 
 // unicode reports whether UTF-8 symbols may be printed.
 func (g *Globals) unicode() bool { return g.caps().Unicode }

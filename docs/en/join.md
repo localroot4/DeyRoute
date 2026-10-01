@@ -14,14 +14,28 @@ SSH is not used anywhere.
 deyroute node join-command
 ```
 
-or in the menu: `3) Nodes` → `1) Show join command` (press `r` there for a
-new one). The output:
+The command line prints:
 
 ```text
-Run this command on each node (valid until 12:15, 15m):
+Run this command on the new node (one node per command, valid until 12:15, 15m):
 
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
 ```
+
+In the menu, `3) Nodes` → `1) Show join command` shows the same line on a
+plain screen, so that it can be copied whole (Enter returns to the menu):
+
+```text
+ Run this one line on the new node (as root):
+
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
+
+ Single use; expires at 12:15:00 (in 15 minutes). Press r for a new command.
+
+ Copy the whole line above, then press Enter to return to the menu.
+```
+
+Back in the menu, `r` makes a new command.
 
 - The link inside is `dey://TOKEN@HUB_IP:CONTROL_PORT#CA_FINGERPRINT`. Copy
   the whole line; do not edit it.
@@ -77,8 +91,10 @@ deyroute node test de-1
 `node list` shows every node with its state, control RTT, version and load.
 `node test` measures the control RTT, tests UDP between hub and node
 (`UDP ok` or `blocked`: transports that need UDP are then skipped for this
-node) and prints system information. The dashboard (`deyroute status`, or
-`1) Dashboard (live)` in the menu) shows the node under NODES.
+node) and prints the node's system: OS, kernel, CPUs, `Memory: 3.8 GiB`,
+`Uptime: 10d 00:02`, the deyroute version (the menu's `3) Nodes` → `5) Test`
+shows the same). The dashboard (`deyroute status`, or `1) Dashboard (live)` in
+the menu) shows the node under NODES.
 
 Next step: [your first tunnel](first-tunnel.md).
 

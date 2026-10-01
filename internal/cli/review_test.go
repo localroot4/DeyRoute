@@ -32,7 +32,7 @@ func TestClassifyErrors(t *testing.T) {
 	errOut := e.fail(2, "tunnel", "list")
 	require.Contains(t, errOut, "✖ DEY-X000")
 	require.Contains(t, errOut, "  | disk on fire")
-	require.NotContains(t, errOut, i18n.T(i18n.CLIUsageHint))
+	require.NotContains(t, errOut, "DEY-C025")
 	e.fail(2, "tunnel", "list", "--json")
 	require.Contains(t, e.out.String(), `"code": "DEY-X000"`)
 	require.Contains(t, e.out.String(), `"exit_code": 2`)
@@ -80,13 +80,20 @@ func TestCLILog(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
 
-	// Usage errors and declined confirmations carry no DEY code: not logged.
-	e.fail(1, "frobnicate")
+	// A wrong command line is DEY-C025: logged with the command, never the
+	// line itself (it may hold a join link). A declined confirmation is
+	// not logged.
+	e.fail(1, "tunnel", "frobnicate", "dey://not-logged")
 	e.g.Dial = func() (api.Local, error) { return e.stub, nil }
 	e.fail(3, "tunnel", "delete", "main")
 	after, err := os.ReadFile(logFile)
 	require.NoError(t, err)
-	require.Equal(t, string(data), string(after))
+	require.True(t, strings.HasPrefix(string(after), string(data)))
+	added := strings.TrimPrefix(string(after), string(data))
+	require.Equal(t, 1, strings.Count(added, "\n"), added)
+	require.Contains(t, added, `"msg":"invalid command line","component":"cli","code":"DEY-C025","command":"deyroute tunnel"`)
+	require.NotContains(t, added, "frobnicate")
+	require.NotContains(t, added, "not-logged")
 
 	// --debug: the same lines also go to stderr.
 	e.down()

@@ -52,6 +52,31 @@ func TestJoinSingleUse(t *testing.T) {
 	require.Equal(t, deyerr.N001, code(t, j.Consume(tok, "1.2.3.4")))
 }
 
+// Check validates like Consume (failures count, blocks apply) but leaves a
+// valid token usable.
+func TestJoinCheckDoesNotBurn(t *testing.T) {
+	j, clk := newJoin(t)
+	tok, _, err := j.Create(0)
+	require.NoError(t, err)
+	require.NoError(t, j.Check(tok, "1.2.3.4"))
+	require.NoError(t, j.Check(tok, "1.2.3.4"))
+	require.True(t, j.Active())
+	require.NoError(t, j.Consume(tok, "1.2.3.4"))
+	require.Equal(t, deyerr.N001, code(t, j.Check(tok, "1.2.3.4")))
+
+	const ip = "203.0.113.9"
+	other, _, err := j.Create(0)
+	require.NoError(t, err)
+	for i := 0; i < DefaultMaxFailures; i++ {
+		require.Equal(t, deyerr.N001, code(t, j.Check("wrong-token", ip)), "attempt %d", i+1)
+	}
+	require.Equal(t, deyerr.N007, code(t, j.Check(other, ip)))
+	require.Equal(t, deyerr.N007, code(t, j.Consume(other, ip)))
+	// An expired token fails the check too.
+	clk.Add(16 * time.Minute)
+	require.Equal(t, deyerr.N001, code(t, j.Check(other, "198.51.100.2")))
+}
+
 func TestJoinSeveralTokensAndExpiry(t *testing.T) {
 	j, clk := newJoin(t)
 	a, _, err := j.Create(time.Minute)

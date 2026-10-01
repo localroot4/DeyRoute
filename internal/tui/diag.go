@@ -2,14 +2,19 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/i18n"
+	dlog "github.com/localroot4/deyroute/internal/log"
 )
 
 // Log view limits.
@@ -198,11 +203,12 @@ func (s *logsScreen) view(a *app) string {
 		b.WriteString(" " + i18n.T(i18n.TUILogEmpty) + "\n")
 	}
 	for _, l := range s.lines[begin:end] {
-		line := clean(l.Line)
+		line, col := logText(a, l.Line)
 		if l.Source != "" && s.target != "hub" && s.target != "node" {
-			line = pad(clean(l.Source), 5) + line
+			// A tunnel log has both sides (section 13: [hub] / [node]).
+			line = pad(i18n.T(i18n.TUILogSource, clean(l.Source)), 7) + line
 		}
-		b.WriteString(a.clip(" "+line) + "\n")
+		b.WriteString(a.paint(col, a.clip(" "+line)) + "\n")
 	}
 	b.WriteString("\n")
 	if s.err != nil {
@@ -217,6 +223,80 @@ func (s *logsScreen) view(a *app) string {
 		b.WriteString(a.paint(colGray, " "+i18n.T(i18n.TUILogScrolled, begin+1, end, len(s.lines))) + "\n")
 	}
 	return b.String()
+}
+
+// logFirstKeys are the fields of a deyroute log line shown first, in this
+// order, after the time, level, component and message; the others follow
+// sorted and the error comes last.
+var logFirstKeys = []string{dlog.KeyTunnel, dlog.KeyNode, dlog.KeyTransport, dlog.KeyCode}
+
+// logText renders one log line for the Logs screen and returns the color
+// of its level. A JSON line of the deyroute logs (section 13) becomes
+// "12:41:03 WARN  failover  probe failed  tunnel=main code=DEY-F001"; any
+// other line (a backend's own output) is shown as it is.
+func logText(a *app, line string) (text, col string) {
+	var m map[string]any
+	if !strings.HasPrefix(strings.TrimSpace(line), "{") || json.Unmarshal([]byte(line), &m) != nil {
+		return clean(line), ""
+	}
+	msg, ok := m[dlog.KeyMsg].(string)
+	if !ok {
+		return clean(line), ""
+	}
+	str := func(k string) string {
+		v, _ := m[k].(string)
+		return v
+	}
+	var parts []string
+	if t, err := time.Parse(time.RFC3339Nano, str(dlog.KeyTS)); err == nil {
+		parts = append(parts, t.In(a.opts.Location).Format("15:04:05"))
+	}
+	level := strings.ToUpper(str(dlog.KeyLevel))
+	switch level {
+	case "ERROR":
+		col = colRed
+	case "WARN":
+		col = colYellow
+	}
+	if level != "" {
+		parts = append(parts, pad(level, 5))
+	}
+	if c := str(dlog.KeyComponent); c != "" {
+		parts = append(parts, c)
+	}
+	parts = append(parts, msg)
+	shown := map[string]bool{dlog.KeyTS: true, dlog.KeyLevel: true, dlog.KeyComponent: true, dlog.KeyMsg: true, dlog.KeyErr: true}
+	keys := append([]string(nil), logFirstKeys...)
+	var rest []string
+	for k := range m {
+		if !shown[k] && !slices.Contains(logFirstKeys, k) {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	keys = append(append(keys, rest...), dlog.KeyErr)
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			parts = append(parts, k+"="+logValue(v))
+		}
+	}
+	return clean(strings.Join(parts, " ")), col
+}
+
+// logValue is a field value of a log line: strings as they are (quoted
+// when they hold spaces), anything else as compact JSON.
+func logValue(v any) string {
+	if s, ok := v.(string); ok {
+		if strings.ContainsAny(s, " \t") {
+			return strconv.Quote(s)
+		}
+		return s
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "?"
+	}
+	return string(b)
 }
 
 // doctorTask runs the doctor provided by the cli package.

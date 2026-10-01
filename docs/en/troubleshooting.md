@@ -57,17 +57,24 @@ deyroute doctor --out /tmp/doctor.tar.gz
 ```
 
 Doctor collects the system and versions, the state of every unit, the last
-lines of every log, the ports and the result of the port check, the firewall
-table, kernel settings, nodes and control RTT, the ladder probes, recent
-events and certificate expiry. It runs 15 checks and prints a short summary in
-plain language, for example:
+lines of every log, the ports and the four-stage port check of every port map
+(eight at a time; a map whose check has not started after two minutes is
+listed as not checked), the firewall table, kernel settings, nodes and control
+RTT, the ladder probes, recent events and certificate expiry. It runs 15
+checks and prints a short summary in plain language (in color only on a
+terminal: piped into a file it is plain text), for example:
 
 - `Node de-1 is offline on the control channel, but tunnel main still passes traffic: the control network has a problem, the tunnel is healthy`
 - `Tunnel main is DOWN and every transport failed or is quarantined: the IP of node de-1 is probably blocked`
 - `Tunnel main is connected, but the service behind it on node de-1 does not answer on 127.0.0.1:443`
 - `Clock of de-1 differs from the hub by …: TLS connections fail with a large difference`
 
-Each finding comes with a `Fix:` line. Doctor also writes a support file,
+Each finding comes with a `Fix:` line. A kernel without BBR, or
+`tuning.bbr: false`, is not a finding: the kernel profile is applied without
+BBR (with a warning) and applying it again cannot change that. A join token
+made with `--ttl` longer than 15 minutes is reported (info) with its expiry,
+as the control port accepts every address until then; expired tokens are
+removed automatically. Doctor also writes a support file,
 `/root/deyroute-doctor-<UTC>.tar.gz`, with **every secret removed** (tokens,
 keys and passwords are masked, and the file is checked once more before it is
 written). Send the file together with the summary. When the service is not
@@ -91,7 +98,9 @@ deyroute events --since 24h --json
 
 deyroute's own logs are JSON lines with UTC times; logs, including the tunnel
 logs in `/var/log/deyroute/tunnels/`, are rotated at 20 MB (5 compressed files
-kept). For more
+kept). The menu (`6) Diagnostics` → `4) Logs`) shows such a line as
+`12:41:03 WARN  failover probe failed tunnel=main code=DEY-F001` in local time,
+and the lines of a tunnel log with `[hub]` or `[node]` in front. For more
 detail run a command with `--debug`, or start the service with
 `DEYROUTE_DEBUG=1`. Secrets never appear in logs (they are printed as `***`).
 
@@ -101,6 +110,8 @@ Important event types: `tunnel_up`, `tunnel_degraded`, `tunnel_down`,
 `service_down`, `backend_crash`, `probe_error`, `rung_skipped`,
 `rung_restored`, `config_applied`. A manual switch is recorded as
 `switch_transport` or `switch_node` with the reason `manual switch to …`.
+LAST EVENTS on the dashboard (and `deyroute status`) shows each type as a
+short word: `switch`, `down`, `node offline`, `rung skipped`, `rolled back`.
 
 ## Common problems
 
@@ -143,7 +154,8 @@ changed in between) it runs nothing (`DEY-P032`): check the port again.
 `DEY-P033` means the command failed or did not open the port (an earlier
 rule of the same firewall denies it); its output is shown below the error.
 `DEY-P014`
-(not reachable from the node) usually means the provider's firewall panel
+(not reachable from the node, printed under the four stages of the port check
+with the node's connection error) usually means the provider's firewall panel
 blocks the port: open it there. See also `deyroute security firewall show`.
 `DEY-P031` means DEYROUTE does not manage the firewall on this hub
 (`security.firewall_managed: false`); open the ports by hand.
@@ -234,6 +246,8 @@ TLS fails when a server's clock is far off. Enable time sync on both servers:
 | `DEY-C003` | two tunnels use one port | change one tunnel's port |
 | `DEY-C014` | `config.yaml` unreadable | restore the last good copy from `/var/lib/deyroute/backups/auto/` |
 | `DEY-C021` | unknown tunnel | `deyroute tunnel list` for the ids |
+| `DEY-C025` | invalid command line (unknown command or flag, missing value) | `<command> --help` (named in the error) |
+| `DEY-C026` | `config.yaml` was edited and the edit is not applied; deyroute changes nothing until it is | `deyroute config apply` (or undo the edit), then try again |
 | `DEY-N001` | join token invalid or expired | new join command |
 | `DEY-N002` | CA fingerprint mismatch | copy the join command again, do not edit it |
 | `DEY-N003` | node offline | see above |
@@ -259,4 +273,4 @@ TLS fails when a server's clock is far off. Enable time sync on both servers:
 | `DEY-X003` | daemon not running | `systemctl start deyroute-hub` (or `deyroute-node`) |
 | `DEY-X008` | not implemented yet | this build does not have the feature yet; see `CHANGELOG.md` |
 | `DEY-X009` | command for the other role | e.g. tunnel commands run on the hub, `node set-hub` on a node |
-| `DEY-X000` | unexpected error | `deyroute doctor` and send the file |
+| `DEY-X000` | unexpected error (the stack is in `/var/log/deyroute/deyroute.log`) | `deyroute doctor` and send the file |

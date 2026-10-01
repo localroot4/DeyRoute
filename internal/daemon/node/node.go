@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,6 +69,12 @@ const (
 	DefaultJobTimeout = 5 * time.Minute
 	// monitorTimeout bounds the systemctl calls of one heartbeat refresh.
 	monitorTimeout = 4 * time.Second
+	// DefaultStallLimit is how long the monitor may go without completing
+	// a pass before the watchdog ping is withheld, so systemd restarts the
+	// agent (the tunnel units keep running). A pass waits for the instance
+	// lock, which a unit command holds for up to its 30-second timeout,
+	// and re-runs PostStart steps of up to 30 seconds each.
+	DefaultStallLimit = 90 * time.Second
 )
 
 // Options configure Run. Only Root is commonly set; every other field has
@@ -126,6 +133,9 @@ type Options struct {
 	Arch string
 	// Notify sends sd_notify states; nil = systemd.Notify.
 	Notify func(state string) error
+	// Getenv reads the watchdog settings systemd passes ($WATCHDOG_USEC,
+	// $WATCHDOG_PID); nil = os.Getenv.
+	Getenv func(key string) string
 	// Listen and ListenPacket open the probe helper listeners (echo, UDP
 	// echo, speed generator); nil = net.ListenConfig.
 	Listen       func(ctx context.Context, network, address string) (net.Listener, error)
@@ -143,6 +153,7 @@ type Options struct {
 	UninstallDelay         time.Duration
 	StartCheckDelay        time.Duration
 	FollowPoll             time.Duration
+	StallLimit             time.Duration
 	// DownloadRetry tunes fetch.proxy retries (tests shorten the backoff).
 	DownloadRetry install.RetryOptions
 }
@@ -178,6 +189,9 @@ func (o Options) withDefaults() Options {
 	if o.Notify == nil {
 		o.Notify = systemd.Notify
 	}
+	if o.Getenv == nil {
+		o.Getenv = os.Getenv
+	}
 	if o.Hooks == nil {
 		o.Hooks = BackendHooks{Runner: o.Runner, Root: o.Root}
 	}
@@ -204,6 +218,7 @@ func (o Options) withDefaults() Options {
 	setDur(&o.UninstallDelay, DefaultUninstallDelay)
 	setDur(&o.StartCheckDelay, DefaultStartCheckDelay)
 	setDur(&o.FollowPoll, DefaultFollowPoll)
+	setDur(&o.StallLimit, DefaultStallLimit)
 	return o
 }
 
@@ -241,11 +256,14 @@ func Run(ctx context.Context, o Options) error {
 	return a.run(ctx)
 }
 
-// snapshot is the latest measurement behind the heartbeat.
+// snapshot is the latest measurement behind the heartbeat. unitsKnown is
+// false until the first unit listing succeeded and after a failed one
+// (units then holds the last list, if any).
 type snapshot struct {
-	units map[string]string // unit → ActiveState
-	cpu   float64
-	ram   uint64
+	units      map[string]string // unit → ActiveState
+	unitsKnown bool
+	cpu        float64
+	ram        uint64
 }
 
 // agent is one running node agent.
@@ -268,6 +286,9 @@ type agent struct {
 	// uninstalling is set by the first uninstall command; later ones are
 	// answered without starting a second removal.
 	uninstalling atomic.Bool
+	// alive is the wall-clock time (UnixNano) the monitor last made
+	// progress: the watchdog pings systemd only while it keeps running.
+	alive atomic.Int64
 
 	mu            sync.Mutex
 	hubAddr       string
@@ -345,9 +366,10 @@ func (a *agent) run(ctx context.Context) error {
 			}
 		})
 	}()
+	a.markAlive() // the stall limit counts from here, startup reconcile included
 	go func() {
 		defer wg.Done()
-		_ = systemd.RunWatchdog(ctx, func(err error) { a.log.Warn("watchdog notification failed", dlog.Err(err)) })
+		a.watchdogLoop(ctx)
 	}()
 	go func() {
 		defer wg.Done()
@@ -388,6 +410,57 @@ func (a *agent) run(ctx context.Context) error {
 	a.jobs.Wait()
 	a.log.Info("node agent stopped", dlog.Node(a.nodeID))
 	return result
+}
+
+// markAlive records that the monitor made progress (watchdogLoop).
+func (a *agent) markAlive() { a.alive.Store(time.Now().UnixNano()) }
+
+// watchdogInterval is how often WATCHDOG=1 is due: half of $WATCHDOG_USEC,
+// 0 when systemd runs no watchdog for this process (section 3: both
+// services run with WatchdogSec).
+func (a *agent) watchdogInterval() time.Duration {
+	usec := strings.TrimSpace(a.o.Getenv("WATCHDOG_USEC"))
+	if usec == "" {
+		return 0
+	}
+	if pid := strings.TrimSpace(a.o.Getenv("WATCHDOG_PID")); pid != "" && pid != strconv.Itoa(os.Getpid()) {
+		return 0
+	}
+	n, err := strconv.ParseInt(usec, 10, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Microsecond / 2
+}
+
+// watchdogLoop sends WATCHDOG=1 every watchdog interval while the agent is
+// responsive: the monitor (unit list, the agent and instance locks) must
+// have made progress within StallLimit. An agent that hangs (a deadlocked
+// lock, a stuck monitor) stops pinging and systemd restarts it; the tunnel
+// units keep running meanwhile.
+func (a *agent) watchdogLoop(ctx context.Context) {
+	iv := a.watchdogInterval()
+	if iv <= 0 {
+		return
+	}
+	stale := max(a.o.StallLimit, 3*a.o.HeartbeatInterval)
+	t := time.NewTicker(iv)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if since := time.Since(time.Unix(0, a.alive.Load())); since > stale {
+			a.log.Error("node agent is not responsive; the watchdog ping is withheld so systemd restarts it",
+				slog.Duration("stalled", since.Round(time.Second)), dlog.Code(deyerr.X000))
+			continue
+		}
+		if err := a.o.Notify(systemd.StateWatchdog); err != nil {
+			a.log.Warn("watchdog notification failed", dlog.Err(err))
+		}
+	}
 }
 
 // controlLoop keeps one api.ControlClient running with the current
@@ -563,7 +636,11 @@ func (a *agent) later(delay time.Duration, fn func(ctx context.Context) error) {
 func (a *agent) hello() api.Hello { return a.helloV }
 
 // heartbeat returns the latest measurements; it is called by the control
-// client every heartbeat interval while the stream is up.
+// client every heartbeat interval while the stream is up, the first time
+// as soon as it opened. Until the monitor listed the units (systemctl may
+// be slow after a boot or an update restart) the beat says so
+// (UnitsUnknown): the hub's per-stream cleanup must not take an empty list
+// for "nothing runs".
 func (a *agent) heartbeat() api.Heartbeat {
 	now := a.o.Now().UTC()
 	a.mu.Lock()
@@ -573,7 +650,8 @@ func (a *agent) heartbeat() api.Heartbeat {
 	for k, v := range a.snap.units {
 		units[k] = v
 	}
-	return api.Heartbeat{At: now, CPUPercent: a.snap.cpu, RAMBytes: a.snap.ram, Units: units, LastError: a.lastError}
+	return api.Heartbeat{At: now, CPUPercent: a.snap.cpu, RAMBytes: a.snap.ram, Units: units,
+		UnitsUnknown: !a.snap.unitsKnown, LastError: a.lastError}
 }
 
 func (a *agent) onConnected() {

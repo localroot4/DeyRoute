@@ -87,12 +87,24 @@ func TestStatusNodeAndEmpty(t *testing.T) {
 			LastContact: testNow, HubVersion: "v1.0.0", Units: []string{"b", "a"}}}, nil
 	}
 	out := e.ok("status")
-	require.Contains(t, out, "Node: de-1 -> hub 5.6.7.8:44433")
+	require.Contains(t, out, "Node: de-1 → hub 5.6.7.8:44433")
 	require.Contains(t, out, "hub 5.6.7.8:44433")
 	require.Contains(t, out, "connected")
 	require.Contains(t, out, "units: a, b")
 	require.Contains(t, out, "No events yet.")
 	require.NotContains(t, out, "TUNNELS")
+
+	// LAST EVENTS uses the menu's words; a long id is cut, not widened.
+	e.stub.StatusFn = func(context.Context) (api.Status, error) {
+		return api.Status{Role: "node", NodeSelf: &api.NodeSelf{ID: "de-1"}, Events: []state.Event{
+			{At: testNow, Type: state.EvBackendRolledBack, Tunnel: "a-very-long-tunnel-id", Message: "backhaul rolled back"},
+			{At: testNow, Type: state.EvNodeOffline, Node: "nl-1", Message: state.EvNodeOffline, Reason: "no heartbeat"},
+		}}, nil
+	}
+	out = e.ok("status")
+	require.Contains(t, out, "  a-very-long…   rolled back    backhaul rolled back\n")
+	require.Contains(t, out, "  nl-1           node offline   no heartbeat\n")
+	require.NotContains(t, out, "backend_update_rolled_back")
 
 	e.stub.StatusFn = func(context.Context) (api.Status, error) {
 		return api.Status{Role: "node", NodeSelf: &api.NodeSelf{ID: "de-1"}}, nil

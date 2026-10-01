@@ -57,16 +57,19 @@ var errNoChange = deyerr.Plain("hub: no change")
 const defaultNodeBase = "node"
 
 // join handles POST /v1/join (section 3, Join 1-4; section 11): the
-// one-time token is consumed first (with the per-IP failure limiter: DEY-
+// one-time token is checked first (with the per-IP failure limiter: DEY-
 // N001 / N007), then the node id is chosen (requested: C007 invalid, N010
 // taken; otherwise derived from the hostname and made unique), the CSR is
 // signed for 10 years with CN = node id, the node is added to config.yaml
 // with its public IP and certificate fingerprint, and the firewall is
 // re-applied (the node IP joins @nodes; the join window closes when no
-// token remains). The token is spent even when a later step fails.
+// token remains). The token is consumed only once everything else
+// succeeded, right before config.yaml is written: a join refused for
+// another reason (taken id, bad CSR, a config.yaml edit that is not
+// applied: DEY-C026) leaves it usable for another attempt.
 func (h *Hub) join(_ context.Context, req api.JoinRequest, remoteIP string) (api.JoinResponse, error) {
 	ip := normalizeIP(remoteIP)
-	if err := h.joins.Consume(req.Token, ip); err != nil {
+	if err := h.joins.Check(req.Token, ip); err != nil {
 		return api.JoinResponse{}, err
 	}
 	requested := strings.TrimSpace(req.NodeID)
@@ -80,7 +83,7 @@ func (h *Hub) join(_ context.Context, req api.JoinRequest, remoteIP string) (api
 		nodeID  string
 		certPEM []byte
 	)
-	cfg, err := h.mutate(func(c *config.Config) error {
+	cfg, err := h.mutateCommit(func(c *config.Config) error {
 		nodeID = requested
 		if nodeID != "" {
 			if _, taken := c.NodeByID(nodeID); taken {
@@ -109,6 +112,10 @@ func (h *Hub) join(_ context.Context, req api.JoinRequest, remoteIP string) (api
 			name = nodeID
 		}
 		return c.AddNode(config.Node{ID: nodeID, Name: name, PublicIP: ip, CertFingerprint: tlsutil.Fingerprint(cert.Raw)})
+	}, func() error {
+		// Spent only now; a concurrent join with the same token, or its
+		// expiry meanwhile, fails here and nothing is written.
+		return h.joins.Consume(req.Token, ip)
 	})
 	if err != nil {
 		return api.JoinResponse{}, err

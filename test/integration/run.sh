@@ -32,7 +32,8 @@ if [ "${DEY_REBUILD:-0}" = 1 ] || ! docker image inspect "$DEY_IMAGE" >/dev/null
 fi
 
 # The "release" the installer consumes offline: archives for this version and
-# an old one (S28), SHA256SUMS, install.sh and backends.yaml, as published.
+# an old one (S28), SHA256SUMS, install.sh, backends.yaml and CHANGELOG.md, as
+# published.
 export DEY_DIST="$ART/release"
 rm -rf "$DEY_DIST"
 mkdir -p "$DEY_DIST"
@@ -46,8 +47,8 @@ for v in "$DEY_VERSION" "$DEY_OLD_VERSION"; do
   tar -C "$DEY_DIST" -czf "$d.tar.gz" "${d##*/}"
   rm -rf "$d"
 done
-cp "$ROOT/installer/install.sh" "$ROOT/internal/backend/backends.yaml" "$DEY_DIST/"
-(cd "$DEY_DIST" && sha256sum deyroute_*.tar.gz install.sh backends.yaml >SHA256SUMS)
+cp "$ROOT/installer/install.sh" "$ROOT/internal/backend/backends.yaml" "$ROOT/CHANGELOG.md" "$DEY_DIST/"
+(cd "$DEY_DIST" && sha256sum deyroute_*.tar.gz install.sh backends.yaml CHANGELOG.md >SHA256SUMS)
 
 if [ -n "${SCENARIOS:-}" ]; then
   list=()

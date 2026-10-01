@@ -215,6 +215,11 @@ func TestNotifyTelegramSetTestOff(t *testing.T) {
 	require.Equal(t, config.DefaultTelegramTokenFile, tgCfg.BotTokenFile)
 	require.Equal(t, "123456789", tgCfg.ChatID)
 	require.Equal(t, []string{"down", "switch"}, tgCfg.Events)
+	// Status shows the settings (the menu's header and defaults), never the token.
+	st, err := env.client.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, api.TelegramStatus{Enabled: true, ChatID: "123456789", TokenFile: config.DefaultTelegramTokenFile,
+		Events: []string{"down", "switch"}}, st.Hub.Telegram)
 	copied := filepath.Join(env.root, config.DefaultTelegramTokenFile)
 	fi, err := os.Stat(copied)
 	require.NoError(t, err)
@@ -239,6 +244,10 @@ func TestNotifyTelegramSetTestOff(t *testing.T) {
 
 	require.NoError(t, env.client.NotifyTelegramOff(ctx))
 	require.False(t, env.h.Config().Hub.Notify.Telegram.Enabled)
+	st, err = env.client.Status(ctx)
+	require.NoError(t, err)
+	require.False(t, st.Hub.Telegram.Enabled)
+	require.Equal(t, "123456789", st.Hub.Telegram.ChatID, "the chat is kept for the next set-up")
 	require.Nil(t, env.h.Notifier())
 	require.NoError(t, env.client.NotifyTelegramOff(ctx)) // already off
 	// Saved settings can still be tested while off.

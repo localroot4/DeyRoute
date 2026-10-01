@@ -44,7 +44,9 @@ three-line block is still printed on standard error):
 
 - `error` is the first (or only) error; `errors` is present only when there
   are several (e.g. `config validate` reports every problem).
-- A usage error has `"code": ""` and the message of the problem.
+- A wrong command line (unknown command or flag, a missing flag value,
+  the wrong number of arguments) is `DEY-C025` (exit 1); its `fix` names the
+  `--help` of the command.
 - A missing confirmation (exit 3) has `"code": ""` and the message
   `"This action needs confirmation; re-run with --yes"`.
 - A declined confirmation (exit 1) has `"code": ""` and `"Aborted."`.
@@ -92,10 +94,12 @@ The `Status` DTO itself: `{"schema", "role", "version", "generated_at",
 [Warning]?}`.
 
 - HubStatus: `{"name", "public_ip", "control_port", "domain", "ui_mode",
-  "language", "firewall", "acme_challenge", "acme_email"}` (`firewall`:
-  `managed` | `suggest-only`; `acme_challenge`: how `tls.mode acme` proves
-  the domain, `http-01` | `dns-01` (Cloudflare token set) | `none`
-  (HTTP-01 disabled and no token)).
+  "language", "firewall", "acme_challenge", "acme_email", "telegram"}`
+  (`firewall`: `managed` | `suggest-only`; `acme_challenge`: how
+  `tls.mode acme` proves the domain, `http-01` | `dns-01` (Cloudflare token
+  set) | `none` (HTTP-01 disabled and no token); `telegram`: `{"enabled",
+  "chat_id", "token_file", "events"}` from `hub.notify.telegram`, never the
+  token itself).
 - NodeSelf: `{"id", "hub_addr", "connected", "last_contact", "hub_version",
   "compatible", "units"}`.
 - Warning: `{"code", "message", "tunnel", "node"}`.
@@ -231,7 +235,8 @@ is the error document `DEY-C013`.
 The `PortCheckResult` DTO: `{"schema", "port", "proto", "bind_free",
 "bind_process", "bind_addr", "bind_by_deyroute", "firewall_open",
 "firewall_name", "firewall_command", "node", "node_reachable" (absent: not
-tested), "node_rtt_ms", "tunnel", "tunnel_ok" (absent: not tested),
+tested), "node_rtt_ms", "node_error" (ErrorDTO `DEY-P014` when the node could
+not connect; absent otherwise), "tunnel", "tunnel_ok" (absent: not tested),
 "tunnel_rtt_ms", "note", "suggested_ports"}`
 
 With `--open` (and `--yes`, since `--json` usually runs without a
@@ -296,7 +301,9 @@ until Ctrl-C.
 ### `deyroute optimize apply|revert`
 
 `{"schema", "profile", "bbr_available", "bbr_active", "applied": {key:
-value}, "warnings": [string]}`
+value}, "warnings": [string], "mem_bytes" (the hub's RAM), "recommended"
+(balanced, or aggressive from 4 GB RAM)}` — a warning of a node starts with
+`node <id>: `.
 
 ### `deyroute security rotate-tokens`
 
@@ -357,7 +364,10 @@ written either way.
 ### `deyroute update`
 
 - `--check`, or nothing to update: the UpdateInfo DTO `{"schema", "current",
-  "latest", "available", "changelog", "previous"}`.
+  "latest", "available", "changelog", "previous"}`. With a newer release,
+  `changelog` is the text of its `CHANGELOG.md` after the running version
+  (at most 40 lines, then `… <release page>`), or the release page address
+  when the release has no verified `CHANGELOG.md`.
 - update applied: `{"schema", "update": UpdateInfo, "steps": [Step]}`. With
   `--version V` a failed release check does not stop the update (a note goes
   to standard error); without it the check's error is the result.

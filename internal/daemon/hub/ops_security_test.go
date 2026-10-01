@@ -301,7 +301,9 @@ func TestDoctorCollect(t *testing.T) {
 	data, err = json.Marshal(f)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(p, data, 0o600))
-	require.Equal(t, 1, te.h.oldJoinTokens())
+	jt := te.h.joinTokenFacts()
+	require.Equal(t, 1, jt.long, "a valid token made with --ttl 2h")
+	require.Zero(t, jt.expired)
 
 	d, err := te.client.DoctorCollect(ctx, "")
 	require.NoError(t, err)
@@ -343,7 +345,50 @@ func TestDoctorWithoutTunnels(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "no tunnels\n", d.Sections[doctor.SectionLadder])
 	require.Equal(t, "no tunnel ports\n", d.Sections[doctor.SectionPortChecks])
-	require.Zero(t, env.h.oldJoinTokens())
+	require.Equal(t, joinTokenState{}, env.h.joinTokenFacts())
+}
+
+// TestDoctorJoinTokens (R15): an expired join token is removed when the
+// doctor looks (a hub restart would not), a valid default token is no
+// finding, and a valid long-TTL token is reported as info with its expiry.
+func TestDoctorJoinTokens(t *testing.T) {
+	env := startHub(t, nil)
+	ctx := ctxT(t)
+	_, err := env.client.NodeJoinCommand(ctx, 0)
+	require.NoError(t, err)
+	p := env.h.joins.Path
+	data, err := os.ReadFile(p)
+	require.NoError(t, err)
+	var f map[string]any
+	require.NoError(t, json.Unmarshal(data, &f))
+	now := time.Now().UTC()
+	f["tokens"] = append(f["tokens"].([]any), map[string]any{"sha256": strings.Repeat("ab", 32),
+		"created": now.Add(-time.Hour).Format(time.RFC3339), "expires": now.Add(-45 * time.Minute).Format(time.RFC3339)})
+	data, err = json.Marshal(f)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(p, data, 0o600))
+
+	require.Equal(t, joinTokenState{}, env.h.joinTokenFacts())
+	n, err := env.h.joins.Count()
+	require.NoError(t, err)
+	require.Equal(t, 1, n, "the valid token stays")
+	data, err = os.ReadFile(p)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), strings.Repeat("ab", 32), "the expired token is gone")
+
+	_, err = env.client.NodeJoinCommand(ctx, 2*time.Hour)
+	require.NoError(t, err)
+	d, err := env.client.DoctorCollect(ctx, "")
+	require.NoError(t, err)
+	var r15 []api.DoctorFinding
+	for _, fd := range d.Findings {
+		if fd.Rule == doctor.RuleSecrets {
+			r15 = append(r15, fd)
+		}
+	}
+	require.Len(t, r15, 1, "%v", d.Findings)
+	require.Equal(t, doctor.SevInfo, r15[0].Severity)
+	require.Contains(t, r15[0].Message, "1 join token(s) made with a TTL over 15 minutes are valid until")
 }
 
 // The domain, the ACME e-mail and the Cloudflare token are set through the

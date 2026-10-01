@@ -12,16 +12,30 @@ Node همان سرور خارج است که سرویس VPN واقعی شما ر�
 deyroute node join-command
 ```
 
-یا در منو: `3) Nodes` ← `1) Show join command` (آنجا با `r` یک دستور تازه می‌گیرید). خروجی:
+خروجی خط فرمان:
 
 ```text
-Run this command on each node (valid until 12:15, 15m):
+Run this command on the new node (one node per command, valid until 12:15, 15m):
 
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
 ```
 
+در منو، `3) Nodes` ← `1) Show join command` همین خط را روی یک صفحه ساده نشان می‌دهد تا کامل کپی شود (Enter شما را به منو برمی‌گرداند):
+
+```text
+ Run this one line on the new node (as root):
+
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
+
+ Single use; expires at 12:15:00 (in 15 minutes). Press r for a new command.
+
+ Copy the whole line above, then press Enter to return to the menu.
+```
+
+بعد از برگشت به منو، `r` یک دستور تازه می‌سازد.
+
 - لینک داخل دستور این شکل را دارد: `dey://TOKEN@HUB_IP:CONTROL_PORT#CA_FINGERPRINT`. کل خط را کپی کنید و چیزی از آن را عوض نکنید.
-- هر Join command **یک‌بارمصرف** است: هر دستور فقط یک Node را وصل می‌کند. برای هر Node یک دستور تازه بسازید (با وجود اینکه متن خروجی می‌گوید «on each node»).
+- هر Join command **یک‌بارمصرف** است: هر دستور فقط یک Node را وصل می‌کند. برای هر Node یک دستور تازه بسازید.
 - اعتبارش ۱۵ دقیقه است. برای زمان بیشتر از `--ttl` استفاده کنید، از `1m` تا `24h`: `deyroute node join-command --ttl 1h`.
 - `--version` باعث می‌شود Node همان نسخه‌ای را نصب کند که روی Hub است.
 - اگر Hub با `DEYROUTE_MIRROR` راه‌اندازی شده باشد، دستور نصاب را از همان Mirror دانلود می‌کند.
@@ -63,7 +77,7 @@ deyroute node list
 deyroute node test de-1
 ```
 
-`node list` همه Nodeها را با وضعیت، تأخیر کانال کنترل، نسخه و مصرف منابع نشان می‌دهد. `node test` تأخیر کنترل را اندازه می‌گیرد، UDP بین Hub و Node را تست می‌کند (`UDP ok` یا `blocked`؛ اگر بسته باشد ترنسپورت‌هایی که UDP لازم دارند برای این Node کنار گذاشته می‌شوند) و اطلاعات سیستم را چاپ می‌کند. در داشبورد (`deyroute status`، یا `1) Dashboard (live)` در منو) هم Node زیر NODES دیده می‌شود.
+`node list` همه Nodeها را با وضعیت، تأخیر کانال کنترل، نسخه و مصرف منابع نشان می‌دهد. `node test` تأخیر کنترل را اندازه می‌گیرد، UDP بین Hub و Node را تست می‌کند (`UDP ok` یا `blocked`؛ اگر بسته باشد ترنسپورت‌هایی که UDP لازم دارند برای این Node کنار گذاشته می‌شوند) و اطلاعات سیستم Node را چاپ می‌کند: سیستم‌عامل، kernel، تعداد CPU، `Memory: 3.8 GiB`، `Uptime: 10d 00:02` و نسخه deyroute (`3) Nodes` ← `5) Test` در منو همین را نشان می‌دهد). در داشبورد (`deyroute status`، یا `1) Dashboard (live)` در منو) هم Node زیر NODES دیده می‌شود.
 
 قدم بعدی: [اولین تانل](first-tunnel.md).
 

@@ -341,20 +341,29 @@ func TestR14Flapping(t *testing.T) {
 func TestR15Secrets(t *testing.T) {
 	f := healthyHub()
 	f.SecretPermProblems = []string{"/etc/deyroute/secrets/ca.key (0644)", ""}
-	f.OldJoinTokens = 2
+	f.ExpiredJoinTokens = 2
+	f.LongJoinTokens, f.LongJoinUntil = 1, testNow.Add(90*time.Minute)
 	fs := Run(f)
-	require.Equal(t, []string{RuleSecrets, RuleSecrets}, rulesOf(fs))
+	require.Equal(t, []string{RuleSecrets, RuleSecrets, RuleSecrets}, rulesOf(fs))
 	require.Equal(t, SevError, fs[0].Severity)
 	require.Contains(t, fs[0].Message, "ca.key (0644)")
 	require.Equal(t, SevWarn, fs[1].Severity)
-	require.Contains(t, fs[1].Message, "2 join token(s)")
+	require.Contains(t, fs[1].Message, "2 expired join token(s) could not be removed")
+	require.NotContains(t, fs[1].Fix, "restart the hub", "a restart does not remove them")
+	// A valid long-TTL token is the owner's choice: info with its expiry.
+	require.Equal(t, SevInfo, fs[2].Severity)
+	require.Equal(t, "1 join token(s) made with a TTL over 15 minutes are valid until 2026-09-30 11:30 UTC: until then the control port accepts every address", fs[2].Message)
+
+	f.SecretPermProblems, f.ExpiredJoinTokens = nil, 0
+	f.LongJoinUntil = testNow.Add(-time.Minute) // expired meanwhile
+	require.Empty(t, Run(f))
 }
 
 func TestRunOrderAndRedaction(t *testing.T) {
 	secret := "doctor-rule-secret-value-123"
 	dlog.RegisterSecret(secret)
 	f := healthyHub()
-	f.OldJoinTokens = 1
+	f.ExpiredJoinTokens = 1
 	f.Status.Tunnels[0].State = state.StateDown
 	f.PortConflicts = []string{"443/tcp used by " + secret + "\nsecond line"}
 	fs := Run(f)

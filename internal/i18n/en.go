@@ -93,7 +93,7 @@ var en = map[Key]string{
 		" ╚═════╝ ╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚══════╝",
 	BannerProduct:   "DEYROUTE Tunnel Manager",
 	BannerHub:       "Hub: %s (%s)",
-	BannerNode:      "Node: %s -> hub %s",
+	BannerNode:      "Node: %s → hub %s",
 	BannerMode:      "Mode: %s",
 	BannerNodes:     "%d nodes",
 	BannerNode1:     "1 node",
@@ -112,7 +112,7 @@ var en = map[Key]string{
 	HelpTitle:       "Help",
 	HelpMainMenu: "Type the number of an item and press Enter.\n" +
 		"q or Esc goes back, r refreshes, ? shows this help.\n" +
-		"Items marked * are visible in Advanced mode only (Settings -> ui mode).\n" +
+		"Items marked * are visible in Advanced mode only: 12) Settings → 1) UI mode.\n" +
 		"On a node, items marked (hub only) are managed in the hub's menu.",
 	DaemonNotRunning: "The deyroute daemon is not running. Start it with: systemctl start %s",
 	Loading:          "Loading…",
@@ -228,6 +228,8 @@ const (
 	DoctorR15FixPerm      Key = "doctor.r15.fix_perm"
 	DoctorR15MsgJoin      Key = "doctor.r15.msg_join"
 	DoctorR15FixJoin      Key = "doctor.r15.fix_join"
+	DoctorR15MsgJoinLong  Key = "doctor.r15.msg_join_long"
+	DoctorR15FixJoinLong  Key = "doctor.r15.fix_join_long"
 )
 
 // doctor — English texts (merged into en by init).
@@ -290,8 +292,10 @@ var doctorEN = map[Key]string{
 	DoctorR14Fix:         "the network is unstable; pin one transport (deyroute tunnel switch %s --transport <id>) or pause failover: deyroute tunnel pause %s",
 	DoctorR15MsgPerm:     "Secret file permissions are wrong: %s",
 	DoctorR15FixPerm:     "restrict them: chown -R root:root /etc/deyroute/secrets; chmod -R go-rwx /etc/deyroute/secrets; then: deyroute security audit",
-	DoctorR15MsgJoin:     "%d join token(s) older than 15 minutes are still stored",
-	DoctorR15FixJoin:     "restart the hub to purge them (systemctl restart deyroute-hub), then: deyroute security audit",
+	DoctorR15MsgJoin:     "%d expired join token(s) could not be removed from /etc/deyroute/secrets/join-tokens.json",
+	DoctorR15FixJoin:     "they are never accepted; deyroute removes them by itself but could not write the file: free disk space, check the permissions (deyroute security audit) and run deyroute doctor again",
+	DoctorR15MsgJoinLong: "%d join token(s) made with a TTL over 15 minutes are valid until %s: until then the control port accepts every address",
+	DoctorR15FixJoinLong: "nothing to do while a node still has to join with it; it expires and is removed by itself. Keep the default 15-minute TTL next time: deyroute node join-command",
 }
 
 // doctor — merge the block above into the English table.
@@ -482,7 +486,6 @@ const (
 	TUIWizProbe           Key = "tui.wiz.probe"
 	TUIWizSumProbe        Key = "tui.wiz.sum_probe"
 	TUIWizBackupQ         Key = "tui.wiz.backup_q"
-	TUIWizUnknownNode     Key = "tui.wiz.unknown_node"
 	TUIWizThreshQ         Key = "tui.wiz.thresh_q"
 	TUITunnelUp           Key = "tui.wiz.tunnel_up"
 	TUITunnelCreated      Key = "tui.wiz.tunnel_created"
@@ -541,6 +544,7 @@ const (
 	TUINdFingerprint  Key = "tui.nd.fingerprint"
 	TUINdTunnels      Key = "tui.nd.tunnels"
 	TUINdIP           Key = "tui.nd.ip"
+	TUINdLastError    Key = "tui.nd.last_error"
 
 	// 4 ports
 	TUIPtAdd        Key = "tui.pt.add"
@@ -866,11 +870,11 @@ var tuiEN = map[Key]string{
 	TUIKeepHint:       "Press Enter to keep the value in brackets; Esc cancels.",
 	TUIPickTunnel:     "Choose a tunnel:",
 	TUIPickNode:       "Choose a node:",
-	TUINoTunnels:      "No tunnels yet. Add one with 2) Tunnels -> 1) Add tunnel.",
+	TUINoTunnels:      "No tunnels yet. Add one with 2) Tunnels → 1) Add tunnel.",
 	TUINotSetUpTitle:  "This server is not set up yet.",
 	TUINotSetUpHub:    "Iran server (hub):      deyroute setup",
-	TUINotSetUpNode:   "Foreign server (node):  paste the join command from the hub (hub menu: 3) Nodes -> 1) Show join command)",
-	TUINoNodes:        "No nodes yet. Show the join command with 3) Nodes -> 1) Show join command.",
+	TUINotSetUpNode:   "Foreign server (node):  paste the join command of the hub menu, 3) Nodes → 1) Show join command",
+	TUINoNodes:        "No nodes yet. Show the join command with 3) Nodes → 1) Show join command.",
 	TUIClientIP:       "client IP: %s",
 	TUIClientKept:     "preserved",
 	TUIClientMasked:   "masked",
@@ -903,8 +907,8 @@ var tuiEN = map[Key]string{
 	TUINodeVersion:      "v%s",
 	TUINodeCPU:          "cpu %.0f%%",
 	TUINodeRAM:          "ram %3dMB",
-	TUIDashNoTunnels:    "No tunnels yet. Add one: 2) Tunnels -> 1) Add tunnel",
-	TUIDashNoNodes:      "No nodes yet. Show the join command: 3) Nodes -> 1) Show join command",
+	TUIDashNoTunnels:    "No tunnels yet. Add one: 2) Tunnels → 1) Add tunnel",
+	TUIDashNoNodes:      "No nodes yet. Show the join command: 3) Nodes → 1) Show join command",
 	TUIDashNoEvents:     "No events yet.",
 	TUIDashHub:          "hub %s",
 	TUIDashConnected:    "connected",
@@ -942,9 +946,9 @@ var tuiEN = map[Key]string{
 	TUITunSwitched:   "Tunnel %s switched to %s.",
 	TUITunUpdated:    "Tunnel %s updated.",
 	TUIEditName:      "Name",
-	TUIEditPolicy:    "Failover policy (transport_then_node, transport_only, node_only)",
+	TUIEditPolicy:    "Failover policy",
 	TUIEditLadder:    "Ladder profile",
-	TUIEditTLS:       "TLS mode (auto, acme, custom)",
+	TUIEditTLS:       "TLS mode",
 	TUIEditTLSCert:   "TLS certificate file",
 	TUIEditTLSKey:    "TLS key file",
 	TUIEditProbe:     "Probe port (empty = first TCP port)",
@@ -968,7 +972,7 @@ var tuiEN = map[Key]string{
 	TUIDetQuarantine: "quarantined until %s",
 
 	TUIWizQNode:           "1. Which node?",
-	TUIWizNoNode:          "No node is online. Join a node first: 3) Nodes -> 1) Show join command.",
+	TUIWizNoNode:          "No node is online. Join a node first: 3) Nodes → 1) Show join command.",
 	TUIWizAutoNode:        "Only one node is online: %s. It is used for this tunnel.",
 	TUIWizQPorts:          "2. Ports?",
 	TUIWizPortsHint:       "Examples: 443,2053,8443   443/tcp,27015/udp   2000-2010   443:8443",
@@ -988,7 +992,7 @@ var tuiEN = map[Key]string{
 	TUIWizSuggest:         "Free suggestions: %s",
 	TUIWizNoPortsLeft:     "No ports left. Enter the ports again.",
 	TUIWizDupPort:         "%s is already in the list.",
-	TUIWizStopConfirm:     "Disabling tunnel %s stops forwarding all of its ports so that %s becomes free. Enable it again later with 2) Tunnels -> 3) Enable / disable.",
+	TUIWizStopConfirm:     "Disabling tunnel %s stops forwarding all of its ports so that %s becomes free. Enable it again later with 2) Tunnels → 3) Enable / disable.",
 	TUIWizOpenFw:          "Open it in the firewall: %s",
 	TUIWizOpenFwAll:       "Open the %d blocked ports in the firewall",
 	TUIWizOpenConfirmAll:  "To open %s, deyroute runs these commands on the hub:\n\n%s\n\nAfterwards anyone on the internet can connect to these ports.",
@@ -1005,7 +1009,7 @@ var tuiEN = map[Key]string{
 	TUIWizSumTLS:          "TLS mode",
 	TUIWizSumThresh:       "Thresholds",
 	TUIWizAutomatic:       "automatic",
-	TUIWizDefault:         "%s (default)",
+	TUIWizDefault:         "%s ladder",
 	TUIWizDefaultWord:     "default",
 	TUIWizCustom:          "custom",
 	TUIWizCreate:          "Press Enter to create the tunnel.",
@@ -1016,8 +1020,7 @@ var tuiEN = map[Key]string{
 	TUIWizTarget:          "Target for %s (host:port)",
 	TUIWizProbe:           "Probe kind of %s (auto, tcp, tls, http)",
 	TUIWizSumProbe:        "probe %s",
-	TUIWizBackupQ:         "Backup node id (empty = none; available: %s)",
-	TUIWizUnknownNode:     "%s is not an available node.",
+	TUIWizBackupQ:         "Backup node",
 	TUIWizThreshQ:         "Customize failover thresholds? (y/n)",
 	TUITunnelUp:           "Tunnel %s is UP via %s (%dms)",
 	TUITunnelCreated:      "Tunnel %s was created; it is %s now. Watch it on 1) Dashboard.",
@@ -1062,7 +1065,7 @@ var tuiEN = map[Key]string{
 	TUIMoreLines:      "(%d more lines: make the window taller to see them)",
 	TUINdNewName:      "New name for %s",
 	TUINdRenamed:      "Node %s renamed to %s.",
-	TUINdRemoveLost:   "Removing node %s (%s):\n  - stops every tunnel transport on it (tunnels: %s)\n  - revokes its certificate, so it cannot connect again without a new join\n  - removes it from the firewall allow list\nA tunnel whose only node it is must get another node first (Failover > Backup nodes) or be deleted.",
+	TUINdRemoveLost:   "Removing node %s (%s):\n  - stops every tunnel transport on it (tunnels: %s)\n  - revokes its certificate, so it cannot connect again without a new join\n  - removes it from the firewall allow list\nA tunnel whose only node it is must get another node first (Failover → Backup nodes) or be deleted.",
 	TUINdRemoved:      "Node %s removed.",
 	TUINdControl:      "Control channel",
 	TUINdUDP:          "UDP echo",
@@ -1074,6 +1077,7 @@ var tuiEN = map[Key]string{
 	TUINdFingerprint:  "Certificate",
 	TUINdTunnels:      "Tunnels",
 	TUINdIP:           "Public IP",
+	TUINdLastError:    "Last error",
 
 	TUIPtAdd:        "Add port to tunnel",
 	TUIPtRemove:     "Remove port",
@@ -1149,7 +1153,7 @@ var tuiEN = map[Key]string{
 	TUIBkReady:         "backup %s ready (warm)",
 	TUIBkRemoveLost:    "Removing backup node %s from tunnel %s deletes the warm units of this tunnel on it; %s can no longer fail over to %s.",
 	TUIBkRemoved:       "Backup node %s removed from %s.",
-	TUIBkNoCandidates:  "No other node is available. Join another node first: 3) Nodes -> 1) Show join command.",
+	TUIBkNoCandidates:  "No other node is available. Join another node first: 3) Nodes → 1) Show join command.",
 	TUIBkNoBackups:     "Tunnel %s has no backup node.",
 	TUIFoPaused:        "Failover of %s is paused: probes continue, automatic switches stop.",
 	TUIFoResumed:       "Failover of %s is running again.",
@@ -1194,7 +1198,7 @@ var tuiEN = map[Key]string{
 	TUIOpRevertConfirm: "The kernel settings saved before deyroute changed them are restored and 99-deyroute.conf is removed.",
 	TUIOpApplied:       "Profile %s applied.",
 	TUIOpReverted:      "Kernel settings restored (profile %s).",
-	TUIOpBBRHint:       "BBR is switched on by the balanced and aggressive profiles (1) Apply profile).",
+	TUIOpBBRHint:       "BBR is switched on by the balanced and aggressive profiles: 1) Apply profile.",
 	TUIOpNoValues:      "No kernel values are applied by deyroute.",
 	TUIOpRecommend:     "This hub has %d MB RAM: %s is recommended (aggressive is for 4 GB or more).",
 	TUIOpSmallRAM:      "This hub has only %d MB RAM. aggressive is meant for servers with 4 GB or more; balanced suits this one better. Nodes with less than 4 GB report the same warning.",
@@ -1227,7 +1231,7 @@ var tuiEN = map[Key]string{
 	TUISeCFToken:        "Cloudflare token (DNS-01)",
 	TUISeDomainField:    "Domain",
 	TUISeDomainHint:     "A name such as vpn.example.com with a DNS-only A record pointing at the hub (no Cloudflare proxy). Type - to remove it.",
-	TUISeDomainSet:      "Domain set to %s. Tunnels in tls mode acme get their Let's Encrypt certificate at the daily renewal, or now with Security > Renew TLS certificate.",
+	TUISeDomainSet:      "Domain set to %s. Tunnels in tls mode acme get their Let's Encrypt certificate at the daily renewal, or now with 8) Security → 3) Renew TLS certificate.",
 	TUISeDomainCleared:  "Domain removed.",
 	TUISeEmailField:     "ACME e-mail",
 	TUISeEmailHint:      "Let's Encrypt sends expiry notices to this address. Type - to remove it.",
@@ -1235,7 +1239,7 @@ var tuiEN = map[Key]string{
 	TUISeEmailCleared:   "ACME e-mail removed.",
 	TUISeTokenField:     "Cloudflare token file",
 	TUISeTokenHint:      "Put a Cloudflare API token with Zone:DNS:Edit in a file first (e.g. /root/cloudflare.token); the token itself is never typed here. It is copied to /etc/deyroute/secrets/cloudflare.token and the file you give may be deleted afterwards. Type - to remove the token (HTTP-01 on port 80 again).",
-	TUISeTokenSet:       "DNS-01 through Cloudflare is on; the token is stored in %s. Request the certificates with Security > Renew TLS certificate.",
+	TUISeTokenSet:       "DNS-01 through Cloudflare is on; the token is stored in %s. Request the certificates with 8) Security → 3) Renew TLS certificate.",
 	TUISeTokenCleared:   "Cloudflare token removed; ACME uses HTTP-01 on port 80 again.",
 	TUISeDomainLabel:    "Domain",
 	TUISeChLabel:        "ACME check",
@@ -1277,7 +1281,7 @@ var tuiEN = map[Key]string{
 	TUIBuNewAddr:         "New hub address (IP:port)",
 	TUIBuNewAddrHint:     "The new server's public IP and the control port, e.g. 5.6.7.9:%d (a restore keeps the port).",
 	TUIBuAnnounceConfirm: "Every online node saves %s as its hub address and reconnects there at once.\nThe restored hub must already run at that address: a node told a wrong address\nloses its hub until Set hub address is used on that node.",
-	TUIBuAnnounceOffline: "Offline, not told: %s.\nOn each of them use 10) Backup & Restore -> 3) Set hub address, or run: deyroute node set-hub %s",
+	TUIBuAnnounceOffline: "Offline, not told: %s.\nOn each of them use 10) Backup & Restore → 3) Set hub address, or run: deyroute node set-hub %s",
 	TUIBuSetHub:          "Set hub address",
 	TUIBuSetHubIntro:     "This node connects to hub %s.\nEnter the hub's new address after the hub moved to another server or IP.\nThe address is saved even when the node agent is stopped.",
 	TUIBuHubAddr:         "Hub address (IP:port)",
@@ -1292,10 +1296,10 @@ var tuiEN = map[Key]string{
 	TUIUpRollback:        "Roll back",
 	TUIUpCurrent:         "Installed: %s",
 	TUIUpLatest:          "Latest:    %s",
-	TUIUpAvailable:       "An update is available: 11) Update -> 2) Apply update.",
+	TUIUpAvailable:       "An update is available: 11) Update → 2) Apply update.",
 	TUIUpNone:            "deyroute is up to date.",
 	TUIUpChangelog:       "Changelog:",
-	TUIUpApplyConfirm:    "Update deyroute %s -> %s. The deyroute service restarts; tunnels keep running. The current binary is kept for rollback.",
+	TUIUpApplyConfirm:    "Update deyroute %s → %s. The deyroute service restarts; tunnels keep running. The current binary is kept for rollback.",
 	TUIUpApplied:         "deyroute updated to %s.",
 	TUIUpBackendsConfirm: "New backend versions are installed next to the current ones on the hub and on all nodes. An active transport whose backend changes restarts, and it rolls back automatically if its probe is not green within 60 seconds.",
 	TUIUpNoBackends:      "No backend needed an update.",
@@ -1336,7 +1340,7 @@ var tuiEN = map[Key]string{
 	TUIHelpDiag:      "Port check, tunnel probes, a speed test through the tunnel (on the hub), live logs and the doctor bundle.",
 	TUIHelpOptimize:  "Kernel tuning profiles (sysctl) and BBR. Revert restores the values from before deyroute.",
 	TUIHelpSecurity:  "Rotate tokens replaces tunnel secrets (type yes). TLS certificates shows them and sets the domain for ACME.\nFirewall shows or applies the table inet deyroute.",
-	TUIHelpTLS:       "Domain is the name tls mode acme gets a Let's Encrypt certificate for (DNS-only record, no Cloudflare proxy).\nAdvanced: the ACME e-mail and a Cloudflare token for DNS-01 when port 80 is not free. Switch a tunnel to acme with Tunnels > Edit tunnel.",
+	TUIHelpTLS:       "Domain is the name tls mode acme gets a Let's Encrypt certificate for (DNS-only record, no Cloudflare proxy).\nAdvanced: the ACME e-mail and a Cloudflare token for DNS-01 when port 80 is not free. Switch a tunnel to acme with 2) Tunnels → 2) Edit tunnel.",
 	TUIHelpNotify:    "Telegram sends one message per event (at most one per minute per tunnel and type).",
 	TUIHelpBackup:    "Backups hold /etc/deyroute and the event history, encrypted with a passphrase by default.\nRestore replaces the current configuration (type yes).\nAfter the hub moved: Announce hub move on the old hub tells the online nodes its new address;\nSet hub address on a node sets it there (also with the node agent stopped).",
 	TUIHelpUpdate:    "Updates never run without a question; tunnels keep running while deyroute restarts.",
@@ -1352,7 +1356,7 @@ var tuiEN = map[Key]string{
 	TUILadRemove:         "Remove from the ladder",
 	TUIDashUpdatedManual: "Updated %s · r + Enter refreshes",
 	TUIWizNewTunnel:      "(new tunnel)",
-	TUIWizTLS:            "TLS mode (auto, acme; custom is set later with Edit tunnel)",
+	TUIWizTLS:            "TLS mode",
 	TUILineModeHint:      "Line mode: type the answer and press Enter · an empty line is Enter · q goes back (esc in a text field) · ? help",
 }
 
@@ -1373,7 +1377,6 @@ const (
 	CLIGroupManage               Key = "cli.group_manage"
 	CLIGroupDiag                 Key = "cli.group_diag"
 	CLIGroupSystem               Key = "cli.group_system"
-	CLIUsageHint                 Key = "cli.usage_hint"
 	CLIUnknownSub                Key = "cli.unknown_sub"
 	CLIWantArgs                  Key = "cli.want_args"
 	CLIWantArgsRange             Key = "cli.want_args_range"
@@ -1520,6 +1523,7 @@ const (
 	CLINodeListShort             Key = "cli.node_list_short"
 	CLINodeListExample           Key = "cli.node_list_example"
 	CLINodeListEmpty             Key = "cli.node_list_empty"
+	CLINodeLastError             Key = "cli.node_last_error"
 	CLIIncompatible              Key = "cli.incompatible"
 	CLINodeRenameShort           Key = "cli.node_rename_short"
 	CLINodeRenameExample         Key = "cli.node_rename_example"
@@ -1876,7 +1880,6 @@ var cliEN = map[Key]string{
 	CLIGroupManage:               "Nodes, tunnels and ports:",
 	CLIGroupDiag:                 "Diagnostics:",
 	CLIGroupSystem:               "System:",
-	CLIUsageHint:                 "Run 'deyroute --help' or 'deyroute <command> --help' for usage and examples.",
 	CLIUnknownSub:                "unknown command %q for %q",
 	CLIWantArgs:                  "%s needs %d argument(s), got %d",
 	CLIWantArgsRange:             "%s takes %d to %d argument(s), got %d",
@@ -2023,6 +2026,7 @@ var cliEN = map[Key]string{
 	CLINodeListShort:             "List nodes with state, control RTT, version and load",
 	CLINodeListExample:           "  deyroute node list\n  deyroute node list --json",
 	CLINodeListEmpty:             "No nodes yet. Show the join command: deyroute node join-command",
+	CLINodeLastError:             "Last error on %s: %s",
 	CLIIncompatible:              "(incompatible)",
 	CLINodeRenameShort:           "Rename a node (its id never changes)",
 	CLINodeRenameExample:         "  deyroute node rename de-1 \"Germany 1\"",
@@ -2529,22 +2533,22 @@ var tuiPolishEN = map[Key]string{
 	TUIChoiceDefault: "Choice [%d]: ",
 
 	TUIEvFailback:        "failback",
-	TUIEvFailbackFailed:  "failback failed",
+	TUIEvFailbackFailed:  "no failback",
 	TUIEvFlapping:        "flapping",
 	TUIEvNodeOnline:      "node online",
 	TUIEvNodeOffline:     "node offline",
 	TUIEvServiceDown:     "service down",
-	TUIEvBackendCrash:    "backend crash",
+	TUIEvBackendCrash:    "crash",
 	TUIEvProbeError:      "probe error",
 	TUIEvUpdated:         "updated",
 	TUIEvRolledBack:      "rolled back",
-	TUIEvBackendRollback: "backend rollback",
-	TUIEvNodeIP:          "node IP changed",
+	TUIEvBackendRollback: "rolled back",
+	TUIEvNodeIP:          "IP changed",
 	TUIEvACMEFailed:      "ACME failed",
 	TUIEvRungSkipped:     "rung skipped",
-	TUIEvRungRestored:    "rung restored",
-	TUIEvConfigApplied:   "config applied",
-	TUIEvUpdateAvailable: "update available",
+	TUIEvRungRestored:    "rung back",
+	TUIEvConfigApplied:   "config apply",
+	TUIEvUpdateAvailable: "new release",
 
 	TUISysNodeID:     "Node id",
 	TUISysHostname:   "Hostname",

@@ -57,7 +57,7 @@ func TestUnicodeBannerStatusLine(t *testing.T) {
 	require.Contains(t, b, "Hub: ir-1 (5.6.7.8)  ·  Mode: Simple  ·  2 nodes  ·  1 tunnel UP")
 	require.Contains(t, b, "██████╗ ███████╗")
 	n := Banner(Caps{Unicode: true}, BannerStatus{Role: "node", Name: "de-1", HubAddr: "5.6.7.8:44433", Advanced: true})
-	require.Contains(t, n, "Node: de-1 -> hub 5.6.7.8:44433  ·  Mode: Advanced")
+	require.Contains(t, n, "Node: de-1 → hub 5.6.7.8:44433  ·  Mode: Advanced")
 	require.Contains(t, Banner(Caps{Unicode: true}, BannerStatus{}), "not set up")
 	one := Banner(Caps{Unicode: true}, BannerStatus{Role: "hub", Name: "ir-1", PublicIP: "5.6.7.8", Nodes: 1, TunnelsUp: 3})
 	require.Contains(t, one, "1 node  ·  3 tunnels UP")

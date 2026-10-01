@@ -300,3 +300,36 @@ func TestOwnersPreferNames(t *testing.T) {
 	uid, gid = o.ids(&tar.Header{Uid: 7, Gid: 8})
 	require.Equal(t, []int{7, 8}, []int{uid, gid})
 }
+
+// Backups lists the manual and the automatic backups, newest first, with
+// size and time; other files are left out and a missing directory is empty.
+func TestBackupsListsNewestFirst(t *testing.T) {
+	root := t.TempDir()
+	list, err := Backups(root)
+	require.NoError(t, err)
+	require.Empty(t, list)
+
+	dir := filepath.Join(root, "var/lib/deyroute/backups")
+	auto := filepath.Join(dir, "auto")
+	require.NoError(t, os.MkdirAll(auto, 0o700))
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	write := func(p string, size int, at time.Time) {
+		require.NoError(t, os.WriteFile(p, make([]byte, size), 0o600))
+		require.NoError(t, os.Chtimes(p, at, at))
+	}
+	write(filepath.Join(dir, BackupPrefix+"old.tar.gz.age"), 10, now.Add(-48*time.Hour))
+	write(filepath.Join(auto, BackupPrefix+"auto.tar.gz"), 20, now.Add(-time.Hour))
+	write(filepath.Join(dir, BackupPrefix+"new.tar.gz"), 30, now)
+	write(filepath.Join(dir, "notes.txt"), 1, now)
+
+	list, err = Backups(root)
+	require.NoError(t, err)
+	require.Len(t, list, 3)
+	require.Equal(t, filepath.Join(dir, BackupPrefix+"new.tar.gz"), list[0].Path)
+	require.Equal(t, int64(30), list[0].Size)
+	require.False(t, list[0].Auto)
+	require.Equal(t, filepath.Join(auto, BackupPrefix+"auto.tar.gz"), list[1].Path)
+	require.True(t, list[1].Auto)
+	require.True(t, list[1].ModTime.Equal(now.Add(-time.Hour)))
+	require.Equal(t, filepath.Join(dir, BackupPrefix+"old.tar.gz.age"), list[2].Path)
+}

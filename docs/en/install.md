@@ -61,7 +61,14 @@ Apply the balanced kernel profile (BBR, larger buffers; undo with: deyroute opti
   is taken, the next free port is offered.
 - **Kernel profile**: writes `/etc/sysctl.d/99-deyroute.conf` (BBR, larger
   buffers). The previous values are saved and `deyroute optimize revert`
-  restores them.
+  restores them. A kernel without BBR skips only
+  `net.ipv4.tcp_congestion_control` (a warning); everything else, `fq`
+  included, is applied. Later, `deyroute optimize apply --profile P` (menu
+  `7) Optimize`) applies a profile on the hub and every online node with the
+  hub's `tuning.bbr`; what a node skips is shown as `node <id>: …`.
+  `aggressive` (64 MB buffers) is meant for servers with 4 GB RAM or more:
+  the menu names the profile recommended for the hub's RAM and warns before
+  `aggressive` on a smaller hub, and every smaller server reports a warning.
 
 Everything else is automatic. The wizard shows each step:
 
@@ -75,7 +82,7 @@ Everything else is automatic. The wizard shows each step:
   ✔ Install and start service
 
 Hub ir-1 is ready: 5.6.7.8, control port 44433.
-Run this command on each node (valid until 12:15, 15m):
+Run this command on the new node (one node per command, valid until 12:15, 15m):
 
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://…@5.6.7.8:44433#sha256:…' --version 1.0.0
 ```

@@ -100,6 +100,14 @@ Enter; `q` or Esc goes back, `r` refreshes, `?` shows help for the current
 screen. Items marked `*` appear only in Advanced mode
 (`12) Settings` → `1) UI mode (Simple / Advanced)`).
 
+When a question waits for typed text, `q` and `r` are part of the answer:
+Enter accepts (an empty answer keeps the value in brackets), Esc cancels and
+`?` on an empty answer shows the help; the footer says so. Questions with
+fixed answers (policy, TLS mode, ladder profile, backup node) are numbered
+lists with the current value marked `(current)`. On a terminal without
+cursor control (`TERM=dumb`) the menu runs in line mode: each line you type
+is one answer and an empty line is Enter.
+
 ```text
  1) Dashboard (live)
  2) Tunnels        add / edit / enable-disable / restart / switch transport / delete

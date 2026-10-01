@@ -33,8 +33,14 @@ to a log.
   every address (the join window). Otherwise it accepts the joined nodes'
   IPs, plus a few new connections per minute from other addresses so that a
   node whose IP changed can reconnect with its certificate.
-- `deyroute security audit` warns about join tokens older than 15 minutes that
-  are still stored.
+- `deyroute security audit` warns about every unexpired join token: each one
+  keeps the join window open until it expires. `deyroute doctor` reports the
+  tokens made with a `--ttl` over 15 minutes (with their expiry) and expired
+  tokens that could not be removed.
+- A join that is refused for another reason (the node id is taken, the
+  request is broken, `config.yaml` has an edit that is not applied:
+  `DEY-C026`) does not use up the token; the node can try again with the
+  same command.
 
 ## Firewall: `table inet deyroute`
 
@@ -76,7 +82,9 @@ deyroute security firewall disable   # delete the table; deyroute only suggests 
 ```
 
 With `security.firewall_managed: false` in `config.yaml` DEYROUTE applies
-nothing and only prints the commands you should run (`DEY-P031`). An
+nothing and only prints the commands you should run (`DEY-P031`). A table
+`inet deyroute` applied earlier is removed, also when the setting changed
+while the hub was not running (an edit followed by a restart, a restore). An
 external firewall (ufw, firewalld, provider panel) is never changed without
 your confirmation; `deyroute port check` shows the exact command, and
 `deyroute port check <port> --open` (or `Open it in the firewall` in the menu)
@@ -194,7 +202,7 @@ deyroute security audit
 ```
 
 Lists publicly open ports, file permissions, certificate expiry, nodes with
-an old version and join tokens that are still stored. Run it after every
+an old version and unexpired join tokens. Run it after every
 security change. Menu: `8) Security` → `5) Audit`.
 
 ## Tunnel processes

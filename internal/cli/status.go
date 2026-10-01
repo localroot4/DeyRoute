@@ -302,7 +302,7 @@ func eventWord(t string) string { return tui.EventWord(t) }
 
 // eventCap caps the tunnel and type columns of LAST EVENTS (as the menu
 // does): a long id is cut instead of pushing the messages away.
-const eventCap = 16
+const eventCap = 12
 
 // eventWho is the tunnel or node an event is about.
 func eventWho(e state.Event) string {

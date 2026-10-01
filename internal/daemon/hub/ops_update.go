@@ -30,45 +30,88 @@ const (
 // releaseCheckTimeout bounds the release check.
 const releaseCheckTimeout = 2 * time.Minute
 
+// changelogMaxLines bounds the release notes shown before an update; the
+// release page names the rest.
+const changelogMaxLines = 40
+
 // nodeUpdateRecord is metaNodeUpdate: set by update and rollback, cleared
 // when every node runs the hub's version.
 type nodeUpdateRecord struct {
 	Since time.Time `json:"since"`
 }
 
-// releaseURL is the page of a release (the changelog shown before an
-// update, section 5).
+// releaseURL is the page of a release, named when its changelog cannot be
+// shown.
 func releaseURL(v string) string {
 	return install.GitHubReleases + "/tag/" + install.Tag(v)
 }
 
+// releaseRef is a release found in a validly signed SHA256SUMS: its
+// version, the parsed checksums and the sources with the one that served
+// them first.
+type releaseRef struct {
+	version string
+	sums    map[string]string
+	sources []install.Source
+}
+
 // checkRelease reads the newest release from the signed SHA256SUMS of the
 // first source that serves a valid one (through the fetcher chain: via a
-// node first, section 5) and compares it with the running version.
+// node first, section 5) and compares it with the running version. A newer
+// release comes with its changelog text (releaseNotes).
 func (h *Hub) checkRelease(ctx context.Context) (api.UpdateInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, releaseCheckTimeout)
 	defer cancel()
-	ver, err := h.latestRelease(ctx, "")
+	ref, err := h.latestRelease(ctx, "")
 	if err != nil {
 		return api.UpdateInfo{}, err
 	}
 	info := api.UpdateInfo{
 		Current:   version.Version,
-		Latest:    ver,
-		Available: install.NewerThan(ver, version.Version),
-		Changelog: releaseURL(ver),
+		Latest:    ref.version,
+		Available: install.NewerThan(ref.version, version.Version),
+		Changelog: releaseURL(ref.version),
 		Previous:  h.previousVersion(),
+	}
+	if info.Available {
+		info.Changelog = h.releaseNotes(ctx, ref)
 	}
 	_ = h.st.PutMeta(metaUpdateCheck, info)
 	return info, nil
 }
 
-// latestRelease returns the version of want ("" = newest) for this hub's
+// releaseNotes is the changelog shown before an update (section 5): the
+// sections of the release's CHANGELOG.md after the running version, read
+// through the fetcher chain (a node first, as the release page usually does
+// not open from Iran) and verified against the signed SHA256SUMS, at most
+// changelogMaxLines lines. The release page URL stands in when the release
+// has no CHANGELOG.md, it cannot be downloaded, or it names no change.
+func (h *Hub) releaseNotes(ctx context.Context, ref releaseRef) string {
+	page := releaseURL(ref.version)
+	data, err := install.FetchChangelog(ctx, h.Fetcher(), ref.sources, ref.version, ref.sums,
+		install.RetryOptions{Tries: 2, AttemptTimeout: 30 * time.Second})
+	if err != nil {
+		h.log.Info("release notes not available; naming the release page", dlog.Err(err))
+		return page
+	}
+	notes := install.ChangelogNotes(data, version.Version, ref.version)
+	if notes == "" {
+		return page
+	}
+	lines := strings.Split(notes, "\n")
+	if len(lines) > changelogMaxLines {
+		lines = append(lines[:changelogMaxLines], "… "+page)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// latestRelease returns the release of want ("" = newest) for this hub's
 // architecture from the first source with a validly signed SHA256SUMS.
-func (h *Hub) latestRelease(ctx context.Context, want string) (string, error) {
+func (h *Hub) latestRelease(ctx context.Context, want string) (releaseRef, error) {
 	f := h.Fetcher()
 	var sigErr, lastErr error
-	for _, src := range h.sources() {
+	sources := h.sources()
+	for i, src := range sources {
 		data, _, err := install.FetchBytes(ctx, f, []string{src.Sums(want)}, install.RetryOptions{File: install.SumsFile})
 		if err != nil {
 			lastErr = err
@@ -93,15 +136,16 @@ func (h *Hub) latestRelease(ctx context.Context, want string) (string, error) {
 			lastErr = err
 			continue
 		}
-		return ver, nil
+		order := append([]install.Source{src}, sources[:i]...)
+		return releaseRef{version: ver, sums: sums, sources: append(order, sources[i+1:]...)}, nil
 	}
 	switch {
 	case sigErr != nil:
-		return "", sigErr
+		return releaseRef{}, sigErr
 	case lastErr != nil:
-		return "", lastErr
+		return releaseRef{}, lastErr
 	}
-	return "", deyerr.New(deyerr.I004, deyerr.Params{"file": install.SumsFile}).WithDetail("no download source configured")
+	return releaseRef{}, deyerr.New(deyerr.I004, deyerr.Params{"file": install.SumsFile}).WithDetail("no download source configured")
 }
 
 // previousVersion is the version the last update replaced ("" = none).
@@ -117,7 +161,8 @@ func (h *Hub) previousVersion() string {
 }
 
 // UpdateCheck implements api.Local (`deyroute update --check`): the newest
-// release, whether it is newer than this hub and its release notes.
+// release, whether it is newer than this hub and its release notes (the
+// CHANGELOG.md text, or the release page when it has none).
 func (l *local) UpdateCheck(ctx context.Context) (api.UpdateInfo, error) {
 	info, err := l.h.checkRelease(ctx)
 	return info, withLog(err)
@@ -141,12 +186,12 @@ func (l *local) UpdateApply(ctx context.Context, want string, progress func(api.
 	info := api.UpdateInfo{Current: version.Version, Previous: h.previousVersion()}
 	var target string
 	if err := rep.run(stepResolve, func() (string, error) {
-		v, err := h.latestRelease(ctx, want)
+		ref, err := h.latestRelease(ctx, want)
 		if err != nil {
 			return "", err
 		}
-		target = v
-		return v, nil
+		target = ref.version
+		return target, nil
 	}); err != nil {
 		return info, withLog(err)
 	}

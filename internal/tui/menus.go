@@ -62,7 +62,7 @@ func optimizeMenu(a *app) screen {
 			return a.push(t)
 		}},
 		{label: i18n.TUIOpLimits, adv: true, act: func(a *app) tea.Cmd {
-			t := newTask(i18n.T(i18n.TUIOpLimits), callTimeout, loadOptimize, func(a *app, v any) string {
+			t := newTask(itemName(i18n.TUIOpLimits), callTimeout, loadOptimize, func(a *app, v any) string {
 				o, _ := v.(api.OptimizeStatus)
 				if len(o.Applied) == 0 {
 					return indent(i18n.T(i18n.TUIOpNoValues)) + "\n"
@@ -157,7 +157,7 @@ func securityMenu(a *app) screen {
 			return a.push(t)
 		}},
 		{label: i18n.TUISeFingerprints, adv: true, act: func(a *app) tea.Cmd {
-			t := newTask(i18n.T(i18n.TUISeFingerprints), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+			t := newTask(itemName(i18n.TUISeFingerprints), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 				certs, err := l.SecurityTLSShow(ctx, "")
 				if err != nil {
 					return nil, err
@@ -217,8 +217,9 @@ func tlsMenu(a *app) screen {
 	return m
 }
 
-// tlsHub returns the hub settings the TLS menu (the top screen while one
-// of its items is picked) has loaded; zero before they are loaded.
+// tlsHub returns the hub settings the TLS or Notifications menu (the top
+// screen while one of its items is picked) has loaded; zero before they
+// are loaded.
 func tlsHub(a *app) api.HubStatus {
 	if l, ok := a.top().(*listScreen); ok {
 		if st, ok := l.data.(api.Status); ok && st.Hub != nil {
@@ -425,14 +426,21 @@ func firewallMenu(a *app) screen {
 
 // ---- 9 Notifications
 
+// notifyMenu shows the Telegram settings as its header; Set up Telegram
+// offers them as the defaults.
 func notifyMenu(a *app) screen {
-	return newMenu(a, i18n.MenuNotifications, i18n.TUIHelpNotify, []menuItem{
+	m := newMenu(a, i18n.MenuNotifications, i18n.TUIHelpNotify, []menuItem{
 		{label: i18n.TUINtSet, act: func(a *app) tea.Cmd {
 			title := i18n.T(i18n.TUINtSet)
+			tg := tlsHub(a).Telegram
+			events := strings.Join(config.DefaultTelegramEvents, ",")
+			if len(tg.Events) > 0 {
+				events = strings.Join(tg.Events, ",")
+			}
 			return a.push(newForm(title, "", []field{
-				{key: "file", label: i18n.T(i18n.TUINtTokenFile), hint: i18n.T(i18n.TUINtTokenHint)},
-				{key: "chat", label: i18n.T(i18n.TUINtChat)},
-				{key: "events", label: i18n.T(i18n.TUINtEvents), def: strings.Join(config.DefaultTelegramEvents, ",")},
+				{key: "file", label: i18n.T(i18n.TUINtTokenFile), hint: i18n.T(i18n.TUINtTokenHint), def: tg.TokenFile},
+				{key: "chat", label: i18n.T(i18n.TUINtChat), def: tg.ChatID},
+				{key: "events", label: i18n.T(i18n.TUINtEvents), hint: i18n.T(i18n.TUINtEventsHint), def: events},
 			}, func(a *app, v map[string]string) tea.Cmd {
 				file, chat := v["file"], v["chat"]
 				var events []string
@@ -460,6 +468,32 @@ func notifyMenu(a *app) screen {
 			}))
 		}},
 	})
+	m.load = func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) { return l.Status(ctx) }
+	m.header = renderTelegram
+	return m
+}
+
+// renderTelegram is the Notifications header: whether Telegram is on, the
+// chat and the events it sends.
+func renderTelegram(a *app, v any) string {
+	st, _ := v.(api.Status)
+	if st.Hub == nil {
+		return ""
+	}
+	tg := st.Hub.Telegram
+	var t kvTable
+	if !tg.Enabled {
+		t.add(i18n.T(i18n.TUINtLabel), a.paint(colYellow, i18n.T(i18n.TUINtStateOff)))
+		return t.String()
+	}
+	t.add(i18n.T(i18n.TUINtLabel), a.paint(colGreen, i18n.T(i18n.TUINtStateOn)))
+	t.add(i18n.T(i18n.TUINtChatLabel), clean(tg.ChatID))
+	events := tg.Events
+	if len(events) == 0 {
+		events = config.DefaultTelegramEvents
+	}
+	t.add(i18n.T(i18n.TUINtEventsLabel), clean(strings.Join(events, ", ")))
+	return t.String()
 }
 
 // ---- 10 Backup & Restore
@@ -469,7 +503,7 @@ func notifyMenu(a *app) screen {
 func backupMenu(a *app) screen {
 	return newMenu(a, i18n.MenuBackup, i18n.TUIHelpBackup, []menuItem{
 		{label: i18n.TUIBuCreate, act: func(a *app) tea.Cmd { return a.push(backupForm(a)) }},
-		{label: i18n.TUIBuRestore, act: func(a *app) tea.Cmd { return a.push(restoreForm(a)) }},
+		{label: i18n.TUIBuRestore, act: func(a *app) tea.Cmd { return a.push(restoreStart(a)) }},
 		{label: i18n.TUIBuAnnounce, role: roleHub, act: func(a *app) tea.Cmd { return a.push(announceForm(a)) }},
 		{label: i18n.TUIBuSetHub, role: roleNode, act: func(a *app) tea.Cmd { return a.push(setHubForm(a)) }},
 	})
@@ -512,18 +546,61 @@ func backupForm(a *app) screen {
 	})
 }
 
+// restoreStart is Restore from a backup: the backups on this server are
+// listed by number, newest first, with "Another file" last; without that
+// list (Options.Backups) the file's path is asked.
+func restoreStart(a *app) screen {
+	list := a.opts.Backups
+	if list == nil {
+		return restoreForm(a, "")
+	}
+	return &listScreen{
+		screenBase: screenBase{title: i18n.T(i18n.TUIBuRestore)},
+		local:      func(ctx context.Context) (any, error) { return list(ctx) },
+		header: func(_ *app, v any) string {
+			if fs, _ := v.([]BackupFile); len(fs) == 0 {
+				return indent(i18n.T(i18n.TUIBuNoFiles, config.BackupDir)) + "\n"
+			}
+			return indent(i18n.T(i18n.TUIBuPick)) + "\n"
+		},
+		derive: func(a *app, v any) []choice {
+			fs, _ := v.([]BackupFile)
+			rows := make([][]string, len(fs))
+			for i, f := range fs {
+				tag := ""
+				if f.Auto {
+					tag = i18n.T(i18n.TUIBuAutoTag)
+				}
+				rows[i] = []string{f.ModTime.In(a.opts.Location).Format("2006-01-02 15:04"), clean(filepath.Base(f.Path)), sizeText(f.Size), tag}
+			}
+			out := make([]choice, 0, len(fs)+1)
+			for i, label := range columns(rows) {
+				out = append(out, choice{label: label, value: fs[i].Path})
+			}
+			return append(out, choice{label: i18n.T(i18n.TUIBuOther), value: ""})
+		},
+		pick: func(a *app, c choice) tea.Cmd { return a.push(restoreForm(a, c.value.(string))) },
+	}
+}
+
 // restoreForm reads the backup first (RestoreCheck), asks the moved-hub
 // question when a hub backup names another address than this server's,
 // then states what the restore replaces, the address change included,
-// before the typed yes (as deyroute restore does).
-func restoreForm(a *app) screen {
+// before the typed yes (as deyroute restore does). file is the backup picked
+// from the list ("" = ask for its path); an unencrypted one (.tar.gz)
+// needs no passphrase.
+func restoreForm(a *app, file string) screen {
 	title := i18n.T(i18n.TUIBuRestore)
+	if file != "" {
+		title = titleOf(i18n.TUIBuRestore, filepath.Base(file))
+	}
 	check, fn := a.opts.RestoreCheck, a.opts.Restore
 	return newForm(title, "", []field{
-		{key: "path", label: i18n.T(i18n.TUIBuPath)},
-		{key: "pass", label: i18n.T(i18n.TUIBuRestPass), masked: true, optional: true},
+		{key: "path", label: i18n.T(i18n.TUIBuPath), skip: func(map[string]string) bool { return file != "" }},
+		{key: "pass", label: i18n.T(i18n.TUIBuRestPass), masked: true, optional: true,
+			skip: func(map[string]string) bool { return strings.HasSuffix(file, ".tar.gz") }},
 	}, func(a *app, v map[string]string) tea.Cmd {
-		path, pass := v["path"], v["pass"]
+		path, pass := orDefault(v["path"], file), v["pass"]
 		restore := func(ctx context.Context, ip string) (string, error) { return fn(ctx, path, pass, ip) }
 		t := newLocalTask(title, func(ctx context.Context) (any, error) {
 			if check == nil || fn == nil {
@@ -801,24 +878,25 @@ func pickLanguage() *listScreen {
 	title := i18n.T(i18n.TUIStLang)
 	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIStLangPick)}
 	for _, lang := range i18n.Languages() {
-		label := lang
-		if lang == "en" {
-			label = i18n.T(i18n.TUIStLangEn)
-		}
-		if lang == i18n.Language() {
-			label += i18n.T(i18n.TUICurrent)
-		}
-		l.fixed = append(l.fixed, choice{label: label, value: lang})
+		l.fixed = append(l.fixed, choice{label: markCurrent(langName(lang), lang == i18n.Language()), value: lang})
 	}
 	l.pick = func(a *app, c choice) tea.Cmd {
 		lang := c.value.(string)
 		t := newTask(title, callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 			return nil, l.SettingsSet(ctx, api.SettingsRequest{Language: lang})
-		}, textResult(i18n.T(i18n.TUIStLangSet, lang)))
+		}, textResult(i18n.T(i18n.TUIStLangSet, langName(lang))))
 		t.onOK = func(*app, any) { _ = i18n.SetLanguage(lang) }
 		return a.replace(t)
 	}
 	return l
+}
+
+// langName is the name of a language code ("English" for en).
+func langName(code string) string {
+	if code == "en" {
+		return i18n.T(i18n.TUIStLangEn)
+	}
+	return code
 }
 
 func uninstallForm(a *app) screen {

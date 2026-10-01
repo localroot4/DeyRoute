@@ -214,7 +214,7 @@ func Suggest(n int, busy func(port int, proto string) bool, controlPort int) []i
 type KV struct{ Key, Value string }
 func Profile(name string, ipForward bool) ([]KV, error) // off|balanced|aggressive (§12 exact values; aggressive: 64MB buffers + tcp_notsent_lowat)
 type Manager struct { Root string /* "/" */ }
-func (m Manager) Apply(profile string, ipForward bool) (applied []KV, warnings []string, err error) // backup once, write 99-deyroute.conf, write /proc/sys; BBR missing → warning+skip
+func (m Manager) Apply(profile string, ipForward bool) (applied []KV, warnings []string, err error) // backup once, write 99-deyroute.conf, write /proc/sys; BBR missing → warning + skip of tcp_congestion_control only (fq stays); aggressive below 4 GB RAM → warning
 func (m Manager) Revert() error; Current() (string, error); BBRAvailable() bool
 ```
 

@@ -359,6 +359,13 @@ func (g *Globals) printPortCheck(r api.PortCheckResult, hint bool) {
 		note = i18n.T(i18n.CLICheckNote)
 	}
 	g.println(g.text("  " + clean(note)))
+	if r.NodeError != nil {
+		// DEY-P014 in the three-line format (section 13); the detail is
+		// the node's dial error.
+		for _, l := range strings.Split(strings.TrimRight(r.NodeError.Err().Format(g.unicode()), "\n"), "\n") {
+			g.println(g.text(clean(l)))
+		}
+	}
 	if len(r.SuggestedPorts) > 0 {
 		g.say(i18n.CLISuggestedPorts, joinInts(r.SuggestedPorts))
 	}

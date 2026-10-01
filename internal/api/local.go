@@ -184,6 +184,17 @@ type HubStatus struct {
 	// no token).
 	ACMEChallenge string `json:"acme_challenge"`
 	ACMEEmail     string `json:"acme_email,omitempty"`
+	// Telegram is hub.notify.telegram (Notifications menu); the bot token
+	// itself is never sent, only the file it is read from.
+	Telegram TelegramStatus `json:"telegram"`
+}
+
+// TelegramStatus is the Telegram part of HubStatus.
+type TelegramStatus struct {
+	Enabled   bool     `json:"enabled"`
+	ChatID    string   `json:"chat_id,omitempty"`
+	TokenFile string   `json:"token_file,omitempty"`
+	Events    []string `json:"events,omitempty"`
 }
 
 // HubStatus.ACMEChallenge values.
@@ -298,6 +309,9 @@ type NodeInfo struct {
 	Tags          []string  `json:"tags,omitempty"`
 	Fingerprint   string    `json:"cert_fingerprint"`
 	Tunnels       []string  `json:"tunnels,omitempty"`
+	// LastError is the last error the node agent reported in its
+	// heartbeat (section 3: "DEY-B003 …", redacted); "" when none.
+	LastError string `json:"last_error,omitempty"`
 }
 
 // JoinCommand is the one-line join command (section 3).
@@ -402,10 +416,12 @@ type PortCheckResult struct {
 	FirewallOpen    bool   `json:"firewall_open"`
 	FirewallName    string `json:"firewall_name"`
 	FirewallCommand string `json:"firewall_command,omitempty"` // suggestion when closed
-	// 3. reachable from node
-	Node          string `json:"node,omitempty"`
-	NodeReachable *bool  `json:"node_reachable,omitempty"`
-	NodeRTTms     int    `json:"node_rtt_ms,omitempty"`
+	// 3. reachable from node; NodeError is DEY-P014 when the node could not
+	// connect (shown in the three-line format)
+	Node          string    `json:"node,omitempty"`
+	NodeReachable *bool     `json:"node_reachable,omitempty"`
+	NodeRTTms     int       `json:"node_rtt_ms,omitempty"`
+	NodeError     *ErrorDTO `json:"node_error,omitempty"`
 	// 4. reachable via tunnel
 	Tunnel         string `json:"tunnel,omitempty"`
 	TunnelOK       *bool  `json:"tunnel_ok,omitempty"`

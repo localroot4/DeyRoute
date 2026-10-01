@@ -51,14 +51,14 @@ deyroute doctor --node de-1       # این Hub به‌علاوه Node de-1
 deyroute doctor --out /tmp/doctor.tar.gz
 ```
 
-doctor این‌ها را جمع می‌کند: سیستم و نسخه‌ها، وضعیت همه سرویس‌ها، خط‌های آخر همه لاگ‌ها، پورت‌ها و نتیجه چک پورت، جدول فایروال، تنظیمات کرنل، Nodeها و تأخیر کنترل، پروب نردبان، رویدادهای اخیر و انقضای گواهی‌ها. بعد ۱۵ بررسی خودکار انجام می‌دهد و یک خلاصه کوتاه به زبان ساده چاپ می‌کند، مثلاً:
+doctor این‌ها را جمع می‌کند: سیستم و نسخه‌ها، وضعیت همه سرویس‌ها، خط‌های آخر همه لاگ‌ها، پورت‌ها و نتیجه چک چهارمرحله‌ای همه Port mapها (هشت‌تا هم‌زمان؛ Port mapی که بعد از دو دقیقه چکش شروع نشده باشد «چک نشده» نوشته می‌شود)، جدول فایروال، تنظیمات کرنل، Nodeها و تأخیر کنترل، پروب نردبان، رویدادهای اخیر و انقضای گواهی‌ها. بعد ۱۵ بررسی خودکار انجام می‌دهد و یک خلاصه کوتاه به زبان ساده چاپ می‌کند (رنگی فقط در ترمینال؛ اگر خروجی به فایل یا برنامه دیگری برود متن ساده است)، مثلاً:
 
 - `Node de-1 is offline on the control channel, but tunnel main still passes traffic: the control network has a problem, the tunnel is healthy` — یعنی فقط کانال کنترل مشکل دارد و تانل سالم است.
 - `Tunnel main is DOWN and every transport failed or is quarantined: the IP of node de-1 is probably blocked` — یعنی احتمالاً IP سرور Node بلاک شده.
 - `Tunnel main is connected, but the service behind it on node de-1 does not answer on 127.0.0.1:443` — یعنی تانل وصل است ولی سرویس پشتش روی Node جواب نمی‌دهد.
 - `Clock of de-1 differs from the hub by …: TLS connections fail with a large difference` — یعنی ساعت سرورها با هم فرق دارد.
 
-کنار هر مورد یک خط `Fix:` هست. doctor یک فایل پشتیبانی هم می‌نویسد: `/root/deyroute-doctor-<UTC>.tar.gz` که **همه رازها از آن حذف شده‌اند** (توکن‌ها، کلیدها و رمزها پوشانده می‌شوند و فایل قبل از نوشته شدن یک بار دیگر بررسی می‌شود). این فایل را همراه خلاصه بفرستید. اگر سرویس اجرا نباشد، doctor باز هم هر چه روی همین سرور بتواند جمع می‌کند و این را اعلام می‌کند.
+کنار هر مورد یک خط `Fix:` هست. کرنلی که BBR ندارد، یا `tuning.bbr: false`، مشکل حساب نمی‌شود: پروفایل کرنل بدون BBR اعمال می‌شود (با هشدار) و اعمال دوباره‌اش چیزی را عوض نمی‌کند. توکن Joinی که با `--ttl` بیشتر از ۱۵ دقیقه ساخته شده با زمان انقضایش گزارش می‌شود (info)، چون تا آن موقع پورت کنترل از هر آدرسی اتصال می‌پذیرد؛ توکن‌های منقضی خودکار پاک می‌شوند. doctor یک فایل پشتیبانی هم می‌نویسد: `/root/deyroute-doctor-<UTC>.tar.gz` که **همه رازها از آن حذف شده‌اند** (توکن‌ها، کلیدها و رمزها پوشانده می‌شوند و فایل قبل از نوشته شدن یک بار دیگر بررسی می‌شود). این فایل را همراه خلاصه بفرستید. اگر سرویس اجرا نباشد، doctor باز هم هر چه روی همین سرور بتواند جمع می‌کند و این را اعلام می‌کند.
 
 ## لاگ‌ها و رویدادها
 
@@ -76,9 +76,9 @@ deyroute logs node               # روی Node: سرویس خودش
 deyroute events --since 24h --json
 ```
 
-لاگ‌های خود deyroute به شکل JSON خط‌به‌خط با زمان UTC هستند؛ لاگ‌ها (و لاگ هر تانل در `/var/log/deyroute/tunnels/`) در ۲۰ مگابایت چرخانده می‌شوند و ۵ فایل فشرده نگه داشته می‌شود. برای جزئیات بیشتر یک دستور را با `--debug` اجرا کنید یا سرویس را با `DEYROUTE_DEBUG=1` روشن کنید. رازها هیچ‌وقت در لاگ نمی‌آیند (به شکل `***` چاپ می‌شوند).
+لاگ‌های خود deyroute به شکل JSON خط‌به‌خط با زمان UTC هستند؛ لاگ‌ها (و لاگ هر تانل در `/var/log/deyroute/tunnels/`) در ۲۰ مگابایت چرخانده می‌شوند و ۵ فایل فشرده نگه داشته می‌شود. منو (`6) Diagnostics` ← `4) Logs`) چنین خطی را با زمان محلی به شکل `12:41:03 WARN  failover probe failed tunnel=main code=DEY-F001` نشان می‌دهد و جلوی خط‌های لاگ یک تانل `[hub]` یا `[node]` می‌گذارد. برای جزئیات بیشتر یک دستور را با `--debug` اجرا کنید یا سرویس را با `DEYROUTE_DEBUG=1` روشن کنید. رازها هیچ‌وقت در لاگ نمی‌آیند (به شکل `***` چاپ می‌شوند).
 
-رویدادهای مهم: `tunnel_up`، `tunnel_degraded`، `tunnel_down`، `switch_transport`، `switch_node`، `failback`، `failback_failed`، `flapping`، `node_online`، `node_offline`، `node_ip_changed`، `service_down`، `backend_crash`، `probe_error`، `rung_skipped`، `rung_restored`، `config_applied`. سوییچ دستی با نام `switch_transport` یا `switch_node` و دلیل `manual switch to …` ثبت می‌شود.
+رویدادهای مهم: `tunnel_up`، `tunnel_degraded`، `tunnel_down`، `switch_transport`، `switch_node`، `failback`، `failback_failed`، `flapping`، `node_online`، `node_offline`، `node_ip_changed`، `service_down`، `backend_crash`، `probe_error`، `rung_skipped`، `rung_restored`، `config_applied`. سوییچ دستی با نام `switch_transport` یا `switch_node` و دلیل `manual switch to …` ثبت می‌شود. بخش LAST EVENTS داشبورد (و `deyroute status`) هر نوع رویداد را با یک کلمه کوتاه نشان می‌دهد: `switch`، `down`، `node offline`، `rung skipped`، `rolled back`.
 
 ## مشکلات رایج
 
@@ -105,7 +105,7 @@ journalctl -u deyroute-hub -n 50
 
 ### فایروال پورت را بسته — `DEY-P013` و `DEY-P014`
 
-`deyroute port check 443` نشان می‌دهد کدام فایروال پورت را بسته و دستور دقیق باز کردنش را می‌دهد (مثلاً `ufw allow 443/tcp`). آن را خودتان اجرا کنید، یا بگذارید deyroute اجرایش کند: `deyroute port check 443 --open` (یا در منو `4) Ports` ← `Check port` ← `1) Open it in the firewall`) دستور را نشان می‌دهد و فقط بعد از اینکه `yes` را تایپ کنید روی Hub اجرا می‌کند. deyroute اول فایروال را دوباره چک می‌کند و فقط دستوری را اجرا می‌کند که خودش از روی فایروال پیداشده و شماره پورت می‌سازد؛ اگر این دستور دیگر همانی نباشد که تأیید کردید (فایروال در این فاصله عوض شده)، هیچ چیزی اجرا نمی‌شود (`DEY-P032`): پورت را دوباره چک کنید. `DEY-P033` یعنی دستور شکست خورد یا پورت را باز نکرد (یک قانون قبلی در همان فایروال آن را رد می‌کند)؛ خروجی دستور زیر خطا نشان داده می‌شود. `DEY-P014` (از Node در دسترس نیست) معمولاً یعنی فایروال پنل ارائه‌دهنده سرور پورت را بسته: آنجا بازش کنید. `deyroute security firewall show` را هم ببینید. `DEY-P031` یعنی DEYROUTE روی این Hub فایروال را مدیریت نمی‌کند (`security.firewall_managed: false`) و باید پورت‌ها را دستی باز کنید.
+`deyroute port check 443` نشان می‌دهد کدام فایروال پورت را بسته و دستور دقیق باز کردنش را می‌دهد (مثلاً `ufw allow 443/tcp`). آن را خودتان اجرا کنید، یا بگذارید deyroute اجرایش کند: `deyroute port check 443 --open` (یا در منو `4) Ports` ← `Check port` ← `1) Open it in the firewall`) دستور را نشان می‌دهد و فقط بعد از اینکه `yes` را تایپ کنید روی Hub اجرا می‌کند. deyroute اول فایروال را دوباره چک می‌کند و فقط دستوری را اجرا می‌کند که خودش از روی فایروال پیداشده و شماره پورت می‌سازد؛ اگر این دستور دیگر همانی نباشد که تأیید کردید (فایروال در این فاصله عوض شده)، هیچ چیزی اجرا نمی‌شود (`DEY-P032`): پورت را دوباره چک کنید. `DEY-P033` یعنی دستور شکست خورد یا پورت را باز نکرد (یک قانون قبلی در همان فایروال آن را رد می‌کند)؛ خروجی دستور زیر خطا نشان داده می‌شود. `DEY-P014` (از Node در دسترس نیست؛ زیر چهار مرحله چک پورت، همراه خطای اتصال Node چاپ می‌شود) معمولاً یعنی فایروال پنل ارائه‌دهنده سرور پورت را بسته: آنجا بازش کنید. `deyroute security firewall show` را هم ببینید. `DEY-P031` یعنی DEYROUTE روی این Hub فایروال را مدیریت نمی‌کند (`security.firewall_managed: false`) و باید پورت‌ها را دستی باز کنید.
 
 ### UDP بسته است — `DEY-P015` و `DEY-B007`
 
@@ -169,6 +169,8 @@ journalctl -u deyroute-hub -n 50
 | `DEY-C003` | دو تانل یک پورت دارند | پورت یکی را عوض کنید |
 | `DEY-C014` | `config.yaml` خوانده نمی‌شود | آخرین نسخه سالم را از `/var/lib/deyroute/backups/auto/` ریستور کنید |
 | `DEY-C021` | تانل ناشناخته | شناسه‌ها با `deyroute tunnel list` |
+| `DEY-C025` | خط فرمان نامعتبر (دستور یا فلگ ناشناخته، مقدار جاافتاده) | `<command> --help` (نامش در خطا آمده) |
+| `DEY-C026` | `config.yaml` ویرایش شده و این ویرایش هنوز اعمال نشده؛ تا اعمالش deyroute چیزی را تغییر نمی‌دهد | `deyroute config apply` (یا ویرایش را برگردانید)، بعد دوباره امتحان کنید |
 | `DEY-N001` | توکن Join نامعتبر یا منقضی | Join command تازه |
 | `DEY-N002` | اثرانگشت CA نمی‌خواند | Join command را دوباره کپی کنید، ویرایشش نکنید |
 | `DEY-N003` | Node آفلاین | بالا را ببینید |
@@ -194,6 +196,6 @@ journalctl -u deyroute-hub -n 50
 | `DEY-X003` | سرویس اجرا نیست | `systemctl start deyroute-hub` (یا `deyroute-node`) |
 | `DEY-X008` | هنوز پیاده نشده | این بیلد هنوز این قابلیت را ندارد؛ `CHANGELOG.md` را ببینید |
 | `DEY-X009` | دستور مال نقش دیگر است | مثلاً دستورهای تانل روی Hub، و `node set-hub` روی Node |
-| `DEY-X000` | خطای غیرمنتظره | `deyroute doctor` و فرستادن فایلش |
+| `DEY-X000` | خطای غیرمنتظره (stack در `/var/log/deyroute/deyroute.log`) | `deyroute doctor` و فرستادن فایلش |
 
 </div>

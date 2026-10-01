@@ -180,8 +180,9 @@ func (l *local) PortRemove(ctx context.Context, tunnel string, listen int, proto
 // unit names its tunnel), 2. the external firewall (open, or the command
 // that opens it), 3. a TCP connect from a node to the hub's public ip:port
 // (the requested node, else the tunnel's active node, else the first online
-// node), 4. for a tunnel port, the path probe through the tunnel. Free
-// ports are suggested when the port is busy or closed.
+// node; a TCP port it cannot connect to carries DEY-P014 in NodeError), 4.
+// for a tunnel port, the path probe through the tunnel. Free ports are
+// suggested when the port is busy or closed.
 func (l *local) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.PortCheckResult, error) {
 	h := l.h
 	proto, err := normalizeProto(req.Port, req.Proto)
@@ -246,6 +247,9 @@ func (l *local) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.Po
 		default:
 			ok := pr.OK
 			res.NodeReachable, res.NodeRTTms = &ok, pr.RTTms
+			if !ok {
+				res.NodeError = h.portUnreachable(req.Port, proto, node, pr.Error)
+			}
 		}
 	}
 
@@ -264,6 +268,19 @@ func (l *local) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.Po
 	}
 	res.Note = strings.Join(notes, "; ")
 	return res, nil
+}
+
+// portUnreachable is DEY-P014 for stage 3 of the port check: node could
+// not connect to the hub's public address on port (its dial error as the
+// detail). It is logged so the Log line of the three-line block finds it.
+func (h *Hub) portUnreachable(port int, proto, node, reason string) *api.ErrorDTO {
+	spec := strconv.Itoa(port) + "/" + proto
+	e := deyerr.New(deyerr.P014, deyerr.Params{"port": spec, "node": node})
+	if reason = strings.TrimSpace(dlog.Redact(reason)); reason != "" {
+		e = e.WithDetail(reason)
+	}
+	h.log.Warn(e.Message(), dlog.Code(deyerr.P014), dlog.Node(node), slog.String("port", spec))
+	return api.ToDTO(withLog(e))
 }
 
 // fwStage is stage 2 of the port check: open, or the firewall that blocks

@@ -68,7 +68,7 @@ deyroute restore /var/lib/deyroute/backups/auto/deyroute-backup-20260930T115500.
 deyroute restore /root/deyroute-backup-20260930T120000Z.tar.gz.age
 ```
 
-در منو: `10) Backup & Restore` ← `2) Restore from a backup`.
+در منو: `10) Backup & Restore` ← `2) Restore from a backup` بکاپ‌های همین سرور را با شماره و از جدید به قدیم فهرست می‌کند (`/var/lib/deyroute/backups` و بکاپ‌های خودکار در `backups/auto/`) و گزینه آخر `Another file (type its path)` است (مسیر یک فایل دیگر). بکاپ رمزنگاری‌نشده (`.tar.gz`) رمز نمی‌پرسد.
 
 ۱. فایل رمزگشایی (رمز یک بار پرسیده می‌شود یا از `DEYROUTE_BACKUP_PASSPHRASE` خوانده می‌شود) و بررسی می‌شود. اگر بکاپ معتبر نباشد، هیچ چیزی عوض نمی‌شود.
 

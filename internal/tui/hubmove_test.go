@@ -142,7 +142,7 @@ func TestNodeMenuScreens(t *testing.T) {
 	h.must("Enter the address as IP:port")
 	h.press("ctrl+u")
 	h.typeLine("5.6.7.9:44433")
-	h.must("This node now connects to hub 5.6.7.9:44433.", "Node: de-1 -> hub 5.6.7.9:44433")
+	h.must("This node now connects to hub 5.6.7.9:44433.", "Node: de-1 → hub 5.6.7.9:44433")
 	h.press("esc")
 	// With the agent stopped the address is saved for its next start.
 	mu.Lock()
@@ -231,7 +231,7 @@ func TestAnnounceHubMove(t *testing.T) {
 	require.False(t, log.has("announce 5.6.7.9:45001"))
 	h.press("enter")
 	h.must("New hub address 5.6.7.9:45001 sent to: de-1",
-		" ! Offline, not told: nl-1.\n On each of them use 10) Backup & Restore -> 3) Set hub address, or run: deyroute node set-hub 5.6.7.9:45001\n")
+		" ! Offline, not told: nl-1.\n On each of them use 10) Backup & Restore → 3) Set hub address, or run: deyroute node set-hub 5.6.7.9:45001\n")
 	require.True(t, log.has("announce 5.6.7.9:45001"))
 	h.press("esc")
 	// No node accepted: a dash, and no offline line without offline nodes.

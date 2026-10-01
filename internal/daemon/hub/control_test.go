@@ -113,29 +113,100 @@ func TestJoinRules(t *testing.T) {
 	resp, _ = env.join(api.JoinRequest{})
 	require.Equal(t, "node", resp.NodeID)
 
-	// A requested id that is taken: N010; reserved or invalid: C007.
-	for id, want := range map[string]deyerr.Code{"web-server": deyerr.N010, "canary": deyerr.C007, "Bad_ID": deyerr.C007} {
-		jc, err := env.h.Local().NodeJoinCommand(ctx, 0)
-		require.NoError(t, err)
-		link, err := api.ParseJoinLink(jc.Link)
-		require.NoError(t, err)
-		_, err = api.Join(ctx, addr, fp, api.JoinRequest{Token: link.Token, NodeID: id, CSRPEM: string(csr)})
-		require.Equal(t, want, codeOf(err), id)
-	}
-	// A broken CSR is refused (T009) and registers nothing.
+	// A requested id that is taken: N010; reserved or invalid: C007. A
+	// refused join does not spend the token: one token serves every
+	// attempt below.
 	jc, err := env.h.Local().NodeJoinCommand(ctx, 0)
 	require.NoError(t, err)
 	link, err := api.ParseJoinLink(jc.Link)
 	require.NoError(t, err)
+	for id, want := range map[string]deyerr.Code{"web-server": deyerr.N010, "canary": deyerr.C007, "Bad_ID": deyerr.C007} {
+		_, err = api.Join(ctx, addr, fp, api.JoinRequest{Token: link.Token, NodeID: id, CSRPEM: string(csr)})
+		require.Equal(t, want, codeOf(err), id)
+	}
+	// A broken CSR is refused (T009) and registers nothing.
 	_, err = api.Join(ctx, addr, fp, api.JoinRequest{Token: link.Token, NodeID: "de-9", CSRPEM: "garbage"})
 	require.Equal(t, deyerr.T009, codeOf(err))
 	_, ok := env.h.Config().NodeByID("de-9")
 	require.False(t, ok)
 	require.Len(t, env.h.Config().Nodes, 3)
 
-	// A token works once.
+	// The token is still valid, and works once.
 	_, err = api.Join(ctx, addr, fp, api.JoinRequest{Token: link.Token, NodeID: "de-8", CSRPEM: string(csr)})
+	require.NoError(t, err)
+	_, err = api.Join(ctx, addr, fp, api.JoinRequest{Token: link.Token, NodeID: "de-7", CSRPEM: string(csr)})
 	require.Equal(t, deyerr.N001, codeOf(err))
+	require.Len(t, env.h.Config().Nodes, 4)
+}
+
+// Internal changes build on the applied configuration, never on an edit of
+// config.yaml that was not applied: the change is refused (DEY-C026), the
+// edit is kept as it is, and a refused join keeps its token.
+func TestMutationsWaitForUnappliedEdits(t *testing.T) {
+	env := startHub(t, nil)
+	ctx := ctxT(t)
+	addr := env.h.ControlAddr().String()
+	fp := env.ca.Fingerprint()
+	env.joinNode("de-1")
+	path := filepath.Join(env.root, config.DefaultPath)
+	applied, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	// A comment is not an edit.
+	require.NoError(t, os.WriteFile(path, append([]byte("# owner's note\n"), applied...), 0o600))
+	require.NoError(t, env.client.NodeRename(ctx, "de-1", "Germany"))
+	applied, err = os.ReadFile(path)
+	require.NoError(t, err)
+
+	// An edit that does not even load (unknown key): the join is refused,
+	// the load error is the detail and the token stays valid.
+	require.NoError(t, os.WriteFile(path, append(append([]byte(nil), applied...), "bogus_key: 1\n"...), 0o600))
+	jc, err := env.h.Local().NodeJoinCommand(ctx, 0)
+	require.NoError(t, err)
+	link, err := api.ParseJoinLink(jc.Link)
+	require.NoError(t, err)
+	csr, _, err := tlsutil.NewKeyAndCSR("de-2")
+	require.NoError(t, err)
+	_, err = api.Join(ctx, addr, fp, api.JoinRequest{Token: link.Token, NodeID: "de-2", CSRPEM: string(csr)})
+	require.Equal(t, deyerr.C026, codeOf(err))
+	_, err = env.h.mutate(func(*config.Config) error { return nil })
+	require.Equal(t, deyerr.C026, codeOf(err))
+	require.Contains(t, deyerr.As(err).Detail, string(deyerr.C001))
+	edited, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(edited), "bogus_key", "the owner's edit is kept")
+	_, ok := env.h.Config().NodeByID("de-2")
+	require.False(t, ok)
+
+	// The owner undoes the edit: the same token joins.
+	require.NoError(t, os.WriteFile(path, applied, 0o600))
+	_, err = api.Join(ctx, addr, fp, api.JoinRequest{Token: link.Token, NodeID: "de-2", CSRPEM: string(csr)})
+	require.NoError(t, err)
+
+	// A valid edit that config apply refuses (a changed node id, DEY-C018)
+	// is not taken over by an unrelated change either.
+	c, err := config.LoadWith(path, testValidate)
+	require.NoError(t, err)
+	n, ok := c.NodeByID("de-1")
+	require.True(t, ok)
+	n.ID = "de-9"
+	require.NoError(t, config.SaveWith(path, c, testValidate))
+	require.Equal(t, deyerr.C026, codeOf(env.client.NodeRename(ctx, "de-2", "Second")))
+	_, err = env.client.ConfigApply(ctx, nil)
+	require.Equal(t, deyerr.C018, codeOf(err))
+	_, ok = env.h.Config().NodeByID("de-1")
+	require.True(t, ok)
+	_, ok = env.h.Config().NodeByID("de-9")
+	require.False(t, ok)
+	edited, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(edited), "id: de-9")
+
+	// Undone: changes work again.
+	require.NoError(t, config.SaveWith(path, env.h.Config(), testValidate))
+	require.NoError(t, env.client.NodeRename(ctx, "de-2", "Second"))
+	n2, _ := env.h.Config().NodeByID("de-2")
+	require.Equal(t, "Second", n2.Name)
 }
 
 func TestAuthenticateRefusesUnknownNodes(t *testing.T) {

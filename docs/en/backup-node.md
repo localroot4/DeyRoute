@@ -32,7 +32,10 @@ Backup only works if the same service runs on both nodes.
 ```
 
 You can also name backups when creating the tunnel:
-`deyroute tunnel add --node de-1 --ports 443,2053 --name main --backup nl-1`.
+`deyroute tunnel add --node de-1 --ports 443,2053 --name main --backup nl-1`,
+or in Advanced mode in `2) Tunnels` → `1) Add tunnel`: the `Backup node`
+question lists the other online nodes by number, with the fixed warning
+above, and the progress screen ends with the same two lines.
 The order is fixed: the first node is the primary, the others are backups in
 the order they were added. `deyroute tunnel show main` shows them as
 `de-1 (primary), nl-1 (backup)`.
@@ -179,4 +182,6 @@ deyroute events --tunnel main --since 24h
 `switch_transport`, `switch_node`, `failback`, `failback_failed`, `flapping`,
 `service_down`, `node_offline`, `node_online`, `tunnel_down`, `tunnel_up`,
 `rung_skipped`. With Telegram enabled (`9) Notifications`) you get one
-message per event.
+message per event. The Notifications menu shows whether Telegram is on, its
+chat id and the events it sends; `1) Set up Telegram` offers the current
+values as defaults (Enter keeps them).

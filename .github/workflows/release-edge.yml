@@ -80,8 +80,10 @@ jobs:
             tar -C dist -czf "dist/deyroute_${VERSION}_linux_${arch}.tar.gz" "deyroute_${VERSION}_linux_${arch}"
             rm -rf "$d"
           done
-          cp installer/install.sh internal/backend/backends.yaml dist/
-          (cd dist && sha256sum deyroute_*.tar.gz install.sh backends.yaml > SHA256SUMS)
+          # CHANGELOG.md is published and listed in SHA256SUMS: `deyroute update`
+          # shows the notes of the release before it asks (spec section 5).
+          cp installer/install.sh internal/backend/backends.yaml CHANGELOG.md dist/
+          (cd dist && sha256sum deyroute_*.tar.gz install.sh backends.yaml CHANGELOG.md > SHA256SUMS)
       - name: sign
         if: steps.key.outputs.ok == 'true'
         env:
@@ -106,7 +108,7 @@ jobs:
             install="bash <(curl -fsSL ${url}/download/v${VERSION}/install.sh) --version ${VERSION}"
           fi
           gh release create "v${VERSION}" dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.minisig \
-            dist/install.sh dist/backends.yaml dist/backends.yaml.minisig \
+            dist/install.sh dist/backends.yaml dist/backends.yaml.minisig dist/CHANGELOG.md \
             --target "$GITHUB_SHA" "${flags[@]}" \
             --title "DEYROUTE ${VERSION} (development build)" \
             --notes "Development build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install: ${install}"

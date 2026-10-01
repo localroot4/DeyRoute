@@ -227,10 +227,6 @@ stated default until the owner decides · **[ANSWERED]** closed.
 The spec audit of 2026-10-01 found 100 gaps; the critical and major ones in
 code are fixed (see CHANGELOG). These remain, none of them a security issue:
 
-- **Smaller UX items** found by the audit (raw event ids in LAST EVENTS,
-  column alignment on some screens, help on text-input screens, numbered
-  answers for fixed options, the update changelog shown as a URL, doctor
-  details) are listed in the audit record and do not change behaviour.
 - **Lab coverage.** The integration lab cannot run a real Xray client, the
   WireGuard kernel module, or real provider firewalls; those parts of
   phases 4, 6 and 7 are covered by unit tests and need the 72-hour test on

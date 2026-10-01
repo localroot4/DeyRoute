@@ -28,6 +28,7 @@ type listScreen struct {
 	screenBase
 	intro   string
 	load    localOp
+	local   func(ctx context.Context) (any, error) // loads without the daemon (instead of load)
 	header  func(a *app, v any) string
 	derive  func(a *app, v any) []choice
 	fixed   []choice
@@ -46,7 +47,12 @@ func (l *listScreen) start(a *app) tea.Cmd { return l.reload(a) }
 func (l *listScreen) resume(a *app) tea.Cmd { return l.reload(a) }
 
 func (l *listScreen) reload(a *app) tea.Cmd {
-	if l.load == nil {
+	switch {
+	case l.local != nil:
+		l.loading = true
+		fn := l.local
+		return a.run(l, callTimeout, func(ctx context.Context, _ func(any)) (any, error) { return fn(ctx) })
+	case l.load == nil:
 		return nil
 	}
 	l.loading = true
@@ -143,7 +149,7 @@ type menuItem struct {
 }
 
 func newMenu(a *app, title i18n.Key, help i18n.Key, items []menuItem) *listScreen {
-	l := &listScreen{screenBase: screenBase{title: i18n.T(title), help: help}}
+	l := &listScreen{screenBase: screenBase{title: itemName(title), help: help}}
 	for _, it := range items {
 		if (it.adv && !a.advanced) || (it.role != "" && it.role != a.role()) {
 			continue

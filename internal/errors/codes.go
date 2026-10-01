@@ -55,6 +55,8 @@ const (
 	C022 Code = "DEY-C022" // builtin ladder is read-only {ladder}
 	C023 Code = "DEY-C023" // ladder in use {ladder} {tunnels}
 	C024 Code = "DEY-C024" // config.yaml changed during config edit {path} {copy}
+	C025 Code = "DEY-C025" // invalid command line {reason} {command}
+	C026 Code = "DEY-C026" // config.yaml holds an edit that is not applied {path}
 	C050 Code = "DEY-C050" // telegram rejected token/chat id {status} {reason}
 )
 
@@ -323,6 +325,12 @@ var catalog = map[Code]Info{
 	C024: {C024, "{path} changed while it was being edited",
 		"another deyroute command or the menu saved {path} after the editor was opened; saving the edited copy would undo that change",
 		"your edited copy is kept in {copy}: run deyroute config edit again and make your changes on the current file"},
+	C025: {C025, "Invalid command line: {reason}",
+		"{command} does not accept it: an unknown command or flag, a flag without its value, or the wrong number of arguments",
+		"see the usage and the examples: {command} --help"},
+	C026: {C026, "{path} has changes that are not applied",
+		"the file was edited after the running configuration was loaded and deyroute config apply was not run (or it refused the edit); deyroute changes nothing now, so that edit is neither overwritten nor taken over without the checks of config apply",
+		"apply the edit: deyroute config apply (it names any problem; correct it with deyroute config edit), or undo it; then try again"},
 	C050: {C050, "Telegram rejected the notification settings (HTTP {status})",
 		"Telegram answered '{reason}': the bot token is wrong, the chat id is unknown, or the bot is not a member of that chat",
 		"send /start to the bot (or add it to the group), then: deyroute notify telegram set --token-file F --chat-id C   and   deyroute notify telegram test"},

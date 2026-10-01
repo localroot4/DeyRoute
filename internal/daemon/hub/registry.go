@@ -27,8 +27,8 @@ type nodeRuntime struct {
 	// reconnect.
 	seen      time.Time
 	persisted time.Time
-	// synced is set by the first heartbeat of the current stream (the
-	// node's unit list is known from then on).
+	// synced is set by the first heartbeat of the current stream that
+	// carries the node's unit list (known from then on).
 	synced bool
 	// skew is the node clock minus the hub clock at the last heartbeat
 	// (doctor rule R13); skewKnown is false before a heartbeat with a time.
@@ -232,18 +232,24 @@ func (h *Hub) heartbeat(s *api.Session, hb api.Heartbeat) {
 	}
 	nr.st.CPUPercent = hb.CPUPercent
 	nr.st.RAMBytes = hb.RAMBytes
-	units := make(map[string]string, len(hb.Units))
-	for k, v := range hb.Units {
-		units[k] = v
+	firstBeat := false
+	if !hb.UnitsUnknown {
+		// A beat without a current unit list (the node agent just started
+		// and systemctl has not answered yet) keeps the last list and
+		// leaves the first-beat cleanup to the first beat that has one.
+		units := make(map[string]string, len(hb.Units))
+		for k, v := range hb.Units {
+			units[k] = v
+		}
+		nr.st.Units = units
+		firstBeat = !nr.synced && nr.st.Compatible
+		nr.synced = true
 	}
-	nr.st.Units = units
 	nr.st.LastError = dlog.Redact(hb.LastError)
 	persist := !wasOnline || now.Sub(nr.persisted) >= h.o.NodePersistEvery
 	if persist {
 		nr.persisted = now
 	}
-	firstBeat := !nr.synced && nr.st.Compatible
-	nr.synced = true
 	snap := copyNodeState(nr.st)
 	h.nodesMu.Unlock()
 	if persist {

@@ -848,6 +848,11 @@ func (l *local) TunnelDelete(ctx context.Context, id string, progress func(api.S
 	if err != nil {
 		return withLog(err)
 	}
+	// The config step comes after the units are gone: an edit of
+	// config.yaml that is not applied must stop the delete before them.
+	if err := h.checkApplied(cfg); err != nil {
+		return withLog(err)
+	}
 	rep := &steps{progress: progress}
 	if _, err := h.autoBackup(); err != nil {
 		return withLog(err)

@@ -107,6 +107,59 @@ All notable changes to DEYROUTE are documented here. The format follows
 - `DEY-P016`/`DEY-C015` no longer advise "use a range" (a range counts one
   port map per port); they advise splitting the ports over several tunnels.
 - The busy-port option of the Add-tunnel wizard reads `Skip`, as in the spec.
+- LAST EVENTS (menu and `deyroute status`) shows a short word for every event
+  type (`node offline`, `rolled back`) and caps the tunnel and type columns,
+  so a long id no longer pushes the messages off the screen.
+- Nodes > Test and `deyroute node test` label the node's facts with human
+  values (`Memory 3.8 GiB`, `Uptime 10d 00:02`); the join command expires
+  `in 15 minutes`.
+- Aligned screens: label columns per block, pick lists in columns, a padded
+  rung status, an indented doctor summary, one numbering and prompt style,
+  one blank line before a form hint.
+- `?` on an empty answer shows the help of text-input screens, whose footer
+  names only the keys that work there (Enter, Esc, `?`).
+- Fixed answers are numbered lists with `(current)`: policy, ladder profile
+  and TLS mode in Edit tunnel; backup node, policy and TLS mode in the
+  Advanced Add-tunnel wizard.
+- The wizard's backup node shows the fixed backup warning and the progress
+  screen reports `backup <id> ready (warm)`.
+- Menu wording: no `*` in page titles, `default ladder`, no nested
+  parentheses, `→` in Unicode mode, title separators in i18n, the language
+  named in Settings.
+- Line mode: the hint says an empty line is Enter; a text field takes each
+  line as the whole answer and `?` alone shows the help.
+- The Logs screen formats deyroute's JSON lines (`12:41:03 WARN  failover …
+  tunnel=main`) and marks a tunnel log's lines `[hub]` / `[node]`.
+- Notifications shows whether Telegram is on, its chat and events (Status
+  `hub.telegram`) and offers them as defaults; Restore lists this server's
+  backups by number.
+- The hub's progress-step titles come from `internal/i18n` (`hub.step.*`,
+  `hub.title.*`); the English fallback table in the hub is gone.
+- The docs show the real menu and CLI output of the (single-use) join
+  command and of the Add-tunnel progress screen.
+- `deyroute update` and the menu show the changelog text of the release (its
+  `CHANGELOG.md`, now published and listed in the signed `SHA256SUMS`,
+  fetched through a node or the mirror) instead of only the release page URL.
+- A kernel without BBR (or `tuning.bbr: false`) skips only
+  `tcp_congestion_control`; `net.core.default_qdisc = fq` is applied.
+- `optimize apply` shows what each node skipped (`node <id>: …`) and sends
+  the hub's `tuning.bbr` to the nodes instead of their own default.
+- Doctor rule R11 no longer reports BBR on a kernel without it or with
+  `tuning.bbr: false`, and its Fix names the applied profile.
+- `aggressive` is recommended only from 4 GB RAM: the menu names the
+  profile for the hub's RAM and warns before `aggressive` on a smaller hub,
+  and every smaller server reports a warning.
+- The panic record in `deyroute.log` has `ts`, the real component (`hub`,
+  `node` or `cli`), valid JSON and the secret filter.
+- A wrong command line is `DEY-C025` in the three-line format (exit 1) with
+  the `--help` of its command.
+- The doctor summary is colored only on a terminal.
+- Doctor checks every port map (eight at a time) instead of the first 16.
+- Doctor rule R15 reports only expired join tokens the hub could not remove
+  and, as info with its expiry, a valid token made with a long `--ttl`; its
+  Fix no longer asks for a restart that does not remove them.
+- `DEY-P014` is raised when the node cannot connect to the port (port check
+  in the CLI and the menu, `node_error` in `--json`, the doctor bundle).
 
 ### Fixed (found by the integration scenarios)
 

@@ -54,9 +54,9 @@ const (
 	sevError = "error"
 	// auditTimeout bounds the socket listing.
 	auditTimeout = 15 * time.Second
-	// oldJoinToken is the age after which a stored join token counts as old
-	// (doctor rule R15).
-	oldJoinToken = 15 * time.Minute
+	// longJoinTTL is the join token TTL above which doctor rule R15 names
+	// a valid token (the default of node join-command, section 14).
+	longJoinTTL = 15 * time.Minute
 )
 
 // ---------------------------------------------------------------- firewall

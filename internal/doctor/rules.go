@@ -42,7 +42,7 @@ const (
 	RuleResources      = "R12" // low disk / low memory
 	RuleClockSkew      = "R13" // hub/node clock difference
 	RuleFlapping       = "R14" // flapping in the last hour
-	RuleSecrets        = "R15" // secret permissions / stale join tokens
+	RuleSecrets        = "R15" // secret permissions / join tokens (expired but kept, long-lived)
 )
 
 // Rule thresholds.
@@ -71,7 +71,15 @@ type Facts struct {
 	ClockSkew   map[string]time.Duration // node id → node clock minus hub clock
 
 	SecretPermProblems []string // one line per DEY-S002 problem
-	OldJoinTokens      int      // join tokens older than 15 minutes still stored
+	// ExpiredJoinTokens counts join tokens still stored after their expiry
+	// although the hub pruned the file just before (the prune failed; they
+	// are never accepted). LongJoinTokens counts the valid tokens created
+	// with a TTL over 15 minutes (join-command --ttl) and LongJoinUntil is
+	// the latest of their expiries: until then the control port accepts
+	// every address (join window).
+	ExpiredJoinTokens int
+	LongJoinTokens    int
+	LongJoinUntil     time.Time
 
 	BBRActive     bool
 	SysctlProfile string // off|balanced|aggressive; "" = unknown
@@ -537,14 +545,21 @@ func ruleFlapping(f Facts) []api.DoctorFinding {
 	return out
 }
 
-// R15: secret permission problems or join tokens older than 15 minutes.
+// R15: secret permission problems; expired join tokens the hub could not
+// remove (warn); valid join tokens made with a TTL over 15 minutes, which
+// keep the join window open (info, with their expiry).
 func ruleSecrets(f Facts) []api.DoctorFinding {
 	var out []api.DoctorFinding
 	for _, p := range dedupe(f.SecretPermProblems) {
 		out = append(out, finding(RuleSecrets, SevError, i18n.T(i18n.DoctorR15MsgPerm, p), i18n.T(i18n.DoctorR15FixPerm)))
 	}
-	if f.OldJoinTokens > 0 {
-		out = append(out, finding(RuleSecrets, SevWarn, i18n.T(i18n.DoctorR15MsgJoin, f.OldJoinTokens), i18n.T(i18n.DoctorR15FixJoin)))
+	if f.ExpiredJoinTokens > 0 {
+		out = append(out, finding(RuleSecrets, SevWarn, i18n.T(i18n.DoctorR15MsgJoin, f.ExpiredJoinTokens), i18n.T(i18n.DoctorR15FixJoin)))
+	}
+	if f.LongJoinTokens > 0 && f.LongJoinUntil.After(f.Now) {
+		out = append(out, finding(RuleSecrets, SevInfo,
+			i18n.T(i18n.DoctorR15MsgJoinLong, f.LongJoinTokens, f.LongJoinUntil.UTC().Format("2006-01-02 15:04 UTC")),
+			i18n.T(i18n.DoctorR15FixJoinLong)))
 	}
 	return out
 }

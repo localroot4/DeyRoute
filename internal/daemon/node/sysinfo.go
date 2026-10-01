@@ -69,7 +69,11 @@ func (a *agent) refresh(ctx context.Context) {
 	}
 	cpu := a.cpu.sample(a.o.Root)
 	a.mu.Lock()
-	a.snap = snapshot{units: units, cpu: cpu, ram: ram}
+	if err != nil {
+		// Not a current list: the heartbeat says so and keeps the last one.
+		units = a.snap.units
+	}
+	a.snap = snapshot{units: units, unitsKnown: err == nil, cpu: cpu, ram: ram}
 	a.mu.Unlock()
 	a.watchPostStart(ctx, props)
 }
@@ -155,9 +159,13 @@ func (a *agent) watchPostStart(ctx context.Context, props map[string]unitProps) 
 		}
 	}
 	a.instMu.Unlock()
+	// A pass got both locks: the watchdog may ping (a deadlocked lock
+	// never gets here).
+	a.markAlive()
 	sort.Strings(restarted)
 	for _, inst := range restarted {
 		a.rerunPostStart(ctx, inst)
+		a.markAlive()
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/node"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
+	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/supervise"
 	"github.com/localroot4/deyroute/internal/tui"
@@ -79,7 +80,21 @@ func (g *Globals) runTUI(context.Context) error {
 		return err
 	}
 	o.SetHub = g.setHub
+	o.Backups = g.backupFiles
 	return g.RunTUI(o)
+}
+
+// backupFiles lists the backups on this server for the menu's Restore.
+func (g *Globals) backupFiles(context.Context) ([]tui.BackupFile, error) {
+	fs, err := install.Backups(g.Root)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tui.BackupFile, len(fs))
+	for i, f := range fs {
+		out[i] = tui.BackupFile{Path: f.Path, Size: f.Size, ModTime: f.ModTime, Auto: f.Auto}
+	}
+	return out, nil
 }
 
 // tuiOptions are the TUI options without daemon and local operations: the

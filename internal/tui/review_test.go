@@ -185,11 +185,13 @@ func TestWizardTLSModes(t *testing.T) {
 	h.must("Advanced options.")
 	// name, target, probe kind, backup, policy
 	h.typeLine("").typeLine("").typeLine("").typeLine("").typeLine("")
-	h.must("TLS mode (auto, acme; custom is set later with Edit tunnel)")
+	h.must(" TLS mode:\n 1) auto - a certificate of the internal CA\n 2) acme - a Let's Encrypt certificate for the hub's domain\nChoice [1]: _",
+		"custom (your own certificate files) is set after the tunnel exists: 2) Tunnels → 2) Edit tunnel.")
 	h.typeLine("custom")
-	h.must("Enter one of: auto, acme")
-	h.press("ctrl+u").typeLine("acme").typeLine("n")
-	h.must("3. Confirm", "TLS mode     acme")
+	h.must("Invalid choice: custom")
+	h.press("ctrl+u").typeLine("2").typeLine("n")
+	h.must("3. Confirm", "\n  TLS mode    acme\n", "\n  Backup      none\n")
+	h.mustNot("Backup only works") // no backup node, no warning
 }
 
 // Regression: a range of ports shared one 2-minute timeout, so checking up
@@ -241,11 +243,14 @@ func TestLineKeys(t *testing.T) {
 	require.Equal(t, []string{"?"}, keys("?"))
 	require.Equal(t, []string{"12", "enter"}, keys("12"))
 	require.Equal(t, []string{"pgup"}, keys("pgup"))
-	// In a text field q is text; esc still goes back.
+	// In a text field q is text; esc still goes back. Every line is the
+	// whole answer (a rejected one is cleared first); "?" alone is help.
 	a.push(newForm("t", "", []field{{key: "x", label: "x"}}, func(*app, map[string]string) tea.Cmd { return nil }))
-	require.Equal(t, []string{"q", "enter"}, keys("q"))
+	require.Equal(t, []string{"ctrl+u", "q", "enter"}, keys("q"))
 	require.Equal(t, []string{"esc"}, keys("esc"))
-	require.Equal(t, []string{"a b", "enter"}, keys("a b"))
+	require.Equal(t, []string{"ctrl+u", "a b", "enter"}, keys("a b"))
+	require.Equal(t, []string{"ctrl+u", "enter"}, keys(""))
+	require.Equal(t, []string{"ctrl+u", "?"}, keys(" ? "))
 }
 
 // syncBuffer is a goroutine-safe output buffer.
@@ -327,7 +332,7 @@ func TestLineModeDumbTerminal(t *testing.T) {
 	stub := fullStub(log, "simple")
 	s := startLines(t, Options{Caps: Caps{Width: 80}, Local: stub})
 	s.wait("Choice:", 1)
-	s.wait("Line mode: type a number", 1)
+	s.wait("Line mode: type the answer and press Enter - an empty line is Enter", 1)
 	s.send("1")
 	s.wait("TUNNELS", 1)
 	s.wait("r + Enter refreshes", 1)

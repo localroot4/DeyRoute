@@ -35,20 +35,36 @@ wizard asks at most three questions:
    only after you type `yes`; the port is then checked again. A port the
    node cannot reach is usually closed in the provider's firewall panel,
    which deyroute cannot change.
-3. **Confirm** — a summary (node, ports, ladder, backup). Enter creates the
-   tunnel.
+3. **Confirm** — a summary, then Enter creates the tunnel:
 
-A progress screen follows:
+   ```text
+    3. Confirm
+     Node    de-1 (Germany 1)
+     Ports   443/tcp, 2053/tcp
+     Ladder  default ladder
+     Backup  none
+   ```
+
+A progress screen follows (details shortened):
 
 ```text
-  ✔ install backend on hub
-  ✔ install on node
-  ✔ render
-  ✔ firewall
-  ✔ start
-  ✔ probe
-  Tunnel main is UP via backhaul/wssmux (41ms)
+ Add tunnel
+
+  install backend on hub ✔  backhaul v0.7.2, rathole v0.5.0, …
+  install on node ✔  de-1
+  render ✔  8 rungs on the hub, 8 on nodes
+  firewall ✔  tcp 443, 2053
+  start ✔  backhaul/wssmux on de-1
+  probe ✔  41ms
+  Tunnel main is UP via backhaul/wssmux (41ms) ✔
+
+ Tunnel main is UP via backhaul/wssmux (41ms)
+
+ Press Enter or q to go back.
 ```
+
+The command line prints the same steps with the mark first
+(`  ✔ install backend on hub  backhaul v0.7.2, …`).
 
 If a step fails you see its code with Why and Fix and can choose
 `1) Retry` or `0) Back`.
@@ -56,7 +72,11 @@ If a step fails you see its code with Why and Fix and can choose
 Advanced mode (`12) Settings` → `1) UI mode`) adds optional questions: the
 tunnel name, a custom target per port, the probe kind of each TCP port (see
 [below](#how-the-health-probe-tests-a-port)), a backup node, the ladder
-order, the TLS mode and the failover thresholds.
+order, the TLS mode and the failover thresholds. Questions with fixed
+answers (backup node, policy, TLS mode) are numbered lists: type the number,
+or Enter for the one in brackets. A backup node shows the fixed warning
+`Backup only works if the same service runs on both nodes.`, and the
+progress screen ends with `backup nl-1 ready (warm)`.
 
 ## With the command line
 

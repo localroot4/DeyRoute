@@ -43,7 +43,7 @@ func newDoctorCmd(g *Globals) *cobra.Command {
 				}
 				out = abs
 			}
-			res, err := g.doctorRun(ctx, strings.TrimSpace(node), out, !g.JSON && g.caps().Color)
+			res, err := g.doctorRun(ctx, strings.TrimSpace(node), out, !g.JSON && g.outCaps().Color)
 			if err != nil {
 				return err
 			}

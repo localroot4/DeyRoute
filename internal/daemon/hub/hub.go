@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	stderrors "errors"
@@ -501,18 +502,74 @@ func (h *Hub) setConfig(c *config.Config) {
 	h.warnMu.Unlock()
 }
 
-// mutate changes config.yaml atomically (load, fn, validate, temp file +
-// rename) and installs the result as the current configuration. Mutations
-// are serialised. Nothing changes when fn or validation fails.
+// mutate changes the configuration: fn edits a copy of the applied
+// configuration (not the file on disk), the result is validated, written
+// to config.yaml atomically (temp file + rename) and installed as the
+// current configuration. Mutations are serialised. Nothing changes when fn
+// or validation fails, or when config.yaml holds an edit that was not
+// applied (DEY-C026, see checkApplied).
 func (h *Hub) mutate(fn func(c *config.Config) error) (*config.Config, error) {
+	return h.mutateCommit(fn, nil)
+}
+
+// mutateCommit is mutate with commit (when not nil) run after fn and the
+// validation succeeded, right before config.yaml is written: when commit
+// fails nothing is written either (join spends its token there).
+func (h *Hub) mutateCommit(fn func(c *config.Config) error, commit func() error) (*config.Config, error) {
 	h.mutMu.Lock()
 	defer h.mutMu.Unlock()
-	c, err := config.Mutate(h.cfgPath, h.valOpts, fn)
-	if err != nil {
+	cur := h.Config()
+	if err := h.checkApplied(cur); err != nil {
+		return nil, err
+	}
+	c := config.Clone(cur)
+	if err := fn(c); err != nil {
+		return nil, err
+	}
+	c.ApplyDefaults()
+	if err := c.Validate(h.valOpts); err != nil {
+		return nil, err
+	}
+	if commit != nil {
+		if err := commit(); err != nil {
+			return nil, err
+		}
+	}
+	if err := config.SaveWith(h.cfgPath, c, h.valOpts); err != nil {
 		return nil, err
 	}
 	h.setConfig(c)
 	return c, nil
+}
+
+// checkApplied returns DEY-C026 unless config.yaml still holds the applied
+// configuration cur (comments and formatting aside). A manual edit waits
+// for `deyroute config apply`: writing cur over it would silently discard
+// it, and changing the edited file instead would take it over without the
+// checks of config apply (immutable ids, section 4). An edit that does not
+// even load is reported in the detail.
+func (h *Hub) checkApplied(cur *config.Config) error {
+	disk, err := config.LoadWith(h.cfgPath, h.valOpts)
+	if err == nil {
+		if same, merr := sameConfig(disk, cur); merr == nil && same {
+			return nil
+		}
+		return deyerr.New(deyerr.C026, deyerr.Params{"path": config.DefaultPath})
+	}
+	return deyerr.Wrap(deyerr.C026, err, deyerr.Params{"path": config.DefaultPath}).WithDetail(deyerr.As(err).Error())
+}
+
+// sameConfig reports whether a and b encode to the same config.yaml.
+func sameConfig(a, b *config.Config) (bool, error) {
+	da, err := config.Marshal(a)
+	if err != nil {
+		return false, err
+	}
+	db, err := config.Marshal(b)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(da, db), nil
 }
 
 // autoBackup takes the automatic backup that precedes every owner-initiated

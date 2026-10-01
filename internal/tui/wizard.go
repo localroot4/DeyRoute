@@ -559,13 +559,50 @@ func (w *wizard) create(a *app) tea.Cmd {
 					return nil, err
 				}
 				d, err := l.TunnelShow(ctx, id)
-				return d.TunnelInfo, err
+				if err != nil {
+					return nil, err
+				}
+				return createdOf(ctx, l, d.TunnelInfo, req), nil
 			}
 		}
 		tried = true
-		return l.TunnelAdd(ctx, req, progress)
+		t, err := l.TunnelAdd(ctx, req, progress)
+		if err != nil {
+			return nil, err
+		}
+		return createdOf(ctx, l, t, req), nil
 	}, renderTunnelUp)
 	return a.replace(task)
+}
+
+// created is the result of Add tunnel: the tunnel and, when the wizard
+// chose a backup node, how many of the tunnel's rungs are warm there
+// (section 6: "backup nl-1 ready (warm)").
+type created struct {
+	t           api.TunnelInfo
+	backup      string
+	warm, total int
+}
+
+// createdOf completes the result of an added tunnel with the warm rungs of
+// its backup node (read with TunnelShow; unknown when that fails).
+func createdOf(ctx context.Context, l api.Local, t api.TunnelInfo, req api.TunnelAddRequest) created {
+	c := created{t: t}
+	if len(req.Backups) == 0 {
+		return c
+	}
+	c.backup = req.Backups[0]
+	if d, err := l.TunnelShow(ctx, t.ID); err == nil {
+		for _, r := range d.Rungs {
+			if r.Node == c.backup {
+				c.total++
+				if r.Warm {
+					c.warm++
+				}
+			}
+		}
+	}
+	return c
 }
 
 // addedTunnel finds the tunnel a failed TunnelAdd of req saved anyway: the
@@ -593,46 +630,61 @@ func addedTunnel(ctx context.Context, l api.Local, req api.TunnelAddRequest) (st
 	return "", false
 }
 
-// renderTunnelUp is the last line of the progress screen:
-// "Tunnel main is UP via backhaul/wssmux (41ms)".
+// renderTunnelUp is the end of the progress screen:
+// "Tunnel main is UP via backhaul/wssmux (41ms)", then for a backup node
+// "backup nl-1 ready (warm)" with the fixed backup warning.
 func renderTunnelUp(a *app, v any) string {
-	t, _ := v.(api.TunnelInfo)
+	c, _ := v.(created)
+	t := c.t
+	out := a.paint(colYellow, " "+i18n.T(i18n.TUITunnelCreated, t.ID, a.stateText(t))) + "\n"
 	if t.State == stUp {
-		return a.paint(colGreen, " "+i18n.T(i18n.TUITunnelUp, t.ID, t.ActiveTransport, t.RTTms)) + "\n"
+		out = a.paint(colGreen, " "+i18n.T(i18n.TUITunnelUp, t.ID, t.ActiveTransport, t.RTTms)) + "\n"
 	}
-	return a.paint(colYellow, " "+i18n.T(i18n.TUITunnelCreated, t.ID, a.stateText(t))) + "\n"
+	switch {
+	case c.backup == "":
+	case c.warm > 0:
+		out += a.paint(colGreen, " "+i18n.T(i18n.TUIBkReady, c.backup)) +
+			a.paint(colGray, "  "+i18n.T(i18n.TUIBkWarmDetail, c.warm, c.total)) + "\n"
+	default:
+		out += a.paint(colYellow, " "+i18n.T(i18n.TUIBkNotWarm, c.backup)) + "\n"
+	}
+	if c.backup != "" {
+		out += a.paint(colYellow, " "+a.sym().warn+" "+i18n.T(i18n.TUIBkWarning)) + "\n"
+	}
+	return out
 }
 
 // openAdvanced shows the ladder editor, then the options form.
 func (w *wizard) openAdvanced(a *app) tea.Cmd {
-	name, def := w.defaultLadder()
+	_, def := w.defaultLadder()
 	rungs := w.rungs
 	if len(rungs) == 0 {
 		rungs = def
 	}
-	title := i18n.T(i18n.TUILadTitle, name)
-	return a.push(newLadderEditor(title, rungs, func(a *app, r []string) tea.Cmd {
+	return a.push(newLadderEditor(subTitle(i18n.TUITunAdd, i18n.TUIFoLadder), rungs, func(a *app, r []string) tea.Cmd {
 		w.rungs = r
-		return a.replace(w.advForm())
+		return a.replace(w.advForm(a))
 	}))
 }
 
 // otherOnline lists online nodes other than the chosen one.
-func (w *wizard) otherOnline() []string {
-	var ids []string
+func (w *wizard) otherOnline() []api.NodeInfo {
+	var out []api.NodeInfo
 	for _, n := range w.nodes {
 		if n.ID != w.node.ID {
-			ids = append(ids, n.ID)
+			out = append(out, n)
 		}
 	}
-	return ids
+	return out
 }
 
-func (w *wizard) advForm() *formScreen {
+func (w *wizard) advForm(a *app) *formScreen {
+	// The backup node is picked by number from the other online nodes;
+	// the fixed backup warning is its hint (section 6).
 	others := w.otherOnline()
-	avail := strings.Join(others, ", ")
-	if avail == "" {
-		avail = i18n.T(i18n.TUINone)
+	backups := []fieldOpt{{label: i18n.T(i18n.TUIWizNoBackup)}}
+	for i, label := range a.nodeLabels(others) {
+		backups = append(backups, fieldOpt{value: others[i].ID, label: label})
 	}
 	fields := []field{{key: "name", label: i18n.T(i18n.TUIWizName), def: w.name, optional: true}}
 	for i, c := range w.checks {
@@ -649,19 +701,14 @@ func (w *wizard) advForm() *formScreen {
 		}
 	}
 	fields = append(fields,
-		field{key: "backup", label: i18n.T(i18n.TUIWizBackupQ, avail), def: w.backup, optional: true,
-			check: func(v string, _ map[string]string) error {
-				if v == "" || slices.Contains(others, v) {
-					return nil
-				}
-				return uiErr(i18n.TUIWizUnknownNode, v)
-			}},
+		field{key: "backup", label: i18n.T(i18n.TUIWizBackupQ), hint: i18n.T(i18n.TUIBkWarning), def: w.backup, optional: true,
+			opts: backups},
 		field{key: "policy", label: i18n.T(i18n.TUIEditPolicy), def: orDefault(w.policy, config.PolicyTransportThenNode),
-			check: checkOneOf(config.PolicyTransportThenNode, config.PolicyTransportOnly, config.PolicyNodeOnly)},
+			opts: policyOpts("")},
 		// custom needs certificate paths, which TunnelAdd does not take:
 		// it is set afterwards with Edit tunnel.
-		field{key: "tls", label: i18n.T(i18n.TUIWizTLS), def: orDefault(w.tls, config.TLSModeAuto),
-			check: checkOneOf(config.TLSModeAuto, config.TLSModeACME)},
+		field{key: "tls", label: i18n.T(i18n.TUIWizTLS), hint: i18n.T(i18n.TUIWizTLSHint), def: orDefault(w.tls, config.TLSModeAuto),
+			opts: tlsOpts(false, "")},
 		field{key: "thresh", label: i18n.T(i18n.TUIWizThreshQ), def: "n", check: checkYes},
 	)
 	fields = append(fields, thresholdFields(w.failover, func(v map[string]string) bool {
@@ -869,6 +916,10 @@ func (w *wizard) resolveView(a *app) string {
 	b.WriteString("\n")
 	if c.err != nil {
 		b.WriteString(a.errBlock(c.err))
+	}
+	if c.res != nil && c.res.NodeError != nil && w.step != wzNewPort {
+		// The node cannot reach the port: DEY-P014 in the three-line format.
+		b.WriteString(a.errBlock(c.res.NodeError.Err()) + "\n")
 	}
 	if w.step == wzNewPort {
 		if c.res != nil && len(c.res.SuggestedPorts) > 0 {

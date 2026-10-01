@@ -48,15 +48,22 @@ func TestNodeList(t *testing.T) {
 	e.stub.NodeListFn = func(context.Context) ([]api.NodeInfo, error) {
 		return []api.NodeInfo{
 			{ID: "de-1", Name: "Germany 1", PublicIP: "1.2.3.4", Online: true, ControlRTTms: 39, Version: "1.0.0", Compatible: true, CPUPercent: 3.2, RAMBytes: 121 << 20, Tunnels: []string{"main"}},
-			{ID: "nl-1", Online: false, Version: "0.9.0"},
+			{ID: "nl-1", Online: false, Version: "0.9.0", LastError: "DEY-B003 Backend failed to start\x07"},
 		}, nil
 	}
 	out := e.ok("node", "list")
-	for _, want := range []string{"ID", "PUBLIC IP", "CTL RTT", "de-1", "Germany 1", "● online", "39ms", "3%", "121MB", "main", "○ offline", "0.9.0 (incompatible)"} {
+	for _, want := range []string{"ID", "PUBLIC IP", "CTL RTT", "de-1", "Germany 1", "● online", "39ms", "3%", "121MB", "main", "○ offline", "0.9.0 (incompatible)",
+		"\nLast error on nl-1: DEY-B003 Backend failed to start?\n"} {
 		require.Contains(t, out, want)
 	}
+	require.NotContains(t, out, "Last error on de-1")
 	doc = e.json("node", "list")
 	require.Len(t, doc["nodes"], 2)
+	nodes, _ := doc["nodes"].([]any)
+	nl, _ := nodes[1].(map[string]any)
+	require.Equal(t, "DEY-B003 Backend failed to start\x07", nl["last_error"])
+	de, _ := nodes[0].(map[string]any)
+	require.NotContains(t, de, "last_error")
 }
 
 func TestNodeRenameRemoveTest(t *testing.T) {
@@ -96,12 +103,16 @@ func TestNodeRenameRemoveTest(t *testing.T) {
 	require.Contains(t, e.out.String(), `"exit_code": 3`)
 
 	e.stub.NodeTestFn = func(_ context.Context, id string) (api.NodeTestResult, error) {
-		return api.NodeTestResult{Node: id, Online: true, ControlRTTms: 39, UDPOK: true, UDPRTTms: 41, SysInfo: map[string]string{"os": "Debian 12", "kernel": "6.1"}}, nil
+		return api.NodeTestResult{Node: id, Online: true, ControlRTTms: 39, UDPOK: true, UDPRTTms: 41,
+			SysInfo: map[string]string{"os": "Debian 12", "kernel": "6.1", "mem_total": "4102328320", "node_id": id}}, nil
 	}
 	out = e.ok("node", "test", "de-1")
-	for _, want := range []string{"Node de-1: ● online", "control RTT  39ms", "UDP          ok (41ms)", "kernel:", "Debian 12"} {
+	// The node's facts with the menu's labels and human values.
+	for _, want := range []string{"Node de-1: ● online", "control RTT  39ms", "UDP          ok (41ms)",
+		"    OS:     Debian 12\n", "    Kernel: 6.1\n", "    Memory: 3.8 GiB\n"} {
 		require.Contains(t, out, want)
 	}
+	require.NotContains(t, out, "mem_total")
 	e.stub.NodeTestFn = func(_ context.Context, id string) (api.NodeTestResult, error) {
 		return api.NodeTestResult{Node: id}, nil
 	}

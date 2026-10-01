@@ -23,7 +23,7 @@ func portsMenu(a *app) screen {
 		}},
 		{label: i18n.TUIPtRemove, act: func(a *app) tea.Cmd {
 			return a.push(pickTunnel(sub(i18n.TUIPtRemove), func(a *app, t api.TunnelInfo) tea.Cmd {
-				return a.push(pickPort(t))
+				return a.push(pickPort(a, t))
 			}))
 		}},
 		{label: i18n.TUIPtCheck, act: func(a *app) tea.Cmd { return a.push(portCheckForm(a)) }},
@@ -91,14 +91,14 @@ func addPorts(a *app, t api.TunnelInfo) tea.Cmd {
 }
 
 // pickPort lists the ports of a tunnel for removal.
-func pickPort(t api.TunnelInfo) *listScreen {
+func pickPort(a *app, t api.TunnelInfo) *listScreen {
 	id := t.ID
 	title := titleOf(i18n.TUIPtRemove, id)
 	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIPtPick), empty: i18n.T(i18n.TUIPtNoPorts, id)}
 	for _, p := range t.Ports {
 		label := strconv.Itoa(p.Listen) + "/" + p.Proto
 		if p.Target != "" && p.Target != ports.DefaultTarget(p.Listen) {
-			label += " -> " + p.Target
+			label += " " + a.sym().arrow + " " + p.Target
 		}
 		l.fixed = append(l.fixed, choice{label: label, value: p})
 	}
@@ -206,7 +206,12 @@ func portCheckForm(a *app) screen {
 			return l.PortCheck(ctx, req)
 		}, func(a *app, v any) string {
 			r, _ := v.(api.PortCheckResult)
-			return renderPortCheck(a, r)
+			out := renderPortCheck(a, r)
+			if r.NodeError != nil {
+				// DEY-P014 in the three-line format (section 13).
+				out += "\n" + a.errBlock(r.NodeError.Err())
+			}
+			return out
 		})
 		t.refreshable = true
 		t.option = func(a *app, v any) (string, func(a *app) tea.Cmd) {

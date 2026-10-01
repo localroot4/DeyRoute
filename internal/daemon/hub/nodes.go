@@ -116,6 +116,11 @@ func (l *local) NodeRemove(ctx context.Context, id string) error {
 	if _, _, err := config.Clone(cfg).RemoveNode(id); err != nil {
 		return withLog(err)
 	}
+	// Its tunnels stop before config.yaml changes: an edit that is not
+	// applied must stop the removal first.
+	if err := h.checkApplied(cfg); err != nil {
+		return withLog(err)
+	}
 	if _, err := h.autoBackup(); err != nil {
 		return withLog(err)
 	}

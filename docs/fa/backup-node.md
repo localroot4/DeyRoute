@@ -29,7 +29,8 @@ Backup only works if the same service runs on both nodes.
 ```
 
 می‌توانید هنگام ساخت تانل هم پشتیبان را بدهید:
-`deyroute tunnel add --node de-1 --ports 443,2053 --name main --backup nl-1`.
+`deyroute tunnel add --node de-1 --ports 443,2053 --name main --backup nl-1`،
+یا در حالت Advanced در `2) Tunnels` ← `1) Add tunnel`: سؤال `Backup node` بقیه Nodeهای آنلاین را با شماره فهرست می‌کند و هشدار ثابت بالای آن است، و صفحه پیشرفت با همان دو خط تمام می‌شود.
 ترتیب ثابت است: اولین Node اصلی است و بقیه به ترتیب اضافه شدن، پشتیبان. `deyroute tunnel show main` آن‌ها را به شکل `de-1 (primary), nl-1 (backup)` نشان می‌دهد.
 
 حذف Node پشتیبان:
@@ -133,6 +134,6 @@ Hub هر ۵ ثانیه ترنسپورت فعال را پروب می‌کند: ب
 deyroute events --tunnel main --since 24h
 ```
 
-`switch_transport`، `switch_node`، `failback`، `failback_failed`، `flapping`، `service_down`، `node_offline`، `node_online`، `tunnel_down`، `tunnel_up`، `rung_skipped`. اگر تلگرام را فعال کنید (`9) Notifications`) برای هر رویداد یک پیام می‌گیرید.
+`switch_transport`، `switch_node`، `failback`، `failback_failed`، `flapping`، `service_down`، `node_offline`، `node_online`، `tunnel_down`، `tunnel_up`، `rung_skipped`. اگر تلگرام را فعال کنید (`9) Notifications`) برای هر رویداد یک پیام می‌گیرید. منوی Notifications نشان می‌دهد تلگرام روشن است یا نه، chat id و رویدادهایی که فرستاده می‌شوند؛ `1) Set up Telegram` مقادیر فعلی را به‌عنوان پیش‌فرض پیشنهاد می‌کند (Enter همان‌ها را نگه می‌دارد).
 
 </div>

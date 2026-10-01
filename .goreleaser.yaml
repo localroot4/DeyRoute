@@ -32,9 +32,12 @@ archives:
 checksum:
   name_template: SHA256SUMS
   algorithm: sha256
+  # CHANGELOG.md is listed so `deyroute update` can verify the notes it shows
+  # before an update (spec section 5).
   extra_files:
     - glob: ./installer/install.sh
     - glob: ./internal/backend/backends.yaml
+    - glob: ./CHANGELOG.md
 
 # SHA256SUMS is signed with minisign (scripts/minisign, pure Go, the same
 # signer as release-edge.yml); the public key is hard-coded in
@@ -53,6 +56,7 @@ release:
     - glob: ./installer/install.sh
     - glob: ./internal/backend/backends.yaml
     - glob: ./dist-extra/backends.yaml.minisig
+    - glob: ./CHANGELOG.md
 
 changelog:
   use: git

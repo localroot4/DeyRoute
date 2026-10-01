@@ -220,6 +220,9 @@ type fakeNode struct {
 	conns  atomic.Int32
 	// skew is added to the heartbeat time (node clock minus hub clock).
 	skew atomic.Int64
+	// unitsUnknown makes the heartbeats say that the unit list is not
+	// current (an agent that has not listed its units yet).
+	unitsUnknown atomic.Bool
 }
 
 // joinNode joins a node with id through a fresh join command.
@@ -299,7 +302,8 @@ func (n *fakeNode) client() *api.ControlClient {
 			for k, v := range n.units {
 				u[k] = v
 			}
-			return api.Heartbeat{At: time.Now().Add(time.Duration(n.skew.Load())), CPUPercent: 3, RAMBytes: 121 << 20, Units: u}
+			return api.Heartbeat{At: time.Now().Add(time.Duration(n.skew.Load())), CPUPercent: 3, RAMBytes: 121 << 20, Units: u,
+				UnitsUnknown: n.unitsUnknown.Load()}
 		},
 		Handler:           n.handle,
 		Logger:            dlog.Discard(),

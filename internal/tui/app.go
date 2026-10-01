@@ -48,6 +48,9 @@ type Options struct {
 	// function makes the item answer "not available here".
 	Doctor func(ctx context.Context) (summary, path string, err error)
 	Backup func(ctx context.Context, out, passphrase string, noEncrypt bool) (string, error)
+	// Backups lists the backups on this server, newest first (Restore
+	// offers them by number); nil = Restore asks for the file's path.
+	Backups func(ctx context.Context) ([]BackupFile, error)
 	// RestoreCheck reads a backup before the restore is confirmed: what it
 	// replaces and whether the hub moved to this server.
 	RestoreCheck func(ctx context.Context, path, passphrase string) (RestorePlan, error)
@@ -75,6 +78,14 @@ type Options struct {
 
 	// tick schedules a delayed message (tests replace it).
 	tick func(d time.Duration, msg tea.Msg) tea.Cmd
+}
+
+// BackupFile is one backup on this server (Options.Backups).
+type BackupFile struct {
+	Path    string
+	Size    int64
+	ModTime time.Time
+	Auto    bool // taken automatically before a config apply
 }
 
 // RestorePlan is what Options.RestoreCheck found in a backup.

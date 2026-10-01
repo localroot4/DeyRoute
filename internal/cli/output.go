@@ -314,19 +314,49 @@ var errNeedConfirm = deyerr.Plain("confirmation required")
 // errAborted is returned when the owner declines a confirmation (exit 1).
 var errAborted = deyerr.Plain("aborted")
 
-// usageError is a wrong command line (exit 1, no DEY code).
+// usageError is a wrong command line: DEY-C025 when printed (exit 1).
 type usageError struct{ msg string }
 
 func (e *usageError) Error() string { return e.msg }
 
 func usageErr(msg string) error { return &usageError{msg: msg} }
 
+// usageDEY is a wrong command line (a usageError, or cobra's own error
+// for an unknown command or flag) as DEY-C025, shown in the three-line
+// format like every other error (section 13). command is the command whose
+// --help the Fix names; cobra's suggestions ("Did you mean this?") become
+// the detail.
+func usageDEY(err error, command string) *deyerr.Error {
+	if command == "" {
+		command = "deyroute"
+	}
+	first, rest, _ := strings.Cut(strings.TrimSpace(err.Error()), "\n")
+	e := deyerr.New(deyerr.C025, deyerr.Params{"reason": clean(first), "command": command})
+	var detail []string
+	for _, l := range strings.Split(rest, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			detail = append(detail, clean(l))
+		}
+	}
+	if len(detail) > 0 {
+		e = e.WithDetail(strings.Join(detail, "\n"))
+	}
+	return e
+}
+
+// isUsage reports whether err is a wrong command line: a usageError, or a
+// plain error that never reached a command (cobra's own, see classify).
+func isUsage(err error) bool {
+	var ue *usageError
+	return !stderrors.Is(err, errNeedConfirm) && !stderrors.Is(err, errAborted) &&
+		(stderrors.As(err, &ue) || !isDEY(err))
+}
+
 // printError prints err on stderr (the DEY three-line block, several for a
 // joined validation error; each is also written to the CLI log its Log line
-// names) and, with --json, an error document on stdout. It returns the exit
-// code.
+// names) and, with --json, an error document on stdout. A wrong command
+// line is DEY-C025 (see usageDEY). It returns the exit code.
 func (g *Globals) printError(err error) int {
-	var ue *usageError
 	switch {
 	case stderrors.Is(err, errNeedConfirm):
 		msg := i18n.T(i18n.CLINeedConfirm)
@@ -338,11 +368,8 @@ func (g *Globals) printError(err error) int {
 		fmt.Fprintln(g.Err, msg)
 		g.jsonError(&api.ErrorDTO{Message: msg}, deyerr.ExitUser)
 		return deyerr.ExitUser
-	case stderrors.As(err, &ue) || !isDEY(err):
-		fmt.Fprintln(g.Err, g.text(err.Error()))
-		fmt.Fprintln(g.Err, g.text(i18n.T(i18n.CLIUsageHint)))
-		g.jsonError(&api.ErrorDTO{Message: err.Error()}, deyerr.ExitUser)
-		return deyerr.ExitUser
+	case isUsage(err):
+		err = usageDEY(err, g.usageCommand)
 	}
 	list := deyErrors(err)
 	code := deyerr.ExitUser

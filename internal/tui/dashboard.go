@@ -418,8 +418,8 @@ const eventUpdateAvailable = "update_available"
 // Column caps of LAST EVENTS: a long tunnel id or an unknown event type is
 // cut with an ellipsis instead of pushing the messages off the screen.
 const (
-	eventWhoCap  = 16
-	eventTypeCap = 16
+	eventWhoCap  = 12
+	eventTypeCap = 12
 )
 
 // EventWord is the short word of an event type shown in LAST EVENTS

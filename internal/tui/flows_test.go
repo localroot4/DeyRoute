@@ -51,7 +51,7 @@ func TestAddTunnelWizardHappyPath(t *testing.T) {
 	h.must("Add tunnel", "1. Which node?", "Only one node is online: de-1 (Germany 1). It is used for this tunnel.", "2. Ports?", "Ports: _")
 	h.typeLine("443,2053")
 	h.must("✔ 443/tcp is free", "✔ 2053/tcp is free", "3. Confirm",
-		"Node         de-1 (Germany 1)", "Ports        443/tcp, 2053/tcp", "Ladder       default (default)", "Backup       none",
+		"Node    de-1 (Germany 1)", "Ports   443/tcp, 2053/tcp", "Ladder  default ladder", "Backup  none",
 		"Press Enter to create the tunnel.")
 	h.mustNot("Policy", "TLS mode") // Simple mode: three questions only
 	h.press("enter")
@@ -108,7 +108,8 @@ func TestAddTunnelWizardBusyPort(t *testing.T) {
 	}
 	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
 	h.choose("2").choose("1")
-	h.must("1. Which node?", " 1) de-1  Germany 1  ● online", " 2) nl-1  Netherlands 1  ● online")
+	// Pick lists are aligned columns: id, name, state.
+	h.must("1. Which node?", "\n 1) de-1  Germany 1      ● online\n", "\n 2) nl-1  Netherlands 1  ● online\n", "\nChoice: ")
 	h.choose("7")
 	h.must("Invalid choice: 7")
 	h.choose("2")
@@ -267,10 +268,19 @@ func TestAddTunnelAdvanced(t *testing.T) {
 		mu.Unlock()
 		return api.TunnelInfo{ID: "web", State: state.StateUp, ActiveTransport: "backhaul/tcpmux", RTTms: 12}, nil
 	}
+	stub.TunnelShowFn = func(_ context.Context, id string) (api.TunnelDetail, error) {
+		require.Equal(t, "web", id)
+		return api.TunnelDetail{TunnelInfo: api.TunnelInfo{ID: id}, Rungs: []api.RungStatus{
+			{Node: "de-1", Transport: "backhaul/tcpmux", Active: true, Warm: true},
+			{Node: "nl-1", Transport: "backhaul/tcpmux", Warm: true},
+			{Node: "nl-1", Transport: "backhaul/wssmux", Warm: true},
+			{Node: "nl-1", Transport: "hysteria2/udp", Skipped: "UDP blocked"},
+		}}, nil
+	}
 	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
 	h.choose("2").choose("1").choose("1").typeLine("443")
 	// Ladder editor with the section 8 guidance table.
-	h.must("Ladder of default", "speed matters more than hiding", "put tcpmux first", "filtering recognizes the tunnel TLS",
+	h.must("Add tunnel - Ladder order", "speed matters more than hiding", "put tcpmux first", "filtering recognizes the tunnel TLS",
 		" 1) backhaul/wssmux", "client IP: masked")
 	// Numbers + Enter only (section 6): a rung number opens its actions,
 	// the numbers after the rungs add, load a profile or save.
@@ -294,14 +304,21 @@ func TestAddTunnelAdvanced(t *testing.T) {
 	h.must("Enter one of: auto, tcp, tls, http")
 	h.press("ctrl+u")
 	h.typeLine("tls")
-	h.typeLine("nl-9") // unknown backup
-	h.must("nl-9 is not an available node.")
+	// Fixed answers are numbered (section 6: numbers and Enter only); the
+	// backup node shows the fixed backup warning.
+	h.must("Backup only works if the same service runs on both nodes.", " Backup node:\n 1) none\n 2) nl-1  Netherlands 1  ● online\nChoice [1]: _")
+	h.typeLine("nl-9") // not an answer of the list
+	h.must("Invalid choice: nl-9")
 	h.press("ctrl+u")
-	h.typeLine("nl-1")
+	h.typeLine("2")
+	h.must(" Backup node: nl-1\n", " 1) transport_then_node - next transport on the same node, then the next node\n", "Choice [1]: _")
 	h.typeLine("bogus")
-	h.must("Enter one of: transport_then_node, transport_only, node_only")
+	h.must("Invalid choice: bogus")
 	h.press("ctrl+u")
-	h.typeLine("node_only")
+	h.typeLine("3") // node_only
+	h.must(" 1) auto - a certificate of the internal CA\n 2) acme - a Let's Encrypt certificate for the hub's domain\nChoice [1]: _",
+		"custom (your own certificate files) is set after the tunnel exists")
+	h.mustNot("3) custom")
 	h.typeLine("")  // tls auto
 	h.typeLine("y") // thresholds
 	h.typeLine("")
@@ -310,10 +327,12 @@ func TestAddTunnelAdvanced(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		h.typeLine("")
 	}
-	h.must("3. Confirm", "Name         web", "Ports        443/tcp (probe tls)", "Backup       nl-1", "Policy       node_only", "Thresholds   custom",
-		"backhaul/tcpmux → backhaul/wssmux")
+	h.must("3. Confirm", "Name        web", "Ports       443/tcp (probe tls)", "Backup      nl-1", "Policy      node_only", "Thresholds  custom",
+		"backhaul/tcpmux → backhaul/wssmux", "! Backup only works if the same service runs on both nodes.")
 	h.press("enter")
-	h.must("Tunnel web is UP via backhaul/tcpmux (12ms)")
+	// Section 6: "backup nl-1 ready (warm)" with the fixed warning.
+	h.must("Tunnel web is UP via backhaul/tcpmux (12ms)", "backup nl-1 ready (warm)  2 of 3 rungs warm",
+		"! Backup only works if the same service runs on both nodes.")
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, "web", got.Name)
@@ -341,7 +360,8 @@ func TestDeleteTunnelTypedYes(t *testing.T) {
 	h.choose("2")
 	h.must("Main 443/2053", "6) Delete")
 	h.choose("6")
-	h.must("Choose a tunnel:", " 1) main  Main 443/2053  ● UP  443,2053")
+	// Pick lists are aligned columns: id, name, state, ports.
+	h.must("Choose a tunnel:", " 1) main   Main 443/2053  ● UP    443,2053\n", " 2) games  Games UDP      ◐ DEGR  27015/udp\n")
 	h.choose("1")
 	h.must("Deleting tunnel main permanently removes:", "on node(s) de-1, nl-1", "Ports 443,2053 stop forwarding", "Type yes to continue: ")
 	h.typeLine("y")
@@ -381,6 +401,11 @@ func TestTunnelActions(t *testing.T) {
 		if r.ProbePort != nil {
 			log.add("probe " + id)
 		}
+		for k, v := range map[string]*string{"policy": r.Policy, "ladder": r.Ladder, "tls": r.TLSMode} {
+			if v != nil {
+				log.add(k + " " + id + " " + *v)
+			}
+		}
 		return api.TunnelInfo{ID: id}, nil
 	}
 	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
@@ -389,13 +414,21 @@ func TestTunnelActions(t *testing.T) {
 	h.choose("2").choose("1")
 	h.must("Name [Main 443/2053]: _")
 	h.typeLine("Main")
-	for i := 0; i < 3; i++ {
-		h.typeLine("")
-	}
+	// Fixed answers are numbered with the current value marked (section 6).
+	h.must(" Failover policy:\n 1) transport_then_node - next transport on the same node, then the next node (current)\n",
+		" 3) node_only - the same transport on the next node\nChoice [1]: _")
+	h.typeLine("2") // transport_only
+	h.must(" Failover policy: transport_only\n", " Ladder profile:\n 1) default (built-in) (current)\n 2) fast\nChoice [1]: _")
+	h.typeLine("")
+	h.must(" TLS mode:\n 1) auto - a certificate of the internal CA (current)\n", " 3) custom - your own certificate and key files\n")
+	h.typeLine("")
 	h.typeLine("8443")
 	h.must("Tunnel main updated.")
 	require.True(t, log.has("rename main Main"))
 	require.True(t, log.has("probe main"))
+	require.True(t, log.has("policy main transport_only"))
+	require.False(t, log.has("ladder main default"), "an unchanged answer is not sent")
+	require.False(t, log.has("tls main auto"))
 	h.press("esc", "esc")
 	// edit without change
 	h.choose("2").choose("1")
@@ -430,7 +463,10 @@ func TestTunnelActions(t *testing.T) {
 	h.press("esc", "esc")
 	// details (Advanced shows rungs)
 	h.choose("7").choose("1")
-	h.must("ID           main", "Client IP    masked", "Rungs", "skipped: UDP blocked", "quarantined until", "Recent events")
+	h.must("\n  ID         main\n", "\n  Client IP  masked\n", "Rungs", "skipped: UDP blocked", "quarantined until", "Recent events")
+	// The rung status is padded: the client-IP notes line up.
+	h.must("    de-1  backhaul/wssmux  active                      client IP: masked\n",
+		"    de-1  backhaul/tcpmux  warm                        client IP: masked\n")
 }
 
 func TestPortCheckFourLines(t *testing.T) {
@@ -686,11 +722,12 @@ func TestNodesScreens(t *testing.T) {
 	h.choose("1")
 	h.must("Run this one line on the new node (as root):",
 		"\nbash <(curl -fsSL https://example.invalid/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:ab'\n",
-		"Single use; expires at 13:00:00 (in 15m0s)",
+		"Single use; expires at 13:00:00 (in 15 minutes)",
 		"The command was shown on a plain screen so it can be copied whole")
 	h.press("esc")
 	h.choose("2")
-	h.must("Public IP    1.2.3.4", "Certificate  sha256:aa")
+	// Labels are aligned per block, on the widest one ("Control channel").
+	h.must("\n  Public IP        1.2.3.4\n", "\n  Control channel  online (39ms)\n", "\n  Certificate      sha256:aa\n")
 	h.press("esc")
 	h.choose("3").choose("1").typeLine("Frankfurt")
 	require.True(t, log.has("rename de-1 Frankfurt"))
@@ -700,8 +737,17 @@ func TestNodesScreens(t *testing.T) {
 	h.typeLine("yes")
 	require.True(t, log.has("remove nl-1"))
 	h.press("esc", "esc")
+	// Nodes > Test shows the node's facts with labels and human values.
+	stub.NodeTestFn = func(_ context.Context, id string) (api.NodeTestResult, error) {
+		return api.NodeTestResult{Node: id, Online: true, ControlRTTms: 39, UDPOK: true, UDPRTTms: 40, SysInfo: map[string]string{
+			"node_id": id, "hostname": "fra-1", "os": "Ubuntu 24.04 LTS", "kernel": "6.8.0", "arch": "amd64", "cpus": "2",
+			"mem_total": "4102328320", "uptime": "864123", "version": "v1.0.0", "go": "go1.26.8", "zz_new": "x"}}, nil
+	}
 	h.choose("5").choose("1")
-	h.must("Control channel ● online (39ms)", "UDP echo     ✔ yes (40ms)", "arch", "kernel")
+	h.must(" Test: de-1\n", "\n  Control channel  ● online (39ms)\n", "\n  UDP echo         ✔ yes (40ms)\n",
+		"\n  Hostname         fra-1\n  OS               Ubuntu 24.04 LTS\n  Kernel           6.8.0\n  Architecture     amd64\n  CPUs             2\n"+
+			"  Memory           3.8 GiB\n  Uptime           10d 00:02\n  deyroute         1.0.0\n  Go runtime       go1.26.8\n  zz_new           x\n")
+	h.mustNot("mem_total", "864123", "node_id", "Node id")
 }
 
 func TestFailoverScreens(t *testing.T) {
@@ -847,7 +893,7 @@ func TestOptimizeSecurityNotifyUpdate(t *testing.T) {
 	require.True(t, log.has("rotate []"))
 	h.press("esc")
 	h.choose("2")
-	h.must("Domain       none (tls mode acme needs one)", "HTTP-01 on port 80")
+	h.must("\n  Domain      none (tls mode acme needs one)\n", "\n  ACME check  HTTP-01 on port 80\n")
 	h.choose("1")
 	h.must("ca  ", "deyroute CA", "(3650 days left)", "renew soon", "sha256:t1")
 	h.press("esc", "esc")
@@ -877,6 +923,7 @@ func TestOptimizeSecurityNotifyUpdate(t *testing.T) {
 	h.press("esc", "esc")
 
 	h.choose("9")
+	h.must("\n  Telegram  off; 1) Set up Telegram turns it on\n")
 	h.choose("1")
 	h.must("the token itself is never typed here")
 	h.typeLine("/root/tg.token").typeLine("12345").typeLine("")
@@ -894,7 +941,7 @@ func TestOptimizeSecurityNotifyUpdate(t *testing.T) {
 	h.must("Installed: 1.0.0", "Latest:    1.0.1", "An update is available", "- fixes")
 	h.press("esc")
 	h.choose("2")
-	h.must("Update deyroute 1.0.0 -> 1.0.1")
+	h.must("Update deyroute 1.0.0 → 1.0.1")
 	h.press("enter")
 	require.True(t, log.has("update 1.0.1"))
 	h.must("deyroute updated to 1.0.1.")

@@ -52,7 +52,7 @@ Apply the balanced kernel profile (BBR, larger buffers; undo with: deyroute opti
 
 - **Public IP**: خودکار پیدا می‌شود. اگر آدرس پیداشده خصوصی یا CGNAT باشد، ویزارد می‌گوید؛ آدرسی را که کاربران به آن وصل می‌شوند (از پنل سرور) تایپ کنید.
 - **Control port**: پورتی که Nodeها به آن وصل می‌شوند. پیش‌فرض `44433` است و اگر گرفته باشد، اولین پورت آزاد بعدی پیشنهاد می‌شود.
-- **Kernel profile**: فایل `/etc/sysctl.d/99-deyroute.conf` را می‌نویسد (BBR و بافرهای بزرگ‌تر). مقادیر قبلی ذخیره می‌شوند و `deyroute optimize revert` آن‌ها را برمی‌گرداند.
+- **Kernel profile**: فایل `/etc/sysctl.d/99-deyroute.conf` را می‌نویسد (BBR و بافرهای بزرگ‌تر). مقادیر قبلی ذخیره می‌شوند و `deyroute optimize revert` آن‌ها را برمی‌گرداند. اگر کرنل BBR نداشته باشد فقط `net.ipv4.tcp_congestion_control` کنار گذاشته می‌شود (با هشدار) و بقیه، از جمله `fq`، اعمال می‌شود. بعداً `deyroute optimize apply --profile P` (منوی `7) Optimize`) پروفایل را روی Hub و همه Nodeهای آنلاین با `tuning.bbr` خود Hub اعمال می‌کند؛ هر چه یک Node کنار بگذارد با `node <id>: …` نشان داده می‌شود. `aggressive` (بافرهای ۶۴MB) برای سرورهای با RAM ۴ گیگ یا بیشتر است: منو پروفایل مناسب RAM هاب را نام می‌برد و پیش از `aggressive` روی Hub کوچک‌تر هشدار می‌دهد، و هر سرور کوچک‌تری هم هشدار گزارش می‌کند.
 
 بقیه کارها خودکار است و مرحله به مرحله نشان داده می‌شود:
 
@@ -66,7 +66,7 @@ Apply the balanced kernel profile (BBR, larger buffers; undo with: deyroute opti
   ✔ Install and start service
 
 Hub ir-1 is ready: 5.6.7.8, control port 44433.
-Run this command on each node (valid until 12:15, 15m):
+Run this command on the new node (one node per command, valid until 12:15, 15m):
 
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://…@5.6.7.8:44433#sha256:…' --version 1.0.0
 ```

@@ -89,6 +89,10 @@ func (h *Hub) hubStatus(cfg *config.Config) *api.HubStatus {
 	if a := cfg.Hub.ACME; a != nil {
 		hs.ACMEEmail = a.Email
 	}
+	if tg := cfg.Hub.Notify.Telegram; tg.Enabled || tg.ChatID != "" {
+		hs.Telegram = api.TelegramStatus{Enabled: tg.Enabled, ChatID: tg.ChatID, TokenFile: tg.BotTokenFile,
+			Events: append([]string(nil), tg.Events...)}
+	}
 	return hs
 }
 
@@ -113,6 +117,7 @@ func (h *Hub) nodeInfos(cfg *config.Config) []api.NodeInfo {
 			Tags:          append([]string(nil), n.Tags...),
 			Fingerprint:   n.CertFingerprint,
 			Tunnels:       cfg.TunnelsUsingNode(n.ID),
+			LastError:     ns.LastError,
 		})
 	}
 	return out

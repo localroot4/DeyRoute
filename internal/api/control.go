@@ -104,13 +104,17 @@ type Hello struct {
 	Compatible bool   `json:"compatible"` // hub → node: false = node must not run commands except self.update
 }
 
-// Heartbeat is sent every 5 seconds (section 3).
+// Heartbeat is sent every 5 seconds (section 3). UnitsUnknown is set while
+// the node has no current unit list (before its first listing after a
+// start, or when listing failed): Units is then not authoritative and the
+// hub keeps the last list it received.
 type Heartbeat struct {
-	At         time.Time         `json:"at"`
-	CPUPercent float64           `json:"cpu_percent"`
-	RAMBytes   uint64            `json:"ram_bytes"`
-	Units      map[string]string `json:"units"` // deyroute-tun@… → ActiveState
-	LastError  string            `json:"last_error,omitempty"`
+	At           time.Time         `json:"at"`
+	CPUPercent   float64           `json:"cpu_percent"`
+	RAMBytes     uint64            `json:"ram_bytes"`
+	Units        map[string]string `json:"units"` // deyroute-tun@… → ActiveState
+	UnitsUnknown bool              `json:"units_unknown,omitempty"`
+	LastError    string            `json:"last_error,omitempty"`
 }
 
 // Command is hub → node.

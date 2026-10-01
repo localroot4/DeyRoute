@@ -119,9 +119,9 @@ func (h *Hub) firewallLoop(ctx context.Context) {
 // security.firewall_managed is false (suggestions only) or the firewall is
 // disabled (tests). Applies are serialised and the table is computed under
 // the same lock, so a slower apply can never install an older table over a
-// newer one. When firewall_managed was switched off (config apply), the
-// table deyroute applied is removed: a stale @nodes restriction would
-// otherwise keep blocking new nodes. Until the startup reconcile adopted
+// newer one. When firewall_managed was switched off (config apply, or
+// while the hub was not running), the table deyroute applied is removed: a
+// stale @nodes restriction would otherwise keep blocking new nodes. Until the startup reconcile adopted
 // the running candidates, the NAT rules of the table the previous hub
 // process applied stay in place (a hub restart never interrupts a NAT
 // transport, sections 3 and 5). Errors are logged, remembered for the
@@ -144,6 +144,7 @@ func (h *Hub) applyFirewall(ctx context.Context) error {
 	}
 	managed := firewallManaged(cfg)
 	h.fwMu.Lock()
+	first := !h.fw.done
 	wasManaged := h.fw.done && h.fw.managed
 	h.fwMu.Unlock()
 	var err error
@@ -157,16 +158,8 @@ func (h *Hub) applyFirewall(ctx context.Context) error {
 		} else {
 			h.log.Debug("firewall applied")
 		}
-	case !managed && wasManaged && !h.o.DisableFirewall:
-		rctx, cancel := context.WithTimeout(ctx, firewallApplyTimeout)
-		err = firewall.Remove(rctx, h.o.Runner)
-		cancel()
-		if err != nil {
-			h.log.Error("table inet deyroute could not be removed after firewall management was switched off",
-				dlog.Err(err), dlog.Code(deyerr.As(err).Code))
-		} else {
-			h.log.Warn("firewall management switched off: table inet deyroute removed", dlog.Code(deyerr.P031))
-		}
+	case !managed && (wasManaged || first) && !h.o.DisableFirewall:
+		err = h.removeFirewall(ctx, first)
 	}
 	if managed && err == nil {
 		h.saveNATCarry(spec)
@@ -178,6 +171,31 @@ func (h *Hub) applyFirewall(ctx context.Context) error {
 		h.fw.applied = h.now()
 	}
 	return err
+}
+
+// removeFirewall deletes table inet deyroute once security.firewall_managed is
+// false (fwApplyMu held). After a switch within this process (config
+// apply) the table deyroute applied goes. At the first apply of a hub
+// process (atStart) the switch happened while the hub was not running (a
+// manual edit and a restart, a restore): a table an earlier hub process
+// applied, with its stale @nodes, control-range drop and NAT, is removed
+// when it exists; nothing is run or logged otherwise.
+func (h *Hub) removeFirewall(ctx context.Context, atStart bool) error {
+	rctx, cancel := context.WithTimeout(ctx, firewallApplyTimeout)
+	defer cancel()
+	if atStart {
+		out, err := firewall.Show(rctx, h.o.Runner)
+		if (err == nil && out == "") || deyerr.HasCode(err, deyerr.X030) {
+			return nil // no table, or no nft to have made one
+		}
+	}
+	if err := firewall.Remove(rctx, h.o.Runner); err != nil {
+		h.log.Error("table inet deyroute could not be removed after firewall management was switched off",
+			dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		return err
+	}
+	h.log.Warn("firewall management switched off: table inet deyroute removed", dlog.Code(deyerr.P031))
+	return nil
 }
 
 // metaFirewallNAT is the state.db record of the NAT and masquerade rules of

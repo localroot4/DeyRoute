@@ -20,23 +20,39 @@
 
 ۲. **Ports?** — مثلاً `443,2053`. هر پورت همان لحظه چک می‌شود: `443/tcp is free` یا `443/tcp is used by nginx`. برای پورت مشغول می‌توانید `Change port` (عوض کردن پورت)، `Skip` (رد کردن آن پورت) یا — فقط اگر یک تانل deyroute آن را گرفته باشد — `Stop that service` را انتخاب کنید. deyroute هیچ‌وقت برنامه‌های دیگر را متوقف نمی‌کند. ویزارد روی پورت آزادی هم که فایروال سرور (ufw، firewalld، iptables یا جدول nftables دیگری) آن را بسته، یا Node نمی‌تواند به آن برسد، می‌ایستد: `Change port`، `Skip`، `Open it in the firewall: ufw allow 443/tcp` (باز کردن در فایروال؛ فقط وقتی deyroute دستورش را می‌داند) یا `Keep it and continue` (نگه داشتن و ادامه). باز کردن، دستور یا دستورهای دقیق را نشان می‌دهد و فقط بعد از اینکه `yes` را تایپ کنید روی Hub اجرا می‌کند؛ بعد پورت دوباره چک می‌شود. پورتی که Node به آن نمی‌رسد معمولاً در فایروال پنل ارائه‌دهنده سرور بسته است و deyroute نمی‌تواند آن را تغییر دهد.
 
-۳. **Confirm** — خلاصه (Node، پورت‌ها، نردبان، پشتیبان). Enter تانل را می‌سازد.
-
-بعد صفحه پیشرفت می‌آید:
+۳. **Confirm** — خلاصه، و Enter تانل را می‌سازد:
 
 ```text
-  ✔ install backend on hub
-  ✔ install on node
-  ✔ render
-  ✔ firewall
-  ✔ start
-  ✔ probe
-  Tunnel main is UP via backhaul/wssmux (41ms)
+ 3. Confirm
+  Node    de-1 (Germany 1)
+  Ports   443/tcp, 2053/tcp
+  Ladder  default ladder
+  Backup  none
 ```
+
+بعد صفحه پیشرفت می‌آید (جزئیات کوتاه شده‌اند):
+
+```text
+ Add tunnel
+
+  install backend on hub ✔  backhaul v0.7.2, rathole v0.5.0, …
+  install on node ✔  de-1
+  render ✔  8 rungs on the hub, 8 on nodes
+  firewall ✔  tcp 443, 2053
+  start ✔  backhaul/wssmux on de-1
+  probe ✔  41ms
+  Tunnel main is UP via backhaul/wssmux (41ms) ✔
+
+ Tunnel main is UP via backhaul/wssmux (41ms)
+
+ Press Enter or q to go back.
+```
+
+خط فرمان همین مراحل را با علامت در ابتدای خط چاپ می‌کند (`  ✔ install backend on hub  backhaul v0.7.2, …`).
 
 اگر مرحله‌ای شکست بخورد، کد خطا با Why و Fix نشان داده می‌شود و می‌توانید `1) Retry` (تلاش دوباره) یا `0) Back` را بزنید.
 
-حالت Advanced (`12) Settings` ← `1) UI mode`) سؤال‌های اختیاری اضافه می‌کند: نام تانل، مقصد دلخواه برای هر پورت، نوع پروب هر پورت TCP (بخش «پروب سلامت پورت را چطور می‌آزماید» در پایین)، Node پشتیبان، ترتیب نردبان، حالت TLS و آستانه‌های Failover.
+حالت Advanced (`12) Settings` ← `1) UI mode`) سؤال‌های اختیاری اضافه می‌کند: نام تانل، مقصد دلخواه برای هر پورت، نوع پروب هر پورت TCP (بخش «پروب سلامت پورت را چطور می‌آزماید» در پایین)، Node پشتیبان، ترتیب نردبان، حالت TLS و آستانه‌های Failover. سؤال‌هایی که جواب‌های ثابت دارند (Node پشتیبان، policy، حالت TLS) فهرست شماره‌دار هستند: شماره را بزنید، یا Enter برای گزینه داخل کروشه. انتخاب Node پشتیبان هشدار ثابت `Backup only works if the same service runs on both nodes.` را نشان می‌دهد و صفحه پیشرفت با `backup nl-1 ready (warm)` تمام می‌شود.
 
 ## با دستور
 

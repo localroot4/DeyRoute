@@ -82,7 +82,10 @@ deyroute restore /var/lib/deyroute/backups/auto/deyroute-backup-20260930T115500.
 deyroute restore /root/deyroute-backup-20260930T120000Z.tar.gz.age
 ```
 
-Menu: `10) Backup & Restore` → `2) Restore from a backup`.
+Menu: `10) Backup & Restore` → `2) Restore from a backup` lists the backups
+of this server by number, newest first (`/var/lib/deyroute/backups` and the
+automatic ones in `backups/auto/`), with `Another file (type its path)`
+last. An unencrypted backup (`.tar.gz`) asks no passphrase.
 
 1. The file is decrypted (passphrase asked once, or taken from
    `DEYROUTE_BACKUP_PASSPHRASE`) and checked. Nothing changes if it is not a

@@ -133,7 +133,16 @@ func (j *JoinTokens) Create(ttl time.Duration) (token string, expires time.Time,
 //     the MaxFailures-th failure within Window blocks ip for Block;
 //   - success → the token is deleted from the file immediately (atomic
 //     rewrite) and nil is returned.
-func (j *JoinTokens) Consume(token, ip string) error {
+func (j *JoinTokens) Consume(token, ip string) error { return j.match(token, ip, true) }
+
+// Check is Consume without burning the token: the same block, failure
+// counting and errors, but a valid token stays usable. The hub checks a
+// join request with it first and consumes the token only once the rest of
+// the join succeeded.
+func (j *JoinTokens) Check(token, ip string) error { return j.match(token, ip, false) }
+
+// match implements Consume (burn) and Check.
+func (j *JoinTokens) match(token, ip string, burn bool) error {
 	ip = normalizeIP(ip)
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -164,6 +173,9 @@ func (j *JoinTokens) Consume(token, ip string) error {
 		}
 		j.fail(ip, now)
 		return deyerr.New(deyerr.N001, nil)
+	}
+	if !burn {
+		return nil
 	}
 	f.Tokens = append(tokens[:found:found], tokens[found+1:]...)
 	if err := j.save(f); err != nil {

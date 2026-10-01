@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
+	"github.com/localroot4/deyroute/internal/tui"
 )
 
 // DefaultJoinTTL is the validity of a join command (spec section 3).
@@ -93,6 +93,13 @@ func newNodeListCmd(g *Globals) *cobra.Command {
 			}
 			g.table([]string{i18n.T(i18n.CLIColID), i18n.T(i18n.TUIColName), i18n.T(i18n.CLIColPublicIP), i18n.T(i18n.TUIColState),
 				i18n.T(i18n.CLIColCtl), i18n.T(i18n.CLIColVersion), i18n.T(i18n.CLIColCPU), i18n.T(i18n.CLIColRAM), i18n.T(i18n.CLIColTunnels)}, rows)
+			// The last error each node agent reported (heartbeat), below
+			// the table: too long for a column.
+			for _, n := range ns {
+				if n.LastError != "" {
+					g.say(i18n.CLINodeLastError, n.ID, clean(n.LastError))
+				}
+			}
 			return nil
 		},
 	}
@@ -177,17 +184,15 @@ func newNodeTestCmd(g *Globals) *cobra.Command {
 			} else {
 				g.say(i18n.CLINodeTestUDPBlocked)
 			}
-			if len(r.SysInfo) > 0 {
+			if facts := tui.SysFacts(r.SysInfo, r.Node); len(facts) > 0 {
+				// The menu's labels and human values (Memory 3.8 GiB).
 				g.say(i18n.CLINodeTestSysinfo)
-				keys := make([]string, 0, len(r.SysInfo))
 				kw := 0
-				for k := range r.SysInfo {
-					keys = append(keys, k)
-					kw = max(kw, width(k))
+				for _, f := range facts {
+					kw = max(kw, width(f[0]))
 				}
-				sort.Strings(keys)
-				for _, k := range keys {
-					g.println(g.text("    " + pad(k+":", kw+2) + clean(r.SysInfo[k])))
+				for _, f := range facts {
+					g.println(g.text("    " + pad(f[0]+":", kw+2) + f[1]))
 				}
 			}
 			return nil

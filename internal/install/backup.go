@@ -183,6 +183,40 @@ func AutoBackups(root string) ([]string, error) {
 	return out, nil
 }
 
+// BackupFile is one backup on this server.
+type BackupFile struct {
+	Path    string
+	Size    int64
+	ModTime time.Time
+	Auto    bool // taken automatically before a config apply (backups/auto/)
+}
+
+// Backups lists the backups in Root/var/lib/deyroute/backups and in its
+// auto/ directory, newest first (the menu's Restore offers them).
+func Backups(root string) ([]BackupFile, error) {
+	l := Layout{Root: root}
+	var out []BackupFile
+	for _, d := range []struct {
+		dir  string
+		auto bool
+	}{{l.Path(config.BackupDir), false}, {l.Path(config.AutoBackupDir), true}} {
+		names, err := backupNames(d.dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range names {
+			p := filepath.Join(d.dir, n)
+			fi, err := os.Stat(p)
+			if err != nil {
+				continue // removed meanwhile (pruned)
+			}
+			out = append(out, BackupFile{Path: p, Size: fi.Size(), ModTime: fi.ModTime(), Auto: d.auto})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].ModTime.After(out[j].ModTime) })
+	return out, nil
+}
+
 func backupNames(dir string) ([]string, error) {
 	ents, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {

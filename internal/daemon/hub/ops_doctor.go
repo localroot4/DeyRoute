@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
@@ -21,10 +22,12 @@ import (
 const (
 	// doctorNodeTimeout bounds doctor.collect on a node.
 	doctorNodeTimeout = 3 * time.Minute
-	// doctorPortChecks caps the 4-stage port checks of the bundle.
-	doctorPortChecks = 16
-	// doctorPortCheckBudget bounds all port checks together.
-	doctorPortCheckBudget = 90 * time.Second
+	// doctorPortWorkers is the number of 4-stage port checks run at once
+	// (the probe worker pool size of section 12).
+	doctorPortWorkers = 8
+	// doctorPortCheckBudget bounds all port checks together; a port map
+	// whose check has not started by then is listed as not checked.
+	doctorPortCheckBudget = 2 * time.Minute
 )
 
 // DoctorCollect implements api.Local (`deyroute doctor [--node id]`,
@@ -33,7 +36,7 @@ const (
 // certificates too), the dashboard status, the last 50 events, every rung
 // of every ladder (the active one probed, the others validated) and the
 // 4-stage check of the tunnel ports; the 15 rules run on facts the hub
-// knows (node clock skew, secret permissions, old join tokens, external
+// knows (node clock skew, secret permissions, join tokens, external
 // firewall blocks, port conflicts). With node the node's own data is
 // collected there (doctor.collect; DEY-N003 when it is offline).
 func (l *local) DoctorCollect(ctx context.Context, node string) (api.DoctorData, error) {
@@ -70,13 +73,16 @@ func (l *local) DoctorCollect(ctx context.Context, node string) (api.DoctorData,
 		return api.DoctorData{}, withLog(err)
 	}
 	checks, conflicts := h.doctorPortChecks(ctx, l, cfg)
+	jt := h.joinTokenFacts()
 	f := doctor.Facts{
 		Role:                   config.RoleHub,
 		Status:                 st,
 		Now:                    h.now(),
 		ClockSkew:              h.clockSkews(),
 		SecretPermProblems:     h.secretProblems(),
-		OldJoinTokens:          h.oldJoinTokens(),
+		ExpiredJoinTokens:      jt.expired,
+		LongJoinTokens:         jt.long,
+		LongJoinUntil:          jt.until,
 		ExternalFirewallBlocks: h.externalBlocks(ctx, cfg),
 		PortConflicts:          conflicts,
 		Events:                 events,
@@ -105,29 +111,48 @@ func (h *Hub) secretProblems() []string {
 	return out
 }
 
-// oldJoinTokens counts the join tokens created more than 15 minutes ago
-// that are still stored (doctor rule R15).
-func (h *Hub) oldJoinTokens() int {
+// joinTokenState is what doctor rule R15 needs about the join tokens.
+type joinTokenState struct {
+	expired int       // past their expiry, still stored
+	long    int       // valid, created with a TTL over longJoinTTL
+	until   time.Time // latest expiry of the long ones
+}
+
+// joinTokenFacts removes the expired join tokens (as the hub does when the
+// last one expires) and describes what is left for doctor rule R15: tokens
+// still stored after their expiry (the prune failed) and the valid tokens
+// made with a TTL over 15 minutes, which keep the join window open.
+func (h *Hub) joinTokenFacts() joinTokenState {
+	if err := h.joins.Prune(); err != nil {
+		h.log.Warn("cannot prune the join tokens", dlog.Err(err))
+	}
+	var out joinTokenState
 	data, err := os.ReadFile(h.joins.Path)
 	if err != nil {
-		return 0
+		return out
 	}
 	var f struct {
 		Tokens []struct {
 			Created time.Time `json:"created"`
+			Expires time.Time `json:"expires"`
 		} `json:"tokens"`
 	}
 	if json.Unmarshal(data, &f) != nil {
-		return 0
+		return out
 	}
-	n := 0
-	cutoff := h.now().Add(-oldJoinToken)
+	now := h.now()
 	for _, t := range f.Tokens {
-		if t.Created.Before(cutoff) {
-			n++
+		switch {
+		case !now.Before(t.Expires):
+			out.expired++
+		case t.Expires.Sub(t.Created) > longJoinTTL:
+			out.long++
+			if t.Expires.After(out.until) {
+				out.until = t.Expires
+			}
 		}
 	}
-	return n
+	return out
 }
 
 // externalBlocks lists the deyroute ports (control port, tunnel ports) an
@@ -194,55 +219,91 @@ func (h *Hub) ladderSection(ctx context.Context, l *local, cfg *config.Config) s
 	return b.String()
 }
 
-// doctorPortChecks runs the 4-stage port check (section 10) for the tunnel
-// ports (at most doctorPortChecks within doctorPortCheckBudget) and
-// returns its text and the ports another process holds.
+// portCheckJob is one port map of the doctor's port checks.
+type portCheckJob struct {
+	tunnel  string
+	enabled bool
+	pm      config.PortMap
+	started bool
+	res     api.PortCheckResult
+	err     error
+}
+
+// doctorPortChecks runs the 4-stage port check (section 10) for every port
+// map of every tunnel, doctorPortWorkers at a time within
+// doctorPortCheckBudget, and returns its text (in config order) and the
+// ports another process holds.
 func (h *Hub) doctorPortChecks(ctx context.Context, l *local, cfg *config.Config) (string, []string) {
-	var b strings.Builder
-	var conflicts []string
-	cctx, cancel := context.WithTimeout(ctx, doctorPortCheckBudget)
-	defer cancel()
-	n := 0
+	var jobs []*portCheckJob
 	for _, t := range cfg.Tunnels {
 		for _, pm := range t.Ports {
-			key := fmt.Sprintf("%d/%s", pm.Listen, pm.Proto)
-			if n >= doctorPortChecks || cctx.Err() != nil {
-				fmt.Fprintf(&b, "%-10s tunnel %s: not checked (limit reached)\n", key, t.ID)
-				continue
-			}
-			n++
-			r, err := l.PortCheck(cctx, api.PortCheckRequest{Port: pm.Listen, Proto: pm.Proto})
-			if err != nil {
-				fmt.Fprintf(&b, "%-10s tunnel %s: %s\n", key, t.ID, deyerr.As(err).Message())
-				continue
-			}
-			bind := "free"
-			if !r.BindFree {
-				bind = "used by " + firstNonEmpty(r.BindProcess, "an unknown process")
-				if r.BindByDey {
-					bind += " (deyroute)"
-				} else if t.Enabled {
-					conflicts = append(conflicts, key+" of tunnel "+t.ID+" is "+bind)
-				}
-			}
-			fw := "open (" + r.FirewallName + ")"
-			if !r.FirewallOpen {
-				fw = "BLOCKED by " + r.FirewallName + ": " + r.FirewallCommand
-			}
-			node := "not tested"
-			if r.NodeReachable != nil {
-				node = fmt.Sprintf("%s from %s (%dms)", okText(*r.NodeReachable), r.Node, r.NodeRTTms)
-			}
-			tun := "not tested"
-			if r.TunnelOK != nil {
-				tun = fmt.Sprintf("%s (%dms)", okText(*r.TunnelOK), r.TunnelRTTms)
-			}
-			fmt.Fprintf(&b, "%-10s tunnel %s\n  1 bind: %s\n  2 firewall: %s\n  3 from node: %s\n  4 via tunnel: %s\n",
-				key, t.ID, bind, fw, node, tun)
+			jobs = append(jobs, &portCheckJob{tunnel: t.ID, enabled: t.Enabled, pm: pm})
 		}
 	}
-	if b.Len() == 0 {
-		return "no tunnel ports\n", conflicts
+	if len(jobs) == 0 {
+		return "no tunnel ports\n", nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, doctorPortCheckBudget)
+	defer cancel()
+	sem := make(chan struct{}, doctorPortWorkers)
+	var wg sync.WaitGroup
+	for _, j := range jobs {
+		select {
+		case sem <- struct{}{}:
+		case <-cctx.Done():
+		}
+		if cctx.Err() != nil {
+			break
+		}
+		j.started = true
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			j.res, j.err = l.PortCheck(cctx, api.PortCheckRequest{Port: j.pm.Listen, Proto: j.pm.Proto})
+		}()
+	}
+	wg.Wait()
+
+	var b strings.Builder
+	var conflicts []string
+	for _, j := range jobs {
+		key := fmt.Sprintf("%d/%s", j.pm.Listen, j.pm.Proto)
+		if !j.started {
+			fmt.Fprintf(&b, "%-10s tunnel %s: not checked (time limit of %s reached)\n", key, j.tunnel, doctorPortCheckBudget)
+			continue
+		}
+		if j.err != nil {
+			fmt.Fprintf(&b, "%-10s tunnel %s: %s\n", key, j.tunnel, deyerr.As(j.err).Message())
+			continue
+		}
+		r := j.res
+		bind := "free"
+		if !r.BindFree {
+			bind = "used by " + firstNonEmpty(r.BindProcess, "an unknown process")
+			if r.BindByDey {
+				bind += " (deyroute)"
+			} else if j.enabled {
+				conflicts = append(conflicts, key+" of tunnel "+j.tunnel+" is "+bind)
+			}
+		}
+		fw := "open (" + r.FirewallName + ")"
+		if !r.FirewallOpen {
+			fw = "BLOCKED by " + r.FirewallName + ": " + r.FirewallCommand
+		}
+		node := "not tested"
+		if r.NodeReachable != nil {
+			node = fmt.Sprintf("%s from %s (%dms)", okText(*r.NodeReachable), r.Node, r.NodeRTTms)
+		}
+		if r.NodeError != nil {
+			node += " " + r.NodeError.Code
+		}
+		tun := "not tested"
+		if r.TunnelOK != nil {
+			tun = fmt.Sprintf("%s (%dms)", okText(*r.TunnelOK), r.TunnelRTTms)
+		}
+		fmt.Fprintf(&b, "%-10s tunnel %s\n  1 bind: %s\n  2 firewall: %s\n  3 from node: %s\n  4 via tunnel: %s\n",
+			key, j.tunnel, bind, fw, node, tun)
 	}
 	return b.String(), conflicts
 }
