@@ -9,8 +9,8 @@ source "$(dirname "$0")/../lib.sh"
 
 up hub node1 client
 OLD=/dist/deyroute_${DEY_OLD_VERSION}_linux_${ARCH}.tar.gz
-on hub bash /dist/install.sh --local "$OLD" --role hub --name ir-1 --yes >&2
-on node1 bash /dist/install.sh --local "$OLD" join "$(join_link)" >&2
+on hub bash /dist/install.sh --skip-signature --local "$OLD" --role hub --name ir-1 --yes >&2
+on node1 bash /dist/install.sh --skip-signature --local "$OLD" join "$(join_link)" >&2
 NODE1=$(node_id_of node1)
 wait_node_online "$NODE1"
 serve_http node1 8443 1
@@ -21,9 +21,9 @@ hp=$(main_pid hub "$unit") np=$(main_pid node1 "$unit")
 
 start_prober 8443
 sleep 3
-on hub bash /dist/install.sh --local "$ARCHIVE" >&2
+on hub bash /dist/install.sh --skip-signature --local "$ARCHIVE" >&2
 sleep 5
-on node1 bash /dist/install.sh --local "$ARCHIVE" >&2
+on node1 bash /dist/install.sh --skip-signature --local "$ARCHIVE" >&2
 wait_node_online "$NODE1" 90
 sleep 5
 out=$(stop_prober)

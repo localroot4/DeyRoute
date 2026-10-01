@@ -5,8 +5,8 @@ source "$(dirname "$0")/../lib.sh"
 
 up hub node1 node2
 install_hub hub ir-1 >&2
-on node1 bash /dist/install.sh --local "$ARCHIVE" --no-setup >&2
-on node2 bash /dist/install.sh --local "$ARCHIVE" --no-setup >&2
+on node1 bash /dist/install.sh --skip-signature --local "$ARCHIVE" --no-setup >&2
+on node2 bash /dist/install.sh --skip-signature --local "$ARCHIVE" --no-setup >&2
 
 # Wrong CA fingerprint: refused before the token is sent.
 link=$(join_link)

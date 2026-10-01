@@ -83,7 +83,7 @@ systemd_ready() {
 # install_hub SERVICE NAME [installer flags...]: one-line install + setup (spec 5).
 install_hub() {
   local s=$1 name=$2; shift 2
-  on "$s" bash /dist/install.sh --local "$ARCHIVE" --role hub --name "$name" --yes "$@"
+  on "$s" bash /dist/install.sh --skip-signature --local "$ARCHIVE" --role hub --name "$name" --yes "$@"
 }
 # join_link: a fresh join link from the hub.
 join_link() { dey node join-command --json | jq -r .link; }
@@ -92,7 +92,7 @@ install_node() {
   local s=$1 link=${2:-}
   shift $(($# > 1 ? 2 : 1))
   [ -n "$link" ] || link=$(join_link)
-  on "$s" bash /dist/install.sh --local "$ARCHIVE" join "$link" "$@"
+  on "$s" bash /dist/install.sh --skip-signature --local "$ARCHIVE" join "$link" "$@"
 }
 node_id_of() { dey --on "$1" status --json | jq -r .node.id; }
 node_online() { dey node list --json | jq -e --arg id "$1" '.nodes[] | select(.id == $id) | .online == true' >/dev/null; }

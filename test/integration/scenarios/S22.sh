@@ -8,7 +8,7 @@ serve_http node1 8443 1
 T=$(add_tunnel "$NODE1" 8443)
 wait_tunnel_up "$T"
 up hub2
-on hub2 bash /dist/install.sh --local "$ARCHIVE" --no-setup >&2
+on hub2 bash /dist/install.sh --skip-signature --local "$ARCHIVE" --no-setup >&2
 
 # Move: tell the nodes the new address, take the backup, retire the old hub.
 ann=$(dey hub announce-move "$HUB2_IP:$CONTROL_PORT" --json)

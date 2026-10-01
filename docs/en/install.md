@@ -161,8 +161,8 @@ scp install.sh SHA256SUMS SHA256SUMS.minisig deyroute_1.0.0_linux_amd64.tar.gz r
 bash /root/install.sh --local /root/deyroute_1.0.0_linux_amd64.tar.gz
 ```
 
-Keep `SHA256SUMS` and `SHA256SUMS.minisig` next to the archive: without them
-the installer warns that nothing is verified.
+`SHA256SUMS` and `SHA256SUMS.minisig` must be next to the archive: without
+them nothing is installed (`DEY-I005` / `DEY-I006`).
 
 The installer honours `https_proxy` if you need a proxy.
 
@@ -191,10 +191,11 @@ testing only).
 
 Running the install line on a server that is already set up prints
 `existing installation found: repairing/upgrading (config untouched)`,
-replaces the binary, restarts `deyroute-hub` or `deyroute-node` if it was running,
-and ignores `join`, `--role` and `--name`. Tunnel processes are separate
-systemd units and keep running. Use it to repair a broken binary or to move to
-another release (`--version V`).
+replaces the binary, then runs `deyroute setup --repair`: missing directories
+and unit files are restored and `deyroute-hub` or `deyroute-node` is enabled and
+restarted. `join`, `--role` and `--name` are ignored. Tunnel processes are
+separate systemd units and keep running. Use it to repair a broken
+installation or to move to another release (`--version V`).
 
 To set a server up from scratch, remove it first with `deyroute uninstall`;
 `deyroute setup` and `deyroute join` refuse to overwrite an existing setup

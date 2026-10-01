@@ -191,6 +191,7 @@ type Ops struct {
 	Backup     func(ctx context.Context, o setup.BackupOptions) (string, error)
 	Restore    func(ctx context.Context, o setup.RestoreOptions) (*setup.RestoreResult, error)
 	SetHubAddr func(root, addr string) error
+	Repair     func(ctx context.Context, o setup.RepairOptions) (string, error)
 }
 
 // defaults fills every unset field with its production value. It is
@@ -292,6 +293,9 @@ func (o *Ops) defaults() {
 	}
 	if o.SetHubAddr == nil {
 		o.SetHubAddr = setup.SetHubAddr
+	}
+	if o.Repair == nil {
+		o.Repair = setup.Repair
 	}
 }
 

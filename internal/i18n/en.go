@@ -1251,6 +1251,8 @@ const (
 	CLIFlagSetupName             Key = "cli.flag_setup_name"
 	CLIFlagControlPort           Key = "cli.flag_control_port"
 	CLIFlagYesSetup              Key = "cli.flag_yes_setup"
+	CLIFlagRepair                Key = "cli.flag_repair"
+	CLISetupRepaired             Key = "cli.setup_repaired"
 	CLIFlagJoinName              Key = "cli.flag_join_name"
 	CLIFlagTTL                   Key = "cli.flag_ttl"
 	CLIFlagTunnelNode            Key = "cli.flag_tunnel_node"
@@ -1712,6 +1714,8 @@ var cliEN = map[Key]string{
 	CLIFlagSetupName:             "server name, e.g. ir-1 (default: the host name)",
 	CLIFlagControlPort:           "hub control port (default: 44433, or the next free port)",
 	CLIFlagYesSetup:              "ask nothing: use the defaults and apply the balanced kernel profile",
+	CLIFlagRepair:                "repair a set-up server (unit files, directories, service restart); the config is untouched",
+	CLISetupRepaired:             "Repaired: unit files are current and %s was restarted; the configuration is unchanged.",
 	CLIFlagJoinName:              "node name, e.g. de-1 (default: the host name)",
 	CLIFlagTTL:                   "how long the join command stays valid",
 	CLIFlagTunnelNode:            "primary node of the tunnel",

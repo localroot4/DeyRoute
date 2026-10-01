@@ -29,6 +29,7 @@ type setupFlags struct {
 	role, name string
 	port       int
 	yes        bool
+	repair     bool
 }
 
 func newSetupCmd(g *Globals) *cobra.Command {
@@ -42,6 +43,9 @@ func newSetupCmd(g *Globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), LocalOpTimeout)
 			defer cancel()
+			if f.repair {
+				return g.repair(ctx)
+			}
 			return g.setup(ctx, f)
 		},
 	}
@@ -49,6 +53,8 @@ func newSetupCmd(g *Globals) *cobra.Command {
 	cmd.Flags().StringVar(&f.name, "name", "", i18n.T(i18n.CLIFlagSetupName))
 	cmd.Flags().IntVar(&f.port, "control-port", 0, i18n.T(i18n.CLIFlagControlPort))
 	cmd.Flags().BoolVar(&f.yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
+	cmd.Flags().BoolVar(&f.repair, "repair", false, i18n.T(i18n.CLIFlagRepair))
+	_ = cmd.Flags().MarkHidden("repair")
 	return cmd
 }
 
@@ -81,6 +87,20 @@ func newJoinCmd(g *Globals) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
 	_ = cmd.Flags().MarkHidden("yes")
 	return cmd
+}
+
+// repair is `deyroute setup --repair`, run by install.sh on a server that
+// is set up: unit files, layout and a restart of the role's service; the
+// config is untouched (setup.Repair).
+func (g *Globals) repair(ctx context.Context) error {
+	unit, err := g.Ops.Repair(ctx, setup.RepairOptions{
+		Root: g.Root, Runner: g.Runner, SocketPath: g.Socket, Logger: g.logger(),
+		LookupUser: g.LookupUser, LookupGroup: g.LookupGroup, Chown: g.Chown,
+	})
+	if err != nil {
+		return err
+	}
+	return g.done(map[string]any{"service": unit, "restarted": true}, i18n.CLISetupRepaired, unit)
 }
 
 // setup is the wizard of spec section 5: at most five questions for a hub

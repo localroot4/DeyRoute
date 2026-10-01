@@ -135,7 +135,7 @@ scp install.sh SHA256SUMS SHA256SUMS.minisig deyroute_1.0.0_linux_amd64.tar.gz r
 bash /root/install.sh --local /root/deyroute_1.0.0_linux_amd64.tar.gz
 ```
 
-`SHA256SUMS` و `SHA256SUMS.minisig` را حتماً کنار آرشیو بگذارید؛ بدون آن‌ها نصاب هشدار می‌دهد که هیچ چیزی بررسی نشده است.
+`SHA256SUMS` و `SHA256SUMS.minisig` باید کنار آرشیو باشند؛ بدون آن‌ها هیچ چیزی نصب نمی‌شود (`DEY-I005` / `DEY-I006`).
 
 اگر پراکسی لازم دارید، نصاب متغیر `https_proxy` را رعایت می‌کند.
 
@@ -155,7 +155,7 @@ bash /root/install.sh --local /root/deyroute_1.0.0_linux_amd64.tar.gz
 
 ## اجرای دوباره نصاب
 
-اگر خط نصب را روی سروری بزنید که قبلاً راه‌اندازی شده، پیام `existing installation found: repairing/upgrading (config untouched)` را می‌بینید: باینری جایگزین می‌شود، اگر `deyroute-hub` یا `deyroute-node` در حال اجرا بود ری‌استارت می‌شود، و گزینه‌های `join`، `--role` و `--name` نادیده گرفته می‌شوند. پروسه‌های تانل سرویس‌های systemd جدا هستند و قطع نمی‌شوند. از این روش برای تعمیر باینری خراب یا رفتن به نسخه دیگر (`--version V`) استفاده کنید.
+اگر خط نصب را روی سروری بزنید که قبلاً راه‌اندازی شده، پیام `existing installation found: repairing/upgrading (config untouched)` را می‌بینید: باینری جایگزین می‌شود و بعد `deyroute setup --repair` اجرا می‌شود: پوشه‌ها و فایل‌های unit گم‌شده برمی‌گردند و `deyroute-hub` یا `deyroute-node` فعال و ری‌استارت می‌شود؛ گزینه‌های `join`، `--role` و `--name` نادیده گرفته می‌شوند. پروسه‌های تانل سرویس‌های systemd جدا هستند و قطع نمی‌شوند. از این روش برای تعمیر باینری خراب یا رفتن به نسخه دیگر (`--version V`) استفاده کنید.
 
 برای راه‌اندازی از صفر، اول با `deyroute uninstall` حذف کنید؛ `deyroute setup` و `deyroute join` روی راه‌اندازی موجود چیزی نمی‌نویسند (`DEY-I013`).
 

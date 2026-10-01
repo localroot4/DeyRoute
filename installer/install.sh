@@ -35,7 +35,7 @@ Usage: install.sh [options]                  install (or repair/upgrade) deyrout
        install.sh join 'dey://...' [--name N]  install and join a hub as a node
   --role hub|node --name N --yes  non-interactive setup      --version V      install release V (default: latest)
   --mirror URL      try this mirror first (or DEYROUTE_MIRROR)   --no-setup       install only (then: deyroute setup / restore)
-  --local FILE      offline install from deyroute_<ver>_linux_<arch>.tar.gz (SHA256SUMS[.minisig] next to it are checked)
+  --local FILE      offline install from deyroute_<ver>_linux_<arch>.tar.gz (needs SHA256SUMS and .minisig next to it)
   --skip-signature  do not verify SHA256SUMS.minisig (testing only)   -h, --help  this help
 EOF
 }
@@ -177,10 +177,12 @@ use_local() {
   [ -f "$LOCAL" ] || die DEY-I004 "Download failed from every source: $LOCAL" \
     "the file given to --local does not exist" "pass the path of deyroute_<version>_linux_${ARCH}.tar.gz"
   dir=$(cd "$(dirname "$LOCAL")" && pwd) ARCHIVE="$dir/${LOCAL##*/}"
-  if [ ! -f "$dir/SHA256SUMS" ]; then warn "no SHA256SUMS next to $LOCAL: the checksum is NOT verified"; return 0; fi
+  [ -f "$dir/SHA256SUMS" ] || die DEY-I005 "Checksum mismatch for ${LOCAL##*/}" "SHA256SUMS of the release is not next to it" \
+    "copy SHA256SUMS and SHA256SUMS.minisig of the same release into $dir"
   if [ "$SKIP_SIG" = 1 ]; then warn "--skip-signature: the SHA256SUMS signature is NOT verified"
-  elif [ -f "$dir/SHA256SUMS.minisig" ]; then sig_ok "$dir/SHA256SUMS" "$dir/SHA256SUMS.minisig" || fail DEY-I006
-  else warn "no SHA256SUMS.minisig next to $LOCAL: the signature is NOT verified"; fi
+  elif [ ! -f "$dir/SHA256SUMS.minisig" ]; then die DEY-I006 "Signature invalid for SHA256SUMS" \
+    "SHA256SUMS.minisig is not next to ${LOCAL##*/}" "copy SHA256SUMS.minisig of the same release into $dir"
+  else sig_ok "$dir/SHA256SUMS" "$dir/SHA256SUMS.minisig" || fail DEY-I006; fi
   sum_ok "$ARCHIVE" "$dir/SHA256SUMS" || fail DEY-I005 "${ARCHIVE##*/}"
 }
 
@@ -215,14 +217,11 @@ install_binary() {
 }
 launch() { rm -rf "$TMP"; exec "$BIN_DIR/deyroute" "$@"; }
 run_setup() {
-  local u; local -a args=()
+  local -a args=()
   if [ -f /etc/deyroute/config.yaml ]; then
     say "existing installation found: repairing/upgrading (config untouched)"
     if [ -n "$JOIN$ROLE$NAME" ]; then warn "setup/join options ignored: this server is already set up"; fi
-    for u in deyroute-hub deyroute-node; do
-      if systemctl is-active --quiet "$u.service"; then systemctl restart "$u.service"; say "restarted $u"; fi
-    done
-    return 0
+    launch setup --repair # unit files, directories, restart of the role's service
   fi
   if [ "$NO_SETUP" = 1 ]; then say "next: deyroute setup   (or: deyroute restore FILE)"; return 0; fi
   if [ -n "$NAME" ]; then args+=(--name "$NAME"); fi

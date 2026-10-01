@@ -6,7 +6,7 @@ source "$(dirname "$0")/../lib.sh"
 up hub node1
 install_hub hub ir-1 >&2
 OLD=/dist/deyroute_${DEY_OLD_VERSION}_linux_${ARCH}.tar.gz
-on node1 bash /dist/install.sh --local "$OLD" join "$(join_link)" >&2 || fail "the old node could not join"
+on node1 bash /dist/install.sh --skip-signature --local "$OLD" join "$(join_link)" >&2 || fail "the old node could not join"
 NODE1=$(node_id_of node1)
 wait_node_online "$NODE1"
 

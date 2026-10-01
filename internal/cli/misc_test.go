@@ -72,6 +72,27 @@ func TestUninstall(t *testing.T) {
 	require.Contains(t, e.out.String(), `"errors"`)
 }
 
+func TestSetupRepair(t *testing.T) {
+	e := newEnv(t)
+	e.writeConfig(hubConfig)
+	var ro *setup.RepairOptions
+	e.g.Ops.Repair = func(_ context.Context, o setup.RepairOptions) (string, error) {
+		ro = &o
+		return "deyroute-hub.service", nil
+	}
+	// A set-up server refuses the wizard but accepts the repair.
+	require.Contains(t, e.fail(1, "setup", "--yes"), "DEY-I013")
+	out := e.ok("setup", "--repair")
+	require.Equal(t, e.root, ro.Root)
+	require.Contains(t, out, "deyroute-hub.service was restarted; the configuration is unchanged")
+	doc := e.json("setup", "--repair")
+	require.Equal(t, "deyroute-hub.service", doc["service"])
+	e.g.Ops.Repair = func(context.Context, setup.RepairOptions) (string, error) {
+		return "", deyerr.New(deyerr.I023, nil)
+	}
+	require.Contains(t, e.fail(1, "setup", "--repair"), "DEY-I023")
+}
+
 func TestCompletion(t *testing.T) {
 	e := newEnv(t)
 	out := e.ok("completion", "bash")
