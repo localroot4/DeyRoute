@@ -273,6 +273,7 @@ type agent struct {
 	hubAddr       string
 	tlsCfg        *tls.Config
 	connected     bool
+	helloSeen     bool // the hub's hello arrived on the current connection
 	lastContact   time.Time
 	hubHello      *api.Hello
 	lastError     string
@@ -573,6 +574,7 @@ func (a *agent) heartbeat() api.Heartbeat {
 func (a *agent) onConnected() {
 	a.mu.Lock()
 	a.connected = true
+	a.helloSeen = false
 	a.lastContact = a.o.Now().UTC()
 	a.mu.Unlock()
 }
@@ -580,12 +582,14 @@ func (a *agent) onConnected() {
 func (a *agent) onDisconnected() {
 	a.mu.Lock()
 	a.connected = false
+	a.helloSeen = false
 	a.mu.Unlock()
 }
 
 func (a *agent) onHubHello(h api.Hello) {
 	a.mu.Lock()
 	a.hubHello = &h
+	a.helloSeen = true
 	a.lastContact = a.o.Now().UTC()
 	a.mu.Unlock()
 	if !h.Compatible {

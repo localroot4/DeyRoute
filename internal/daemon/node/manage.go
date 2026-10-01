@@ -145,9 +145,11 @@ func (a *agent) status() api.Status {
 	now := a.o.Now().UTC()
 	a.mu.Lock()
 	ns := &api.NodeSelf{
-		ID:          a.nodeID,
-		HubAddr:     a.hubAddr,
-		Connected:   a.connected,
+		ID:      a.nodeID,
+		HubAddr: a.hubAddr,
+		// Connected only once the hub answered the hello on this stream:
+		// before that the version check (Compatible) is not known yet.
+		Connected:   a.connected && a.helloSeen,
 		LastContact: a.lastContact,
 		Units:       unitList(a.snap.units),
 	}
