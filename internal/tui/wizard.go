@@ -704,7 +704,20 @@ func (w *wizard) checkLine(a *app, c portCheck) string {
 	case c.res == nil:
 		return "  " + s.run + " " + spec
 	case c.res.BindFree:
-		return "  " + a.paint(colGreen, s.ok) + " " + i18n.T(i18n.TUIWizPortFree, spec)
+		line := "  " + a.paint(colGreen, s.ok) + " " + i18n.T(i18n.TUIWizPortFree, spec)
+		// Stages 2 and 3 do not block the tunnel, but the owner must see
+		// them: a closed firewall or provider panel stops the users.
+		if !c.res.FirewallOpen && c.res.FirewallName != "" {
+			w := i18n.T(i18n.TUIWizPortFirewall, c.res.FirewallName)
+			if c.res.FirewallCommand != "" {
+				w += " " + i18n.T(i18n.TUIWizPortRun, c.res.FirewallCommand)
+			}
+			line += "\n" + a.paint(colYellow, "    "+s.warn+" "+w)
+		}
+		if c.res.NodeReachable != nil && !*c.res.NodeReachable {
+			line += "\n" + a.paint(colYellow, "    "+s.warn+" "+i18n.T(i18n.TUIWizPortUnreachable, c.res.Node))
+		}
+		return line
 	case c.res.BindProcess != "":
 		return a.paint(colRed, "  "+s.fail+" "+i18n.T(i18n.TUIWizPortBusy, spec, c.res.BindProcess))
 	}

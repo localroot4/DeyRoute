@@ -229,6 +229,23 @@ func TestAddTunnelRetryRestartsTheSavedTunnel(t *testing.T) {
 	require.True(t, log.has("restart tunnel"))
 }
 
+// Stages 2 and 3 of the port check do not block, but are shown.
+func TestAddTunnelShowsFirewallAndNodeWarnings(t *testing.T) {
+	no := false
+	stub := &apitest.Stub{
+		NodeListFn: func(context.Context) ([]api.NodeInfo, error) { return sampleNodes()[:1], nil },
+		PortCheckFn: func(context.Context, api.PortCheckRequest) (api.PortCheckResult, error) {
+			return api.PortCheckResult{BindFree: true, FirewallName: "ufw", FirewallCommand: "ufw allow 443/tcp",
+				Node: "de-1", NodeReachable: &no}, nil
+		},
+	}
+	h := newHarness(t, Options{Caps: Caps{Unicode: true, Width: 200}, Local: stub})
+	h.choose("2").choose("1").typeLine("443")
+	h.must("443/tcp is free",
+		"the firewall (ufw) blocks it: users cannot reach it until it is opened. Open it with: ufw allow 443/tcp",
+		"node de-1 cannot reach it: open it in the provider's firewall panel (DEY-P014).")
+}
+
 func TestAddTunnelNoOnlineNode(t *testing.T) {
 	stub := &apitest.Stub{NodeListFn: func(context.Context) ([]api.NodeInfo, error) { return nil, nil }}
 	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})

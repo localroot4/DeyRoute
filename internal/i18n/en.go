@@ -418,58 +418,61 @@ const (
 	TUIDetQuarantine     Key = "tui.tun.det_quarantine"
 
 	// 2 tunnels -> add tunnel wizard
-	TUIWizQNode        Key = "tui.wiz.q_node"
-	TUIWizNoNode       Key = "tui.wiz.no_node"
-	TUIWizAutoNode     Key = "tui.wiz.auto_node"
-	TUIWizQPorts       Key = "tui.wiz.q_ports"
-	TUIWizPortsHint    Key = "tui.wiz.ports_hint"
-	TUIWizPortsPrompt  Key = "tui.wiz.ports_prompt"
-	TUIWizChecking     Key = "tui.wiz.checking"
-	TUIWizPortFree     Key = "tui.wiz.port_free"
-	TUIWizPortBusy     Key = "tui.wiz.port_busy"
-	TUIWizPortBusyAny  Key = "tui.wiz.port_busy_any"
-	TUIWizPortError    Key = "tui.wiz.port_error"
-	TUIWizChange       Key = "tui.wiz.change"
-	TUIWizSkip         Key = "tui.wiz.skip"
-	TUIWizStop         Key = "tui.wiz.stop"
-	TUIWizNewPort      Key = "tui.wiz.new_port"
-	TUIWizSuggest      Key = "tui.wiz.suggest"
-	TUIWizNoPortsLeft  Key = "tui.wiz.no_ports_left"
-	TUIWizDupPort      Key = "tui.wiz.dup_port"
-	TUIWizStopConfirm  Key = "tui.wiz.stop_confirm"
-	TUIWizQConfirm     Key = "tui.wiz.q_confirm"
-	TUIWizSumNode      Key = "tui.wiz.sum_node"
-	TUIWizSumPorts     Key = "tui.wiz.sum_ports"
-	TUIWizSumLadder    Key = "tui.wiz.sum_ladder"
-	TUIWizSumBackup    Key = "tui.wiz.sum_backup"
-	TUIWizSumName      Key = "tui.wiz.sum_name"
-	TUIWizSumPolicy    Key = "tui.wiz.sum_policy"
-	TUIWizSumTLS       Key = "tui.wiz.sum_tls"
-	TUIWizSumThresh    Key = "tui.wiz.sum_thresholds"
-	TUIWizAutomatic    Key = "tui.wiz.automatic"
-	TUIWizDefault      Key = "tui.wiz.default"
-	TUIWizDefaultWord  Key = "tui.wiz.default_word"
-	TUIWizCustom       Key = "tui.wiz.custom"
-	TUIWizCreate       Key = "tui.wiz.create"
-	TUIWizAdvOptions   Key = "tui.wiz.adv_options"
-	TUIWizCreateItem   Key = "tui.wiz.create_item"
-	TUIWizAdvIntro     Key = "tui.wiz.adv_intro"
-	TUIWizName         Key = "tui.wiz.name"
-	TUIWizTarget       Key = "tui.wiz.target"
-	TUIWizBackupQ      Key = "tui.wiz.backup_q"
-	TUIWizUnknownNode  Key = "tui.wiz.unknown_node"
-	TUIWizThreshQ      Key = "tui.wiz.thresh_q"
-	TUITunnelUp        Key = "tui.wiz.tunnel_up"
-	TUITunnelCreated   Key = "tui.wiz.tunnel_created"
-	TUIThProbeInterval Key = "tui.th.probe_interval"
-	TUIThProbeTimeout  Key = "tui.th.probe_timeout"
-	TUIThFail          Key = "tui.th.fail"
-	TUIThRecover       Key = "tui.th.recover"
-	TUIThFailback      Key = "tui.th.failback"
-	TUIThFailbackAfter Key = "tui.th.failback_after"
-	TUIThMaxSwitches   Key = "tui.th.max_switches"
-	TUIThQuarantine    Key = "tui.th.quarantine"
-	TUIThIntro         Key = "tui.th.intro"
+	TUIWizQNode           Key = "tui.wiz.q_node"
+	TUIWizNoNode          Key = "tui.wiz.no_node"
+	TUIWizAutoNode        Key = "tui.wiz.auto_node"
+	TUIWizQPorts          Key = "tui.wiz.q_ports"
+	TUIWizPortsHint       Key = "tui.wiz.ports_hint"
+	TUIWizPortsPrompt     Key = "tui.wiz.ports_prompt"
+	TUIWizChecking        Key = "tui.wiz.checking"
+	TUIWizPortFree        Key = "tui.wiz.port_free"
+	TUIWizPortFirewall    Key = "tui.wiz.port_firewall"
+	TUIWizPortRun         Key = "tui.wiz.port_run"
+	TUIWizPortUnreachable Key = "tui.wiz.port_unreachable"
+	TUIWizPortBusy        Key = "tui.wiz.port_busy"
+	TUIWizPortBusyAny     Key = "tui.wiz.port_busy_any"
+	TUIWizPortError       Key = "tui.wiz.port_error"
+	TUIWizChange          Key = "tui.wiz.change"
+	TUIWizSkip            Key = "tui.wiz.skip"
+	TUIWizStop            Key = "tui.wiz.stop"
+	TUIWizNewPort         Key = "tui.wiz.new_port"
+	TUIWizSuggest         Key = "tui.wiz.suggest"
+	TUIWizNoPortsLeft     Key = "tui.wiz.no_ports_left"
+	TUIWizDupPort         Key = "tui.wiz.dup_port"
+	TUIWizStopConfirm     Key = "tui.wiz.stop_confirm"
+	TUIWizQConfirm        Key = "tui.wiz.q_confirm"
+	TUIWizSumNode         Key = "tui.wiz.sum_node"
+	TUIWizSumPorts        Key = "tui.wiz.sum_ports"
+	TUIWizSumLadder       Key = "tui.wiz.sum_ladder"
+	TUIWizSumBackup       Key = "tui.wiz.sum_backup"
+	TUIWizSumName         Key = "tui.wiz.sum_name"
+	TUIWizSumPolicy       Key = "tui.wiz.sum_policy"
+	TUIWizSumTLS          Key = "tui.wiz.sum_tls"
+	TUIWizSumThresh       Key = "tui.wiz.sum_thresholds"
+	TUIWizAutomatic       Key = "tui.wiz.automatic"
+	TUIWizDefault         Key = "tui.wiz.default"
+	TUIWizDefaultWord     Key = "tui.wiz.default_word"
+	TUIWizCustom          Key = "tui.wiz.custom"
+	TUIWizCreate          Key = "tui.wiz.create"
+	TUIWizAdvOptions      Key = "tui.wiz.adv_options"
+	TUIWizCreateItem      Key = "tui.wiz.create_item"
+	TUIWizAdvIntro        Key = "tui.wiz.adv_intro"
+	TUIWizName            Key = "tui.wiz.name"
+	TUIWizTarget          Key = "tui.wiz.target"
+	TUIWizBackupQ         Key = "tui.wiz.backup_q"
+	TUIWizUnknownNode     Key = "tui.wiz.unknown_node"
+	TUIWizThreshQ         Key = "tui.wiz.thresh_q"
+	TUITunnelUp           Key = "tui.wiz.tunnel_up"
+	TUITunnelCreated      Key = "tui.wiz.tunnel_created"
+	TUIThProbeInterval    Key = "tui.th.probe_interval"
+	TUIThProbeTimeout     Key = "tui.th.probe_timeout"
+	TUIThFail             Key = "tui.th.fail"
+	TUIThRecover          Key = "tui.th.recover"
+	TUIThFailback         Key = "tui.th.failback"
+	TUIThFailbackAfter    Key = "tui.th.failback_after"
+	TUIThMaxSwitches      Key = "tui.th.max_switches"
+	TUIThQuarantine       Key = "tui.th.quarantine"
+	TUIThIntro            Key = "tui.th.intro"
 
 	// ladder editor (Failover -> Ladder order, Advanced add tunnel)
 	TUILadTitle    Key = "tui.lad.title"
@@ -878,58 +881,61 @@ var tuiEN = map[Key]string{
 	TUIDetSkipped:    "skipped: %s",
 	TUIDetQuarantine: "quarantined until %s",
 
-	TUIWizQNode:        "1. Which node?",
-	TUIWizNoNode:       "No node is online. Join a node first: 3) Nodes -> 1) Show join command.",
-	TUIWizAutoNode:     "Only one node is online: %s. It is used for this tunnel.",
-	TUIWizQPorts:       "2. Ports?",
-	TUIWizPortsHint:    "Examples: 443,2053,8443   443/tcp,27015/udp   2000-2010   443:8443",
-	TUIWizPortsPrompt:  "Ports",
-	TUIWizChecking:     "Checking ports…",
-	TUIWizPortFree:     "%s is free",
-	TUIWizPortBusy:     "%s is used by %s",
-	TUIWizPortBusyAny:  "%s is used by another program",
-	TUIWizPortError:    "%s cannot be used:",
-	TUIWizChange:       "Change port",
-	TUIWizSkip:         "Skip this port",
-	TUIWizStop:         "Stop that service (deyroute tunnel %s)",
-	TUIWizNewPort:      "New port for %s",
-	TUIWizSuggest:      "Free suggestions: %s",
-	TUIWizNoPortsLeft:  "No ports left. Enter the ports again.",
-	TUIWizDupPort:      "%s is already in the list.",
-	TUIWizStopConfirm:  "Disabling tunnel %s stops forwarding all of its ports so that %s becomes free. Enable it again later with 2) Tunnels -> 3) Enable / disable.",
-	TUIWizQConfirm:     "3. Confirm",
-	TUIWizSumNode:      "Node",
-	TUIWizSumPorts:     "Ports",
-	TUIWizSumLadder:    "Ladder",
-	TUIWizSumBackup:    "Backup",
-	TUIWizSumName:      "Name",
-	TUIWizSumPolicy:    "Policy",
-	TUIWizSumTLS:       "TLS mode",
-	TUIWizSumThresh:    "Thresholds",
-	TUIWizAutomatic:    "automatic",
-	TUIWizDefault:      "%s (default)",
-	TUIWizDefaultWord:  "default",
-	TUIWizCustom:       "custom",
-	TUIWizCreate:       "Press Enter to create the tunnel.",
-	TUIWizAdvOptions:   "Change advanced options",
-	TUIWizCreateItem:   "Create",
-	TUIWizAdvIntro:     "Advanced options. Press Enter to keep the value in brackets.",
-	TUIWizName:         "Tunnel name (empty = automatic)",
-	TUIWizTarget:       "Target for %s (host:port)",
-	TUIWizBackupQ:      "Backup node id (empty = none; available: %s)",
-	TUIWizUnknownNode:  "%s is not an available node.",
-	TUIWizThreshQ:      "Customize failover thresholds? (y/n)",
-	TUITunnelUp:        "Tunnel %s is UP via %s (%dms)",
-	TUITunnelCreated:   "Tunnel %s was created; it is %s now. Watch it on 1) Dashboard.",
-	TUIThProbeInterval: "Probe interval (seconds)",
-	TUIThProbeTimeout:  "Probe timeout (seconds)",
-	TUIThFail:          "Failed probes before a switch",
-	TUIThRecover:       "Good probes to recover",
-	TUIThFailback:      "Fail back to rung 1 (y/n)",
-	TUIThFailbackAfter: "Fail back after (seconds)",
-	TUIThMaxSwitches:   "Max automatic switches per hour",
-	TUIThQuarantine:    "Quarantine of a failed transport (seconds)",
-	TUIThIntro:         "Failover thresholds of %s. Press Enter to keep the value in brackets.",
+	TUIWizQNode:           "1. Which node?",
+	TUIWizNoNode:          "No node is online. Join a node first: 3) Nodes -> 1) Show join command.",
+	TUIWizAutoNode:        "Only one node is online: %s. It is used for this tunnel.",
+	TUIWizQPorts:          "2. Ports?",
+	TUIWizPortsHint:       "Examples: 443,2053,8443   443/tcp,27015/udp   2000-2010   443:8443",
+	TUIWizPortsPrompt:     "Ports",
+	TUIWizChecking:        "Checking ports…",
+	TUIWizPortFree:        "%s is free",
+	TUIWizPortFirewall:    "the firewall (%s) blocks it: users cannot reach it until it is opened.",
+	TUIWizPortRun:         "Open it with: %s",
+	TUIWizPortUnreachable: "node %s cannot reach it: open it in the provider's firewall panel (DEY-P014).",
+	TUIWizPortBusy:        "%s is used by %s",
+	TUIWizPortBusyAny:     "%s is used by another program",
+	TUIWizPortError:       "%s cannot be used:",
+	TUIWizChange:          "Change port",
+	TUIWizSkip:            "Skip this port",
+	TUIWizStop:            "Stop that service (deyroute tunnel %s)",
+	TUIWizNewPort:         "New port for %s",
+	TUIWizSuggest:         "Free suggestions: %s",
+	TUIWizNoPortsLeft:     "No ports left. Enter the ports again.",
+	TUIWizDupPort:         "%s is already in the list.",
+	TUIWizStopConfirm:     "Disabling tunnel %s stops forwarding all of its ports so that %s becomes free. Enable it again later with 2) Tunnels -> 3) Enable / disable.",
+	TUIWizQConfirm:        "3. Confirm",
+	TUIWizSumNode:         "Node",
+	TUIWizSumPorts:        "Ports",
+	TUIWizSumLadder:       "Ladder",
+	TUIWizSumBackup:       "Backup",
+	TUIWizSumName:         "Name",
+	TUIWizSumPolicy:       "Policy",
+	TUIWizSumTLS:          "TLS mode",
+	TUIWizSumThresh:       "Thresholds",
+	TUIWizAutomatic:       "automatic",
+	TUIWizDefault:         "%s (default)",
+	TUIWizDefaultWord:     "default",
+	TUIWizCustom:          "custom",
+	TUIWizCreate:          "Press Enter to create the tunnel.",
+	TUIWizAdvOptions:      "Change advanced options",
+	TUIWizCreateItem:      "Create",
+	TUIWizAdvIntro:        "Advanced options. Press Enter to keep the value in brackets.",
+	TUIWizName:            "Tunnel name (empty = automatic)",
+	TUIWizTarget:          "Target for %s (host:port)",
+	TUIWizBackupQ:         "Backup node id (empty = none; available: %s)",
+	TUIWizUnknownNode:     "%s is not an available node.",
+	TUIWizThreshQ:         "Customize failover thresholds? (y/n)",
+	TUITunnelUp:           "Tunnel %s is UP via %s (%dms)",
+	TUITunnelCreated:      "Tunnel %s was created; it is %s now. Watch it on 1) Dashboard.",
+	TUIThProbeInterval:    "Probe interval (seconds)",
+	TUIThProbeTimeout:     "Probe timeout (seconds)",
+	TUIThFail:             "Failed probes before a switch",
+	TUIThRecover:          "Good probes to recover",
+	TUIThFailback:         "Fail back to rung 1 (y/n)",
+	TUIThFailbackAfter:    "Fail back after (seconds)",
+	TUIThMaxSwitches:      "Max automatic switches per hour",
+	TUIThQuarantine:       "Quarantine of a failed transport (seconds)",
+	TUIThIntro:            "Failover thresholds of %s. Press Enter to keep the value in brackets.",
 
 	TUILadTitle:    "Ladder of %s",
 	TUILadGuideIf:  "If ...",

@@ -861,6 +861,7 @@ func TestPortCheckSuggestAndDiagProbe(t *testing.T) {
 	require.True(t, res.FirewallOpen)
 	require.NotEmpty(t, res.FirewallName)
 	require.NotNil(t, res.NodeReachable)
+	require.True(t, *res.NodeReachable, "the hub answers on a free port while the node tests it")
 	require.Nil(t, res.TunnelOK)
 	require.Empty(t, res.Tunnel)
 	require.Empty(t, res.SuggestedPorts)

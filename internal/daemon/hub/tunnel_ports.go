@@ -231,6 +231,14 @@ func (l *local) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.Po
 	}
 	if node != "" {
 		res.Node = node
+		if proto == config.ProtoTCP && res.BindFree {
+			// Nothing listens on a free port, so the node's connect would
+			// be refused even with the firewall open: answer it for the
+			// length of the test.
+			if stop := tempTCPListener(req.Port); stop != nil {
+				defer stop()
+			}
+		}
 		var pr api.ProbeResultDTO
 		cctx, cancel := context.WithTimeout(ctx, portCheckTimeout+nodeCmdTimeout)
 		err := h.Call(cctx, node, api.CmdPortCheckRemote, api.PortCheckArgs{
@@ -263,6 +271,31 @@ func (l *local) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.Po
 	}
 	res.Note = strings.Join(notes, "; ")
 	return res, nil
+}
+
+// tempTCPListener accepts (and closes) connections on port of every
+// address until the returned stop is called; nil when the port cannot be
+// bound (taken meanwhile, or no permission).
+func tempTCPListener(port int) (stop func()) {
+	ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		return nil
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	return func() {
+		_ = ln.Close()
+		<-done
+	}
 }
 
 // firewallNames names the firewalls that were checked ("nftables, ufw"),

@@ -623,7 +623,18 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 	fn.on(api.CmdProbeTLS, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
 		return api.ProbeResultDTO{OK: true, RTTms: 1}, nil
 	})
-	fn.on(api.CmdPortCheckRemote, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
+	fn.on(api.CmdPortCheckRemote, func(_ context.Context, _ *fakeNode, cmd api.Command, _ func([]string)) (any, error) {
+		// Like the node agent: a real TCP connect to the hub's address.
+		var args api.PortCheckArgs
+		decode(t, cmd, &args)
+		if args.Proto == config.ProtoUDP {
+			return api.ProbeResultDTO{OK: true, RTTms: 7}, nil
+		}
+		c, err := net.DialTimeout("tcp", net.JoinHostPort(args.IP, strconv.Itoa(args.Port)), 2*time.Second)
+		if err != nil {
+			return api.ProbeResultDTO{Error: err.Error()}, nil
+		}
+		_ = c.Close()
 		return api.ProbeResultDTO{OK: true, RTTms: 7}, nil
 	})
 	fn.on(api.CmdSysinfo, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
