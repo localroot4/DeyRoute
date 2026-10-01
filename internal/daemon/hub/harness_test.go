@@ -223,6 +223,8 @@ type fakeNode struct {
 	// unitsUnknown makes the heartbeats say that the unit list is not
 	// current (an agent that has not listed its units yet).
 	unitsUnknown atomic.Bool
+	// lastError is the last error the heartbeats report (string).
+	lastError atomic.Value
 }
 
 // joinNode joins a node with id through a fresh join command.
@@ -302,8 +304,9 @@ func (n *fakeNode) client() *api.ControlClient {
 			for k, v := range n.units {
 				u[k] = v
 			}
+			lastErr, _ := n.lastError.Load().(string)
 			return api.Heartbeat{At: time.Now().Add(time.Duration(n.skew.Load())), CPUPercent: 3, RAMBytes: 121 << 20, Units: u,
-				UnitsUnknown: n.unitsUnknown.Load()}
+				UnitsUnknown: n.unitsUnknown.Load(), LastError: lastErr}
 		},
 		Handler:           n.handle,
 		Logger:            dlog.Discard(),
