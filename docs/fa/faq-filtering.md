@@ -15,7 +15,7 @@
 | 1 | `backhaul/wssmux` | TLS + WebSocket + چندتایی‌سازی (mux): شبیه HTTPS، اتصال کم، سریع | [backhaul](../backends/backhaul.md) |
 | 2 | `backhaul/tcpmux` | بدون TLS ولی با mux؛ کمترین سربار، برای وقتی که اثرانگشت TLS تانل مشکل‌ساز شده | [backhaul](../backends/backhaul.md) |
 | 3 | `rathole/noise` | برنامه (Rust) و پروتکل متفاوت با رمزنگاری Noise؛ اگر فیلترینگ الگوی Backhaul را شناخت، جایگزین ارزانی است | [rathole](../backends/rathole.md) |
-| 4 | `frp/wss` | برنامه سوم با الگوی ترافیکی متفاوت | [frp](../backends/frp.md) |
+| 4 | `frp/tcp` | برنامه سوم با الگوی ترافیکی متفاوت (روی سیم TLS است) | [frp](../backends/frp.md) |
 | 5 | `xray/reality` | کاملاً شبیه یک اتصال TLS 1.3 واقعی به یک سایت فریب (decoy)؛ پنهان‌ترین گزینه بدون UDP | [xray](../backends/xray.md) |
 | 6 | `hysteria2/udp` | QUIC؛ فقط وقتی UDP باز است؛ بهترین سرعت روی لینک‌های پرافت | [hysteria2](../backends/hysteria2.md) |
 | 7 | `waterwall/reverse-reality` | اتصال معکوس با ظاهر Reality؛ آخرین خط دفاعی پنهان | [waterwall](../backends/waterwall.md) |

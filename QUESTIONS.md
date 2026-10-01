@@ -198,3 +198,9 @@ stated default until the owner decides · **[ANSWERED]** closed.
     `groupdel` are therefore on the exec allow-list (`internal/exec`); they are
     run with the fixed name `deyroute` only. Without them the step says so and
     the account stays.
+31. **[DEFAULT] Rung 4 of the default ladder is `frp/tcp`.** Spec 8 names
+    `frp/wss`, but frps v0.71.0 cannot accept wss without a separate TLS
+    terminator (docs/backends/frp.md), so that rung would be skipped on every
+    tunnel with a permanent yellow warning. `frp/tcp` keeps the intent of the
+    rung (a third program with a different traffic pattern) and is a TLS
+    session on the wire. `frp/wss` stays a known id for custom ladders.

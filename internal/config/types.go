@@ -85,12 +85,13 @@ const (
 
 // DefaultLadder is the ordered default ladder of section 8. It ends with
 // direct/native (section 8 text); see QUESTIONS.md about direct/haproxy in the
-// section 4 example.
+// section 4 example. Rung 4 is frp/tcp instead of frp/wss, which the pinned
+// frp cannot serve without a separate TLS terminator (QUESTIONS.md C.31).
 var DefaultLadder = []string{
 	"backhaul/wssmux",
 	"backhaul/tcpmux",
 	"rathole/noise",
-	"frp/wss",
+	"frp/tcp",
 	"xray/reality",
 	"hysteria2/udp",
 	"waterwall/reverse-reality",

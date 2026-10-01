@@ -193,7 +193,7 @@ func TestStrayUnits(t *testing.T) {
 		"de-1/backhaul/wssmux": true,
 		"nl-1/rathole/noise":   true,
 		"de-1/backhaul/tcpmux": true,
-		"de-1/frp/wss":         false,
+		"de-1/frp/tcp":         false,
 		"garbage":              true,
 	})
 	require.Equal(t, []state.Candidate{cand("de-1", "backhaul/tcpmux"), cand("nl-1", "rathole/noise")}, got)

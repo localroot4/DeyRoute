@@ -453,7 +453,7 @@ func TestNodeBrokenGoesToBackupNode(t *testing.T) {
 	require.Len(t, h.act.eventsOf(state.EvSwitchNode), 1)
 	// Once the node counts as broken (offline > 30s) the attempt in progress
 	// ends at the next poll and its remaining rungs are skipped.
-	require.Empty(t, h.act.callsOf("start", "de-1/frp/wss"), "remaining rungs of the broken node are skipped")
+	require.Empty(t, h.act.callsOf("start", "de-1/frp/tcp"), "remaining rungs of the broken node are skipped")
 	require.LessOrEqual(t, len(h.act.callsOf("probe", r3.Key())), 2)
 }
 
@@ -593,7 +593,7 @@ func TestServiceDownWhileFlappingHolds(t *testing.T) {
 func TestManualSwitchNotCounted(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t, twoNodes(), state.TunnelState{}, nil).run()
-	targets := []string{"rathole/noise", "frp/wss", "backhaul/tcpmux", "xray/reality", "direct/native", "backhaul/wssmux", "rathole/noise", "frp/wss"}
+	targets := []string{"rathole/noise", "frp/tcp", "backhaul/tcpmux", "xray/reality", "direct/native", "backhaul/wssmux", "rathole/noise", "frp/tcp"}
 	for _, tr := range targets {
 		require.NoError(t, h.eng.SwitchTransport(ctx, tr))
 		h.idle()
@@ -608,7 +608,7 @@ func TestManualSwitchNotCounted(t *testing.T) {
 	require.Empty(t, h.act.eventsOf(state.EvSwitchTransport))
 
 	// Automatic switching still works normally afterwards.
-	h.act.block(cand("de-1", "frp/wss").Key(), true)
+	h.act.block(cand("de-1", "frp/tcp").Key(), true)
 	h.advanceUntil(time.Minute, isUpOn(cand("de-1", "xray/reality")))
 	require.False(t, h.st().Flapping)
 
@@ -660,7 +660,7 @@ func TestManualSwitchErrors(t *testing.T) {
 	ctx := context.Background()
 	st := state.TunnelState{Skipped: map[string]state.Skip{
 		"de-1/hysteria2/udp": {Reason: "UDP is blocked between hub and node", Code: string(deyerr.B007)},
-		"de-1/frp/wss":       {Reason: "validate failed", Code: "not-a-code"},
+		"de-1/frp/tcp":       {Reason: "validate failed", Code: "not-a-code"},
 	}}
 	h := newHarness(t, twoNodes(), st, nil).run()
 	require.Equal(t, deyerr.F006, codeOf(h.eng.SwitchTransport(ctx, "nope/x")))
@@ -668,7 +668,7 @@ func TestManualSwitchErrors(t *testing.T) {
 	err := h.eng.SwitchTransport(ctx, "hysteria2/udp")
 	require.Equal(t, deyerr.B007, codeOf(err))
 	require.Equal(t, "UDP is blocked between hub and node", deyerr.As(err).Detail)
-	require.Equal(t, deyerr.F006, codeOf(h.eng.SwitchTransport(ctx, "frp/wss")))
+	require.Equal(t, deyerr.F006, codeOf(h.eng.SwitchTransport(ctx, "frp/tcp")))
 	h.requireActive(r1, state.StateUp)
 }
 
@@ -1136,7 +1136,7 @@ func TestSkipAppliedWhileBusyAndInterruptedCycleResumes(t *testing.T) {
 	// A configuration update interrupts the cycle; the cycle then resumes by
 	// verifying the candidate it was trying.
 	require.NoError(t, h.wait(h.async(func() error { return h.eng.UpdateConfig(ctx, twoNodes()) })))
-	h.advanceUntil(time.Minute, isUpOn(cand("de-1", "frp/wss")))
+	h.advanceUntil(time.Minute, isUpOn(cand("de-1", "frp/tcp")))
 	require.Empty(t, h.act.callsOf("start", r3.Key()))
 }
 
@@ -1327,7 +1327,7 @@ func TestManualSwitchWhilePaused(t *testing.T) {
 	h.advance(40 * time.Second)
 	require.Equal(t, deyerr.B004, codeOf(h.wait(ch)))
 	h.requireActive(r3, state.StatePaused)
-	require.Empty(t, h.act.callsOf("start", "de-1/frp/wss"))
+	require.Empty(t, h.act.callsOf("start", "de-1/frp/tcp"))
 }
 
 func TestManualSwitchWhilePausedAndDown(t *testing.T) {

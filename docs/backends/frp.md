@@ -45,11 +45,11 @@ unexpected EOF`). A deyroute unit runs exactly one process, so there is no TLS
 terminator; in addition `wss` cannot be combined with `transport.tls.force`
 because the stream reaching frps behind a terminator is no longer TLS.
 
-`frp/wss` therefore stays registered (it is rung 4 of the default ladder and a
-known transport id) but `Validate`/`Render` return `DEY-B006` with the reason,
-so the planner skips it with the usual yellow `rung_skipped` warning. `frp/tcp`
-has the same outside appearance (a TLS session to the control port) and is the
-recommended replacement (QUESTIONS.md).
+`frp/wss` therefore stays registered (a known transport id an owner may still
+put in a custom ladder) but `Validate`/`Render` return `DEY-B006` with the
+reason. `frp/tcp` has the same outside appearance (a TLS session to the
+control port) and replaces it as rung 4 of the default ladder (QUESTIONS.md
+C.31).
 
 ## How each side is rendered
 
@@ -199,12 +199,10 @@ nothing (frpc's admin `webServer` stays disabled).
 
 ## Known limitations
 
-- `frp/wss` is unavailable (above). Replacing it in the default ladder by
-  `frp/tcp`, or adding a TLS front, is an owner decision (QUESTIONS.md).
+- `frp/wss` is unavailable (above); the default ladder uses `frp/tcp` as rung
+  4 instead (QUESTIONS.md C.31).
 - `frp/quic` and `frp/kcp` need UDP between node and hub on the control port;
   when the UDP probe fails the rung is skipped (`DEY-B007`).
-- The sha256 of both assets is still empty in the manifest (QUESTIONS.md C.9);
-  installation is refused with `DEY-S006` until the release pipeline fills it.
 - The TLS version is not configurable in frp v0.71.0 (no `minVersion` key);
   frps/frpc are Go programs and negotiate TLS 1.3 with each other (spec 10:
   TLS 1.3 only), but frps would also accept a TLS 1.2 client.

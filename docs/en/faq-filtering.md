@@ -19,7 +19,7 @@ returns to it. Details and timings: [Backup node](backup-node.md).
 | 1 | `backhaul/wssmux` | TLS + WebSocket + multiplexing: looks like HTTPS, few connections, fast | [backhaul](../backends/backhaul.md) |
 | 2 | `backhaul/tcpmux` | no TLS but multiplexed; the least overhead, for when the tunnel's TLS fingerprint is the problem | [backhaul](../backends/backhaul.md) |
 | 3 | `rathole/noise` | a different program (Rust) and protocol with Noise encryption: a cheap alternative if the Backhaul pattern is recognised | [rathole](../backends/rathole.md) |
-| 4 | `frp/wss` | a third program with a different traffic pattern | [frp](../backends/frp.md) |
+| 4 | `frp/tcp` | a third program with a different traffic pattern (TLS on the wire) | [frp](../backends/frp.md) |
 | 5 | `xray/reality` | looks like a real TLS 1.3 connection to a decoy website; the most hidden option without UDP | [xray](../backends/xray.md) |
 | 6 | `hysteria2/udp` | QUIC; only when UDP is open; best throughput on lossy links | [hysteria2](../backends/hysteria2.md) |
 | 7 | `waterwall/reverse-reality` | reverse connection with a Reality look; the last hidden line of defence | [waterwall](../backends/waterwall.md) |
