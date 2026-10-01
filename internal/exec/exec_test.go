@@ -46,7 +46,7 @@ func TestIsAllowed(t *testing.T) {
 	require.False(t, IsAllowed("bin/nft"))
 	require.False(t, IsAllowed("wg"))
 	require.False(t, IsAllowed("/usr/sbin/nft/"+"..")) // cleans to /usr/sbin
-	require.Len(t, Allowed, 12)
+	require.Len(t, Allowed, 13)
 	require.True(t, IsAllowed("userdel"))
 	require.True(t, IsAllowed("groupdel"))
 	require.False(t, IsAllowed("useradd"), "uninstall only removes the account")

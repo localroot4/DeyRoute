@@ -21,6 +21,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/render"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/failover"
 	"github.com/localroot4/deyroute/internal/health"
 	"github.com/localroot4/deyroute/internal/install"
@@ -353,6 +354,7 @@ func (h *Hub) planInput(cfg *config.Config, t config.Tunnel) render.Input {
 		FirstRun: h.firstRun,
 		CAPEM:    h.tunnelCAPEM(),
 		UDPProbe: h.udpProbe,
+		LookPath: exec.LookPath,
 	}
 }
 

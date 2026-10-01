@@ -102,6 +102,9 @@ type Input struct {
 	// CAPEM is the internal CA certificate, copied to every config dir as
 	// ca.crt.
 	CAPEM []byte
+	// LookPath resolves the program of a backend.SystemBinary transport
+	// (haproxy) on the hub; nil = never installed.
+	LookPath func(name string) (string, error)
 	// UDPProbe optionally reports the last UDP echo probe to node (section
 	// 10); tested is false while none has completed. Rungs with NeedsUDP
 	// are planned only after a passed probe (section 7.6): a failed probe,
@@ -405,6 +408,13 @@ func (p *planner) renderInput(b backend.Backend, tr backend.Transport, node conf
 	if !m.Builtin && !m.System && m.Version != "" {
 		paths.BinDir = p.in.Layout.BinDir(b.Name(), m.Version)
 		paths.Binary = p.in.Layout.BinaryPath(b.Name(), m.Version, m.Binary())
+	}
+	if sb, ok := b.(backend.SystemBinary); ok && p.in.LookPath != nil {
+		if name := sb.SystemBinary(tr); name != "" {
+			if bin, err := p.in.LookPath(name); err == nil {
+				paths.Binary = bin
+			}
+		}
 	}
 	sec := backend.Secrets{Token: p.token, ServerName: serverName(p.in.Hub)}
 	tunnel := t.Clone()

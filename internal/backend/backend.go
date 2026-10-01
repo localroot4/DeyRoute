@@ -253,6 +253,15 @@ type Backend interface {
 	Probe(ctx context.Context, in RenderInput) (ProbeResult, error) // optional extra check
 }
 
+// SystemBinary is implemented by backends whose transport runs a program of
+// the distribution instead of a downloaded one (direct/haproxy): it returns
+// the program name for t ("" = none). The planner sets Paths.Binary to its
+// absolute path when it is installed, so Validate can tell a missing
+// program (DEY-B006) from an installed one.
+type SystemBinary interface {
+	SystemBinary(t Transport) string
+}
+
 // KeyGenerator is implemented by backends that need per-tunnel key material
 // (Noise keys, Reality x25519 + shortId, WireGuard keys, obfs passwords).
 // Keys are generated once per (tunnel, backend) in pure Go and persisted.

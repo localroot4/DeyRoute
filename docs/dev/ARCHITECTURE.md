@@ -20,7 +20,9 @@ wins and the conflict goes to `QUESTIONS.md`.
   (context). Every network/exec call has a context with timeout.
 - **Exec allow-list**: only `internal/exec` may import `os/exec`. Allowed
   programs: `systemctl`, `nft`, `ss`, `ip`, `xray`, `rathole`, `ufw`,
-  `firewall-cmd`, `iptables`, `systemd-sysusers` (QUESTIONS.md C.15).
+  `firewall-cmd`, `iptables`, `systemd-sysusers` (QUESTIONS.md C.15),
+  `userdel`/`groupdel` for uninstall (C.30) and `haproxy` (looked up for
+  direct/haproxy; only `haproxy -v` may run).
   A test in `internal/exec` scans the tree and fails on any other `os/exec` use.
 - **Testability**: every package that touches the filesystem takes a root
   directory (`Root string`, default `/`) or explicit paths so tests run in
@@ -148,7 +150,7 @@ func RedactingWriter(w io.Writer) io.Writer            // for doctor bundles / s
 
 ### internal/exec
 ```go
-var Allowed = []string{"systemctl","nft","ss","ip","xray","rathole","ufw","firewall-cmd","iptables","systemd-sysusers"} // allowlist.go
+var Allowed = []string{"systemctl","nft","ss","ip","xray","rathole","ufw","firewall-cmd","iptables","systemd-sysusers","userdel","groupdel","haproxy"} // allowlist.go
 type Runner interface { Run(ctx context.Context, name string, args []string, stdin []byte) (stdout, stderr []byte, err error) }
 func NewRunner() Runner          // rejects names whose base is not allowed (X004); non-zero exit → X007 wrapping stderr
 type Fake struct{...}            // records calls, scripted responses (for tests of other packages)

@@ -24,6 +24,9 @@ var Allowed = []string{
 	// created (spec section 5: the system is restored; QUESTIONS.md C.30).
 	"userdel",
 	"groupdel",
+	// direct/haproxy runs the distribution's haproxy under systemd; deyroute
+	// only looks it up (LookPath) and may print its version.
+	"haproxy",
 }
 
 // operations restricts the programs section 15 allows for one operation
@@ -33,6 +36,7 @@ var Allowed = []string{
 var operations = map[string]string{
 	"xray":    "x25519",
 	"rathole": "--genkey",
+	"haproxy": "-v",
 }
 
 // Permitted reports whether the command line may be executed: name is

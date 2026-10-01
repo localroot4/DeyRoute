@@ -51,6 +51,15 @@ func init() { backend.Register(New()) }
 // Name returns "direct".
 func (*Backend) Name() string { return Name }
 
+// SystemBinary implements backend.SystemBinary: direct/haproxy runs the
+// distribution's haproxy on the hub.
+func (*Backend) SystemBinary(t backend.Transport) string {
+	if t.Name == HAProxy {
+		return "haproxy"
+	}
+	return ""
+}
+
 // Transports returns direct/native and direct/haproxy (spec section 7
 // comparison table; section 9: direct/native is never quarantined).
 func (*Backend) Transports() []backend.Transport {
