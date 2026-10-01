@@ -26,6 +26,7 @@ import (
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/firewall"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/sysctl"
 	"github.com/localroot4/deyroute/internal/systemd"
 )
 
@@ -790,16 +791,10 @@ func (a *agent) syncFirewall(ctx context.Context, force bool) error {
 }
 
 // ensureIPForward sets net.ipv4.ip_forward=1 when an instance needs it
-// (runtime only; sysctl.apply persists it).
+// (runtime only; sysctl.apply persists it). The previous value is kept in
+// the sysctl backup, so uninstall restores it.
 func (a *agent) ensureIPForward() error {
-	p := a.path("/proc/sys/net/ipv4/ip_forward")
-	if readTrim(p) == "1" {
-		return nil
-	}
-	if err := os.WriteFile(p, []byte("1\n"), 0o600); err != nil {
-		return deyerr.Wrap(deyerr.X033, err, deyerr.Params{"key": "net.ipv4.ip_forward", "value": "1"})
-	}
-	return nil
+	return sysctl.Manager{Root: a.o.Root}.Ensure("net.ipv4.ip_forward", "1")
 }
 
 func natRuleKey(r backend.NATRule) string {

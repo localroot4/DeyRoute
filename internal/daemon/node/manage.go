@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
@@ -65,7 +66,7 @@ func (a *agent) scheduleUninstall() {
 // uninstall is the built-in node uninstall (spec section 5): stop and
 // remove every tunnel unit, delete table inet deyroute, revert sysctl, disable
 // the node service, delete the deyroute paths (backend binaries included) and
-// finally stop deyroute-node itself, which ends this process. Every step runs
+// the deyroute system account, and finally stop deyroute-node itself, which ends this process. Every step runs
 // even when an earlier one failed; the failures are returned joined.
 func (a *agent) uninstall(ctx context.Context) error {
 	var errs []error
@@ -84,11 +85,18 @@ func (a *agent) uninstall(ctx context.Context) error {
 		step("list units", err)
 	}
 	step("firewall", firewall.Remove(ctx, a.o.Runner))
-	step("sysctl", sysctl.Manager{Root: a.o.Root}.Revert())
+	serr := sysctl.Manager{Root: a.o.Root}.Revert()
+	step("sysctl", serr)
 	if err := a.sd.Disable(ctx, systemd.NodeUnit); err != nil && !notLoaded(err) {
 		step("disable service", err)
 	}
-	step("remove files", install.RemovePaths(a.o.Root, install.UninstallPlan(a.o.Root, false)))
+	var keep []string
+	if serr != nil {
+		keep = []string{filepath.Base(config.SysctlBackup)} // a later run can still revert
+	}
+	step("remove files", install.RemovePaths(a.o.Root, install.UninstallPlanKeeping(a.o.Root, false, keep)))
+	_, aerr := setup.RemoveAccount(ctx, a.o.Root, a.o.Runner)
+	step("remove account", aerr)
 	step("daemon-reload", a.sd.DaemonReload(ctx))
 	a.log.Warn("deyroute removed from this server; stopping the node service")
 	if _, _, err := a.o.Runner.Run(ctx, "systemctl", []string{"stop", "--no-block", systemd.NodeUnit}, nil); err != nil && !notLoaded(err) {

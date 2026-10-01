@@ -560,3 +560,23 @@ func TestParseKV(t *testing.T) {
 	got := parseKV([]byte("# c\n; c\n\na.b = 1\na.b = 2\n x.y=  3   4 \nnoeq\nBAD.KEY = 1\n"))
 	require.Equal(t, []KV{{"a.b", "1"}, {"x.y", "3 4"}}, got)
 }
+
+// A runtime change (ip_forward for a NAT transport) is recorded in the
+// backup, so Revert and uninstall restore the server's own value.
+func TestEnsureRecordsTheOriginalValue(t *testing.T) {
+	m, _ := fakeRoot(t)
+	require.NoError(t, m.Ensure(KeyIPForward, "1"))
+	require.Equal(t, "1", get(t, m, KeyIPForward))
+	require.NoError(t, m.Ensure(KeyIPForward, "1"), "idempotent")
+	backup, err := os.ReadFile(m.BackupPath())
+	require.NoError(t, err)
+	require.Contains(t, string(backup), KeyIPForward+" = 0")
+
+	// A later profile keeps the first original; Revert restores it.
+	_, _, err = m.Apply(config.SysctlBalanced, true)
+	require.NoError(t, err)
+	require.NoError(t, m.Revert())
+	require.Equal(t, "0", get(t, m, KeyIPForward))
+
+	require.Error(t, m.Ensure("net.no.such.key", "1"))
+}

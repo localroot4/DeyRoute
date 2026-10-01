@@ -337,3 +337,26 @@ func TestUninstallWithoutUserdelKeepsGoing(t *testing.T) {
 	require.Contains(t, st.Detail, "userdel is not installed")
 	require.Equal(t, "ok", st.Status)
 }
+
+// When the kernel settings cannot be restored, the sysctl backup survives the
+// files step, so the next uninstall run can still restore them.
+func TestUninstallKeepsTheSysctlBackupWhenRevertFails(t *testing.T) {
+	root := t.TempDir()
+	installedTree(t, root)
+	// A read-only kernel entry (writes fail even for root) makes the revert
+	// fail.
+	ro := "/proc/sys/kernel/osrelease"
+	if f, err := os.OpenFile(ro, os.O_WRONLY, 0); err == nil {
+		_ = f.Close()
+		t.Skip(ro + " is writable here")
+	}
+	proc := filepath.Join(root, "proc/sys/net/core/somaxconn")
+	require.NoError(t, os.Remove(proc))
+	require.NoError(t, os.Symlink(ro, proc))
+	sys := newFakeSystem(root)
+	err := Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: sys.runner()})
+	require.Error(t, err)
+	require.FileExists(t, filepath.Join(root, "var/lib/deyroute/sysctl-before-deyroute.conf"))
+	require.NoFileExists(t, filepath.Join(root, "var/lib/deyroute/state.db"), "everything else is removed")
+	require.FileExists(t, filepath.Join(root, "usr/local/bin/deyroute"), "binary kept for a re-run")
+}

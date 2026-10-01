@@ -76,11 +76,14 @@ func Uninstall(ctx context.Context, o UninstallOptions) error {
 	run(StepFirewallRemove, func() (string, error) {
 		return firewall.TableRef, firewall.Remove(ctx, e.runner)
 	})
+	sysctlKept := false
 	run(StepSysctlRevert, func() (string, error) {
-		return config.SysctlBackup, sysctl.Manager{Root: e.root}.Revert()
+		err := sysctl.Manager{Root: e.root}.Revert()
+		sysctlKept = err != nil // keep the backup for the next run
+		return config.SysctlBackup, err
 	})
 	run(StepFiles, func() (string, error) {
-		paths := e.dataPaths(o.KeepBackups)
+		paths := e.dataPaths(o.KeepBackups, sysctlKept)
 		return strconv.Itoa(len(paths)) + " paths", install.RemovePaths(e.root, paths)
 	})
 	run(StepAccount, func() (string, error) { return e.removeAccount(ctx) })
@@ -197,10 +200,14 @@ func (e *env) removeUnitFiles(ctx context.Context, units []string) (string, erro
 // dataPaths is install.UninstallPlan without the binaries (removed last)
 // plus the restore leftovers /etc/deyroute.restore-tmp and
 // /etc/deyroute.pre-restore-* (they hold older secrets).
-func (e *env) dataPaths(keepBackups bool) []string {
+func (e *env) dataPaths(keepBackups, keepSysctlBackup bool) []string {
 	bin := map[string]bool{e.path(config.BinaryPath): true, e.path(config.ShortLinkPath): true}
+	var keep []string
+	if keepSysctlBackup {
+		keep = append(keep, filepath.Base(config.SysctlBackup))
+	}
 	var out []string
-	for _, p := range install.UninstallPlan(e.root, keepBackups) {
+	for _, p := range install.UninstallPlanKeeping(e.root, keepBackups, keep) {
 		if !bin[p] {
 			out = append(out, p)
 		}
@@ -216,6 +223,13 @@ func (e *env) dataPaths(keepBackups bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// RemoveAccount deletes the system user and group the installer created
+// (config.SystemUser) below root; the node agent's hub-initiated uninstall
+// uses it too. See removeAccount.
+func RemoveAccount(ctx context.Context, root string, r exec.Runner) (string, error) {
+	return newEnv(envOptions{Root: root, Runner: r}).removeAccount(ctx)
 }
 
 // removeAccount deletes the system user and group the installer created

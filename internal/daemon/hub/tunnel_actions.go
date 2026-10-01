@@ -20,6 +20,7 @@ import (
 	"github.com/localroot4/deyroute/internal/health"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
+	"github.com/localroot4/deyroute/internal/sysctl"
 	"github.com/localroot4/deyroute/internal/systemd"
 )
 
@@ -390,17 +391,10 @@ func (h *Hub) ensureTunnelLogDir() error {
 }
 
 // ensureIPForward sets net.ipv4.ip_forward=1 for a NAT transport (runtime;
-// the sysctl profile persists it, section 12).
+// the sysctl profile persists it, section 12). The previous value is kept in
+// the sysctl backup, so uninstall and optimize revert restore it.
 func (h *Hub) ensureIPForward() error {
-	p := h.path("/proc/sys/net/ipv4/ip_forward")
-	data, err := os.ReadFile(p) // #nosec G304 -- fixed /proc path below Root
-	if err == nil && strings.TrimSpace(string(data)) == "1" {
-		return nil
-	}
-	if err := os.WriteFile(p, []byte("1\n"), 0o600); err != nil {
-		return deyerr.Wrap(deyerr.X033, err, deyerr.Params{"key": "net.ipv4.ip_forward", "value": "1"})
-	}
-	return nil
+	return sysctl.Manager{Root: h.o.Root}.Ensure("net.ipv4.ip_forward", "1")
 }
 
 // sleepCtx waits d or until ctx ends.

@@ -310,6 +310,41 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 	return applied, warnings, nil
 }
 
+// Ensure sets one kernel key at runtime (e.g. net.ipv4.ip_forward=1 for a
+// NAT transport). Like ApplyWith, it first records the key's current value
+// in the backup file (unless an earlier change already did), so Revert and
+// uninstall restore what the server had before deyroute (spec sections 5, 12).
+// The value is not persisted in 99-deyroute.conf: the profile does that.
+func (m Manager) Ensure(key, value string) error {
+	applyMu.Lock()
+	defer applyMu.Unlock()
+	cur, ok := m.Get(key)
+	if !ok {
+		return deyerr.New(deyerr.X033, deyerr.Params{"key": key, "value": value})
+	}
+	if cur == normalize(value) {
+		return nil
+	}
+	backup, err := m.readKVFile(m.BackupPath())
+	if err != nil {
+		return err
+	}
+	have := false
+	for _, kv := range backup {
+		if kv.Key == key {
+			have = true
+			break
+		}
+	}
+	if !have {
+		backup = append(backup, KV{key, cur})
+		if err := writeFile(m.BackupPath(), renderBackup(backup), 0o600); err != nil {
+			return err
+		}
+	}
+	return m.set(key, value)
+}
+
 // Revert restores every backed-up value, removes 99-deyroute.conf and, when
 // all values were restored, the backup file. It is a no-op without a
 // backup. Restore failures return DEY-X033 (joined) and keep the backup so

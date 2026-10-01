@@ -27,6 +27,14 @@ import (
 //
 // Paths are under root, sorted, and only those that exist are returned.
 func UninstallPlan(root string, keepBackups bool) []string {
+	return UninstallPlanKeeping(root, keepBackups, nil)
+}
+
+// UninstallPlanKeeping is UninstallPlan that also keeps the given paths
+// below /var/lib/deyroute (given relative to it, e.g. "sysctl-before-deyroute.conf":
+// uninstall keeps the sysctl backup when restoring the kernel settings
+// failed, so a second run can still restore them).
+func UninstallPlanKeeping(root string, keepBackups bool, keepInLib []string) []string {
 	l := Layout{Root: root}
 	var out []string
 	add := func(p string) {
@@ -36,12 +44,17 @@ func UninstallPlan(root string, keepBackups bool) []string {
 	}
 	add(l.Path(config.EtcDir))
 	lib := l.Path(config.LibDir)
-	if keepBackups {
-		backups := l.Path(config.BackupDir)
+	if keepBackups || len(keepInLib) > 0 {
+		keep := map[string]bool{}
+		if keepBackups {
+			keep[l.Path(config.BackupDir)] = true
+		}
+		for _, k := range keepInLib {
+			keep[filepath.Join(lib, k)] = true
+		}
 		if ents, err := os.ReadDir(lib); err == nil {
 			for _, e := range ents {
-				p := filepath.Join(lib, e.Name())
-				if p != backups {
+				if p := filepath.Join(lib, e.Name()); !keep[p] {
 					add(p)
 				}
 			}
