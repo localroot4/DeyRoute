@@ -17,6 +17,7 @@ const (
 	lineSettle   = 150 * time.Millisecond // wait for quick answers before printing
 	lineMinPrint = time.Second            // at most one unasked reprint per second
 	lineStopWait = 5 * time.Second        // wait for background calls on exit
+	lineFlushMax = 3 * time.Second        // longest wait for a pending page before the next answer
 )
 
 // runLines runs the TUI on a terminal that cannot position the cursor
@@ -63,6 +64,14 @@ func (r *lineRunner) run(in io.Reader) error {
 	for {
 		select {
 		case line, ok := <-lines:
+			if settle != nil && asked {
+				// Piped input: the page that answers the previous line is
+				// printed before the next one is applied (and at the end).
+				if r.flush() {
+					return nil
+				}
+				printed = time.Now()
+			}
 			if !ok {
 				return nil // end of input
 			}
@@ -90,6 +99,26 @@ func (r *lineRunner) run(in io.Reader) error {
 			}
 			settle, asked = nil, false
 		}
+	}
+}
+
+// flush applies the messages that arrive until none came for lineSettle
+// (at most lineFlushMax), then prints the page; it reports whether the TUI
+// quit meanwhile.
+func (r *lineRunner) flush() bool {
+	deadline := time.After(lineFlushMax)
+	for {
+		select {
+		case msg := <-r.msgs:
+			if r.handle(msg) {
+				return true
+			}
+			continue
+		case <-time.After(lineSettle):
+		case <-deadline:
+		}
+		r.print(true)
+		return false
 	}
 }
 

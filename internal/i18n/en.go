@@ -329,16 +329,17 @@ const (
 	TUIClientMasked   Key = "tui.common.client_masked"
 
 	// tunnel and node states (always shown as words, never color only)
-	TUIStateUp        Key = "tui.state.up"
-	TUIStateDegraded  Key = "tui.state.degraded"
-	TUIStateSwitching Key = "tui.state.switching"
-	TUIStateStarting  Key = "tui.state.starting"
-	TUIStateInit      Key = "tui.state.init"
-	TUIStateDown      Key = "tui.state.down"
-	TUIStateDisabled  Key = "tui.state.disabled"
-	TUIStatePaused    Key = "tui.state.paused"
-	TUIOnline         Key = "tui.state.online"
-	TUIOffline        Key = "tui.state.offline"
+	TUIStateUp          Key = "tui.state.up"
+	TUIStateDegraded    Key = "tui.state.degraded"
+	TUIStateDegradedSvc Key = "tui.state.degraded_svc"
+	TUIStateSwitching   Key = "tui.state.switching"
+	TUIStateStarting    Key = "tui.state.starting"
+	TUIStateInit        Key = "tui.state.init"
+	TUIStateDown        Key = "tui.state.down"
+	TUIStateDisabled    Key = "tui.state.disabled"
+	TUIStatePaused      Key = "tui.state.paused"
+	TUIOnline           Key = "tui.state.online"
+	TUIOffline          Key = "tui.state.offline"
 
 	// 1 dashboard
 	TUIDashTunnels      Key = "tui.dash.tunnels"
@@ -486,7 +487,6 @@ const (
 	TUILadEmpty    Key = "tui.lad.empty"
 	TUILadAdd      Key = "tui.lad.add"
 	TUILadProfile  Key = "tui.lad.profile"
-	TUILadSimple   Key = "tui.lad.simple"
 	TUILadSaved    Key = "tui.lad.saved"
 	TUILadNoneLeft Key = "tui.lad.none_left"
 	TUILadBuiltin  Key = "tui.lad.builtin"
@@ -786,16 +786,17 @@ var tuiEN = map[Key]string{
 	TUIClientKept:     "preserved",
 	TUIClientMasked:   "masked",
 
-	TUIStateUp:        "UP",
-	TUIStateDegraded:  "DEGR",
-	TUIStateSwitching: "SWITCHING",
-	TUIStateStarting:  "STARTING",
-	TUIStateInit:      "INIT",
-	TUIStateDown:      "DOWN",
-	TUIStateDisabled:  "DISABLED",
-	TUIStatePaused:    "PAUSED",
-	TUIOnline:         "online",
-	TUIOffline:        "offline",
+	TUIStateUp:          "UP",
+	TUIStateDegraded:    "DEGR",
+	TUIStateDegradedSvc: "DEGR (service down)",
+	TUIStateSwitching:   "SWITCHING",
+	TUIStateStarting:    "STARTING",
+	TUIStateInit:        "INIT",
+	TUIStateDown:        "DOWN",
+	TUIStateDisabled:    "DISABLED",
+	TUIStatePaused:      "PAUSED",
+	TUIOnline:           "online",
+	TUIOffline:          "offline",
 
 	TUIDashTunnels:      "TUNNELS",
 	TUIDashNodes:        "NODES",
@@ -945,7 +946,6 @@ var tuiEN = map[Key]string{
 	TUILadEmpty:    "The ladder is empty; add at least one transport.",
 	TUILadAdd:      "Add a transport:",
 	TUILadProfile:  "Use a ladder profile:",
-	TUILadSimple:   "In Simple mode the ladder is chosen automatically and not shown.\nThe dashboard shows which transport each tunnel uses right now.\nSwitch to Advanced (12) Settings -> 1) UI mode) to see or change the order.",
 	TUILadSaved:    "Ladder of %s saved: %s",
 	TUILadNoneLeft: "Every known transport is already in the ladder.",
 	TUILadBuiltin:  " (built-in)",
@@ -1148,7 +1148,7 @@ var tuiEN = map[Key]string{
 	TUIStUninstall:      "Uninstall",
 	TUIStModePick:       "UI mode:",
 	TUIStSimpleDesc:     "Simple - the essentials only; ladders are automatic",
-	TUIStAdvDesc:        "Advanced - adds ladder order, thresholds, limits and fingerprints (items marked *)",
+	TUIStAdvDesc:        "Advanced - adds failover thresholds, resource limits and certificate fingerprints (items marked *)",
 	TUIStModeSet:        "UI mode: %s",
 	TUIStLangPick:       "Language:",
 	TUIStLangEn:         "English",

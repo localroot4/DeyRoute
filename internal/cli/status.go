@@ -168,6 +168,9 @@ func (g *Globals) stateCell(t api.TunnelInfo) string {
 	case state.StateUp:
 		return s.up + " " + i18n.T(i18n.TUIStateUp)
 	case state.StateDegraded:
+		if t.ServiceDown {
+			return s.half + " " + i18n.T(i18n.TUIStateDegradedSvc)
+		}
 		return s.half + " " + i18n.T(i18n.TUIStateDegraded)
 	case state.StateSwitching:
 		return s.half + " " + i18n.T(i18n.TUIStateSwitching)

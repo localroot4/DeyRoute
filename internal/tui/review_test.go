@@ -447,3 +447,19 @@ func TestLineModeNoColor(t *testing.T) {
 	}
 	require.NotContains(t, s.out.String(), "\x1b[")
 }
+
+// Piped input (all lines at once, then EOF): every answered page is
+// printed before the next answer, the last one before line mode ends.
+func TestLineModePipedInput(t *testing.T) {
+	log := &callLog{}
+	stub := fullStub(log, "simple")
+	var out bytes.Buffer
+	err := runLines(Options{Caps: Caps{Width: 80}, Local: stub, In: strings.NewReader("1\nq\n2\n"), Out: &out,
+		Now: func() time.Time { return testNow }, Location: time.UTC})
+	require.NoError(t, err)
+	got := out.String()
+	require.Contains(t, got, "1) Dashboard")
+	require.Contains(t, got, "TUNNELS", "the dashboard answered line 1")
+	require.Contains(t, got, "de-1 Germany 1")
+	require.Contains(t, got, "1) Add tunnel", "the Tunnels menu answered the last line")
+}

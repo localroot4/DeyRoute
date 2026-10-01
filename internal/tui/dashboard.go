@@ -143,6 +143,10 @@ func (a *app) stateLook(t api.TunnelInfo) (sym, word, col string) {
 	case state.StateUp:
 		return s.up, i18n.T(i18n.TUIStateUp), colGreen
 	case state.StateDegraded:
+		if t.ServiceDown {
+			// The tunnel path works; the service behind the node does not.
+			return s.half, i18n.T(i18n.TUIStateDegradedSvc), colYellow
+		}
 		return s.half, i18n.T(i18n.TUIStateDegraded), colYellow
 	case state.StateSwitching:
 		return s.half, i18n.T(i18n.TUIStateSwitching), colBlue

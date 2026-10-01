@@ -8,6 +8,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
+
+	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/state"
 )
 
 // A line wider than the window is word-wrapped with its indentation; the
@@ -75,4 +78,13 @@ func TestPlainPage(t *testing.T) {
 
 	p.SetStdin(strings.NewReader("")) // end of input is not an error
 	require.NoError(t, p.Run())
+}
+
+// A degraded tunnel whose node service is down says so (section 6).
+func TestStateLookServiceDown(t *testing.T) {
+	a := &app{caps: Caps{Unicode: true}}
+	_, w, _ := a.stateLook(api.TunnelInfo{Enabled: true, State: state.StateDegraded, ServiceDown: true})
+	require.Equal(t, "DEGR (service down)", w)
+	_, w, _ = a.stateLook(api.TunnelInfo{Enabled: true, State: state.StateDegraded})
+	require.Equal(t, "DEGR", w)
 }

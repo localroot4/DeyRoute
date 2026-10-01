@@ -189,6 +189,46 @@ func TestAddTunnelFailureAndRetry(t *testing.T) {
 	mu.Unlock()
 }
 
+// A step that fails after the tunnel was saved (its port is taken now):
+// Retry restarts that tunnel instead of adding it again (DEY-C003).
+func TestAddTunnelRetryRestartsTheSavedTunnel(t *testing.T) {
+	log := &callLog{}
+	saved := false
+	var mu sync.Mutex
+	stub := &apitest.Stub{
+		NodeListFn: func(context.Context) ([]api.NodeInfo, error) { return sampleNodes()[:1], nil },
+		PortCheckFn: func(context.Context, api.PortCheckRequest) (api.PortCheckResult, error) {
+			return api.PortCheckResult{BindFree: true}, nil
+		},
+		TunnelAddFn: func(context.Context, api.TunnelAddRequest, func(api.Step)) (api.TunnelInfo, error) {
+			log.add("add")
+			mu.Lock()
+			saved = true
+			mu.Unlock()
+			return api.TunnelInfo{}, deyerr.New(deyerr.B003, deyerr.Params{"unit": "deyroute-tun@tunnel.de-1.backhaul-wssmux"})
+		},
+		TunnelListFn: func(context.Context) ([]api.TunnelInfo, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !saved {
+				return nil, nil
+			}
+			return []api.TunnelInfo{{ID: "tunnel", Ports: []api.PortMapDTO{{Listen: 443, Proto: "tcp"}}}}, nil
+		},
+		TunnelRestartFn: func(_ context.Context, id string) error { log.add("restart " + id); return nil },
+		TunnelShowFn: func(_ context.Context, id string) (api.TunnelDetail, error) {
+			return api.TunnelDetail{TunnelInfo: api.TunnelInfo{ID: id, State: state.StateUp, ActiveTransport: "backhaul/wssmux", RTTms: 40}}, nil
+		},
+	}
+	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
+	h.choose("2").choose("1").typeLine("443").press("enter")
+	h.must("✖ DEY-B003", "1) Retry")
+	h.choose("1")
+	h.must("Tunnel tunnel is UP via backhaul/wssmux (40ms)")
+	require.Equal(t, 1, log.count("add"), "not added twice")
+	require.True(t, log.has("restart tunnel"))
+}
+
 func TestAddTunnelNoOnlineNode(t *testing.T) {
 	stub := &apitest.Stub{NodeListFn: func(context.Context) ([]api.NodeInfo, error) { return nil, nil }}
 	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
@@ -471,8 +511,9 @@ func TestLadderEditorSimpleAndAdvanced(t *testing.T) {
 	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
 	h.choose("5")
 	h.mustNot("Thresholds *")
+	// Ladder order is not a starred item: Simple mode opens it too.
 	h.choose("2")
-	h.must("In Simple mode the ladder is chosen automatically")
+	h.must("Failover - Ladder order", "main")
 	h.press("esc", "esc")
 	require.Equal(t, 1, h.depth())
 	// Switch to Advanced through Settings (one SettingsSet call).

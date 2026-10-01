@@ -27,9 +27,8 @@ func failoverMenu(a *app) screen {
 			}))
 		}},
 		{label: i18n.TUIFoLadder, act: func(a *app) tea.Cmd {
-			if !a.advanced {
-				return a.push(textPage(sub(i18n.TUIFoLadder), indent(i18n.T(i18n.TUILadSimple))+"\n"))
-			}
+			// Not a starred item: the order can be seen and changed in
+			// Simple mode too.
 			return a.push(pickTunnel(sub(i18n.TUIFoLadder), editLadder))
 		}},
 		{label: i18n.TUIFoBackups, act: func(a *app) tea.Cmd {
@@ -50,13 +49,6 @@ func failoverMenu(a *app) screen {
 			return a.push(pickTunnel(sub(i18n.TUIFoThresholds), editThresholds))
 		}},
 	})
-}
-
-// textPage is a fixed text page (no daemon call).
-func textPage(title, text string) *taskScreen {
-	t := newLocalTask(title, func(context.Context) (any, error) { return nil, nil }, func(*app, any) string { return text })
-	t.cancellable = true
-	return t
 }
 
 func pickPolicy(t api.TunnelInfo) *listScreen {

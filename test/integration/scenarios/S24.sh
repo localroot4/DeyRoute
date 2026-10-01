@@ -18,4 +18,6 @@ done
 # Line mode drives the menu with numbers and q (a pipe instead of a terminal).
 out=$(printf '1\nq\nq\n' | docker exec -i "${env_dumb[@]}" "$(cid hub)" deyroute 2>&1) || fail "line-mode menu exited non-zero: $out"
 LC_ALL=C grep -q '[^[:print:][:space:]]' <<<"$out" && fail "non-ASCII bytes in line mode"
+grep -q "1) Dashboard" <<<"$out" || fail "line mode printed no menu: $out"
+grep -q "TUNNELS" <<<"$out" || fail "line mode did not answer 1 (dashboard): $out"
 pass

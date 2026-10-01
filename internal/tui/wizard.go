@@ -416,10 +416,49 @@ func (w *wizard) request() api.TunnelAddRequest {
 
 func (w *wizard) create(a *app) tea.Cmd {
 	req := w.request()
+	tried := false
 	task := newTask(i18n.T(i18n.TUITunAdd), longTimeout, func(ctx context.Context, l api.Local, progress func(api.Step)) (any, error) {
+		if tried {
+			// Retry: a failed step after the tunnel was saved leaves it
+			// configured (its ports are taken), so it is restarted
+			// instead of being added a second time (DEY-C003).
+			if id, ok := addedTunnel(ctx, l, req); ok {
+				if err := l.TunnelRestart(ctx, id); err != nil {
+					return nil, err
+				}
+				d, err := l.TunnelShow(ctx, id)
+				return d.TunnelInfo, err
+			}
+		}
+		tried = true
 		return l.TunnelAdd(ctx, req, progress)
 	}, renderTunnelUp)
 	return a.replace(task)
+}
+
+// addedTunnel finds the tunnel a failed TunnelAdd of req saved anyway: the
+// one that holds req's first listen port (ports are unique on the hub).
+func addedTunnel(ctx context.Context, l api.Local, req api.TunnelAddRequest) (string, bool) {
+	if len(req.Ports) == 0 {
+		return "", false
+	}
+	want := req.Ports[0]
+	proto := want.Proto
+	if proto == "" {
+		proto = "tcp"
+	}
+	ts, err := l.TunnelList(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, t := range ts {
+		for _, p := range t.Ports {
+			if p.Listen == want.Listen && (p.Proto == proto || p.Proto == "" && proto == "tcp") {
+				return t.ID, true
+			}
+		}
+	}
+	return "", false
 }
 
 // renderTunnelUp is the last line of the progress screen:

@@ -471,3 +471,15 @@ func TestASCIIScreensAt80(t *testing.T) {
 		require.LessOrEqual(t, len(l), 80, "too wide: %q", l)
 	}
 }
+
+func (c *callLog) count(s string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, x := range c.calls {
+		if x == s {
+			n++
+		}
+	}
+	return n
+}
