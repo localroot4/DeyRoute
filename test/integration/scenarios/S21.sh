@@ -8,9 +8,9 @@ setup_pair client
 serve_http node1 443 1
 T=$(add_tunnel "$NODE1" 443)
 wait_tunnel_up "$T" 180
-dey tunnel switch "$T" --transport backhaul/tcp --json >/dev/null
-on_bh() { tunnel_up "$T" && [ "$(active_transport "$T")" = backhaul/tcp ]; }
-wait_for 90 "tunnel on backhaul/tcp" on_bh
+dey tunnel switch "$T" --transport backhaul/tcpmux --json >/dev/null
+on_bh() { tunnel_up "$T" && [ "$(active_transport "$T")" = backhaul/tcpmux ]; }
+wait_for 90 "tunnel on backhaul/tcpmux" on_bh
 
 # The "new" backhaul starts and stays active but carries nothing.
 https_mirror
