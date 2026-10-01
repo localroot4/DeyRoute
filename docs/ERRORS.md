@@ -47,7 +47,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-C005` | Unknown transport: {transport} | the ladder contains a transport that no backend provides | use one of: {valid} |
 | `DEY-C006` | Config schema migration failed ({from} -> {to}) | the config file could not be converted to the current schema | restore a backup from /var/lib/deyroute/backups/auto/ or fix the file by hand, then run: deyroute config validate |
 | `DEY-C007` | Invalid {kind} id: '{id}' | ids may contain only a-z, 0-9 and '-', 2 to 32 characters | choose an id like de-1 or main |
-| `DEY-C008` | Tunnel {tunnel} has no node | every tunnel needs at least one node | add a node: deyroute tunnel edit {tunnel}   or   deyroute tunnel backup add {tunnel} --node <id> |
+| `DEY-C008` | Tunnel {tunnel} has no node | every tunnel needs at least one node, and this change would leave it without one | give it another node first: deyroute tunnel backup add {tunnel} --node <id>   or delete it: deyroute tunnel delete {tunnel} |
 | `DEY-C009` | Tunnel {tunnel} has an empty ladder | at least one transport is required | use the default ladder: deyroute tunnel edit {tunnel} --ladder default |
 | `DEY-C010` | Tunnel {tunnel} refers to unknown node {node} | the node id is not in the nodes list | join the node first (deyroute node join-command) or fix the id |
 | `DEY-C011` | Listen port {port} is reserved | {reason} | pick another port; deyroute port suggest shows free ones |

@@ -134,8 +134,11 @@ only after updating one side. To fix it, bring both to the same release:
 deyroute node remove nl-1
 ```
 
-This stops every tunnel transport on the node (tunnels whose only node it is
-go DOWN), revokes its certificate and removes its IP from the firewall. It
+This stops every tunnel transport on the node (its tunnels continue on their
+other nodes), revokes its certificate and removes its IP from the firewall. A
+tunnel whose only node it is must get another node first
+(`deyroute tunnel backup add <tunnel> --node <id>`) or be deleted; otherwise the
+removal is refused with `DEY-C008`. It
 asks you to type `yes` (`--yes` in scripts). The node server itself is not
 cleaned: run `deyroute uninstall` on it to remove deyroute there.
 

@@ -104,7 +104,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 deyroute node remove nl-1
 ```
 
-این دستور همه ترنسپورت‌های تانل روی آن Node را متوقف می‌کند (تانل‌هایی که فقط همین Node را دارند DOWN می‌شوند)، گواهی Node را باطل می‌کند و IP آن را از فایروال برمی‌دارد. برای تأیید باید `yes` تایپ کنید (در اسکریپت: `--yes`). خود سرور Node پاک نمی‌شود: برای حذف deyroute از آن، روی خود Node بزنید `deyroute uninstall`.
+این دستور همه ترنسپورت‌های تانل روی آن Node را متوقف می‌کند (تانل‌هایش روی Nodeهای دیگرشان ادامه می‌دهند)، گواهی Node را باطل می‌کند و IP آن را از فایروال برمی‌دارد. تانلی که فقط همین Node را دارد باید اول یک Node دیگر بگیرد (`deyroute tunnel backup add <tunnel> --node <id>`) یا حذف شود؛ وگرنه حذف با `DEY-C008` رد می‌شود. برای تأیید باید `yes` تایپ کنید (در اسکریپت: `--yes`). خود سرور Node پاک نمی‌شود: برای حذف deyroute از آن، روی خود Node بزنید `deyroute uninstall`.
 
 برای Join دوباره یک سرور (مثلاً به یک Hub دیگر)، اول روی آن `deyroute uninstall` بزنید و بعد یک Join command تازه. اگر روی Hub از قبل Nodeی با همین شناسه باشد، یا اول آن را روی Hub حذف کنید یا با `--name` شناسه دیگری بدهید (`DEY-N010`).
 

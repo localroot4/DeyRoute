@@ -249,8 +249,8 @@ func TestSwitchProfilesRestoresDroppedKeys(t *testing.T) {
 	require.False(t, st.BBRActive)
 	require.True(t, st.BBRAvailable)
 
-	// off reverts everything.
-	applied, warnings, err = m.Apply(config.SysctlOff, true)
+	// off reverts everything (no transport needs forwarding).
+	applied, warnings, err = m.Apply(config.SysctlOff, false)
 	require.NoError(t, err)
 	require.Nil(t, applied)
 	require.Nil(t, warnings)
@@ -579,4 +579,27 @@ func TestEnsureRecordsTheOriginalValue(t *testing.T) {
 	require.Equal(t, "0", get(t, m, KeyIPForward))
 
 	require.Error(t, m.Ensure("net.no.such.key", "1"))
+}
+
+// "off" while a WireGuard/AmneziaWG side forwards keeps ip_forward on (and
+// still remembers the original 0 for uninstall).
+func TestApplyOffKeepsIPForwardWhenNeeded(t *testing.T) {
+	m, _ := fakeRoot(t)
+	require.NoError(t, m.Ensure(KeyIPForward, "1"))
+	_, _, err := m.ApplyWith(ApplyOptions{Profile: config.SysctlBalanced, BBR: true, IPForward: true})
+	require.NoError(t, err)
+	_, _, err = m.ApplyWith(ApplyOptions{Profile: config.SysctlOff, IPForward: true})
+	require.NoError(t, err)
+	require.Equal(t, "1", get(t, m, KeyIPForward))
+	backup, err := os.ReadFile(m.BackupPath())
+	require.NoError(t, err)
+	require.Contains(t, string(backup), KeyIPForward+" = 0")
+	require.NoError(t, m.Revert())
+	require.Equal(t, "0", get(t, m, KeyIPForward))
+
+	// Without the need, off restores 0.
+	require.NoError(t, m.Ensure(KeyIPForward, "1"))
+	_, _, err = m.ApplyWith(ApplyOptions{Profile: config.SysctlOff})
+	require.NoError(t, err)
+	require.Equal(t, "0", get(t, m, KeyIPForward))
 }

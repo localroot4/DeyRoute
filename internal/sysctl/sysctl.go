@@ -205,7 +205,8 @@ func (m Manager) Apply(profile string, ipForward bool) (applied []KV, warnings [
 
 // ApplyWith makes the kernel match a profile:
 //
-//  1. "off" reverts everything deyroute changed (Revert) and returns.
+//  1. "off" reverts everything deyroute changed (Revert) and returns; with
+//     IPForward (a running WireGuard/AmneziaWG side) ip_forward stays 1.
 //  2. BBR (fq + bbr) is kept only when requested and available; otherwise
 //     it is skipped with a warning (section 12). Keys this kernel does not
 //     have are skipped with a warning.
@@ -228,7 +229,12 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 	applyMu.Lock()
 	defer applyMu.Unlock()
 	if o.Profile == config.SysctlOff {
-		return nil, nil, m.revert()
+		if err := m.revert(); err != nil || !o.IPForward {
+			return nil, nil, err
+		}
+		// A running WireGuard/AmneziaWG side still forwards: keep it on
+		// (recorded again in the backup, so uninstall restores it).
+		return nil, nil, m.ensure(KeyIPForward, "1")
 	}
 
 	useBBR := o.BBR
@@ -318,6 +324,11 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 func (m Manager) Ensure(key, value string) error {
 	applyMu.Lock()
 	defer applyMu.Unlock()
+	return m.ensure(key, value)
+}
+
+// ensure is Ensure without the lock.
+func (m Manager) ensure(key, value string) error {
 	cur, ok := m.Get(key)
 	if !ok {
 		return deyerr.New(deyerr.X033, deyerr.Params{"key": key, "value": value})

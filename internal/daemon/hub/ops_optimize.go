@@ -118,6 +118,13 @@ func (l *local) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) 
 	if err := h.sysctlManager().Revert(); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
+	// A running WireGuard/AmneziaWG hub side still forwards packets.
+	hubFwd, nodeFwd := h.ipForwardNeeds()
+	if hubFwd {
+		if err := h.ensureIPForward(); err != nil {
+			h.log.Warn("cannot keep net.ipv4.ip_forward on after the revert", dlog.Err(err))
+		}
+	}
 	if _, err := h.mutate(func(c *config.Config) error {
 		if c.Tuning == nil {
 			c.Tuning = config.DefaultTuning()
@@ -127,7 +134,7 @@ func (l *local) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) 
 	}); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
-	warnings := h.optimizeNodes(ctx, config.SysctlOff, nil)
+	warnings := h.optimizeNodes(ctx, config.SysctlOff, nodeFwd)
 	st, err := h.optimizeStatus()
 	if err != nil {
 		return api.OptimizeStatus{}, withLog(err)
