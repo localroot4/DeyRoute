@@ -26,6 +26,7 @@ import (
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/firewall"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/supervise"
 	"github.com/localroot4/deyroute/internal/sysctl"
 	"github.com/localroot4/deyroute/internal/systemd"
 )
@@ -108,7 +109,8 @@ func deniedEnv(name string) bool {
 }
 
 // selfSubcommands are the deyroute subcommands a unit may run: the built-in
-// relay (direct/native) and the WireGuard setup (wireguard/kernel).
+// relay (direct/native) and the WireGuard setup (wireguard/kernel). "deyroute
+// pair" (a backend with its UDP companion) is checked by allowedCommand.
 var selfSubcommands = map[string]bool{"relay": true, "wg": true}
 
 // sshPort is never redirected by the node table (section 11: the node
@@ -266,6 +268,20 @@ func (a *agent) allowedCommand(b string, argv []string) bool {
 		return false
 	}
 	if p == a.o.SelfBinary {
+		if len(argv) > 1 && argv[1] == supervise.Command {
+			// deyroute pair runs each of its command lines: every one must be
+			// a binary of backend b itself.
+			cmds, err := supervise.Split(argv[2:])
+			if err != nil {
+				return false
+			}
+			for _, c := range cmds {
+				if c[0] == a.o.SelfBinary || !a.allowedCommand(b, c) {
+					return false
+				}
+			}
+			return true
+		}
 		return len(argv) > 1 && selfSubcommands[argv[1]]
 	}
 	rel, ok := strings.CutPrefix(p, config.BinDir+"/")

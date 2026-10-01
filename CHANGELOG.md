@@ -76,6 +76,21 @@ All notable changes to DEYROUTE are documented here. The format follows
   free port and the wizard shows firewall and node warnings.
 - Node removal texts match the refusal for a tunnel's only node.
 - Flaky tests made robust (failover pause, hub diag probe).
+- ACME from the menu and the CLI: `hub.domain` (Security > TLS certificates,
+  `deyroute security tls domain`), the ACME e-mail and the Cloudflare DNS-01
+  token file (Advanced, `deyroute security tls acme`; stored 0600 in
+  `secrets/cloudflare.token`, never in `config.yaml` or logs),
+  `tunnel add|edit --tls-mode`; ACME Fix lines name these commands, and a
+  changed domain gets a new certificate at the next renewal.
+- A port closed by the host firewall can be opened by deyroute after a typed
+  confirmation of the exact command: `deyroute port check <port> --open`
+  (`--yes`; exit 3 without a terminal), Ports/Diagnostics > Check port and
+  the Add-tunnel wizard (which now stops at ports the firewall or the node
+  check reports closed: open, change, skip or keep). The hub
+  (`PortOpenFirewall`) checks again and runs only the argv it builds from the
+  firewall found and the typed port (`DEY-P032` when that is not the
+  confirmed command, `DEY-P033` when it fails); nftables table and chain
+  names must be plain identifiers.
 
 ### Fixed (found by the integration scenarios)
 

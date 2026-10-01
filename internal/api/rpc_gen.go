@@ -190,6 +190,13 @@ func (c *localClient) PortCheck(ctx context.Context, req PortCheckRequest) (Port
 	return out, err
 }
 
+// PortOpenFirewall implements Local.PortOpenFirewall by calling the daemon over the unix socket.
+func (c *localClient) PortOpenFirewall(ctx context.Context, req PortOpenRequest) (PortOpenResult, error) {
+	var out PortOpenResult
+	err := c.call(ctx, "PortOpenFirewall", []any{req}, &out)
+	return out, err
+}
+
 // PortSuggest implements Local.PortSuggest by calling the daemon over the unix socket.
 func (c *localClient) PortSuggest(ctx context.Context, count int) ([]int, error) {
 	var out []int
@@ -592,6 +599,13 @@ func NewLocalHandler(impl Local, logger *slog.Logger) http.Handler {
 				return nil, err
 			}
 			return impl.PortCheck(ctx, a0)
+		}},
+		"PortOpenFirewall": {arity: 1, stream: false, call: func(ctx context.Context, args []json.RawMessage, _ *rpcCallbacks) (any, error) {
+			var a0 PortOpenRequest
+			if err := decodeArg(args, 0, &a0); err != nil {
+				return nil, err
+			}
+			return impl.PortOpenFirewall(ctx, a0)
 		}},
 		"PortSuggest": {arity: 1, stream: false, call: func(ctx context.Context, args []json.RawMessage, _ *rpcCallbacks) (any, error) {
 			var a0 int

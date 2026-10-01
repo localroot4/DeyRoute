@@ -78,7 +78,14 @@ deyroute security firewall disable   # delete the table; deyroute only suggests 
 With `security.firewall_managed: false` in `config.yaml` DEYROUTE applies
 nothing and only prints the commands you should run (`DEY-P031`). An
 external firewall (ufw, firewalld, provider panel) is never changed without
-your confirmation; `deyroute port check` shows the exact command.
+your confirmation; `deyroute port check` shows the exact command, and
+`deyroute port check <port> --open` (or `Open it in the firewall` in the menu)
+runs it only after you type `yes`. The hub never runs text it receives: it
+checks the firewall again and builds the command from the firewall it finds
+and the port number and protocol, and refuses (`DEY-P032`) when that differs
+from the command you confirmed. This also works with
+`security.firewall_managed: false`, which concerns only table `inet deyroute`.
+A provider's firewall panel is never touched.
 
 ## Secrets
 
@@ -133,7 +140,52 @@ deyroute security tls renew --tunnel main
 ```
 
 The dashboard warns 14 days before a certificate expires. The TLS mode is set
-per tunnel in Advanced mode (`2) Tunnels` → `2) Edit tunnel`).
+per tunnel in Advanced mode (`2) Tunnels` → `2) Edit tunnel`) or with
+`deyroute tunnel edit main --tls-mode auto|acme|custom` (`custom` also takes
+`--tls-cert` and `--tls-key`).
+
+### A Let's Encrypt certificate (`acme`)
+
+1. Point a domain at the hub: an `A` record (and `AAAA` if the hub has
+   IPv6) with **DNS only** — no Cloudflare proxy (orange cloud).
+2. Set it as the hub domain. Every tunnel certificate then also names it.
+
+   ```bash
+   deyroute security tls domain vpn.example.com
+   deyroute security tls domain --clear       # remove it again
+   ```
+
+   Menu: `8) Security` → `2) TLS certificates` → `2) Domain (for ACME)`
+   (type `-` to remove it). The domain cannot be removed while a tunnel
+   uses `acme`.
+3. Switch the tunnel: `deyroute tunnel edit main --tls-mode acme` (menu:
+   Advanced, `2) Tunnels` → `2) Edit tunnel`).
+4. Request the certificate now with `deyroute security tls renew --tunnel
+   main` (menu: `8) Security` → `3) Renew TLS certificate`), or let the
+   daily renewal do it.
+
+Let's Encrypt checks the domain with **HTTP-01 on port 80** of the hub.
+When port 80 is taken, use **DNS-01 through Cloudflare** instead (Advanced):
+create a Cloudflare API token with `Zone:DNS:Edit` for the domain's zone,
+put it in a file and give deyroute the file:
+
+```bash
+deyroute security tls acme --cloudflare-token-file /root/cloudflare.token
+deyroute security tls acme --email owner@example.com      # optional: expiry notices
+deyroute security tls acme --cloudflare-token-file ''      # back to HTTP-01
+```
+
+Menu (Advanced): `8) Security` → `2) TLS certificates` → `3) ACME e-mail`
+and `4) Cloudflare token (DNS-01)`. The token itself is never typed into the
+menu or a command line: deyroute copies it from your file to
+`/etc/deyroute/secrets/cloudflare.token` (mode 0600), so you may delete your
+file afterwards. `config.yaml` only names that file
+(`hub.acme.cloudflare_token_file`) and the token never appears in logs. The
+`TLS certificates` screen shows the domain and which check is used.
+
+If Let's Encrypt fails (`DEY-T003`, `DEY-T004`), the tunnel keeps running
+with its internal certificate (`acme_failed` event) and the daily renewal
+tries again.
 
 ## Audit
 

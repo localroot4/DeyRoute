@@ -209,6 +209,14 @@ func CanaryLoopbackKey(tunnel string) string { return tunnel + "/" + CanaryDirNa
 // CanaryCtlKey is the control-port key of the canary unit.
 func CanaryCtlKey(tunnel string) string { return tunnel + "/" + CanaryDirName + "/ctl" }
 
+// CompanionCtlKey is the control-port key of the UDP companion process of
+// a candidate (backend.RenderInput.CompanionControlPort). It starts with
+// state.Key(tunnel, node, transportID)+"/", so the prefix releases of a
+// removed node also release it.
+func CompanionCtlKey(tunnel, node, transportID string) string {
+	return state.Key(tunnel, node, transportID) + "/udp"
+}
+
 // planner holds per-tunnel state shared by every candidate of one Plan.
 type planner struct {
 	in       Input
@@ -341,7 +349,18 @@ func (p *planner) candidate(node config.Node, rung string) (Candidate, *SkippedC
 	if err != nil {
 		return Candidate{}, skipped(node.ID, rung, err, deyerr.C005)
 	}
-	if tr.NeedsUDP && p.in.UDPProbe != nil {
+	companion := backend.NeedsCompanion(tr, t.Protos())
+	needsUDP := tr.NeedsUDP
+	if companion {
+		// The UDP maps travel through a second process of the companion
+		// transport (backhaul/udp carries UDP datagrams between the hosts).
+		_, ctr, err := p.reg.Lookup(tr.Backend + "/" + tr.UDPCompanion)
+		if err != nil {
+			return Candidate{}, skipped(node.ID, rung, err, deyerr.C005)
+		}
+		needsUDP = needsUDP || ctr.NeedsUDP
+	}
+	if needsUDP && p.in.UDPProbe != nil {
 		if passed, tested := p.in.UDPProbe(node.ID); !passed {
 			e := deyerr.New(deyerr.B007, deyerr.Params{"transport": rung, "tunnel": t.ID})
 			if !tested {
@@ -357,6 +376,11 @@ func (p *planner) candidate(node config.Node, rung string) (Candidate, *SkippedC
 	ri, err := p.renderInput(b, tr, node, ctl, ConfigDir(b.Name(), t.ID, node.ID, tr.Name))
 	if err != nil {
 		return Candidate{}, skipped(node.ID, rung, err, deyerr.B002)
+	}
+	if companion {
+		if ri.CompanionControlPort, err = p.in.CtlPort(CompanionCtlKey(t.ID, node.ID, rung)); err != nil {
+			return Candidate{}, skipped(node.ID, rung, err, deyerr.P020)
+		}
 	}
 	instance := systemd.InstanceName(t.ID, node.ID, rung)
 	ri.FirstRun = p.in.FirstRun != nil && p.in.FirstRun(instance)

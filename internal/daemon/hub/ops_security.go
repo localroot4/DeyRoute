@@ -410,7 +410,7 @@ func (h *Hub) tlsShow(cfg *config.Config, tunnel string) ([]api.CertInfo, error)
 		}
 	}
 	for _, t := range tunnels {
-		file, mode := h.tunnelCertFile(t, now)
+		file, mode := h.tunnelCertFile(t, cfg.Hub.Domain, now)
 		if ci, ok := h.certFile("tunnel", t.ID, mode, file, now); ok {
 			out = append(out, ci)
 		}
@@ -460,17 +460,19 @@ func expiryWarning(label string, notAfter, now time.Time) string {
 }
 
 // tunnelCertFile returns the certificate a tunnel serves and its mode: the
-// owner's file (custom), the ACME certificate while it is valid (acme, else
-// the internal one: "auto"), or the internal one (auto).
-func (h *Hub) tunnelCertFile(t config.Tunnel, now time.Time) (file, mode string) {
+// owner's file (custom), the ACME certificate while it is valid for domain
+// (hub.domain; acme, else the internal one: "auto", as secrets.TunnelTLS
+// decides), or the internal one (auto). An ACME certificate of a previous
+// domain therefore counts as missing and is requested again.
+func (h *Hub) tunnelCertFile(t config.Tunnel, domain string, now time.Time) (file, mode string) {
 	auto := filepath.Join(config.SecretsDir, secrets.TLSDir, t.ID, secrets.CertFile)
 	switch t.TLS.Mode {
 	case config.TLSModeCustom:
 		return t.TLS.CertFile, config.TLSModeCustom
 	case config.TLSModeACME:
 		acme := filepath.Join(config.SecretsDir, secrets.TLSDir, t.ID, secrets.ACMEDir, secrets.CertFile)
-		if data, err := os.ReadFile(h.path(acme)); err == nil { // #nosec G304 -- fixed secrets path below Root
-			if c, err := tlsutil.ParseCert(data); err == nil && now.Before(c.NotAfter) {
+		if data, err := os.ReadFile(h.path(acme)); err == nil && domain != "" { // #nosec G304 -- fixed secrets path below Root
+			if c, err := tlsutil.ParseCert(data); err == nil && now.Before(c.NotAfter) && c.VerifyHostname(domain) == nil {
 				return acme, config.TLSModeACME
 			}
 		}
@@ -553,6 +555,30 @@ func (a *acmeRun) obtain(ctx context.Context, h *Hub, cfg *config.Config) ([]byt
 	return a.cert, a.key, a.err
 }
 
+// Fix texts that name the commands (and menu items) setting the ACME
+// options of section 10.
+const (
+	fixSetDomain     = "set the domain: deyroute security tls domain <name> (menu: 8) Security > TLS certificates > Domain (for ACME))"
+	fixSetCloudflare = "deyroute security tls acme --cloudflare-token-file F (menu, Advanced: 8) Security > TLS certificates > Cloudflare token (DNS-01))"
+	fixThenRenew     = ", then: deyroute security tls renew"
+)
+
+// acmeChallenge is how tls.mode acme proves hub.domain (api.HubStatus):
+// DNS-01 when a Cloudflare token file is set, else HTTP-01 on port 80
+// unless hub.acme.disable_http01.
+func acmeChallenge(cfg *config.Config) string {
+	a := cfg.Hub.ACME
+	switch {
+	case a == nil:
+		return api.ACMEHTTP01
+	case strings.TrimSpace(a.CloudflareTokenFile) != "":
+		return api.ACMEDNS01
+	case a.DisableHTTP01:
+		return api.ACMENone
+	}
+	return api.ACMEHTTP01
+}
+
 // obtainACME requests a certificate for hub.domain (HTTP-01 on port 80, or
 // DNS-01 through Cloudflare with hub.acme.cloudflare_token_file); the
 // account lives in secrets/acme/.
@@ -560,28 +586,38 @@ func (h *Hub) obtainACME(ctx context.Context, cfg *config.Config) ([]byte, []byt
 	domain := strings.TrimSpace(cfg.Hub.Domain)
 	if domain == "" {
 		return nil, nil, deyerr.New(deyerr.T003, deyerr.Params{"domain": "(none)"}).
-			WithWhy("tls.mode acme needs hub.domain").WithFix("set the domain: deyroute settings (Domain), then: deyroute security tls renew")
+			WithWhy("tls.mode acme needs hub.domain").WithFix(fixSetDomain + fixThenRenew)
 	}
 	o := tlsutil.ACMEOptions{
 		Domain:     domain,
 		AccountDir: h.path(filepath.Join(config.SecretsDir, ACMEAccountDir)),
 		ExpectedIP: cfg.Hub.PublicIP,
 	}
+	tokenFile := ""
 	if a := cfg.Hub.ACME; a != nil {
 		o.Email, o.Staging = a.Email, a.Staging
-		if f := strings.TrimSpace(a.CloudflareTokenFile); f != "" {
-			tok, err := secrets.TelegramToken(h.path(f))
+		if tokenFile = strings.TrimSpace(a.CloudflareTokenFile); tokenFile != "" {
+			tok, err := secrets.CloudflareToken(h.path(tokenFile))
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, deyerr.As(err).WithFix("set the token file again: " + fixSetCloudflare)
 			}
-			dlog.RegisterSecret(tok)
 			o.CloudflareToken = tok
 		} else if a.DisableHTTP01 {
 			return nil, nil, deyerr.New(deyerr.T003, deyerr.Params{"domain": domain}).
-				WithWhy("HTTP-01 is disabled (hub.acme.disable_http01) and no Cloudflare token file is set for DNS-01")
+				WithWhy("HTTP-01 is disabled (hub.acme.disable_http01) and no Cloudflare token file is set for DNS-01").
+				WithFix("set a Cloudflare API token for DNS-01: " + fixSetCloudflare +
+					", or allow HTTP-01 again (remove hub.acme.disable_http01 with deyroute config edit)" + fixThenRenew)
 		}
 	}
-	return h.o.ObtainACME(ctx, o)
+	cert, key, err := h.o.ObtainACME(ctx, o)
+	if err != nil && tokenFile != "" {
+		if e := deyerr.As(err); e.Code == deyerr.T003 && e.FixOverride == "" {
+			// DNS-01 does not use port 80: the default Fix would mislead.
+			return nil, nil, e.WithFix("check that the Cloudflare API token in " + tokenFile + " may edit the DNS zone of " +
+				domain + " (Zone:DNS:Edit); set another one with " + fixSetCloudflare + fixThenRenew)
+		}
+	}
+	return cert, key, err
 }
 
 // renewTunnelCert renews the certificate of one tunnel. force issues an
@@ -599,7 +635,7 @@ func (h *Hub) renewTunnelCert(ctx context.Context, cfg *config.Config, t config.
 		}
 		return nil
 	case config.TLSModeACME:
-		file, _ := h.tunnelCertFile(t, now)
+		file, _ := h.tunnelCertFile(t, cfg.Hub.Domain, now)
 		if !force && file != filepath.Join(config.SecretsDir, secrets.TLSDir, t.ID, secrets.CertFile) && !h.certDue(file, now, acmeRenewBefore(cfg)) {
 			return nil
 		}
@@ -683,7 +719,7 @@ func (h *Hub) renewDue(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		before, _ := h.tunnelCertFile(t, now)
+		before, _ := h.tunnelCertFile(t, cfg.Hub.Domain, now)
 		due := false
 		switch t.TLS.Mode {
 		case config.TLSModeCustom:
@@ -712,7 +748,7 @@ func (h *Hub) renewDue(ctx context.Context) {
 // has none yet).
 func (h *Hub) servedCert(t config.Tunnel) api.CertInfo {
 	now := h.now()
-	file, mode := h.tunnelCertFile(t, now)
+	file, mode := h.tunnelCertFile(t, h.Config().Hub.Domain, now)
 	ci, _ := h.certFile("tunnel", t.ID, mode, file, now)
 	return ci
 }

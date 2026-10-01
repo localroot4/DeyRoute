@@ -238,4 +238,5 @@ ufw/firewalld, allow:
   `wireguard/kernel`, `direct/*`).
 
 `deyroute port check <port>` shows whether an external firewall blocks a tunnel
-port and prints the exact command to open it.
+port and prints the exact command to open it; with `--open` deyroute runs that
+command after you confirm it.

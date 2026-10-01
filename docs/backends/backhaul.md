@@ -22,9 +22,30 @@
 | `backhaul/udp` | udp | **yes** | no | 1 | control channel over TCP, data over UDP, both on the control port (rung 1 of the UDP-only ladder) |
 
 A transport that cannot carry a protocol of the tunnel fails `Validate` with
-`DEY-B010` (for example `backhaul/wssmux` in a tunnel with a UDP port map, or
-`backhaul/udp` in a tunnel with a TCP port map); the ladder resolver drops
-such rungs earlier.
+`DEY-B010` (for example `backhaul/udp` in a tunnel with a TCP port map); the
+ladder resolver drops such rungs earlier.
+
+### Tunnels with TCP and UDP port maps (UDP companion)
+
+`backhaul/tcpmux`, `ws`, `wss`, `wsmux` and `wssmux` carry TCP only. In a
+tunnel that has both TCP and UDP port maps they stay in the ladder: the hub
+allocates a second control port for the rung (key
+`<tunnel>/<node>/<transport>/udp`) and the same unit runs two Backhaul
+processes:
+
+- the main process (`server.toml` / `client.toml`) with the TCP maps on the
+  rung's transport;
+- the UDP companion (`server-udp.toml` / `client-udp.toml`) with the UDP
+  maps on `backhaul/udp` and the second control port.
+
+`ExecStart=/usr/local/bin/deyroute pair <backhaul> -c <dir>/server.toml -- <backhaul> -c <dir>/server-udp.toml`.
+`deyroute pair` starts both, and when either exits it stops the other and
+exits non-zero, so systemd restarts the pair and the failover sees one
+candidate. A node accepts a `pair` unit only when every command line runs a
+Backhaul binary under `/var/lib/deyroute/bin/backhaul/`. Because the companion
+carries UDP datagrams, such a rung needs a passed UDP probe between hub and
+node (section 7.6; `DEY-B007` until then). The canary unit of these rungs
+runs the main process only (its one loopback port map is TCP).
 
 ## How each side is rendered
 
@@ -166,7 +187,8 @@ the server sends it (the node's service, e.g. `127.0.0.1:443`).
 
 - `backhaul/tcp` carries UDP only for tunnels that map both protocols of
   every listen port (see the rendering rules); a tunnel such as
-  `443/tcp + 27015/udp` skips this rung with `DEY-B006`.
+  `443/tcp + 27015/udp` skips this rung with `DEY-B006` and uses the
+  UDP-companion rungs (`backhaul/tcpmux` …) instead.
 - One listen port cannot forward TCP and UDP to different targets with
   `backhaul/tcp` (`DEY-B006`); `direct/native` can.
 - A UDP user datagram larger than 16 KB is not supported by Backhaul's UDP

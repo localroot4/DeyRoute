@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/config"
+	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/ports"
 	"github.com/localroot4/deyroute/internal/state"
@@ -61,7 +64,7 @@ func portSpecs(in []ports.Spec) []api.PortSpec {
 }
 
 func newTunnelAddCmd(g *Globals) *cobra.Command {
-	var node, portsIn, name, ladder string
+	var node, portsIn, name, ladder, tlsMode string
 	var backups []string
 	var yes bool
 	cmd := &cobra.Command{
@@ -82,6 +85,13 @@ func newTunnelAddCmd(g *Globals) *cobra.Command {
 				return err
 			}
 			req := api.TunnelAddRequest{Name: strings.TrimSpace(name), Node: strings.TrimSpace(node), Ports: portSpecs(specs)}
+			if cmd.Flags().Changed("tls-mode") {
+				// custom needs certificate files, which TunnelAdd does not
+				// take: it is set afterwards with tunnel edit.
+				if req.TLSMode, err = tlsModeArg(tlsMode, config.TLSModeAuto, config.TLSModeACME); err != nil {
+					return err
+				}
+			}
 			for _, b := range backups {
 				req.Backups = append(req.Backups, splitList(b)...)
 			}
@@ -130,8 +140,18 @@ func newTunnelAddCmd(g *Globals) *cobra.Command {
 	f.StringVar(&name, "name", "", i18n.T(i18n.CLIFlagTunnelName))
 	f.StringVar(&ladder, "ladder", "", i18n.T(i18n.CLIFlagLadder))
 	f.StringArrayVar(&backups, "backup", nil, i18n.T(i18n.CLIFlagBackupNode))
+	f.StringVar(&tlsMode, "tls-mode", "", i18n.T(i18n.CLIFlagTLSModeAdd))
 	f.BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYesAdd))
 	return cmd
+}
+
+// tlsModeArg checks a --tls-mode value against the allowed modes.
+func tlsModeArg(v string, allowed ...string) (string, error) {
+	m := strings.ToLower(strings.TrimSpace(v))
+	if !slices.Contains(allowed, m) {
+		return "", deyerr.New(deyerr.C013, deyerr.Params{"field": "--tls-mode", "value": v, "allowed": strings.Join(allowed, ", ")})
+	}
+	return m, nil
 }
 
 // printTunnelResult prints "Tunnel main is UP via backhaul/wssmux (41ms)"
@@ -363,7 +383,7 @@ func humanBytes(n uint64) string {
 }
 
 func newTunnelEditCmd(g *Globals) *cobra.Command {
-	var name, ladder, policy string
+	var name, ladder, policy, tlsMode, tlsCert, tlsKey string
 	var probePort int
 	cmd := &cobra.Command{
 		Use:     "edit <id>",
@@ -398,6 +418,29 @@ func newTunnelEditCmd(g *Globals) *cobra.Command {
 				pp := probePort
 				req.ProbePort, changed = &pp, true
 			}
+			if fl.Changed("tls-mode") {
+				m, err := tlsModeArg(tlsMode, config.TLSModes...)
+				if err != nil {
+					return err
+				}
+				req.TLSMode, changed = &m, true
+			}
+			for _, f := range []struct {
+				flag string
+				val  string
+				dst  **string
+			}{{"tls-cert", tlsCert, &req.TLSCert}, {"tls-key", tlsKey, &req.TLSKey}} {
+				if !fl.Changed(f.flag) {
+					continue
+				}
+				// The daemon reads the files with its own working
+				// directory (/): a relative path is resolved here.
+				abs, err := filepath.Abs(strings.TrimSpace(f.val))
+				if err != nil || strings.TrimSpace(f.val) == "" {
+					return deyerr.New(deyerr.C013, deyerr.Params{"field": "--" + f.flag, "value": f.val, "allowed": i18n.T(i18n.CLIWantAbsPathPEM)})
+				}
+				*f.dst, changed = &abs, true
+			}
 			if !changed {
 				return usageErr(i18n.T(i18n.CLIEditNothing))
 			}
@@ -423,6 +466,9 @@ func newTunnelEditCmd(g *Globals) *cobra.Command {
 	f.StringVar(&ladder, "ladder", "", i18n.T(i18n.CLIFlagLadder))
 	f.StringVar(&policy, "policy", "", i18n.T(i18n.CLIFlagPolicy))
 	f.IntVar(&probePort, "probe-port", 0, i18n.T(i18n.CLIFlagProbePort))
+	f.StringVar(&tlsMode, "tls-mode", "", i18n.T(i18n.CLIFlagTLSMode))
+	f.StringVar(&tlsCert, "tls-cert", "", i18n.T(i18n.CLIFlagTLSCert))
+	f.StringVar(&tlsKey, "tls-key", "", i18n.T(i18n.CLIFlagTLSKey))
 	return cmd
 }
 

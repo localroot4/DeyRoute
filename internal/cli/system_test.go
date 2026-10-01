@@ -274,6 +274,58 @@ func TestNotifyAndSettings(t *testing.T) {
 	require.Contains(t, e.fail(1, "settings", "ui-mode", "expert"), "DEY-C013")
 }
 
+// The domain and the ACME options (section 10) are set from the CLI with
+// SettingsSet; the Cloudflare token goes as a file path, never as a value.
+func TestTLSDomainAndACME(t *testing.T) {
+	e := newEnv(t)
+	var req api.SettingsRequest
+	calls := 0
+	e.stub.SettingsSetFn = func(_ context.Context, r api.SettingsRequest) error { req, calls = r, calls+1; return nil }
+	out := e.ok("security", "tls", "domain", "VPN.Example.com.")
+	require.Equal(t, "vpn.example.com", *req.Domain)
+	require.Nil(t, req.ACMEEmail)
+	require.Contains(t, out, "Domain set to vpn.example.com.")
+	require.Contains(t, out, "deyroute security tls renew")
+	require.Contains(t, e.ok("security", "tls", "domain", "--clear"), "Domain removed.")
+	require.Equal(t, "", *req.Domain)
+	doc := e.json("security", "tls", "domain", "vpn.example.com")
+	require.Equal(t, "vpn.example.com", doc["domain"])
+	require.Equal(t, true, doc["ok"])
+	n := calls
+	require.Contains(t, e.fail(1, "security", "tls", "domain"), "--clear")
+	require.Contains(t, e.fail(1, "security", "tls", "domain", "x.example.com", "--clear"), "--clear")
+	require.Contains(t, e.fail(1, "security", "tls", "domain", " "), "--clear")
+	require.Equal(t, n, calls, "usage errors call nothing")
+
+	out = e.ok("security", "tls", "acme", "--email", "owner@example.com", "--cloudflare-token-file", "cf.token")
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	require.Equal(t, "owner@example.com", *req.ACMEEmail)
+	require.Equal(t, filepath.Join(wd, "cf.token"), *req.CloudflareTokenFile)
+	require.Nil(t, req.Domain)
+	for _, want := range []string{"ACME e-mail set to owner@example.com.", "DNS-01 through Cloudflare is on", "/etc/deyroute/secrets/cloudflare.token", "deyroute security tls renew"} {
+		require.Contains(t, out, want)
+	}
+	out = e.ok("security", "tls", "acme", "--cloudflare-token-file", "")
+	require.Equal(t, "", *req.CloudflareTokenFile)
+	require.Nil(t, req.ACMEEmail)
+	require.Contains(t, out, "HTTP-01 on port 80")
+	doc = e.json("security", "tls", "acme", "--email", "", "--cloudflare-token-file", "/root/cf.token")
+	require.Equal(t, "", doc["email"])
+	require.Equal(t, "/etc/deyroute/secrets/cloudflare.token", doc["cloudflare_token_file"])
+	require.Equal(t, "/root/cf.token", *req.CloudflareTokenFile)
+	n = calls
+	require.Contains(t, e.fail(1, "security", "tls", "acme"), "nothing to change")
+	require.Equal(t, n, calls)
+
+	e.stub.SettingsSetFn = func(context.Context, api.SettingsRequest) error {
+		return deyerr.New(deyerr.C013, deyerr.Params{"field": "hub.domain", "value": "", "allowed": "a domain"}).WithFix("deyroute tunnel edit main --tls-mode auto")
+	}
+	out = e.fail(1, "security", "tls", "domain", "--clear")
+	require.Contains(t, out, "DEY-C013")
+	require.Contains(t, out, "deyroute tunnel edit main --tls-mode auto")
+}
+
 func TestUpdateCommands(t *testing.T) {
 	e := newEnv(t)
 	info := api.UpdateInfo{Current: "1.0.0", Latest: "1.1.0", Available: true, Changelog: "- faster failover\n"}

@@ -404,15 +404,15 @@ func (h *Hub) udpProbe(node string) (passed, tested bool) {
 	return *ns.UDPOK, true
 }
 
-// udpRung returns the first rung of t that needs UDP between hub and node
-// ("" when none does).
+// udpRung returns the first rung of t that needs UDP between hub and node,
+// itself or through its UDP companion ("" when none does).
 func udpRung(cfg *config.Config, t *config.Tunnel) string {
 	ladder, err := cfg.ResolveLadder(t, supports)
 	if err != nil {
 		return ""
 	}
 	for _, r := range ladder {
-		if _, tr, err := backend.Lookup(r); err == nil && tr.NeedsUDP {
+		if _, tr, err := backend.Lookup(r); err == nil && backend.NeedsUDPFor(tr, t.Protos()) {
 			return r
 		}
 	}
@@ -1061,6 +1061,9 @@ func (c *tunnelCtl) launch(parent context.Context, skips map[string]state.Skip) 
 	if persisted.State == state.StateDisabled {
 		persisted.State = ""
 	}
+	// The skipped rungs go in first: a new tunnel must not start on a rung
+	// the plan skipped (a UDP rung before the UDP probe passed).
+	persisted.Skipped = c.mergeSkips(persisted.Skipped, skips)
 	running, anywhere := h.runningUnits(ctx, c.id, t.Nodes)
 	ft := engineTunnel(t, plan)
 	st := failover.Reconcile(persisted, running, ft)
@@ -1085,7 +1088,6 @@ func (c *tunnelCtl) launch(parent context.Context, skips map[string]state.Skip) 
 		// The engine asks for the canary again when it needs it.
 		c.stopCanaryUnits(ctx)
 	}
-	st.Skipped = c.mergeSkips(st.Skipped, skips)
 	eng := failover.NewEngine(ft, engineActions{c}, h.o.FailoverClock, st)
 	c.mu.Lock()
 	if c.stopped {
@@ -1298,9 +1300,7 @@ func (c *tunnelCtl) removeStaleCandidates(ctx context.Context, stale []render.Ca
 		c.mu.Lock()
 		delete(c.sent, oc.NodeSide.Instance)
 		c.mu.Unlock()
-		if err := h.st.ReleaseCtlPort(state.Key(c.id, oc.Node, oc.TransportID)); err != nil {
-			h.log.Warn("cannot release a control port", dlog.Tunnel(c.id), dlog.Err(err))
-		}
+		h.releaseCtlPorts(c.id, oc.Node, oc.TransportID)
 	}
 }
 

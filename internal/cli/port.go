@@ -119,8 +119,21 @@ func newPortRemoveCmd(g *Globals) *cobra.Command {
 	}
 }
 
+// maxOpenRounds bounds `port check --open`: each round opens the port in
+// one more external firewall that blocks it (ufw, firewalld, iptables and
+// other nftables tables).
+const maxOpenRounds = 4
+
+// portCheckOpened is the --json document of `port check --open`: the port
+// check and what PortOpenFirewall ran last (absent when nothing blocked).
+type portCheckOpened struct {
+	api.PortCheckResult
+	Opened *api.PortOpenResult `json:"opened,omitempty"`
+}
+
 func newPortCheckCmd(g *Globals) *cobra.Command {
 	var node string
+	var open, yes bool
 	cmd := &cobra.Command{
 		Use:     "check 443[/tcp]",
 		Short:   i18n.T(i18n.CLIPortCheckShort),
@@ -141,19 +154,85 @@ func newPortCheckCmd(g *Globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if g.JSON {
-				return g.emitJSON(r)
+			if !g.JSON {
+				g.printPortCheck(r, !open)
 			}
-			g.printPortCheck(r)
+			if !open {
+				if g.JSON {
+					return g.emitJSON(r)
+				}
+				return nil
+			}
+			opened, err := g.openFirewall(cmd.Context(), r, yes)
+			if err != nil {
+				return err
+			}
+			if g.JSON {
+				return g.emitJSON(portCheckOpened{PortCheckResult: r, Opened: opened})
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&node, "node", "", i18n.T(i18n.CLIFlagCheckNode))
+	cmd.Flags().BoolVar(&open, "open", false, i18n.T(i18n.CLIFlagOpenFirewall))
+	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
 	return cmd
 }
 
-// printPortCheck prints the four-stage check of sections 6 and 10.
-func (g *Globals) printPortCheck(r api.PortCheckResult) {
+// openFirewall is `port check --open` (section 10): for each external
+// firewall that blocks the port, the exact command is shown and runs only
+// after a confirmation (none with yes; exit 3 without a terminal). The
+// daemon runs it only when a fresh check builds the same command
+// (DEY-P032). It returns the last PortOpenFirewall result (nil when nothing
+// blocked the port); a port still closed after maxOpenRounds is DEY-P013.
+func (g *Globals) openFirewall(ctx context.Context, r api.PortCheckResult, yes bool) (*api.PortOpenResult, error) {
+	spec := fmt.Sprintf("%d/%s", r.Port, r.Proto)
+	if r.FirewallOpen {
+		if !g.JSON {
+			g.say(i18n.CLIPortOpenNothing, spec)
+		}
+		return nil, nil
+	}
+	var last *api.PortOpenResult
+	name, command := r.FirewallName, r.FirewallCommand
+	for range maxOpenRounds {
+		// Without a command there is nothing to confirm: the daemon then
+		// explains why it cannot open the port (DEY-P033).
+		if command != "" {
+			if err := g.confirm(i18n.T(i18n.CLIPortOpenLost, spec, name, command), yes); err != nil {
+				return last, err
+			}
+		}
+		var res api.PortOpenResult
+		err := g.callLong(ctx, func(ctx context.Context, l api.Local) (err error) {
+			res, err = l.PortOpenFirewall(ctx, api.PortOpenRequest{Port: r.Port, Proto: r.Proto, Command: command})
+			return err
+		})
+		if err != nil {
+			return last, err
+		}
+		last = &res
+		if !g.JSON {
+			if res.Ran != "" {
+				g.say(i18n.CLIPortOpenRan, res.Ran)
+			}
+			if res.FirewallOpen {
+				g.say(i18n.CLIPortOpenNow, spec, orDash(res.FirewallName))
+			} else {
+				g.say(i18n.CLIPortOpenStill, spec, orDash(res.FirewallName))
+			}
+		}
+		if res.FirewallOpen {
+			return last, nil
+		}
+		name, command = res.FirewallName, res.FirewallCommand
+	}
+	return last, deyerr.New(deyerr.P013, deyerr.Params{"port": spec, "firewall": name, "command": command})
+}
+
+// printPortCheck prints the four-stage check of sections 6 and 10; hint
+// adds how to let deyroute open a port an external firewall closes.
+func (g *Globals) printPortCheck(r api.PortCheckResult, hint bool) {
 	s := g.sym()
 	g.say(i18n.CLIPortCheckTitle, fmt.Sprintf("%d/%s", r.Port, r.Proto))
 	line := func(n int, k i18n.Key, mark, text string) {
@@ -209,6 +288,9 @@ func (g *Globals) printPortCheck(r api.PortCheckResult) {
 	g.println(g.text("  " + clean(note)))
 	if len(r.SuggestedPorts) > 0 {
 		g.say(i18n.CLISuggestedPorts, joinInts(r.SuggestedPorts))
+	}
+	if hint && !r.FirewallOpen && r.FirewallCommand != "" {
+		g.say(i18n.CLICheckOpenHint, fmt.Sprintf("%d/%s", r.Port, r.Proto))
 	}
 }
 

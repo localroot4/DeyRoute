@@ -316,6 +316,9 @@ func (h *Hub) newTunnel(ctx context.Context, cfg *config.Config, req api.TunnelA
 	if m := strings.TrimSpace(req.TLSMode); m != "" {
 		t.TLS.Mode = m
 	}
+	if err := checkACMEDomain(cfg, id, t.TLS.Mode); err != nil {
+		return config.Tunnel{}, err
+	}
 	return t, nil
 }
 
@@ -683,6 +686,11 @@ func (h *Hub) editTunnel(cfg *config.Config, t config.Tunnel, req api.TunnelEdit
 		}
 	case config.TLSModeAuto, config.TLSModeACME:
 		next.TLS.CertFile, next.TLS.KeyFile = "", ""
+	}
+	if req.TLSMode != nil {
+		if err := checkACMEDomain(cfg, t.ID, next.TLS.Mode); err != nil {
+			return next, err
+		}
 	}
 	if _, err := cfg.ResolveLadder(&next, supports); err != nil {
 		return next, err

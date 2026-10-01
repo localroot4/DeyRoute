@@ -217,6 +217,27 @@ func TestTelegramToken(t *testing.T) {
 	require.Equal(t, deyerr.S009, code(t, err))
 }
 
+func TestCloudflareToken(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cloudflare.token")
+	const tok = "Abc-DEF_0123456789abcdefghijklmnopqrstu"
+	require.NoError(t, os.WriteFile(p, []byte("\n"+tok+"\n"), 0o600))
+	got, err := CloudflareToken(p)
+	require.NoError(t, err)
+	require.Equal(t, tok, got)
+	require.Equal(t, "***", deylog.Redact(tok))
+	// Not one token: an env-style line, two lines, too short. The reason
+	// never quotes the content.
+	for _, bad := range []string{"CF_API_TOKEN=" + tok, tok + "\n" + tok, "short-token"} {
+		require.NoError(t, os.WriteFile(p, []byte(bad), 0o600))
+		_, err = CloudflareToken(p)
+		require.Equal(t, deyerr.S009, code(t, err), bad)
+		require.NotContains(t, deyerr.As(err).Error(), tok)
+	}
+	_, err = CloudflareToken(filepath.Join(dir, "missing"))
+	require.Equal(t, deyerr.S009, code(t, err))
+}
+
 func TestCheckPerms(t *testing.T) {
 	s, _ := newStore(t)
 	require.Empty(t, s.CheckPerms()) // missing dir: nothing to audit

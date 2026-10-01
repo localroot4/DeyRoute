@@ -27,6 +27,14 @@ wizard asks at most three questions:
    `443/tcp is free`, or `443/tcp is used by nginx`. For a busy port choose
    `Change port`, `Skip this port`, or — only when a deyroute tunnel holds it —
    `Stop that service`. deyroute never stops other programs.
+   The wizard also stops at a free port that the host firewall (ufw,
+   firewalld, iptables or another nftables table) closes, or that the node
+   cannot reach: `Change port`, `Skip this port`, `Open it in the firewall:
+   ufw allow 443/tcp` (shown only when deyroute knows the command) or `Keep it
+   and continue`. Opening shows the exact command(s) and runs them on the hub
+   only after you type `yes`; the port is then checked again. A port the
+   node cannot reach is usually closed in the provider's firewall panel,
+   which deyroute cannot change.
 3. **Confirm** — a summary (node, ports, ladder, backup). Enter creates the
    tunnel.
 
@@ -144,6 +152,14 @@ deyroute port check 443
   deyroute unit that holds it; that is expected. For a new port it should say
   `free`. Line 3 is tested by a node from outside Iran — it proves the port
   is open on the internet, not that it is reachable from inside Iran.
+
+  When line 2 says `closed (ufw); open it with: ufw allow 443/tcp`,
+  `deyroute port check 443 --open` lets deyroute run that exact command: it
+  shows it, asks you to type `yes` (`--yes` skips the question; without a
+  terminal and without `--yes` it stops with exit code 3), and checks the
+  firewall again. If a second firewall still closes the port, its command is
+  shown and confirmed the same way. In the menu: `4) Ports` → `Check port`,
+  then `1) Open it in the firewall`.
 
 Finally test with a real client: in the client config change only the server
 address to the hub's IP. Keep the port, UUID/password, SNI, host header,

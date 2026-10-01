@@ -216,6 +216,18 @@ func TestRenderRejectsUnsafePayloads(t *testing.T) {
 		"hidden bin":         mod(func(a *api.BackendRenderArgs) { a.Unit.ExecStart = []string{"/var/lib/deyroute/bin/backhaul/v1/.x"} }),
 		"LD_PRELOAD":         mod(func(a *api.BackendRenderArgs) { a.Unit.Env = map[string]string{"LD_PRELOAD": base.ConfigDir + "/x.so"} }),
 		"GLIBC_TUNABLES":     mod(func(a *api.BackendRenderArgs) { a.Unit.Env = map[string]string{"GLIBC_TUNABLES": "glibc.x=1"} }),
+		"pair shell": mod(func(a *api.BackendRenderArgs) {
+			a.Unit.ExecStart = []string{config.BinaryPath, "pair", "/var/lib/deyroute/bin/backhaul/v1/backhaul", "--", "/bin/sh", "-c", "id"}
+		}),
+		"pair other backend": mod(func(a *api.BackendRenderArgs) {
+			a.Unit.ExecStart = []string{config.BinaryPath, "pair", "/var/lib/deyroute/bin/backhaul/v1/backhaul", "--", "/var/lib/deyroute/bin/xray/v1/xray"}
+		}),
+		"pair of deyroute": mod(func(a *api.BackendRenderArgs) {
+			a.Unit.ExecStart = []string{config.BinaryPath, "pair", "/var/lib/deyroute/bin/backhaul/v1/backhaul", "--", config.BinaryPath, "uninstall"}
+		}),
+		"pair of one": mod(func(a *api.BackendRenderArgs) {
+			a.Unit.ExecStart = []string{config.BinaryPath, "pair", "/var/lib/deyroute/bin/backhaul/v1/backhaul"}
+		}),
 		"NAT hijacks SSH": mod(func(a *api.BackendRenderArgs) {
 			a.NAT = []backend.NATRule{{Proto: "tcp", DportLow: 1, DportHigh: 1000, ToAddr: "127.0.0.1", ToPort: 2222}}
 		}),
@@ -255,6 +267,10 @@ func TestRenderRejectsUnsafePayloads(t *testing.T) {
 			}
 		}),
 		"env": mod(func(a *api.BackendRenderArgs) { a.Unit.Env = map[string]string{"RUST_LOG": "info"} }),
+		"pair": mod(func(a *api.BackendRenderArgs) {
+			bin := "/var/lib/deyroute/bin/backhaul/v0.7.2/backhaul"
+			a.Unit.ExecStart = []string{config.BinaryPath, "pair", bin, "-c", a.ConfigDir + "/client.toml", "--", bin, "-c", a.ConfigDir + "/client-udp.toml"}
+		}),
 	}
 	for name, args := range ok {
 		_, err := call[json.RawMessage](t, s, api.CmdBackendRender, args)

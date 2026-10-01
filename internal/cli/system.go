@@ -100,7 +100,8 @@ func (g *Globals) printOptimize(st api.OptimizeStatus, k i18n.Key) error {
 func newSecurityCmd(g *Globals) *cobra.Command {
 	cmd := newGroup("security", i18n.CLISecurityShort)
 	tls := newGroup("tls", i18n.CLISecurityTLSShort)
-	tls.AddCommand(newTLSCmd(g, "show"), newTLSCmd(g, "renew"))
+	tls.Example = i18n.T(i18n.CLISecurityTLSExample)
+	tls.AddCommand(newTLSCmd(g, "show"), newTLSCmd(g, "renew"), newTLSDomainCmd(g), newTLSACMECmd(g))
 	fw := newGroup("firewall", i18n.CLISecurityFirewallShort)
 	fw.AddCommand(newFirewallCmd(g, "show"), newFirewallCmd(g, "apply"), newFirewallCmd(g, "disable"))
 	cmd.AddCommand(newRotateTokensCmd(g), newRotateCACmd(g), tls, fw, newAuditCmd(g))
@@ -231,6 +232,113 @@ func newTLSCmd(g *Globals, verb string) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&tunnel, "tunnel", "", i18n.T(i18n.CLIFlagTLSTunnel))
+	return cmd
+}
+
+// newTLSDomainCmd is `deyroute security tls domain <name> | --clear`:
+// hub.domain, the name tls.mode acme requests a Let's Encrypt certificate
+// for (section 10). The tunnels are rendered again (TLS SANs).
+func newTLSDomainCmd(g *Globals) *cobra.Command {
+	var remove bool
+	cmd := &cobra.Command{
+		Use:     "domain <name> | --clear",
+		Short:   i18n.T(i18n.CLITLSDomainShort),
+		Long:    i18n.T(i18n.CLITLSDomainLong),
+		Example: i18n.T(i18n.CLITLSDomainExample),
+		Args:    rangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			domain := ""
+			if len(args) == 1 {
+				domain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(args[0]), "."))
+			}
+			if remove == (domain != "") || len(args) == 1 && domain == "" {
+				return usageErr(i18n.T(i18n.CLIWantDomainOrClear))
+			}
+			err := g.callLong(cmd.Context(), func(ctx context.Context, l api.Local) error {
+				return l.SettingsSet(ctx, api.SettingsRequest{Domain: &domain})
+			})
+			if err != nil {
+				return err
+			}
+			if remove {
+				return g.done(map[string]any{"domain": ""}, i18n.CLITLSDomainCleared)
+			}
+			return g.done(map[string]any{"domain": domain}, i18n.CLITLSDomainSet, domain)
+		},
+	}
+	cmd.Flags().BoolVar(&remove, "clear", false, i18n.T(i18n.CLIFlagClearDomain))
+	return cmd
+}
+
+// newTLSACMECmd is `deyroute security tls acme [--email E]
+// [--cloudflare-token-file F]`: the ACME account e-mail and the Cloudflare
+// API token for DNS-01 (section 10, Advanced). The daemon copies the token
+// to /etc/deyroute/secrets/cloudflare.token (0600); an empty value removes
+// the setting.
+func newTLSACMECmd(g *Globals) *cobra.Command {
+	var email, tokenFile string
+	cmd := &cobra.Command{
+		Use:     "acme [--email E] [--cloudflare-token-file F]",
+		Short:   i18n.T(i18n.CLITLSACMEShort),
+		Long:    i18n.T(i18n.CLITLSACMELong),
+		Example: i18n.T(i18n.CLITLSACMEExample),
+		Args:    noArgs(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			fl := cmd.Flags()
+			var req api.SettingsRequest
+			out := map[string]any{}
+			if fl.Changed("email") {
+				e := strings.TrimSpace(email)
+				req.ACMEEmail = &e
+				out["email"] = e
+			}
+			if fl.Changed("cloudflare-token-file") {
+				f := strings.TrimSpace(tokenFile)
+				if f != "" {
+					// The daemon reads the file with its own working
+					// directory (/): a relative path is resolved here.
+					abs, err := filepath.Abs(f)
+					if err != nil {
+						return deyerr.New(deyerr.C013, deyerr.Params{"field": "--cloudflare-token-file", "value": f, "allowed": i18n.T(i18n.CLIWantAbsPath)})
+					}
+					f = abs
+				}
+				req.CloudflareTokenFile = &f
+				out["cloudflare_token_file"] = ""
+				if f != "" {
+					out["cloudflare_token_file"] = config.DefaultCloudflareTokenFile
+				}
+			}
+			if req.ACMEEmail == nil && req.CloudflareTokenFile == nil {
+				return usageErr(i18n.T(i18n.CLIACMENothing))
+			}
+			err := g.call(cmd.Context(), func(ctx context.Context, l api.Local) error { return l.SettingsSet(ctx, req) })
+			if err != nil {
+				return err
+			}
+			if g.JSON {
+				return g.ok(out, nil)
+			}
+			switch {
+			case req.ACMEEmail == nil:
+			case *req.ACMEEmail == "":
+				g.say(i18n.CLIACMEEmailRemoved)
+			default:
+				g.say(i18n.CLIACMEEmailSet, *req.ACMEEmail)
+			}
+			switch {
+			case req.CloudflareTokenFile == nil:
+			case *req.CloudflareTokenFile == "":
+				g.say(i18n.CLIACMETokenRemoved)
+			default:
+				g.say(i18n.CLIACMETokenSet, config.DefaultCloudflareTokenFile)
+			}
+			g.say(i18n.CLIACMERenewHint)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&email, "email", "", i18n.T(i18n.CLIFlagACMEEmail))
+	cmd.Flags().StringVar(&tokenFile, "cloudflare-token-file", "", i18n.T(i18n.CLIFlagCloudflareToken))
 	return cmd
 }
 

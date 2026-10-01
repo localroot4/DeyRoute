@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -124,13 +125,7 @@ func securityMenu(a *app) screen {
 	title := i18n.T(i18n.MenuSecurity)
 	return newMenu(a, i18n.MenuSecurity, i18n.TUIHelpSecurity, []menuItem{
 		{label: i18n.TUISeRotate, act: func(a *app) tea.Cmd { return a.push(pickRotate()) }},
-		{label: i18n.TUISeTLS, act: func(a *app) tea.Cmd {
-			t := newTask(i18n.T(i18n.TUISeTLS), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
-				return l.SecurityTLSShow(ctx, "")
-			}, renderCerts)
-			t.refreshable = true
-			return a.push(t)
-		}},
+		{label: i18n.TUISeTLS, act: func(a *app) tea.Cmd { return a.push(tlsMenu(a)) }},
 		{label: i18n.TUISeRenew, act: func(a *app) tea.Cmd {
 			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUISeRenew), func(a *app, t api.TunnelInfo) tea.Cmd {
 				id := t.ID
@@ -163,6 +158,128 @@ func securityMenu(a *app) screen {
 			return a.push(t)
 		}},
 	})
+}
+
+// clearValue typed in a settings form removes the setting.
+const clearValue = "-"
+
+// tlsMenu is Security > TLS certificates: the certificates, the domain
+// tls.mode acme requests a certificate for and (Advanced) the ACME e-mail
+// and the Cloudflare token file for DNS-01 (section 10). The header shows
+// the current settings.
+func tlsMenu(a *app) screen {
+	m := newMenu(a, i18n.TUISeTLS, i18n.TUIHelpTLS, []menuItem{
+		{label: i18n.TUISeTLSShow, act: func(a *app) tea.Cmd {
+			t := newTask(i18n.T(i18n.TUISeTLSShow), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+				return l.SecurityTLSShow(ctx, "")
+			}, renderCerts)
+			t.refreshable = true
+			return a.push(t)
+		}},
+		{label: i18n.TUISeDomain, act: func(a *app) tea.Cmd {
+			f := field{key: "domain", label: i18n.T(i18n.TUISeDomainField), hint: i18n.T(i18n.TUISeDomainHint),
+				def: tlsHub(a).Domain, check: checkDomain}
+			return a.push(acmeForm(i18n.TUISeDomain, f, func(v string) (api.SettingsRequest, string) {
+				d := strings.ToLower(strings.TrimSuffix(v, "."))
+				return api.SettingsRequest{Domain: &d}, setOrCleared(d, i18n.TUISeDomainSet, i18n.TUISeDomainCleared, d)
+			}))
+		}},
+		{label: i18n.TUISeACMEEmail, adv: true, act: func(a *app) tea.Cmd {
+			f := field{key: "email", label: i18n.T(i18n.TUISeEmailField), hint: i18n.T(i18n.TUISeEmailHint), def: tlsHub(a).ACMEEmail}
+			return a.push(acmeForm(i18n.TUISeACMEEmail, f, func(v string) (api.SettingsRequest, string) {
+				return api.SettingsRequest{ACMEEmail: &v}, setOrCleared(v, i18n.TUISeEmailSet, i18n.TUISeEmailCleared, v)
+			}))
+		}},
+		{label: i18n.TUISeCFToken, adv: true, act: func(a *app) tea.Cmd {
+			f := field{key: "file", label: i18n.T(i18n.TUISeTokenField), hint: i18n.T(i18n.TUISeTokenHint), check: checkTokenFile}
+			return a.push(acmeForm(i18n.TUISeCFToken, f, func(v string) (api.SettingsRequest, string) {
+				return api.SettingsRequest{CloudflareTokenFile: &v},
+					setOrCleared(v, i18n.TUISeTokenSet, i18n.TUISeTokenCleared, config.DefaultCloudflareTokenFile)
+			}))
+		}},
+	})
+	m.load = func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) { return l.Status(ctx) }
+	m.header = renderTLSSettings
+	return m
+}
+
+// tlsHub returns the hub settings the TLS menu (the top screen while one
+// of its items is picked) has loaded; zero before they are loaded.
+func tlsHub(a *app) api.HubStatus {
+	if l, ok := a.top().(*listScreen); ok {
+		if st, ok := l.data.(api.Status); ok && st.Hub != nil {
+			return *st.Hub
+		}
+	}
+	return api.HubStatus{}
+}
+
+func renderTLSSettings(a *app, v any) string {
+	st, _ := v.(api.Status)
+	if st.Hub == nil {
+		return ""
+	}
+	h := st.Hub
+	domain := clean(h.Domain)
+	if domain == "" {
+		domain = a.paint(colYellow, i18n.T(i18n.TUISeNoDomain))
+	}
+	challenge := i18n.T(i18n.TUISeChHTTP)
+	switch h.ACMEChallenge {
+	case api.ACMEDNS01:
+		challenge = i18n.T(i18n.TUISeChDNS)
+	case api.ACMENone:
+		challenge = a.paint(colYellow, i18n.T(i18n.TUISeChNone))
+	}
+	out := kv(i18n.T(i18n.TUISeDomainLabel), domain) + kv(i18n.T(i18n.TUISeChLabel), challenge)
+	if a.advanced && h.ACMEEmail != "" {
+		out += kv(i18n.T(i18n.TUISeEmailLabel), clean(h.ACMEEmail))
+	}
+	return out
+}
+
+// acmeForm asks one TLS setting and saves it with SettingsSet ("-" removes
+// it); apply turns the answer into the request and the result line. A
+// changed domain renders every tunnel again (TLS SANs): long timeout.
+func acmeForm(title i18n.Key, f field, apply func(v string) (api.SettingsRequest, string)) screen {
+	name := i18n.T(title)
+	return newForm(name, "", []field{f}, func(a *app, v map[string]string) tea.Cmd {
+		val := strings.TrimSpace(v[f.key])
+		if val == clearValue {
+			val = ""
+		}
+		req, msg := apply(val)
+		return a.replace(newTask(name, longTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+			return nil, l.SettingsSet(ctx, req)
+		}, textResult(msg)))
+	})
+}
+
+// setOrCleared is the result line of a TLS setting: set (with arg) or
+// cleared when v is empty.
+func setOrCleared(v string, set, cleared i18n.Key, arg string) string {
+	if v == "" {
+		return i18n.T(cleared)
+	}
+	return i18n.T(set, arg)
+}
+
+// checkDomain accepts "-" or a DNS name (the hub checks it again).
+func checkDomain(v string, _ map[string]string) error {
+	d := strings.ToLower(strings.TrimSuffix(v, "."))
+	if v == clearValue || config.ValidDomain(d) {
+		return nil
+	}
+	return uiErr(i18n.TUIWantDomain)
+}
+
+// checkTokenFile accepts "-" or an absolute path (the hub reads the file
+// with its own working directory).
+func checkTokenFile(v string, _ map[string]string) error {
+	if v == clearValue || filepath.IsAbs(v) {
+		return nil
+	}
+	return uiErr(i18n.TUIWantAbsPath)
 }
 
 func pickRotate() *listScreen {

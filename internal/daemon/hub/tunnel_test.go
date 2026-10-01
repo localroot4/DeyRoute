@@ -277,6 +277,24 @@ func TestTunnelUDPRungWaitsForAPassedProbe(t *testing.T) {
 	require.NotContains(t, ts.Skipped, key)
 }
 
+// A new tunnel whose rung 1 the plan skipped starts on the next rung: the
+// skipped one is never started (no unit without a drop-in, no probe_error).
+func TestTunnelNeverStartsOnASkippedFirstRung(t *testing.T) {
+	te := startTunnelHub(t)
+	n := te.tunnelNode("de-1")
+	n.tmu.Lock()
+	n.udpListenErr = deyerr.New(deyerr.P020, nil)
+	n.tmu.Unlock()
+	info, err := te.client.TunnelAdd(ctxT(t), api.TunnelAddRequest{
+		Node: "de-1", Ports: []api.PortSpec{{Listen: freePort(t)}},
+		Rungs: []string{trGamma, trAlpha}, Failover: fastFailover(false),
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, trAlpha, info.ActiveTransport)
+	require.Zero(t, te.sd.count("start", hubUnit(info.ID, "de-1", trGamma)))
+	require.Zero(t, te.countEvents(state.EvProbeError))
+}
+
 func TestTunnelSwitchResetPause(t *testing.T) {
 	te := startTunnelHub(t)
 	n := te.tunnelNode("de-1")

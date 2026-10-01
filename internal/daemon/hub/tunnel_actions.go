@@ -281,8 +281,16 @@ func (c *tunnelCtl) removeUnwanted(ctx context.Context, sc state.Candidate, in s
 	c.mu.Lock()
 	delete(c.sent, in.String())
 	c.mu.Unlock()
-	if err := h.st.ReleaseCtlPort(state.Key(c.id, sc.Node, sc.Transport)); err != nil {
-		h.log.Warn("cannot release a control port", dlog.Tunnel(c.id), dlog.Err(err))
+	h.releaseCtlPorts(c.id, sc.Node, sc.Transport)
+}
+
+// releaseCtlPorts frees the control ports of a removed candidate: its own
+// and the one of its UDP companion process, if it had one.
+func (h *Hub) releaseCtlPorts(tunnel, node, transportID string) {
+	for _, key := range []string{state.Key(tunnel, node, transportID), render.CompanionCtlKey(tunnel, node, transportID)} {
+		if err := h.st.ReleaseCtlPort(key); err != nil {
+			h.log.Warn("cannot release a control port", dlog.Tunnel(tunnel), dlog.Err(err))
+		}
 	}
 }
 

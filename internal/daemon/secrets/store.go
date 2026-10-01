@@ -8,7 +8,8 @@
 //   - tls/<tunnel>/: the tunnel TLS certificate in auto mode, the ACME
 //     certificate (acme/), the PKCS#12 bundle and its password;
 //   - join-tokens.json: single-use join tokens (only their sha256 is stored);
-//   - telegram.token: the bot token file.
+//   - telegram.token: the bot token file;
+//   - cloudflare.token: the Cloudflare API token for ACME DNS-01.
 //
 // Every file is written 0600 (directories 0700) through
 // tlsutil.WriteSecret, and every secret value that is loaded or created is
@@ -24,6 +25,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -281,6 +283,26 @@ func TelegramToken(path string) (string, error) {
 		return "", unreadable(path, deyerr.Plain("the file is empty"))
 	}
 	deylog.RegisterSecret(tok)
+	return tok, nil
+}
+
+// cloudflareTokenRe matches a Cloudflare API token (40 characters today;
+// the bounds leave room for other lengths).
+var cloudflareTokenRe = regexp.MustCompile(`^[A-Za-z0-9._-]{20,256}$`)
+
+// CloudflareToken reads the Cloudflare API token file
+// (hub.acme.cloudflare_token_file, DNS-01 of section 10) like
+// TelegramToken. A file that does not hold exactly one token (for example
+// "CF_API_TOKEN=…" or two lines) is DEY-S009; the reason never quotes the
+// file's content.
+func CloudflareToken(path string) (string, error) {
+	tok, err := TelegramToken(path)
+	if err != nil {
+		return "", err
+	}
+	if !cloudflareTokenRe.MatchString(tok) {
+		return "", unreadable(path, deyerr.Plain("the file does not hold one Cloudflare API token (20-256 letters, digits, '.', '_' or '-')"))
+	}
 	return tok, nil
 }
 

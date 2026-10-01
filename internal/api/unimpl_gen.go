@@ -192,6 +192,12 @@ func (u UnimplementedLocal) PortCheck(ctx context.Context, req PortCheckRequest)
 	return zero, u.wrongRole()
 }
 
+// PortOpenFirewall implements Local.PortOpenFirewall; it returns DEY-X009.
+func (u UnimplementedLocal) PortOpenFirewall(ctx context.Context, req PortOpenRequest) (PortOpenResult, error) {
+	var zero PortOpenResult
+	return zero, u.wrongRole()
+}
+
 // PortSuggest implements Local.PortSuggest; it returns DEY-X009.
 func (u UnimplementedLocal) PortSuggest(ctx context.Context, count int) ([]int, error) {
 	var zero []int

@@ -75,13 +75,24 @@ type Transport struct {
 	Optional bool
 	// NeverQuarantine is set for direct/native (section 9).
 	NeverQuarantine bool
+	// UDPCompanion names a transport of the same backend that carries the
+	// UDP port maps of a tunnel that also has TCP maps, in a second process
+	// of the same unit (RenderInput.CompanionControlPort): backhaul/wssmux
+	// carries TCP itself and its UDP maps through backhaul/udp. Empty: the
+	// transport carries only Protos.
+	UDPCompanion string
 }
 
 // ID returns "backend/name".
 func (t Transport) ID() string { return t.Backend + "/" + t.Name }
 
 // Supports reports whether the transport can forward proto ("tcp"/"udp").
+// config.ProtoMixedUDP (the UDP maps of a tunnel that also has TCP maps)
+// is supported natively or through a UDP companion.
 func (t Transport) Supports(proto string) bool {
+	if proto == config.ProtoMixedUDP {
+		return t.UDPCompanion != "" || t.Supports(config.ProtoUDP)
+	}
 	for _, p := range t.Protos {
 		if p == proto {
 			return true
@@ -140,6 +151,44 @@ type RenderInput struct {
 	// Canary marks the canary unit (section 9, phase 8): only the control port
 	// and one loopback port are rendered.
 	Canary bool
+	// CompanionControlPort is set by the hub when the tunnel has TCP and UDP
+	// maps and Transport carries its UDP maps through Transport.UDPCompanion:
+	// the control port of that second process (allocated like ControlPort).
+	CompanionControlPort int
+}
+
+// UsesCompanion reports whether the UDP maps of in travel through the UDP
+// companion of its transport.
+func (in RenderInput) UsesCompanion() bool {
+	return in.CompanionControlPort != 0 && in.Transport.UDPCompanion != "" && !in.Transport.Supports(config.ProtoUDP)
+}
+
+// NeedsUDPFor reports whether transport tr needs UDP between hub and node
+// for a tunnel with port maps of protos: for its own data or for its UDP
+// companion (registered transports only).
+func NeedsUDPFor(tr Transport, protos []string) bool {
+	if tr.NeedsUDP {
+		return true
+	}
+	if !NeedsCompanion(tr, protos) {
+		return false
+	}
+	_, c, err := Lookup(tr.Backend + "/" + tr.UDPCompanion)
+	return err == nil && c.NeedsUDP
+}
+
+// NeedsCompanion reports whether transport tr, for a tunnel with port maps
+// of protos, carries the UDP maps through its UDP companion.
+func NeedsCompanion(tr Transport, protos []string) bool {
+	if tr.UDPCompanion == "" || tr.Supports(config.ProtoUDP) {
+		return false
+	}
+	tcp, udp := false, false
+	for _, p := range protos {
+		tcp = tcp || p == config.ProtoTCP
+		udp = udp || p == config.ProtoUDP
+	}
+	return tcp && udp
 }
 
 // ListenAddrOrDefault returns ListenAddr or "0.0.0.0".

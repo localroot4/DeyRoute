@@ -26,6 +26,10 @@ const Name = "backhaul"
 const (
 	ServerFile = "server.toml" // hub side
 	ClientFile = "client.toml" // node side
+	// ServerUDPFile and ClientUDPFile configure the UDP companion process
+	// of a tunnel with TCP and UDP maps on a TCP-only transport.
+	ServerUDPFile = "server-udp.toml"
+	ClientUDPFile = "client-udp.toml"
 )
 
 // Tuning values rendered into every config (spec section 7.1).
@@ -71,15 +75,18 @@ type spec struct {
 	// (UDP over the TCP tunnel). In v0.7.2 only the plain tcp server
 	// implements it.
 	acceptUDP bool
+	// companion: the UDP maps of a tunnel that also has TCP maps travel
+	// through a second Backhaul process with the "udp" transport.
+	companion bool
 }
 
 var specs = []spec{
 	{name: TCP, stealth: 1, protos: []string{config.ProtoTCP, config.ProtoUDP}, acceptUDP: true},
-	{name: TCPMux, stealth: 2, protos: []string{config.ProtoTCP}, mux: true},
-	{name: WS, stealth: 2, protos: []string{config.ProtoTCP}},
-	{name: WSS, stealth: 4, protos: []string{config.ProtoTCP}, tls: true},
-	{name: WSMux, stealth: 3, protos: []string{config.ProtoTCP}, mux: true},
-	{name: WSSMux, stealth: 4, protos: []string{config.ProtoTCP}, mux: true, tls: true},
+	{name: TCPMux, stealth: 2, protos: []string{config.ProtoTCP}, mux: true, companion: true},
+	{name: WS, stealth: 2, protos: []string{config.ProtoTCP}, companion: true},
+	{name: WSS, stealth: 4, protos: []string{config.ProtoTCP}, tls: true, companion: true},
+	{name: WSMux, stealth: 3, protos: []string{config.ProtoTCP}, mux: true, companion: true},
+	{name: WSSMux, stealth: 4, protos: []string{config.ProtoTCP}, mux: true, tls: true, companion: true},
 	{name: UDP, stealth: 1, protos: []string{config.ProtoUDP}, udpData: true},
 }
 
@@ -108,7 +115,7 @@ func (*Backend) Name() string { return Name }
 func (*Backend) Transports() []backend.Transport {
 	out := make([]backend.Transport, 0, len(specs))
 	for _, s := range specs {
-		out = append(out, backend.Transport{
+		tr := backend.Transport{
 			Backend:   Name,
 			Name:      s.name,
 			Direction: backend.Reverse,
@@ -116,7 +123,11 @@ func (*Backend) Transports() []backend.Transport {
 			NeedsUDP:  s.udpData,
 			NeedsTLS:  s.tls,
 			Stealth:   s.stealth,
-		})
+		}
+		if s.companion {
+			tr.UDPCompanion = UDP
+		}
+		out = append(out, tr)
 	}
 	return out
 }
@@ -132,20 +143,39 @@ func (*Backend) Probe(context.Context, backend.RenderInput) (backend.ProbeResult
 
 // Validate reports impossible combinations for in (DEY-B006, DEY-B010).
 func (b *Backend) Validate(in backend.RenderInput) error {
-	_, _, err := b.plan(in)
+	_, err := b.plan(in)
 	return err
 }
 
 // Render renders the hub ([server]) or node ([client]) side. It is pure.
+// A tunnel with TCP and UDP maps on a TCP-only transport gets a second
+// config for the UDP maps (backhaul/udp on CompanionControlPort) and one
+// unit running both processes through "deyroute pair".
 func (b *Backend) Render(in backend.RenderInput, side backend.Side) (backend.Rendered, error) {
-	sp, maps, err := b.plan(in)
+	pl, err := b.plan(in)
 	if err != nil {
 		return backend.Rendered{}, err
 	}
+	render, file, udpFile := renderServer, ServerFile, ServerUDPFile
 	if side == backend.SideNode {
-		return renderClient(in, sp, maps), nil
+		render, file, udpFile = renderClient, ClientFile, ClientUDPFile
 	}
-	return renderServer(in, sp, maps), nil
+	r := render(in, pl.spec, pl.maps, file)
+	if len(pl.udpMaps) == 0 {
+		return r, nil
+	}
+	cin := in
+	cin.ControlPort = in.CompanionControlPort
+	cin.Transport.Name = UDP
+	cin.Transport.UDPCompanion = ""
+	udpSpec, _ := lookupSpec(UDP)
+	c := render(cin, udpSpec, pl.udpMaps, udpFile)
+	for name, data := range c.Files {
+		r.Files[name] = data
+	}
+	r.Binds = append(r.Binds, c.Binds...)
+	r.Unit = pairUnit(in, file, udpFile)
+	return r, nil
 }
 
 // mapping is one Backhaul "ports" entry: one listen port on the hub
@@ -157,58 +187,94 @@ type mapping struct {
 	udp    bool
 }
 
+// renderPlan is what plan computed for Render: the transport spec, the
+// mappings of the main process and those of the UDP companion process.
+type renderPlan struct {
+	spec    spec
+	maps    []mapping
+	udpMaps []mapping
+}
+
 // plan validates in and computes the port mappings to render.
-func (b *Backend) plan(in backend.RenderInput) (spec, []mapping, error) {
+func (b *Backend) plan(in backend.RenderInput) (renderPlan, error) {
 	id := in.Transport.ID()
 	fail := func(reason string) error {
 		return deyerr.New(deyerr.B006, deyerr.Params{"transport": id, "reason": reason})
 	}
 	sp, ok := lookupSpec(in.Transport.Name)
 	if in.Transport.Backend != Name || !ok {
-		return spec{}, nil, fail("not a backhaul transport")
+		return renderPlan{}, fail("not a backhaul transport")
 	}
 	ports := portMaps(in)
 	if len(ports) == 0 {
-		return spec{}, nil, fail("the tunnel has no port maps")
+		return renderPlan{}, fail("the tunnel has no port maps")
+	}
+	companion := sp.companion && in.UsesCompanion()
+	var udpPorts []config.PortMap
+	if companion {
+		var tcpPorts []config.PortMap
+		for _, p := range ports {
+			if protoOf(p) == config.ProtoUDP {
+				udpPorts = append(udpPorts, p)
+			} else {
+				tcpPorts = append(tcpPorts, p)
+			}
+		}
+		ports = tcpPorts
+		if len(ports) == 0 {
+			return renderPlan{}, fail("the UDP companion needs TCP port maps for the main process")
+		}
+		if c := in.CompanionControlPort; c < 1 || c > 65535 || c == in.ControlPort {
+			return renderPlan{}, fail("UDP companion control port " + strconv.Itoa(c) + " is out of range or equals the control port")
+		}
+		if !filepath.IsAbs(in.Paths.SelfBinary) {
+			return renderPlan{}, fail("the deyroute binary path is not absolute (it runs both processes)")
+		}
 	}
 	for _, p := range ports {
 		proto := protoOf(p)
 		if !contains(sp.protos, proto) {
-			return spec{}, nil, deyerr.New(deyerr.B010, deyerr.Params{"transport": id, "proto": proto})
+			return renderPlan{}, deyerr.New(deyerr.B010, deyerr.Params{"transport": id, "proto": proto})
 		}
 	}
 	if in.ControlPort < 1 || in.ControlPort > 65535 {
-		return spec{}, nil, fail("backend control port " + strconv.Itoa(in.ControlPort) + " is out of range")
+		return renderPlan{}, fail("backend control port " + strconv.Itoa(in.ControlPort) + " is out of range")
 	}
 	if in.Secrets.Token == "" {
-		return spec{}, nil, fail("the tunnel token is missing")
+		return renderPlan{}, fail("the tunnel token is missing")
 	}
 	if strings.TrimSpace(in.Hub.PublicIP) == "" {
-		return spec{}, nil, fail("the hub public IP is unknown (the node client dials it)")
+		return renderPlan{}, fail("the hub public IP is unknown (the node client dials it)")
 	}
 	if sp.tls && (in.Secrets.TLSCertFile == "" || in.Secrets.TLSKeyFile == "") {
-		return spec{}, nil, fail("the tunnel TLS certificate or key is missing")
+		return renderPlan{}, fail("the tunnel TLS certificate or key is missing")
 	}
 	if !filepath.IsAbs(in.Paths.Binary) {
-		return spec{}, nil, fail("the backhaul binary is not installed (no absolute binary path)")
+		return renderPlan{}, fail("the backhaul binary is not installed (no absolute binary path)")
 	}
 	if !filepath.IsAbs(in.Paths.ConfigDir) {
-		return spec{}, nil, fail("the rendered config directory is not an absolute path")
+		return renderPlan{}, fail("the rendered config directory is not an absolute path")
 	}
 	if adv := in.Tunnel.Advanced; adv != nil {
 		if adv.BackhaulWebPort != 0 {
 			// Spec 7.1: web_port only on 127.0.0.1. Backhaul v0.7.2 always
 			// serves it on every interface (":<port>"), which would expose
 			// a Backhaul dashboard on the hub's public IP.
-			return spec{}, nil, fail("advanced.backhaul_web_port cannot be limited to 127.0.0.1 by this Backhaul version (it listens on every interface); remove it")
+			return renderPlan{}, fail("advanced.backhaul_web_port cannot be limited to 127.0.0.1 by this Backhaul version (it listens on every interface); remove it")
 		}
 		if adv.ConnectionPool < 0 || adv.ConnectionPool > maxPool {
-			return spec{}, nil, fail("advanced.connection_pool must be between 1 and " + strconv.Itoa(maxPool))
+			return renderPlan{}, fail("advanced.connection_pool must be between 1 and " + strconv.Itoa(maxPool))
 		}
 	}
 	maps, err := buildMappings(ports, fail)
 	if err != nil {
-		return spec{}, nil, err
+		return renderPlan{}, err
+	}
+	var udpMaps []mapping
+	if len(udpPorts) > 0 {
+		if udpMaps, err = buildMappings(udpPorts, fail); err != nil {
+			return renderPlan{}, err
+		}
 	}
 	if acceptsUDP(sp, maps) {
 		// accept_udp is global in v0.7.2: every "ports" entry then starts a
@@ -222,13 +288,13 @@ func (b *Backend) plan(in backend.RenderInput) (spec, []mapping, error) {
 				if m.udp {
 					have, missing = config.ProtoUDP, config.ProtoTCP
 				}
-				return spec{}, nil, fail("with UDP port maps backhaul/tcp opens tcp and udp on every listen port; port " +
+				return renderPlan{}, fail("with UDP port maps backhaul/tcp opens tcp and udp on every listen port; port " +
 					strconv.Itoa(m.listen) + " is mapped for " + have + " only and would also expose " + missing +
 					" (map both protocols of every port, or use backhaul/udp or direct/native)")
 			}
 		}
 	}
-	return sp, maps, nil
+	return renderPlan{spec: sp, maps: maps, udpMaps: udpMaps}, nil
 }
 
 // buildMappings groups port maps by listen port. A tcp and a udp port map

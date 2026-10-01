@@ -8,6 +8,7 @@ import (
 
 	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
+	"github.com/localroot4/deyroute/internal/supervise"
 )
 
 // tomlWriter builds a flat TOML table with deterministic key order.
@@ -81,8 +82,8 @@ func controlBindHost(hubIP string) string {
 	return "0.0.0.0"
 }
 
-// renderServer renders the hub side: server.toml, unit and binds.
-func renderServer(in backend.RenderInput, sp spec, maps []mapping) backend.Rendered {
+// renderServer renders the hub side: the server config (file), unit and binds.
+func renderServer(in backend.RenderInput, sp spec, maps []mapping, file string) backend.Rendered {
 	addr := listenAddr(in)
 	udpOverTCP := acceptsUDP(sp, maps)
 
@@ -142,16 +143,16 @@ func renderServer(in backend.RenderInput, sp spec, maps []mapping) backend.Rende
 	}
 
 	return backend.Rendered{
-		Files: map[string][]byte{ServerFile: w.bytes()},
-		Unit:  unit(in, ServerFile),
+		Files: map[string][]byte{file: w.bytes()},
+		Unit:  unit(in, file),
 		Binds: binds,
 	}
 }
 
-// renderClient renders the node side: client.toml and unit. The client
-// binds nothing (web_port 0); it dials the hub and the targets the server
-// names for each stream.
-func renderClient(in backend.RenderInput, sp spec, maps []mapping) backend.Rendered {
+// renderClient renders the node side: the client config (file) and unit.
+// The client binds nothing (web_port 0); it dials the hub and the targets
+// the server names for each stream.
+func renderClient(in backend.RenderInput, sp spec, maps []mapping, file string) backend.Rendered {
 	var w tomlWriter
 	header(&w, in, backend.SideNode)
 	w.table("client")
@@ -180,8 +181,8 @@ func renderClient(in backend.RenderInput, sp spec, maps []mapping) backend.Rende
 	w.boolean("skip_optz", true)
 
 	return backend.Rendered{
-		Files: map[string][]byte{ClientFile: w.bytes()},
-		Unit:  unit(in, ClientFile),
+		Files: map[string][]byte{file: w.bytes()},
+		Unit:  unit(in, file),
 	}
 }
 
@@ -204,4 +205,15 @@ func unit(in backend.RenderInput, file string) backend.UnitSpec {
 		ExecStart:        []string{in.Paths.Binary, "-c", filepath.Join(in.Paths.ConfigDir, file)},
 		WorkingDirectory: in.Paths.ConfigDir,
 	}
+}
+
+// pairUnit runs the main and the UDP companion process in one unit:
+// "deyroute pair <backhaul> -c <file> -- <backhaul> -c <udpFile>". deyroute
+// stops both when one of them exits, so systemd restarts the pair.
+func pairUnit(in backend.RenderInput, file, udpFile string) backend.UnitSpec {
+	u := unit(in, file)
+	u.ExecStart = []string{in.Paths.SelfBinary, supervise.Command,
+		in.Paths.Binary, "-c", filepath.Join(in.Paths.ConfigDir, file), supervise.Separator,
+		in.Paths.Binary, "-c", filepath.Join(in.Paths.ConfigDir, udpFile)}
+	return u
 }

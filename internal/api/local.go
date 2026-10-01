@@ -64,6 +64,10 @@ type Local interface {
 	PortAdd(ctx context.Context, tunnel string, specs []PortSpec, progress func(Step)) (TunnelInfo, error)
 	PortRemove(ctx context.Context, tunnel string, listen int, proto string) (TunnelInfo, error)
 	PortCheck(ctx context.Context, req PortCheckRequest) (PortCheckResult, error)
+	// PortOpenFirewall opens a port in the external firewall that blocks it
+	// (ufw, firewalld, iptables or another nftables table), only with the
+	// exact command the owner confirmed (section 10).
+	PortOpenFirewall(ctx context.Context, req PortOpenRequest) (PortOpenResult, error)
 	PortSuggest(ctx context.Context, count int) ([]int, error)
 
 	// ---- ladders and transports
@@ -175,7 +179,19 @@ type HubStatus struct {
 	UIMode      string `json:"ui_mode"`
 	Language    string `json:"language"`
 	Firewall    string `json:"firewall"` // managed|suggest-only
+	// ACMEChallenge is how tls.mode acme proves hub.domain: http-01 (port
+	// 80), dns-01 (Cloudflare token file set) or none (HTTP-01 disabled and
+	// no token).
+	ACMEChallenge string `json:"acme_challenge"`
+	ACMEEmail     string `json:"acme_email,omitempty"`
 }
+
+// HubStatus.ACMEChallenge values.
+const (
+	ACMEHTTP01 = "http-01"
+	ACMEDNS01  = "dns-01"
+	ACMENone   = "none"
+)
 
 // NodeSelf is the node part of Status (on a node).
 type NodeSelf struct {
@@ -394,6 +410,35 @@ type PortCheckResult struct {
 	SuggestedPorts []int  `json:"suggested_ports,omitempty"`
 }
 
+// PortOpenRequest is `deyroute port check 443[/tcp] --open` and "Open it in
+// the firewall" in the menu. Command is the command the owner confirmed
+// (PortCheckResult.FirewallCommand). The hub never runs it as text: it
+// checks the firewall again, builds the command from the firewall it finds
+// and the typed Port and Proto, and refuses with DEY-P032 when that is not
+// Command.
+type PortOpenRequest struct {
+	Port    int    `json:"port"`
+	Proto   string `json:"proto"`
+	Command string `json:"command"`
+}
+
+// PortOpenResult is what PortOpenFirewall ran and the firewall check that
+// followed (stage 2 of the port check).
+type PortOpenResult struct {
+	Port  int    `json:"port"`
+	Proto string `json:"proto"`
+	// Ran is the command that ran and By the firewall it changed; both are
+	// empty when no external firewall blocked the port any more.
+	Ran string `json:"ran,omitempty"`
+	By  string `json:"by,omitempty"`
+	// The firewall afterwards, as in PortCheckResult: another firewall that
+	// still blocks the port comes with its own command (a new confirmation).
+	FirewallOpen    bool   `json:"firewall_open"`
+	FirewallName    string `json:"firewall_name"`
+	FirewallCommand string `json:"firewall_command,omitempty"`
+	Note            string `json:"note,omitempty"`
+}
+
 // Ladder is a named ladder profile.
 type Ladder struct {
 	Name    string   `json:"name"`
@@ -559,5 +604,14 @@ type SettingsRequest struct {
 	UIMode   string   `json:"ui_mode,omitempty"`
 	Language string   `json:"language,omitempty"`
 	Decoys   []string `json:"decoys,omitempty"`
-	Domain   *string  `json:"domain,omitempty"`
+	// Domain is hub.domain (TLS SANs, tls.mode acme); "" removes it.
+	Domain *string `json:"domain,omitempty"`
+	// ACMEEmail is hub.acme.email (the ACME account contact); "" removes it.
+	ACMEEmail *string `json:"acme_email,omitempty"`
+	// CloudflareTokenFile is the absolute path of a file holding a
+	// Cloudflare API token (Zone:DNS:Edit) for DNS-01. The hub copies the
+	// token to /etc/deyroute/secrets/cloudflare.token (0600) and sets
+	// hub.acme.cloudflare_token_file; the token itself never travels or
+	// enters config.yaml. "" removes it (HTTP-01 on port 80 again).
+	CloudflareTokenFile *string `json:"cloudflare_token_file,omitempty"`
 }

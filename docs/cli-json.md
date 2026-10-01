@@ -92,7 +92,10 @@ The `Status` DTO itself: `{"schema", "role", "version", "generated_at",
 [Warning]?}`.
 
 - HubStatus: `{"name", "public_ip", "control_port", "domain", "ui_mode",
-  "language", "firewall"}` (`firewall`: `managed` | `suggest-only`).
+  "language", "firewall", "acme_challenge", "acme_email"}` (`firewall`:
+  `managed` | `suggest-only`; `acme_challenge`: how `tls.mode acme` proves
+  the domain, `http-01` | `dns-01` (Cloudflare token set) | `none`
+  (HTTP-01 disabled and no token)).
 - NodeSelf: `{"id", "hub_addr", "connected", "last_contact", "hub_version",
   "compatible", "units"}`.
 - Warning: `{"code", "message", "tunnel", "node"}`.
@@ -225,6 +228,15 @@ The `PortCheckResult` DTO: `{"schema", "port", "proto", "bind_free",
 tested), "node_rtt_ms", "tunnel", "tunnel_ok" (absent: not tested),
 "tunnel_rtt_ms", "note", "suggested_ports"}`
 
+With `--open` (and `--yes`, since `--json` usually runs without a
+terminal) the same document gains `"opened"` when a firewall blocked the
+port: the last `PortOpenResult`, `{"port", "proto", "ran" (the command that
+ran), "by" (the firewall it changed), "firewall_open", "firewall_name",
+"firewall_command" (a firewall that still blocks), "note"}`. Without a
+blocking firewall `"opened"` is absent. A port still closed after every
+confirmed command is the error document `DEY-P013`; a firewall that changed
+since the check is `DEY-P032`, a failing command `DEY-P033`.
+
 ### `deyroute port suggest`
 
 `{"schema", "ports": [int]}`
@@ -292,6 +304,17 @@ value}, "warnings": [string]}`
 
 `{"schema", "certificates": [{"tunnel", "kind" (ca|hub|node|tunnel), "mode",
 "subject", "sans", "not_after", "days_left", "fingerprint", "warning"}]}`
+
+### `deyroute security tls domain <name>|--clear`
+
+`{"schema", "ok": true, "domain"}` (`""` after `--clear`).
+
+### `deyroute security tls acme [--email E] [--cloudflare-token-file F]`
+
+`{"schema", "ok": true, "email"?, "cloudflare_token_file"?}` — only the
+settings that were given; `cloudflare_token_file` is where the token is
+stored (`/etc/deyroute/secrets/cloudflare.token`, or `""` when it was
+removed), never the token.
 
 ### `deyroute security firewall show|apply|disable`
 

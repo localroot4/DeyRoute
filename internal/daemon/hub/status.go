@@ -85,6 +85,10 @@ func (h *Hub) hubStatus(cfg *config.Config) *api.HubStatus {
 	if !firewallManaged(cfg) {
 		hs.Firewall = FirewallModeSuggestOnly
 	}
+	hs.ACMEChallenge = acmeChallenge(cfg)
+	if a := cfg.Hub.ACME; a != nil {
+		hs.ACMEEmail = a.Email
+	}
 	return hs
 }
 

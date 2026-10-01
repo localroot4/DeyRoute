@@ -2,6 +2,8 @@ package firewall
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -126,6 +128,7 @@ func TestCheckUFW(t *testing.T) {
 	require.True(t, v.Blocked)
 	require.Equal(t, UFW, v.By)
 	require.Equal(t, []string{"ufw allow 9000/tcp"}, v.Commands)
+	require.Equal(t, "ufw allow 9000/tcp", v.Command())
 	require.Equal(t, "policy drop", v.Detail)
 	require.False(t, f.Called("iptables -S"), "iptables belongs to ufw")
 
@@ -165,6 +168,7 @@ func TestCheckFirewalld(t *testing.T) {
 	require.True(t, v.Blocked)
 	require.Equal(t, Firewalld, v.By)
 	require.Equal(t, []string{"firewall-cmd --permanent --add-port=80/tcp && firewall-cmd --reload"}, v.Commands)
+	require.Equal(t, "firewall-cmd --permanent --add-port=80/tcp && firewall-cmd --reload", v.Command())
 	require.Contains(t, v.Detail, "80/tcp is not in the default zone")
 
 	for _, ok := range []struct {
@@ -336,6 +340,32 @@ func TestCheckNFTables(t *testing.T) {
 	require.Equal(t, "ip filter", v.Table)
 	require.Equal(t, "INPUT", v.Chain)
 	require.Equal(t, []string{"nft insert rule ip filter INPUT tcp dport 9999 accept"}, v.Commands)
+	require.Equal(t, "nft insert rule ip filter INPUT tcp dport 9999 accept", v.Command())
+}
+
+// nft joins its arguments into one command line: a table or chain name that
+// is not a plain identifier gives no command to run (the owner opens the
+// port by hand), while the port is still reported blocked.
+func TestCheckNFTablesOddNames(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct{ table, chain string }{{`"odd;name"`, "input"}, {"9lives", "input"}, {"filter", "in;put"}} {
+		ruleset := "table inet " + tc.table + " {\n\tchain " + tc.chain + " {\n\t\ttype filter hook input priority filter; policy drop;\n\t}\n}\n"
+		f := bareFake().On("nft list ruleset", exec.OK(ruleset))
+		v, err := Check(ctx, f, 9000, "tcp")
+		require.NoError(t, err)
+		require.True(t, v.Blocked, tc.table)
+		require.Equal(t, NFTables, v.By)
+		require.Empty(t, v.Commands, tc.table)
+		require.Empty(t, v.Command())
+		require.NoError(t, v.Open(ctx, f))
+		require.False(t, slices.ContainsFunc(f.Lines(), func(l string) bool { return strings.HasPrefix(l, "nft insert") }))
+	}
+	for _, ok := range []string{"filter", "_x", ".a/b-c_9", "INPUT"} {
+		require.True(t, nftIdent(ok), ok)
+	}
+	for _, bad := range []string{"", "9a", "-a", "a b", "a;b", `"a"`, "a$b", strings.Repeat("a", 65)} {
+		require.False(t, nftIdent(bad), bad)
+	}
 }
 
 func TestCheckInvalidAndCancelled(t *testing.T) {

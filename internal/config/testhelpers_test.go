@@ -46,6 +46,9 @@ func fakeSupports(id, proto string) bool {
 		return strings.HasSuffix(id, "/udp") || strings.HasPrefix(id, "wireguard/") || id == "direct/native"
 	case ProtoTCP:
 		return !strings.HasPrefix(id, "wireguard/")
+	case ProtoMixedUDP:
+		// Backhaul's TCP transports carry UDP maps through a companion.
+		return fakeSupports(id, ProtoUDP) || strings.HasPrefix(id, "backhaul/")
 	}
 	return false
 }

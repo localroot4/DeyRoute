@@ -71,6 +71,8 @@ type Stub struct {
 	PortRemoveFn func(ctx context.Context, tunnel string, listen int, proto string) (api.TunnelInfo, error)
 	// PortCheckFn implements PortCheck.
 	PortCheckFn func(ctx context.Context, req api.PortCheckRequest) (api.PortCheckResult, error)
+	// PortOpenFirewallFn implements PortOpenFirewall.
+	PortOpenFirewallFn func(ctx context.Context, req api.PortOpenRequest) (api.PortOpenResult, error)
 	// PortSuggestFn implements PortSuggest.
 	PortSuggestFn func(ctx context.Context, count int) ([]int, error)
 	// LadderListFn implements LadderList.
@@ -375,6 +377,15 @@ func (s *Stub) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.Por
 		return zero, notImplemented("PortCheck")
 	}
 	return s.PortCheckFn(ctx, req)
+}
+
+// PortOpenFirewall calls PortOpenFirewallFn or returns DEY-X008 when it is nil.
+func (s *Stub) PortOpenFirewall(ctx context.Context, req api.PortOpenRequest) (api.PortOpenResult, error) {
+	if s.PortOpenFirewallFn == nil {
+		var zero api.PortOpenResult
+		return zero, notImplemented("PortOpenFirewall")
+	}
+	return s.PortOpenFirewallFn(ctx, req)
 }
 
 // PortSuggest calls PortSuggestFn or returns DEY-X008 when it is nil.

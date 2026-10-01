@@ -9,6 +9,9 @@ import (
 var (
 	// DefaultTelegramTokenFile is hub.notify.telegram.bot_token_file.
 	DefaultTelegramTokenFile = filepath.Join(SecretsDir, "telegram.token")
+	// DefaultCloudflareTokenFile is hub.acme.cloudflare_token_file when the
+	// token is set from the menu or the CLI (DNS-01, section 10).
+	DefaultCloudflareTokenFile = filepath.Join(SecretsDir, "cloudflare.token")
 	// DefaultNodeCertFile is node.cert_file on a node.
 	DefaultNodeCertFile = filepath.Join(SecretsDir, "node.crt")
 	// DefaultNodeKeyFile is node.key_file on a node.

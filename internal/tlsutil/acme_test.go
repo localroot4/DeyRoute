@@ -130,6 +130,9 @@ func TestObtainACMEPreflight(t *testing.T) {
 	require.Equal(t, DefaultACMEHTTPPort, askedPort)
 	require.Contains(t, e.Why(), "port 80/tcp is in use")
 	require.Contains(t, e.Fix(), "Cloudflare")
+	// The Fix names a command that exists (section 6: everything from the
+	// menu or the CLI), not a settings page.
+	require.Contains(t, e.Fix(), "deyroute security tls acme --cloudflare-token-file")
 	entries, err = os.ReadDir(dir)
 	require.NoError(t, err)
 	require.Empty(t, entries)

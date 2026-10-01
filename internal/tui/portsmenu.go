@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/ports"
 )
@@ -114,8 +115,74 @@ func portCheckForm(a *app) screen {
 			return renderPortCheck(a, r)
 		})
 		t.refreshable = true
+		t.option = func(a *app, v any) (string, func(a *app) tea.Cmd) {
+			return openFirewallOption(a, v, func() { t.stale = true })
+		}
 		return a.replace(t)
 	})
+}
+
+// openFirewallOption offers "1) Open it in the firewall: <command>" on a
+// port check whose external firewall blocks the port (section 10). The
+// owner confirms the exact command (typed yes); once it runs, recheck marks
+// the port check for a new run when the owner comes back.
+func openFirewallOption(_ *app, v any, recheck func()) (string, func(a *app) tea.Cmd) {
+	r, _ := v.(api.PortCheckResult)
+	if r.FirewallOpen || r.FirewallCommand == "" {
+		return "", nil
+	}
+	return i18n.T(i18n.TUIPCOpenItem, r.FirewallCommand), func(a *app) tea.Cmd {
+		spec := specOf(r.Port, r.Proto)
+		title := i18n.T(i18n.TUIPCOpenTitle, spec)
+		req := api.PortOpenRequest{Port: r.Port, Proto: r.Proto, Command: r.FirewallCommand}
+		text := i18n.T(i18n.TUIPCOpenConfirm, spec, r.FirewallName, r.FirewallCommand)
+		return a.push(newConfirm(title, text, true, func(a *app) tea.Cmd {
+			recheck()
+			return a.replace(newTask(title, checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+				return l.PortOpenFirewall(ctx, req)
+			}, renderPortOpen))
+		}))
+	}
+}
+
+// specOf is "443/tcp" (tcp when proto is empty).
+func specOf(port int, proto string) string {
+	if proto == "" {
+		proto = config.ProtoTCP
+	}
+	return ports.FormatSpec(ports.Spec{Listen: port, Proto: proto})
+}
+
+// renderPortOpen shows what ran and the firewall afterwards; another
+// firewall that still blocks the port is offered on the port check again.
+func renderPortOpen(a *app, v any) string {
+	r, _ := v.(api.PortOpenResult)
+	s := a.sym()
+	spec := specOf(r.Port, r.Proto)
+	var b strings.Builder
+	if r.Ran == "" {
+		b.WriteString(indent(i18n.T(i18n.TUIPCOpenNothing, spec)) + "\n")
+	} else {
+		b.WriteString(indent(i18n.T(i18n.TUIPCOpenRan, r.Ran)) + "\n")
+	}
+	name := r.FirewallName
+	if name == "" {
+		name = i18n.T(i18n.TUIDash)
+	}
+	if r.FirewallOpen {
+		b.WriteString(" " + a.paint(colGreen, s.ok) + " " + i18n.T(i18n.TUIPCOpenNow, spec, name) + "\n")
+	} else {
+		line := i18n.T(i18n.TUIPCOpenStill, spec, name)
+		if r.FirewallCommand != "" {
+			line += " " + i18n.T(i18n.TUIPCOpenCmd, r.FirewallCommand)
+		}
+		b.WriteString(" " + a.paint(colRed, s.fail+" "+line) + "\n")
+	}
+	if r.Note != "" {
+		b.WriteString(a.paint(colGray, indent(r.Note)) + "\n")
+	}
+	b.WriteString("\n" + indent(i18n.T(i18n.TUIPCOpenBack)) + "\n")
+	return b.String()
 }
 
 // renderPortCheck renders exactly four lines: local bind, firewall,

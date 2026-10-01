@@ -204,17 +204,10 @@ func (l *local) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.Po
 	}
 
 	// 2. firewall.
-	v, err := firewall.Check(ctx, h.o.Runner, req.Port, proto)
-	switch {
-	case err != nil:
-		res.FirewallOpen, res.FirewallName = true, "unknown"
-		notes = append(notes, "the firewall could not be checked: "+deyerr.As(err).Message())
-	case v.Blocked:
-		res.FirewallName = string(v.By)
-		res.FirewallCommand = strings.Join(v.Commands, " && ")
-	default:
-		res.FirewallOpen = true
-		res.FirewallName = firewallNames(ctx, h, cfg, tunnelPort)
+	fw := h.firewallStage(ctx, cfg, req.Port, proto, tunnelPort)
+	res.FirewallOpen, res.FirewallName, res.FirewallCommand = fw.open, fw.name, fw.command
+	if fw.note != "" {
+		notes = append(notes, fw.note)
 	}
 
 	// 3. reachable from a node.
@@ -270,6 +263,85 @@ func (l *local) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.Po
 		res.SuggestedPorts = h.suggestPorts(ctx, DefaultSuggestCount)
 	}
 	res.Note = strings.Join(notes, "; ")
+	return res, nil
+}
+
+// fwStage is stage 2 of the port check: open, or the firewall that blocks
+// the port and the command that opens it ("" when none is known).
+type fwStage struct {
+	open          bool
+	name, command string
+	note          string // the firewall could not be checked
+}
+
+// firewallStage checks the external firewalls for port/proto. A check that
+// fails reports the port open ("unknown") with a note, as section 10 is
+// conservative.
+func (h *Hub) firewallStage(ctx context.Context, cfg *config.Config, port int, proto string, tunnelPort bool) fwStage {
+	v, err := firewall.Check(ctx, h.o.Runner, port, proto)
+	switch {
+	case err != nil:
+		return fwStage{open: true, name: "unknown", note: "the firewall could not be checked: " + deyerr.As(err).Message()}
+	case v.Blocked:
+		return fwStage{name: string(v.By), command: v.Command()}
+	}
+	return fwStage{open: true, name: firewallNames(ctx, h, cfg, tunnelPort)}
+}
+
+// PortOpenFirewall implements api.Local (`deyroute port check --open`, Ports
+// → Check port and the Add tunnel wizard; section 10): it opens a port in
+// the external firewall that blocks it, after the owner confirmed the exact
+// command. The firewall is checked again and the command is built from the
+// firewall found and the typed port and protocol (firewall.Check), never
+// from text the client sent; when it is not req.Command, nothing runs
+// (DEY-P032). Afterwards the port is checked once more: another firewall
+// that still blocks it is reported with its own command (a new
+// confirmation); the same command still being needed is DEY-P033 (an
+// earlier rule of that firewall denies the port).
+func (l *local) PortOpenFirewall(ctx context.Context, req api.PortOpenRequest) (api.PortOpenResult, error) {
+	h := l.h
+	proto, err := normalizeProto(req.Port, req.Proto)
+	if err != nil {
+		return api.PortOpenResult{}, withLog(err)
+	}
+	if !ports.ValidPort(req.Port) {
+		return api.PortOpenResult{}, withLog(deyerr.New(deyerr.P010, deyerr.Params{"input": strconv.Itoa(req.Port)}))
+	}
+	spec := strconv.Itoa(req.Port) + "/" + proto
+	res := api.PortOpenResult{Port: req.Port, Proto: proto}
+	v, err := firewall.Check(ctx, h.o.Runner, req.Port, proto)
+	if err != nil {
+		return api.PortOpenResult{}, withLog(err)
+	}
+	if v.Blocked {
+		cmd := v.Command()
+		params := deyerr.Params{"port": spec, "firewall": string(v.By), "command": cmd}
+		switch {
+		case cmd == "":
+			params["reason"] = "deyroute has no safe command for the rule that blocks it (" + v.Detail + ")"
+			return api.PortOpenResult{}, withLog(deyerr.New(deyerr.P033, params))
+		case strings.TrimSpace(req.Command) != cmd:
+			return api.PortOpenResult{}, withLog(deyerr.New(deyerr.P032, params))
+		}
+		h.log.Info("opening a port in the external firewall (confirmed by the owner)",
+			slog.String("port", spec), slog.String("firewall", string(v.By)), slog.String("command", cmd))
+		if err := v.Open(ctx, h.o.Runner); err != nil {
+			params["reason"] = cmd + " failed; the firewall tool's output is below"
+			return api.PortOpenResult{}, withLog(deyerr.Wrap(deyerr.P033, err, params).WithDetail(deyerr.As(err).Detail))
+		}
+		res.Ran, res.By = cmd, string(v.By)
+	}
+	cfg := h.Config()
+	_, tunnelPort := cfg.UsedListenPorts()[config.ListenKey{Port: req.Port, Proto: proto}]
+	fw := h.firewallStage(ctx, cfg, req.Port, proto, tunnelPort)
+	if res.Ran != "" && !fw.open && fw.command == res.Ran {
+		return api.PortOpenResult{}, withLog(deyerr.New(deyerr.P033, deyerr.Params{"port": spec, "firewall": res.By,
+			"reason": res.Ran + " ran, but " + res.By + " still blocks the port (an earlier rule of " + res.By + " denies it)"}))
+	}
+	res.FirewallOpen, res.FirewallName, res.FirewallCommand, res.Note = fw.open, fw.name, fw.command, fw.note
+	if res.Ran != "" && !fw.open {
+		h.log.Warn("port still blocked by another firewall", slog.String("port", spec), slog.String("firewall", fw.name))
+	}
 	return res, nil
 }
 

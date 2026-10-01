@@ -57,7 +57,7 @@ deyroute security firewall apply     # همین حالا بساز و اعمال 
 deyroute security firewall disable   # جدول را حذف کن؛ از آن به بعد deyroute فقط دستور پیشنهاد می‌دهد
 ```
 
-با `security.firewall_managed: false` در `config.yaml`، DEYROUTE چیزی اعمال نمی‌کند و فقط دستورهایی را که خودتان باید اجرا کنید چاپ می‌کند (`DEY-P031`). فایروال بیرونی (ufw، firewalld، پنل سرور) هیچ‌وقت بدون تأیید شما تغییر نمی‌کند؛ `deyroute port check` دستور دقیق را نشان می‌دهد.
+با `security.firewall_managed: false` در `config.yaml`، DEYROUTE چیزی اعمال نمی‌کند و فقط دستورهایی را که خودتان باید اجرا کنید چاپ می‌کند (`DEY-P031`). فایروال بیرونی (ufw، firewalld، پنل سرور) هیچ‌وقت بدون تأیید شما تغییر نمی‌کند؛ `deyroute port check` دستور دقیق را نشان می‌دهد و `deyroute port check <port> --open` (یا `Open it in the firewall` در منو) آن را فقط بعد از اینکه `yes` را تایپ کنید اجرا می‌کند. Hub هیچ‌وقت متنی را که دریافت می‌کند اجرا نمی‌کند: فایروال را دوباره چک می‌کند، دستور را از روی فایروال پیداشده و شماره و پروتکل پورت می‌سازد و اگر با دستوری که تأیید کردید فرق داشته باشد اجرا نمی‌کند (`DEY-P032`). این کار با `security.firewall_managed: false` هم انجام می‌شود، چون آن تنظیم فقط به جدول `inet deyroute` مربوط است. به فایروال پنل ارائه‌دهنده هیچ‌وقت دست زده نمی‌شود.
 
 ## رازها
 
@@ -96,7 +96,33 @@ deyroute security tls show --tunnel main
 deyroute security tls renew --tunnel main
 ```
 
-داشبورد ۱۴ روز مانده به انقضای یک گواهی هشدار می‌دهد. حالت TLS هر تانل در حالت Advanced تنظیم می‌شود (`2) Tunnels` ← `2) Edit tunnel`).
+داشبورد ۱۴ روز مانده به انقضای یک گواهی هشدار می‌دهد. حالت TLS هر تانل در حالت Advanced تنظیم می‌شود (`2) Tunnels` ← `2) Edit tunnel`) یا با `deyroute tunnel edit main --tls-mode auto|acme|custom` (برای `custom` گزینه‌های `--tls-cert` و `--tls-key` هم لازم است).
+
+### گواهی Let's Encrypt (حالت `acme`)
+
+1. یک دامنه را به Hub اشاره دهید: رکورد `A` (و اگر Hub آی‌پی نسخه ۶ دارد، `AAAA`) به‌صورت **DNS only**، یعنی بدون پراکسی Cloudflare (ابر نارنجی خاموش).
+2. آن را دامنه Hub کنید. از این به بعد همه گواهی‌های تانل این نام را هم دارند.
+
+   ```bash
+   deyroute security tls domain vpn.example.com
+   deyroute security tls domain --clear       # حذف دوباره دامنه
+   ```
+
+   در منو: `8) Security` ← `2) TLS certificates` ← `2) Domain (for ACME)` (برای حذف، `-` تایپ کنید). تا وقتی تانلی در حالت `acme` است، دامنه حذف نمی‌شود.
+3. تانل را عوض کنید: `deyroute tunnel edit main --tls-mode acme` (در منو: حالت Advanced، `2) Tunnels` ← `2) Edit tunnel`).
+4. گواهی را همین حالا بگیرید: `deyroute security tls renew --tunnel main` (در منو: `8) Security` ← `3) Renew TLS certificate`)، یا بگذارید تمدید روزانه این کار را بکند.
+
+Let's Encrypt دامنه را با **HTTP-01 روی پورت 80** خود Hub بررسی می‌کند. اگر پورت 80 مشغول است، به‌جایش از **DNS-01 از طریق Cloudflare** استفاده کنید (Advanced): در Cloudflare یک API token با دسترسی `Zone:DNS:Edit` برای zone همان دامنه بسازید، آن را در یک فایل بگذارید و مسیر فایل را به deyroute بدهید:
+
+```bash
+deyroute security tls acme --cloudflare-token-file /root/cloudflare.token
+deyroute security tls acme --email owner@example.com      # اختیاری: ایمیل هشدار انقضا
+deyroute security tls acme --cloudflare-token-file ''      # برگشت به HTTP-01
+```
+
+در منو (Advanced): `8) Security` ← `2) TLS certificates` ← `3) ACME e-mail` و `4) Cloudflare token (DNS-01)`. خود توکن هیچ‌وقت در منو یا خط فرمان تایپ نمی‌شود: deyroute آن را از فایل شما در `/etc/deyroute/secrets/cloudflare.token` (با دسترسی 0600) کپی می‌کند و بعد از آن می‌توانید فایل خودتان را پاک کنید. در `config.yaml` فقط مسیر همین فایل (`hub.acme.cloudflare_token_file`) می‌آید و توکن هیچ‌وقت در لاگ‌ها دیده نمی‌شود. صفحه `TLS certificates` دامنه و روش بررسی فعلی را نشان می‌دهد.
+
+اگر Let's Encrypt شکست بخورد (`DEY-T003`، `DEY-T004`)، تانل با گواهی داخلی خودش کار می‌کند (رویداد `acme_failed`) و تمدید روزانه دوباره امتحان می‌کند.
 
 ## Audit
 

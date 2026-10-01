@@ -315,6 +315,8 @@ const (
 	TUIDash           Key = "tui.common.dash"
 	TUIWantNumber     Key = "tui.common.want_number"
 	TUIWantOneOf      Key = "tui.common.want_one_of"
+	TUIWantDomain     Key = "tui.common.want_domain"
+	TUIWantAbsPath    Key = "tui.common.want_abs_path"
 	TUIDone           Key = "tui.common.done"
 	TUIKeepHint       Key = "tui.common.keep_hint"
 	TUIPickTunnel     Key = "tui.common.pick_tunnel"
@@ -440,6 +442,12 @@ const (
 	TUIWizNoPortsLeft     Key = "tui.wiz.no_ports_left"
 	TUIWizDupPort         Key = "tui.wiz.dup_port"
 	TUIWizStopConfirm     Key = "tui.wiz.stop_confirm"
+	TUIWizOpenFw          Key = "tui.wiz.open_fw"
+	TUIWizOpenFwAll       Key = "tui.wiz.open_fw_all"
+	TUIWizOpenConfirmAll  Key = "tui.wiz.open_confirm_all"
+	TUIWizKeep            Key = "tui.wiz.keep"
+	TUIWizKeepAll         Key = "tui.wiz.keep_all"
+	TUIWizOpened          Key = "tui.wiz.opened"
 	TUIWizQConfirm        Key = "tui.wiz.q_confirm"
 	TUIWizSumNode         Key = "tui.wiz.sum_node"
 	TUIWizSumPorts        Key = "tui.wiz.sum_ports"
@@ -554,6 +562,14 @@ const (
 	TUIPCNotTested     Key = "tui.pc.not_tested"
 	TUIPCNoTunnel      Key = "tui.pc.no_tunnel"
 	TUIPCNoteIran      Key = "tui.pc.note_iran"
+	TUIPCOpenItem      Key = "tui.pc.open_item"
+	TUIPCOpenTitle     Key = "tui.pc.open_title"
+	TUIPCOpenConfirm   Key = "tui.pc.open_confirm"
+	TUIPCOpenRan       Key = "tui.pc.open_ran"
+	TUIPCOpenNow       Key = "tui.pc.open_now"
+	TUIPCOpenStill     Key = "tui.pc.open_still"
+	TUIPCOpenNothing   Key = "tui.pc.open_nothing"
+	TUIPCOpenBack      Key = "tui.pc.open_back"
 
 	// 5 failover
 	TUIFoPolicy        Key = "tui.fo.policy"
@@ -649,6 +665,29 @@ const (
 	TUISeFwApplyConfirm Key = "tui.se.fw_apply_confirm"
 	TUISeAuditClean     Key = "tui.se.audit_clean"
 	TUISeFpNode         Key = "tui.se.fp_node"
+	TUISeTLSShow        Key = "tui.se.tls_show"
+	TUISeDomain         Key = "tui.se.domain"
+	TUISeACMEEmail      Key = "tui.se.acme_email"
+	TUISeCFToken        Key = "tui.se.cf_token" // #nosec G101 -- i18n key, not a credential
+	TUISeDomainField    Key = "tui.se.domain_field"
+	TUISeDomainHint     Key = "tui.se.domain_hint"
+	TUISeDomainSet      Key = "tui.se.domain_set"
+	TUISeDomainCleared  Key = "tui.se.domain_cleared"
+	TUISeEmailField     Key = "tui.se.email_field"
+	TUISeEmailHint      Key = "tui.se.email_hint"
+	TUISeEmailSet       Key = "tui.se.email_set"
+	TUISeEmailCleared   Key = "tui.se.email_cleared"
+	TUISeTokenField     Key = "tui.se.token_field"   // #nosec G101 -- i18n key, not a credential
+	TUISeTokenHint      Key = "tui.se.token_hint"    // #nosec G101 -- i18n key, not a credential
+	TUISeTokenSet       Key = "tui.se.token_set"     // #nosec G101 -- i18n key, not a credential
+	TUISeTokenCleared   Key = "tui.se.token_cleared" // #nosec G101 -- i18n key, not a credential
+	TUISeDomainLabel    Key = "tui.se.tls_domain_label"
+	TUISeChLabel        Key = "tui.se.tls_challenge_label"
+	TUISeEmailLabel     Key = "tui.se.tls_email_label"
+	TUISeNoDomain       Key = "tui.se.no_domain"
+	TUISeChHTTP         Key = "tui.se.ch_http"
+	TUISeChDNS          Key = "tui.se.ch_dns"
+	TUISeChNone         Key = "tui.se.ch_none"
 
 	// 9 notifications
 	TUINtSet        Key = "tui.nt.set"
@@ -732,6 +771,7 @@ const (
 	TUIHelpDiag      Key = "tui.help.diag"
 	TUIHelpOptimize  Key = "tui.help.optimize"
 	TUIHelpSecurity  Key = "tui.help.security"
+	TUIHelpTLS       Key = "tui.help.tls"
 	TUIHelpNotify    Key = "tui.help.notify"
 	TUIHelpBackup    Key = "tui.help.backup"
 	TUIHelpUpdate    Key = "tui.help.update"
@@ -775,6 +815,8 @@ var tuiEN = map[Key]string{
 	TUIUptimeClock:    "%02d:%02d:%02d",
 	TUIDash:           "-",
 	TUIWantNumber:     "Enter a whole number.",
+	TUIWantDomain:     "Enter a domain name such as vpn.example.com (no IP address), or - to remove it.",
+	TUIWantAbsPath:    "Enter an absolute path such as /root/cloudflare.token, or - to remove it.",
 	TUIWantOneOf:      "Enter one of: %s",
 	TUIDone:           "Done.",
 	TUIKeepHint:       "Press Enter to keep the value in brackets; Esc cancels.",
@@ -903,6 +945,12 @@ var tuiEN = map[Key]string{
 	TUIWizNoPortsLeft:     "No ports left. Enter the ports again.",
 	TUIWizDupPort:         "%s is already in the list.",
 	TUIWizStopConfirm:     "Disabling tunnel %s stops forwarding all of its ports so that %s becomes free. Enable it again later with 2) Tunnels -> 3) Enable / disable.",
+	TUIWizOpenFw:          "Open it in the firewall: %s",
+	TUIWizOpenFwAll:       "Open the %d blocked ports in the firewall",
+	TUIWizOpenConfirmAll:  "To open %s, deyroute runs these commands on the hub:\n\n%s\n\nAfterwards anyone on the internet can connect to these ports.",
+	TUIWizKeep:            "Keep it and continue (users may not reach it)",
+	TUIWizKeepAll:         "Keep these %d ports and continue (users may not reach them)",
+	TUIWizOpened:          "Ran %d firewall command(s).",
 	TUIWizQConfirm:        "3. Confirm",
 	TUIWizSumNode:         "Node",
 	TUIWizSumPorts:        "Ports",
@@ -1013,6 +1061,14 @@ var tuiEN = map[Key]string{
 	TUIPCNotTested:     "not tested (no online node)",
 	TUIPCNoTunnel:      "not part of a tunnel",
 	TUIPCNoteIran:      "filtering inside Iran is not measured",
+	TUIPCOpenItem:      "Open it in the firewall: %s",
+	TUIPCOpenTitle:     "Open %s in the firewall",
+	TUIPCOpenConfirm:   "To open %s, deyroute runs this command on the hub (%s):\n\n  %s\n\nAfterwards anyone on the internet can connect to this port.",
+	TUIPCOpenRan:       "Ran: %s",
+	TUIPCOpenNow:       "%s is open in the firewall now (%s).",
+	TUIPCOpenStill:     "%s is still closed by %s.",
+	TUIPCOpenNothing:   "No external firewall blocks %s any more; nothing was run.",
+	TUIPCOpenBack:      "Go back to check the port again.",
 
 	TUIFoPolicy:        "Policy",
 	TUIFoLadder:        "Ladder order",
@@ -1104,6 +1160,29 @@ var tuiEN = map[Key]string{
 	TUISeFwApplyConfirm: "The nftables table inet deyroute is rendered from the configuration and applied atomically.",
 	TUISeAuditClean:     "No problems found.",
 	TUISeFpNode:         "node %s",
+	TUISeTLSShow:        "Show certificates",
+	TUISeDomain:         "Domain (for ACME)",
+	TUISeACMEEmail:      "ACME e-mail",
+	TUISeCFToken:        "Cloudflare token (DNS-01)",
+	TUISeDomainField:    "Domain",
+	TUISeDomainHint:     "A name such as vpn.example.com with a DNS-only A record pointing at the hub (no Cloudflare proxy). Type - to remove it.",
+	TUISeDomainSet:      "Domain set to %s. Tunnels in tls mode acme get their Let's Encrypt certificate at the daily renewal, or now with Security > Renew TLS certificate.",
+	TUISeDomainCleared:  "Domain removed.",
+	TUISeEmailField:     "ACME e-mail",
+	TUISeEmailHint:      "Let's Encrypt sends expiry notices to this address. Type - to remove it.",
+	TUISeEmailSet:       "ACME e-mail set to %s.",
+	TUISeEmailCleared:   "ACME e-mail removed.",
+	TUISeTokenField:     "Cloudflare token file",
+	TUISeTokenHint:      "Put a Cloudflare API token with Zone:DNS:Edit in a file first (e.g. /root/cloudflare.token); the token itself is never typed here. It is copied to /etc/deyroute/secrets/cloudflare.token and the file you give may be deleted afterwards. Type - to remove the token (HTTP-01 on port 80 again).",
+	TUISeTokenSet:       "DNS-01 through Cloudflare is on; the token is stored in %s. Request the certificates with Security > Renew TLS certificate.",
+	TUISeTokenCleared:   "Cloudflare token removed; ACME uses HTTP-01 on port 80 again.",
+	TUISeDomainLabel:    "Domain",
+	TUISeChLabel:        "ACME check",
+	TUISeEmailLabel:     "ACME e-mail",
+	TUISeNoDomain:       "none (tls mode acme needs one)",
+	TUISeChHTTP:         "HTTP-01 on port 80",
+	TUISeChDNS:          "DNS-01 through Cloudflare",
+	TUISeChNone:         "none: HTTP-01 is disabled and no Cloudflare token is set",
 
 	TUINtSet:        "Set up Telegram",
 	TUINtTest:       "Send test message",
@@ -1172,16 +1251,17 @@ var tuiEN = map[Key]string{
 	TUIHelpForm:      "Type the answer and press Enter. Enter on an empty line keeps the value in brackets.\nEsc cancels without changes.",
 	TUIHelpConfirm:   "Destructive actions need the word yes typed exactly; anything else cancels.\nOther confirmations: Enter continues, q or Esc cancels.",
 	TUIHelpTask:      "Shows the steps of the running action and its result.\nOn an error: 1 + Enter or r retries; 0 + Enter or q goes back.",
-	TUIHelpWizard:    "Add tunnel asks at most three questions: node, ports, confirm.\nEach port is checked at once; a busy port can be changed, skipped or (for deyroute tunnels) stopped.\nEsc goes back one question; on the first question it leaves the wizard without creating anything.",
+	TUIHelpWizard:    "Add tunnel asks at most three questions: node, ports, confirm.\nEach port is checked at once; a busy port can be changed, skipped or (for deyroute tunnels) stopped.\nA port the firewall closes can be opened (after you confirm the exact command), changed, skipped or kept.\nEsc goes back one question; on the first question it leaves the wizard without creating anything.",
 	TUIHelpLadder:    "The ladder is tried from the top. Type the number of a rung + Enter to move it up,\ndown or remove it; the numbers after the rungs add a transport, load a profile or save.\nShortcuts on the selected rung: u up, d down, x remove; a add, p profile, s save.\nq or Esc leaves without saving.",
 	TUIHelpLogs:      "Log lines arrive live. Up/Down and PgUp/PgDn scroll, End returns to the live view.\nq stops the stream and goes back; r restarts it.",
 	TUIHelpTunnels:   "Tunnels forward ports from the hub to a node.\n1 adds a tunnel (node, ports, confirm); the other items act on one tunnel you pick.\nDelete asks you to type yes.",
 	TUIHelpNodes:     "Nodes are the foreign servers. 1 shows the one-line join command for a new node\n(single use, 15 minutes). Remove asks you to type yes.",
-	TUIHelpPorts:     "Check port runs the four checks: local bind, firewall, reachable from a node,\nreachable through the tunnel. Filtering inside Iran is not measured.",
+	TUIHelpPorts:     "Check port runs the four checks: local bind, firewall, reachable from a node,\nreachable through the tunnel. Filtering inside Iran is not measured.\nWhen an external firewall blocks the port, 1 + Enter opens it after you confirm the exact command.",
 	TUIHelpFailover:  "Failover moves a tunnel to the next transport or node when probes fail.\nBackup nodes need the same service as the primary node. Items marked * need Advanced mode.",
 	TUIHelpDiag:      "Port check, tunnel probes, a speed test through the tunnel, live logs and the doctor bundle.",
 	TUIHelpOptimize:  "Kernel tuning profiles (sysctl) and BBR. Revert restores the values from before deyroute.",
-	TUIHelpSecurity:  "Rotate tokens replaces tunnel secrets (type yes). TLS shows and renews certificates.\nFirewall shows or applies the table inet deyroute.",
+	TUIHelpSecurity:  "Rotate tokens replaces tunnel secrets (type yes). TLS certificates shows them and sets the domain for ACME.\nFirewall shows or applies the table inet deyroute.",
+	TUIHelpTLS:       "Domain is the name tls mode acme gets a Let's Encrypt certificate for (DNS-only record, no Cloudflare proxy).\nAdvanced: the ACME e-mail and a Cloudflare token for DNS-01 when port 80 is not free. Switch a tunnel to acme with Tunnels > Edit tunnel.",
 	TUIHelpNotify:    "Telegram sends one message per event (at most one per minute per tunnel and type).",
 	TUIHelpBackup:    "Backups hold /etc/deyroute and the event history, encrypted with a passphrase by default.\nRestore replaces the current configuration (type yes).",
 	TUIHelpUpdate:    "Updates never run without a question; tunnels keep running while deyroute restarts.",
@@ -1229,6 +1309,8 @@ const (
 	CLIWantSeconds               Key = "cli.want_seconds"
 	CLIWantShell                 Key = "cli.want_shell"
 	CLIWantAbsPath               Key = "cli.want_abs_path"
+	CLIWantAbsPathPEM            Key = "cli.want_abs_path_pem"
+	CLIWantDomainOrClear         Key = "cli.want_domain_or_clear"
 	CLIWantIP                    Key = "cli.want_ip"
 	CLIWantName                  Key = "cli.want_name"
 	CLIWantRole                  Key = "cli.want_role"
@@ -1291,6 +1373,7 @@ const (
 	CLIFlagSwitchNode            Key = "cli.flag_switch_node"
 	CLIFlagTarget                Key = "cli.flag_target"
 	CLIFlagCheckNode             Key = "cli.flag_check_node"
+	CLIFlagOpenFirewall          Key = "cli.flag_open_firewall"
 	CLIFlagCount                 Key = "cli.flag_count"
 	CLIFlagRungs                 Key = "cli.flag_rungs"
 	CLIFlagSeconds               Key = "cli.flag_seconds"
@@ -1304,6 +1387,13 @@ const (
 	CLIFlagProfile               Key = "cli.flag_profile"
 	CLIFlagRotateTunnel          Key = "cli.flag_rotate_tunnel"
 	CLIFlagTLSTunnel             Key = "cli.flag_tls_tunnel"
+	CLIFlagCloudflareToken       Key = "cli.flag_cloudflare_token" // #nosec G101 -- i18n key, not a credential
+	CLIFlagTLSMode               Key = "cli.flag_tls_mode"
+	CLIFlagTLSModeAdd            Key = "cli.flag_tls_mode_add"
+	CLIFlagTLSCert               Key = "cli.flag_tls_cert"
+	CLIFlagTLSKey                Key = "cli.flag_tls_key"
+	CLIFlagClearDomain           Key = "cli.flag_clear_domain"
+	CLIFlagACMEEmail             Key = "cli.flag_acme_email"
 	CLIFlagTokenFile             Key = "cli.flag_token_file" // #nosec G101 -- i18n key, not a credential
 	CLIFlagChatID                Key = "cli.flag_chat_id"
 	CLIFlagBackupOut             Key = "cli.flag_backup_out"
@@ -1486,6 +1576,12 @@ const (
 	CLICheckOpen                 Key = "cli.check_open"
 	CLICheckClosed               Key = "cli.check_closed"
 	CLICheckOpenWith             Key = "cli.check_open_with"
+	CLICheckOpenHint             Key = "cli.check_open_hint"
+	CLIPortOpenLost              Key = "cli.port_open_lost"
+	CLIPortOpenRan               Key = "cli.port_open_ran"
+	CLIPortOpenNow               Key = "cli.port_open_now"
+	CLIPortOpenStill             Key = "cli.port_open_still"
+	CLIPortOpenNothing           Key = "cli.port_open_nothing"
 	CLICheckNotTested            Key = "cli.check_not_tested"
 	CLICheckYes                  Key = "cli.check_yes"
 	CLICheckNo                   Key = "cli.check_no"
@@ -1551,11 +1647,26 @@ const (
 	CLICARotated                 Key = "cli.ca_rotated"
 	CLICAOffline                 Key = "cli.ca_offline"
 	CLISecurityTLSShort          Key = "cli.security_tls_short"
+	CLISecurityTLSExample        Key = "cli.security_tls_example"
 	CLITLSShowShort              Key = "cli.tls_show_short"
 	CLITLSShowExample            Key = "cli.tls_show_example"
 	CLITLSRenewShort             Key = "cli.tls_renew_short"
 	CLITLSRenewExample           Key = "cli.tls_renew_example"
 	CLITLSRenewed                Key = "cli.tls_renewed"
+	CLITLSDomainShort            Key = "cli.tls_domain_short"
+	CLITLSDomainLong             Key = "cli.tls_domain_long"
+	CLITLSDomainExample          Key = "cli.tls_domain_example"
+	CLITLSDomainSet              Key = "cli.tls_domain_set"
+	CLITLSDomainCleared          Key = "cli.tls_domain_cleared"
+	CLITLSACMEShort              Key = "cli.tls_acme_short"
+	CLITLSACMELong               Key = "cli.tls_acme_long"
+	CLITLSACMEExample            Key = "cli.tls_acme_example"
+	CLIACMENothing               Key = "cli.acme_nothing"
+	CLIACMEEmailSet              Key = "cli.acme_email_set"
+	CLIACMEEmailRemoved          Key = "cli.acme_email_removed"
+	CLIACMETokenSet              Key = "cli.acme_token_set"     // #nosec G101 -- i18n key, not a credential
+	CLIACMETokenRemoved          Key = "cli.acme_token_removed" // #nosec G101 -- i18n key, not a credential
+	CLIACMERenewHint             Key = "cli.acme_renew_hint"
 	CLISecurityFirewallShort     Key = "cli.security_firewall_short"
 	CLIFirewallShowShort         Key = "cli.firewall_show_short"
 	CLIFirewallShowExample       Key = "cli.firewall_show_example"
@@ -1673,6 +1784,7 @@ const (
 	CLIDaemonNodeShort           Key = "cli.daemon_node_short"
 	CLIRelayShort                Key = "cli.relay_short"
 	CLIWGShort                   Key = "cli.wg_short"
+	CLIPairShort                 Key = "cli.pair_short"
 )
 
 // cli — English texts (merged into en by init).
@@ -1694,6 +1806,8 @@ var cliEN = map[Key]string{
 	CLIWantSeconds:               "--seconds must be between 1 and %d",
 	CLIWantShell:                 "unknown shell %q: use bash, zsh or fish",
 	CLIWantAbsPath:               "an absolute path, e.g. /etc/deyroute/secrets/telegram.token",
+	CLIWantAbsPathPEM:            "the path of a PEM file, e.g. /etc/ssl/vpn.example.com/fullchain.pem",
+	CLIWantDomainOrClear:         "give a domain (e.g. vpn.example.com) or --clear",
 	CLIWantIP:                    "an IPv4 or IPv6 address, e.g. 5.6.7.8",
 	CLIWantName:                  "a name of 1 to %d printable characters",
 	CLIWantRole:                  "answer hub (1) or node (2)",
@@ -1756,6 +1870,7 @@ var cliEN = map[Key]string{
 	CLIFlagSwitchNode:            "node to switch to, e.g. nl-1",
 	CLIFlagTarget:                "target on the node (default 127.0.0.1:<port>)",
 	CLIFlagCheckNode:             "node that tests reachability from outside (default: the first online node)",
+	CLIFlagOpenFirewall:          "open the port in the external firewall that blocks it (ufw, firewalld, iptables, nftables); asks first unless --yes",
 	CLIFlagCount:                 "how many free ports to suggest",
 	CLIFlagRungs:                 "transports in order, comma-separated",
 	CLIFlagSeconds:               "test duration in seconds",
@@ -1769,6 +1884,13 @@ var cliEN = map[Key]string{
 	CLIFlagProfile:               "sysctl profile: balanced, aggressive or off",
 	CLIFlagRotateTunnel:          "rotate only this tunnel's token (default: every tunnel)",
 	CLIFlagTLSTunnel:             "only the certificate of this tunnel",
+	CLIFlagTLSMode:               "tunnel TLS: auto (internal CA), acme (Let's Encrypt for the hub domain) or custom (with --tls-cert and --tls-key)",
+	CLIFlagTLSModeAdd:            "tunnel TLS: auto (internal CA, default) or acme (Let's Encrypt for the hub domain); custom is set afterwards with tunnel edit",
+	CLIFlagTLSCert:               "certificate chain file for --tls-mode custom (PEM, leaf first)",
+	CLIFlagTLSKey:                "private key file for --tls-mode custom (PEM, unencrypted)",
+	CLIFlagClearDomain:           "remove the domain (refused while a tunnel uses tls mode acme)",
+	CLIFlagACMEEmail:             "ACME account e-mail for expiry notices from Let's Encrypt ('' removes it)",
+	CLIFlagCloudflareToken:       "file holding a Cloudflare API token with Zone:DNS:Edit, for DNS-01 instead of HTTP-01 on port 80; copied to /etc/deyroute/secrets/cloudflare.token ('' removes it)",
 	CLIFlagTokenFile:             "file holding the Telegram bot token (mode 0600, e.g. /etc/deyroute/secrets/telegram.token)",
 	CLIFlagChatID:                "Telegram chat id that receives the messages",
 	CLIFlagBackupOut:             "backup file (default /var/lib/deyroute/backups/deyroute-backup-<UTC>.tar.gz.age)",
@@ -1883,8 +2005,8 @@ var cliEN = map[Key]string{
 	CLIProbesLine:                "%d probes: %d ok, %d failed, median RTT %s",
 	CLIProbesLastFail:            "last failure %s (%s)",
 	CLITunnelEditShort:           "Change a tunnel's name, ladder, failover policy or probe port",
-	CLITunnelEditExample:         "  deyroute tunnel edit main --name \"Main 443\"\n  deyroute tunnel edit main --ladder stealth --policy transport_only\n  deyroute tunnel edit main --probe-port 2053",
-	CLIEditNothing:               "nothing to change: give --name, --ladder, --policy or --probe-port",
+	CLITunnelEditExample:         "  deyroute tunnel edit main --name \"Main 443\"\n  deyroute tunnel edit main --ladder stealth --policy transport_only\n  deyroute tunnel edit main --probe-port 2053\n  deyroute tunnel edit main --tls-mode acme",
+	CLIEditNothing:               "nothing to change: give --name, --ladder, --policy, --probe-port or --tls-mode",
 	CLITunnelUpdated:             "Tunnel %s updated.",
 	CLITunnelEnableShort:         "Enable a tunnel",
 	CLITunnelEnableExample:       "  deyroute tunnel enable main",
@@ -1937,8 +2059,8 @@ var cliEN = map[Key]string{
 	CLIPortRemoveExample:         "  deyroute port remove main 8443\n  deyroute port remove main 27015/udp",
 	CLIPortRemoved:               "Port %s removed from tunnel %s.",
 	CLIPortCheckShort:            "Check a port in four stages: local bind, firewall, from a node, via the tunnel",
-	CLIPortCheckLong:             "The most important troubleshooting tool: is the port free on this server, does a\nfirewall block it, can a node reach it from the internet, and does traffic pass\nthrough the tunnel. Filtering inside Iran is not measured.",
-	CLIPortCheckExample:          "  deyroute port check 443\n  deyroute port check 27015/udp --node nl-1",
+	CLIPortCheckLong:             "The most important troubleshooting tool: is the port free on this server, does a\nfirewall block it, can a node reach it from the internet, and does traffic pass\nthrough the tunnel. Filtering inside Iran is not measured.\n\nWith --open, deyroute opens the port in the external firewall that blocks it: it\nshows the exact command (ufw allow 443/tcp, firewall-cmd ..., iptables ...,\nnft ...) and runs it only after you type yes (or with --yes).",
+	CLIPortCheckExample:          "  deyroute port check 443\n  deyroute port check 27015/udp --node nl-1\n  deyroute port check 443 --open",
 	CLIPortCheckTitle:            "Port %s",
 	CLICheckBind:                 "local bind",
 	CLICheckFirewall:             "firewall",
@@ -1951,6 +2073,12 @@ var cliEN = map[Key]string{
 	CLICheckOpen:                 "open (%s)",
 	CLICheckClosed:               "closed (%s)",
 	CLICheckOpenWith:             "open it with: %s",
+	CLICheckOpenHint:             "Let deyroute run it after a confirmation: deyroute port check %s --open",
+	CLIPortOpenLost:              "To open %s, deyroute runs this command on this server (%s):\n  %s\nAfterwards anyone on the internet can connect to this port.",
+	CLIPortOpenRan:               "Ran: %s",
+	CLIPortOpenNow:               "Port %s is open in the firewall now (%s).",
+	CLIPortOpenStill:             "Port %s is still closed by %s.",
+	CLIPortOpenNothing:           "No external firewall blocks %s; nothing to open.",
 	CLICheckNotTested:            "not tested (no online node)",
 	CLICheckYes:                  "%s: yes (%s)",
 	CLICheckNo:                   "%s: no",
@@ -2015,12 +2143,27 @@ var cliEN = map[Key]string{
 	CLIRotateCALost:              "Rotating the CA replaces the internal certificate authority and the hub certificate and re-issues the certificate of every online node. Offline nodes can no longer connect and must join again; join links created before stop working.",
 	CLICARotated:                 "CA rotated. Re-issued: %s.",
 	CLICAOffline:                 "! Offline, they must join again: %s",
-	CLISecurityTLSShort:          "Tunnel TLS certificates: show, renew",
+	CLISecurityTLSShort:          "Tunnel TLS certificates: show, renew, domain, ACME options",
+	CLISecurityTLSExample:        "  deyroute security tls renew --tunnel main\n  deyroute security tls show\n  deyroute security tls domain vpn.example.com\n  deyroute security tls acme --cloudflare-token-file /root/cloudflare.token",
 	CLITLSShowShort:              "Show certificates with expiry and fingerprint",
 	CLITLSShowExample:            "  deyroute security tls show\n  deyroute security tls show --tunnel main",
 	CLITLSRenewShort:             "Renew tunnel certificates now",
 	CLITLSRenewExample:           "  deyroute security tls renew --tunnel main",
 	CLITLSRenewed:                "Certificates renewed:",
+	CLITLSDomainShort:            "Set the hub domain that tls mode acme gets certificates for",
+	CLITLSDomainLong:             "Sets hub.domain. Tunnels in tls mode acme get a Let's Encrypt certificate for it; every tunnel certificate also names it.\nThe domain needs a DNS-only A record pointing at the hub (no Cloudflare proxy). The tunnels are rendered again.\nSwitch a tunnel to acme with: deyroute tunnel edit <id> --tls-mode acme",
+	CLITLSDomainExample:          "  deyroute security tls domain vpn.example.com\n  deyroute security tls domain --clear",
+	CLITLSDomainSet:              "Domain set to %s. Tunnels in tls mode acme get their certificate at the daily renewal, or now with: deyroute security tls renew",
+	CLITLSDomainCleared:          "Domain removed.",
+	CLITLSACMEShort:              "Set the ACME e-mail and the Cloudflare token for DNS-01 (Advanced)",
+	CLITLSACMELong:               "Let's Encrypt checks the domain with HTTP-01 on port 80. When port 80 is taken, give a Cloudflare API token\n(Zone:DNS:Edit for the domain's zone) for DNS-01: put it in a file first; deyroute copies it to\n/etc/deyroute/secrets/cloudflare.token (0600) and never writes it to config.yaml or the logs. An empty value removes a setting.",
+	CLITLSACMEExample:            "  deyroute security tls acme --email owner@example.com\n  deyroute security tls acme --cloudflare-token-file /root/cloudflare.token\n  deyroute security tls acme --cloudflare-token-file ''   # back to HTTP-01 on port 80",
+	CLIACMENothing:               "nothing to change: give --email and/or --cloudflare-token-file",
+	CLIACMEEmailSet:              "ACME e-mail set to %s.",
+	CLIACMEEmailRemoved:          "ACME e-mail removed.",
+	CLIACMETokenSet:              "DNS-01 through Cloudflare is on; the token is stored in %s (the file you gave may be deleted).",
+	CLIACMETokenRemoved:          "Cloudflare token removed; ACME uses HTTP-01 on port 80 again.",
+	CLIACMERenewHint:             "Request the certificates of tunnels in tls mode acme now with: deyroute security tls renew",
 	CLISecurityFirewallShort:     "The deyroute firewall table (inet deyroute): show, apply, disable",
 	CLIFirewallShowShort:         "Show the table inet deyroute and the detected firewalls",
 	CLIFirewallShowExample:       "  deyroute security firewall show",
@@ -2138,6 +2281,7 @@ var cliEN = map[Key]string{
 	CLIDaemonNodeShort:           "Run the node agent (deyroute-node.service)",
 	CLIRelayShort:                "Run one half of a direct/native relay (deyroute-tun@ unit)",
 	CLIWGShort:                   "Configure a WireGuard interface (deyroute-tun@ unit)",
+	CLIPairShort:                 "Run a backend and its UDP companion process together (deyroute-tun@ unit)",
 }
 
 // cli — review additions: help texts of cobra's own help command and flag,

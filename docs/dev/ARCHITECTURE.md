@@ -187,7 +187,13 @@ func Show(ctx, r exec.Runner) (string, error)
 func Detect(ctx, r exec.Runner) []Kind
 func Blocks(ctx, r exec.Runner, port int, proto string) (blocked bool, by Kind, err error) // ufw/firewalld/iptables heuristics
 func OpenCommand(k Kind, port int, proto string) []string // "ufw allow 443/tcp"; "firewall-cmd --permanent --add-port=443/tcp && firewall-cmd --reload"
+func Check(ctx, r exec.Runner, port int, proto string) (Verdict, error) // first external firewall that blocks; Verdict.Command() is the line the owner confirms
+func (v Verdict) Open(ctx, r exec.Runner) error    // runs the argv Check built (kind, nft table/chain, typed port/proto), never Commands
 ```
+`api.Local.PortOpenFirewall` (hub) re-runs `Check`, refuses with `DEY-P032`
+unless `Verdict.Command()` equals the command the owner confirmed, runs
+`Verdict.Open` and checks again; the CLI (`port check --open`), Ports →
+Check port and the Add tunnel wizard call it after a typed confirmation.
 
 ### internal/ports
 ```go
@@ -348,7 +354,7 @@ parallel without breaking each other's builds:
 | Package | Owns |
 | --- | --- |
 | `internal/api` (transport files) | `rpc_gen.go` (generated Local client+server), `localserver.go`, `localclient.go` (`Dial`), `controlserver.go`, `controlclient.go`, `session.go` |
-| `internal/daemon/secrets` | per-tunnel tokens, backend keys (KeyGenerator), tunnel TLS (auto/acme/custom) incl. copies + PKCS#12, join tokens (single use, TTL, per-IP limit), telegram token file |
+| `internal/daemon/secrets` | per-tunnel tokens, backend keys (KeyGenerator), tunnel TLS (auto/acme/custom) incl. copies + PKCS#12, join tokens (single use, TTL, per-IP limit), telegram and Cloudflare (ACME DNS-01) token files |
 | `internal/daemon/render` | the **planner**: desired warm set per tunnel (every rung × every node × side), RenderInput construction (paths, ctl ports, secrets, decoy, net index), hub-side file/drop-in writer, node-side `backend.render` payloads, NAT/firewall spec assembly, canary inputs |
 | `internal/daemon/hub` | hub service: control API handlers (join, sessions, uploads, assets), node registry + heartbeats, event bus (state + events.log + notifier), tunnel controller (install → render → warm units → firewall → failover engine with real Actions), reconcile loop, UDP/skip re-checks, TLS renewal, metrics, updates, Local API implementation |
 | `internal/daemon/node` | node agent: connect/reconnect, hello/heartbeat, command handlers, local API (status/logs/set-hub) |

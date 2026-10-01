@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -187,6 +189,37 @@ func TestTunnelEdit(t *testing.T) {
 	require.Len(t, doc["steps"], 1)
 	require.Contains(t, e.fail(1, "tunnel", "edit", "main"), "nothing to change")
 	require.Contains(t, e.fail(1, "tunnel", "edit", "main", "--name", ""), "printable")
+
+	// TLS mode (section 10): acme, or custom with files resolved where
+	// they were typed (the daemon has another working directory).
+	e.ok("tunnel", "edit", "main", "--tls-mode", "ACME")
+	require.Equal(t, "acme", *req.TLSMode)
+	require.Nil(t, req.TLSCert)
+	e.ok("tunnel", "edit", "main", "--tls-mode", "custom", "--tls-cert", "fullchain.pem", "--tls-key", "/etc/ssl/key.pem")
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	require.Equal(t, "custom", *req.TLSMode)
+	require.Equal(t, filepath.Join(wd, "fullchain.pem"), *req.TLSCert)
+	require.Equal(t, "/etc/ssl/key.pem", *req.TLSKey)
+	require.Contains(t, e.fail(1, "tunnel", "edit", "main", "--tls-mode", "letsencrypt"), "DEY-C013")
+	require.Contains(t, e.fail(1, "tunnel", "edit", "main", "--tls-cert", ""), "DEY-C013")
+}
+
+func TestTunnelAddTLSMode(t *testing.T) {
+	e := newEnv(t)
+	var req api.TunnelAddRequest
+	e.stub.TunnelAddFn = func(_ context.Context, r api.TunnelAddRequest, _ func(api.Step)) (api.TunnelInfo, error) {
+		req = r
+		return api.TunnelInfo{ID: "main", State: state.StateUp, ActiveTransport: "backhaul/wssmux"}, nil
+	}
+	e.ok("tunnel", "add", "--node", "de-1", "--ports", "443")
+	require.Empty(t, req.TLSMode)
+	e.ok("tunnel", "add", "--node", "de-1", "--ports", "443", "--tls-mode", "acme")
+	require.Equal(t, "acme", req.TLSMode)
+	// custom needs certificate files: it is set with tunnel edit.
+	out := e.fail(1, "tunnel", "add", "--node", "de-1", "--ports", "443", "--tls-mode", "custom")
+	require.Contains(t, out, "DEY-C013")
+	require.Contains(t, out, "auto, acme")
 }
 
 func TestTunnelLifecycle(t *testing.T) {

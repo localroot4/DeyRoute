@@ -133,7 +133,16 @@ control port, 30000–31999).
 ### A firewall blocks the port — `DEY-P013`, `DEY-P014`
 
 `deyroute port check 443` shows which firewall blocks it and the exact command
-to open it (for example `ufw allow 443/tcp`); run it yourself. `DEY-P014`
+to open it (for example `ufw allow 443/tcp`). Run it yourself, or let deyroute
+run it: `deyroute port check 443 --open` (or `4) Ports` → `Check port` →
+`1) Open it in the firewall` in the menu) shows the command and runs it on
+the hub only after you type `yes`. deyroute checks the firewall again first
+and runs only the command it builds itself from the firewall it finds and
+the port; when that is no longer the command you confirmed (the firewall
+changed in between) it runs nothing (`DEY-P032`): check the port again.
+`DEY-P033` means the command failed or did not open the port (an earlier
+rule of the same firewall denies it); its output is shown below the error.
+`DEY-P014`
 (not reachable from the node) usually means the provider's firewall panel
 blocks the port: open it there. See also `deyroute security firewall show`.
 `DEY-P031` means DEYROUTE does not manage the firewall on this hub
@@ -236,7 +245,7 @@ TLS fails when a server's clock is far off. Enable time sync on both servers:
 | `DEY-P013` / `P014` | firewall blocks the port | open it (command in the error / provider panel) |
 | `DEY-P015` | UDP blocked | nothing needed; UDP rungs are skipped |
 | `DEY-T001` / `T006` | certificate expired / expiring | `deyroute security tls renew` |
-| `DEY-T003` | ACME failed | domain DNS-only, port 80 free; TLS fell back to `auto` |
+| `DEY-T003` | ACME failed | domain DNS-only, port 80 free or DNS-01 (`deyroute security tls acme --cloudflare-token-file F`); TLS fell back to `auto` |
 | `DEY-B003` | backend unit failed to start | see its log lines, `deyroute tunnel restart <tunnel>` |
 | `DEY-B004` | no traffic after start | `deyroute logs <tunnel>`, try the next rung |
 | `DEY-B006` / `B007` | rung skipped for this tunnel | re-tested every 30 minutes; see [Filtering FAQ](faq-filtering.md) |

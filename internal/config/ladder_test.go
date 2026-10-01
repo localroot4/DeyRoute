@@ -44,7 +44,7 @@ func TestResolveLadder(t *testing.T) {
 		},
 		{
 			name: "mixed filter keeps rungs carrying both", ref: LadderRef{Name: "default"}, ports: mixed, supports: fakeSupports,
-			want: []string{"hysteria2/udp", "direct/native"},
+			want: []string{"backhaul/wssmux", "backhaul/tcpmux", "hysteria2/udp", "direct/native"},
 		},
 		{
 			name: "filter removes everything", ref: LadderRef{Inline: []string{"wireguard/kernel"}}, ports: tcp,

@@ -557,3 +557,86 @@ func TestValidate(t *testing.T) {
 	in.Tunnel.Ports = append(in.Tunnel.Ports, config.PortMap{Listen: 53, Proto: "udp", Target: "127.0.0.1:53"})
 	require.NoError(t, b.Validate(in))
 }
+
+func TestUDPCompanion(t *testing.T) {
+	b := New()
+	require.Equal(t, UDP, transport(t, WSSMux).UDPCompanion)
+	require.Empty(t, transport(t, TCP).UDPCompanion, "backhaul/tcp carries UDP itself (accept_udp)")
+	require.Empty(t, transport(t, UDP).UDPCompanion)
+	mixed := []string{config.ProtoTCP, config.ProtoUDP}
+	require.True(t, backend.NeedsUDPFor(transport(t, WSSMux), mixed), "the companion carries UDP datagrams")
+	require.False(t, backend.NeedsUDPFor(transport(t, WSSMux), []string{config.ProtoTCP}))
+	require.False(t, backend.NeedsUDPFor(transport(t, TCP), mixed))
+	require.True(t, backend.NeedsUDPFor(transport(t, UDP), []string{config.ProtoUDP}))
+
+	in := fixture(t, WSSMux)
+	in.Tunnel.Ports = append(in.Tunnel.Ports,
+		config.PortMap{Listen: 443, Proto: "udp", Target: "127.0.0.1:443"},
+		config.PortMap{Listen: 27015, Proto: "udp", Target: "127.0.0.1:27015"},
+	)
+	// Without a companion control port the UDP maps cannot be carried.
+	requireCode(t, b.Validate(in), deyerr.B010)
+	in.CompanionControlPort = 30002
+	require.True(t, in.UsesCompanion())
+
+	r, err := b.Render(in, backend.SideHub)
+	require.NoError(t, err)
+	require.Len(t, r.Files, 2)
+	_, kv := parseTOML(t, r.Files[ServerFile])
+	require.Equal(t, "wssmux", kv["transport"])
+	require.Equal(t, "0.0.0.0:30001", kv["bind_addr"])
+	require.Equal(t, []string{"443=127.0.0.1:443", "2053=127.0.0.1:2053"}, kv["ports"])
+	_, kv = parseTOML(t, r.Files[ServerUDPFile])
+	require.Equal(t, "udp", kv["transport"])
+	require.Equal(t, "0.0.0.0:30002", kv["bind_addr"])
+	require.Equal(t, []string{"443=127.0.0.1:443", "27015=127.0.0.1:27015"}, kv["ports"])
+	_, ok := kv["tls_cert"]
+	require.False(t, ok)
+	dir := in.Paths.ConfigDir
+	require.Equal(t, []string{"/usr/local/bin/deyroute", "pair",
+		in.Paths.Binary, "-c", dir + "/server.toml", "--",
+		in.Paths.Binary, "-c", dir + "/server-udp.toml"}, r.Unit.ExecStart)
+	require.Equal(t, []backend.PortUse{
+		{Port: 30001, Proto: "tcp", Addr: "0.0.0.0", Purpose: "control"},
+		{Port: 443, Proto: "tcp", Addr: "0.0.0.0", Purpose: "user"},
+		{Port: 2053, Proto: "tcp", Addr: "0.0.0.0", Purpose: "user"},
+		{Port: 30002, Proto: "tcp", Addr: "0.0.0.0", Purpose: "control"},
+		{Port: 30002, Proto: "udp", Addr: "0.0.0.0", Purpose: "control"},
+		{Port: 443, Proto: "udp", Addr: "0.0.0.0", Purpose: "user"},
+		{Port: 27015, Proto: "udp", Addr: "0.0.0.0", Purpose: "user"},
+	}, r.Binds)
+
+	r, err = b.Render(in, backend.SideNode)
+	require.NoError(t, err)
+	_, kv = parseTOML(t, r.Files[ClientFile])
+	require.Equal(t, "5.6.7.8:30001", kv["remote_addr"])
+	_, kv = parseTOML(t, r.Files[ClientUDPFile])
+	require.Equal(t, "5.6.7.8:30002", kv["remote_addr"])
+	require.Equal(t, "udp", kv["transport"])
+	require.Equal(t, "pair", r.Unit.ExecStart[1])
+	require.Equal(t, dir+"/client-udp.toml", r.Unit.ExecStart[len(r.Unit.ExecStart)-1])
+
+	// A TCP-only tunnel never starts the companion, even with a port.
+	tcpOnly := fixture(t, WSSMux)
+	tcpOnly.CompanionControlPort = 30002
+	r, err = b.Render(tcpOnly, backend.SideHub)
+	require.NoError(t, err)
+	require.Len(t, r.Files, 1)
+	require.Equal(t, in.Paths.Binary, r.Unit.ExecStart[0])
+
+	bad := in
+	bad.CompanionControlPort = in.ControlPort
+	requireCode(t, b.Validate(bad), deyerr.B006)
+	bad = in
+	bad.Paths.SelfBinary = "deyroute"
+	requireCode(t, b.Validate(bad), deyerr.B006)
+	bad = in
+	bad.Tunnel.Ports = []config.PortMap{{Listen: 53, Proto: "udp"}, {Listen: 53, Proto: "udp"}}
+	bad.Tunnel.Ports = append(bad.Tunnel.Ports, config.PortMap{Listen: 80, Proto: "tcp"})
+	requireCode(t, b.Validate(bad), deyerr.B006)
+}
+
+func requireCode(t *testing.T, err error, code deyerr.Code) {
+	t.Helper()
+	require.True(t, deyerr.HasCode(err, code), "want %s, got %v", code, err)
+}

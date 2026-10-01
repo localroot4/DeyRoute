@@ -96,6 +96,8 @@ const (
 	P021 Code = "DEY-P021" // one listen port given two targets {port} {target} {other}
 	P030 Code = "DEY-P030" // per-tunnel network index pool exhausted {tunnel} {max}
 	P031 Code = "DEY-P031" // firewall not managed by deyroute (security.firewall_managed: false)
+	P032 Code = "DEY-P032" // firewall command is not the confirmed one {port} {firewall} {command}
+	P033 Code = "DEY-P033" // could not open a port in the external firewall {port} {firewall} {reason}
 )
 
 // TLS (DEY-T0xx).
@@ -424,6 +426,12 @@ var catalog = map[Code]Info{
 	P031: {P031, "deyroute does not manage the firewall",
 		"security.firewall_managed is false: table inet deyroute is not applied, so the control port, the backend control ports and the tunnel ports must be opened by hand",
 		"run deyroute security firewall show for the suggested commands, or set security.firewall_managed: true and run deyroute config apply"},
+	P032: {P032, "Port {port}: the firewall command is not the one you confirmed",
+		"the firewall was checked again and opening the port in {firewall} now needs: {command}; deyroute runs only the exact command the owner confirmed",
+		"check the port again (deyroute port check {port} --open) and confirm the command it shows"},
+	P033: {P033, "Could not open port {port} in {firewall}",
+		"{reason}",
+		"open the port by hand with the firewall's own tool, then run deyroute port check {port} again"},
 
 	// ---------------------------------------------------------------- T
 	T001: {T001, "Certificate expired: {path}",
@@ -434,7 +442,7 @@ var catalog = map[Code]Info{
 		"provide the matching key file"},
 	T003: {T003, "ACME challenge failed for {domain}",
 		"Let's Encrypt could not validate the domain; tunnel TLS fell back to auto (self-signed + pin)",
-		"make sure {domain} is DNS-only (no Cloudflare proxy) and port 80 is free, then: deyroute security tls renew"},
+		"make sure {domain} is DNS-only (no Cloudflare proxy) and port 80 is free (or use DNS-01: deyroute security tls acme --cloudflare-token-file F), then: deyroute security tls renew"},
 	T004: {T004, "Domain {domain} does not resolve to the hub",
 		"its DNS A record does not point to {ip}",
 		"set an A record for {domain} to {ip} (DNS only) and wait for propagation"},

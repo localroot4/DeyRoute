@@ -185,7 +185,7 @@ func ObtainACME(ctx context.Context, o ACMEOptions) (certPEM, keyPEM []byte, err
 		if !free(o.HTTPPort) {
 			return nil, nil, acmeErr(o.Domain, nil).
 				WithWhy("port " + strconv.Itoa(o.HTTPPort) + "/tcp is in use, so the HTTP-01 challenge cannot be answered; tunnel TLS fell back to auto").
-				WithFix("free port " + strconv.Itoa(o.HTTPPort) + " (or set a Cloudflare API token for DNS-01 in Advanced settings), then: deyroute security tls renew")
+				WithFix("free port " + strconv.Itoa(o.HTTPPort) + " (or use DNS-01 with a Cloudflare API token: deyroute security tls acme --cloudflare-token-file F), then: deyroute security tls renew")
 		}
 	}
 

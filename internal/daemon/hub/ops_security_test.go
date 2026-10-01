@@ -207,10 +207,10 @@ func TestObtainACMEOptions(t *testing.T) {
 	cfg.Hub.ACME = &config.ACME{CloudflareTokenFile: "/etc/deyroute/secrets/cf.token", Staging: true}
 	_, _, err = env.h.obtainACME(ctxT(t), cfg)
 	require.Equal(t, deyerr.S009, codeOf(err), "token file missing")
-	require.NoError(t, tlsutil.WriteSecret(filepath.Join(env.root, config.SecretsDir, "cf.token"), []byte("cf-secret-token-123\n")))
+	require.NoError(t, tlsutil.WriteSecret(filepath.Join(env.root, config.SecretsDir, "cf.token"), []byte("cf-secret-token-1234567890\n")))
 	_, _, err = env.h.obtainACME(ctxT(t), cfg)
 	require.NoError(t, err)
-	require.Equal(t, "cf-secret-token-123", acme.calls[0].CloudflareToken)
+	require.Equal(t, "cf-secret-token-1234567890", acme.calls[0].CloudflareToken)
 	require.True(t, acme.calls[0].Staging)
 	require.Equal(t, 30*24*time.Hour, acmeRenewBefore(env.h.Config()))
 	cfg.Hub.ACME.RenewBeforeDays = 10
@@ -344,4 +344,171 @@ func TestDoctorWithoutTunnels(t *testing.T) {
 	require.Equal(t, "no tunnels\n", d.Sections[doctor.SectionLadder])
 	require.Equal(t, "no tunnel ports\n", d.Sections[doctor.SectionPortChecks])
 	require.Zero(t, env.h.oldJoinTokens())
+}
+
+// The domain, the ACME e-mail and the Cloudflare token are set through the
+// Local API (menu 8 Security > TLS certificates, deyroute security tls
+// domain|acme): checked, stored as a 0600 secret file (never in
+// config.yaml or the log) and used by the next ACME request.
+func TestACMESettings(t *testing.T) {
+	acme := newACMEStub(t)
+	te := startTunnelHub(t, func(o *Options, _ string) {
+		o.ObtainACME = acme.obtain
+		o.Logger = nil // real hub.log
+	})
+	te.tunnelNode("de-1")
+	ctx := ctxT(t)
+	te.addTunnelUp(api.TunnelAddRequest{ID: "main", Node: "de-1", Ports: []api.PortSpec{{Listen: freePort(t)}},
+		FixedTransport: trAlpha, Failover: fastFailover(false)})
+	str := func(s string) *string { return &s }
+	set := func(r api.SettingsRequest) error { return te.client.SettingsSet(ctx, r) }
+
+	// acme needs the domain first; the Fix names the command that sets it.
+	_, err := te.client.TunnelEdit(ctx, "main", api.TunnelEditRequest{TLSMode: str(config.TLSModeACME)}, nil)
+	require.Equal(t, deyerr.C013, codeOf(err))
+	require.Contains(t, deyerr.As(err).Fix(), "deyroute security tls domain")
+	st, err := te.client.Status(ctx)
+	require.NoError(t, err)
+	require.Empty(t, st.Hub.Domain)
+	require.Equal(t, api.ACMEHTTP01, st.Hub.ACMEChallenge)
+
+	for _, bad := range []string{"5.6.7.8", "*.example.com", "localhost", "a b.example.com"} {
+		require.Equal(t, deyerr.C013, codeOf(set(api.SettingsRequest{Domain: str(bad)})), bad)
+	}
+	require.NoError(t, set(api.SettingsRequest{Domain: str(" VPN.Example.com. ")}))
+	require.Equal(t, "vpn.example.com", te.h.Config().Hub.Domain)
+	_, err = te.client.TunnelEdit(ctx, "main", api.TunnelEditRequest{TLSMode: str(config.TLSModeACME)}, nil)
+	require.NoError(t, err)
+	// The domain cannot go while a tunnel uses acme.
+	err = set(api.SettingsRequest{Domain: str("")})
+	require.Equal(t, deyerr.C013, codeOf(err))
+	require.Contains(t, deyerr.As(err).Fix(), "deyroute tunnel edit main --tls-mode auto")
+	require.Equal(t, "vpn.example.com", te.h.Config().Hub.Domain)
+
+	require.Equal(t, deyerr.C013, codeOf(set(api.SettingsRequest{ACMEEmail: str("not an address")})))
+	require.NoError(t, set(api.SettingsRequest{ACMEEmail: str(" owner@example.com ")}))
+
+	// The token: an absolute path, a readable file holding one token.
+	const token = "cfTok_0123456789abcdefghijklmnopqrstuvwx"
+	src := filepath.Join(te.root, "root", "cloudflare.token")
+	require.NoError(t, os.MkdirAll(filepath.Dir(src), 0o700))
+	require.Equal(t, deyerr.C013, codeOf(set(api.SettingsRequest{CloudflareTokenFile: str("cloudflare.token")})))
+	require.Equal(t, deyerr.S009, codeOf(set(api.SettingsRequest{CloudflareTokenFile: str("/root/cloudflare.token")})))
+	require.NoError(t, os.WriteFile(src, []byte("CF_API_TOKEN="+token+"\n"), 0o600))
+	err = set(api.SettingsRequest{CloudflareTokenFile: str("/root/cloudflare.token")})
+	require.Equal(t, deyerr.S009, codeOf(err))
+	require.NotContains(t, deyerr.As(err).Error(), token, "the file content is never quoted")
+	require.NoError(t, os.WriteFile(src, []byte(token+"\n"), 0o600))
+	require.NoError(t, set(api.SettingsRequest{CloudflareTokenFile: str("/root/cloudflare.token")}))
+	require.NoError(t, os.Remove(src), "the owner's file may be deleted afterwards")
+
+	cfg := te.h.Config()
+	require.Equal(t, &config.ACME{Email: "owner@example.com", CloudflareTokenFile: config.DefaultCloudflareTokenFile}, cfg.Hub.ACME)
+	stored := filepath.Join(te.root, config.DefaultCloudflareTokenFile)
+	fi, err := os.Stat(stored)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+	data, err := os.ReadFile(stored) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.Equal(t, token, strings.TrimSpace(string(data)))
+	yaml, err := os.ReadFile(filepath.Join(te.root, config.DefaultPath)) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.NotContains(t, string(yaml), token)
+	require.Contains(t, string(yaml), "cloudflare_token_file: "+config.DefaultCloudflareTokenFile)
+	st, err = te.client.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, api.ACMEDNS01, st.Hub.ACMEChallenge)
+	require.Equal(t, "owner@example.com", st.Hub.ACMEEmail)
+
+	// The next request uses DNS-01 with the stored token and the e-mail.
+	list, err := te.client.SecurityTLSRenew(ctx, "main")
+	require.NoError(t, err)
+	require.Equal(t, config.TLSModeACME, list[0].Mode)
+	require.Contains(t, list[0].SANs, "vpn.example.com")
+	acme.mu.Lock()
+	last := acme.calls[len(acme.calls)-1]
+	acme.mu.Unlock()
+	require.Equal(t, token, last.CloudflareToken)
+	require.Equal(t, "owner@example.com", last.Email)
+
+	// A new domain makes the certificate of the old one count as missing:
+	// the daily pass requests it again.
+	require.NoError(t, set(api.SettingsRequest{Domain: str("new.example.com")}))
+	tun, ok := te.h.Config().Tunnel("main")
+	require.True(t, ok)
+	_, mode := te.h.tunnelCertFile(*tun, "vpn.example.com", time.Now())
+	require.Equal(t, config.TLSModeACME, mode)
+	_, mode = te.h.tunnelCertFile(*tun, "new.example.com", time.Now())
+	require.Equal(t, config.TLSModeAuto, mode)
+	before := acme.count()
+	te.h.renewDue(ctx)
+	require.Equal(t, before+1, acme.count())
+	acme.mu.Lock()
+	require.Equal(t, "new.example.com", acme.calls[before].Domain)
+	acme.mu.Unlock()
+	list, err = te.client.SecurityTLSShow(ctx, "main")
+	require.NoError(t, err)
+	require.Equal(t, config.TLSModeACME, list[0].Mode)
+	require.Contains(t, list[0].SANs, "new.example.com")
+
+	// Removing the token deletes the stored copy (HTTP-01 again); removing
+	// the e-mail too leaves no hub.acme section.
+	require.NoError(t, set(api.SettingsRequest{CloudflareTokenFile: str("")}))
+	require.NoFileExists(t, stored)
+	require.Equal(t, &config.ACME{Email: "owner@example.com"}, te.h.Config().Hub.ACME)
+	require.NoError(t, set(api.SettingsRequest{ACMEEmail: str("")}))
+	require.Nil(t, te.h.Config().Hub.ACME)
+	st, err = te.client.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, api.ACMEHTTP01, st.Hub.ACMEChallenge)
+	require.Empty(t, st.Hub.ACMEEmail)
+
+	logData, err := os.ReadFile(filepath.Join(te.root, LogFile)) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.Contains(t, string(logData), "settings changed")
+	require.NotContains(t, string(logData), token)
+}
+
+// Every ACME Fix line names a command that exists.
+func TestACMEFixTexts(t *testing.T) {
+	acme := newACMEStub(t)
+	env := startHub(t, nil, func(o *Options, _ string) { o.ObtainACME = acme.obtain })
+	cfg := config.Clone(env.h.Config())
+	_, _, err := env.h.obtainACME(ctxT(t), cfg)
+	require.Contains(t, deyerr.As(err).Fix(), "deyroute security tls domain <name>")
+	cfg.Hub.Domain = "vpn.example.com"
+	cfg.Hub.ACME = &config.ACME{DisableHTTP01: true}
+	_, _, err = env.h.obtainACME(ctxT(t), cfg)
+	require.Contains(t, deyerr.As(err).Fix(), "deyroute security tls acme --cloudflare-token-file")
+	// A missing token file and a failed DNS-01 request point at the token
+	// setting, not at port 80.
+	cfg.Hub.ACME = &config.ACME{CloudflareTokenFile: config.DefaultCloudflareTokenFile}
+	_, _, err = env.h.obtainACME(ctxT(t), cfg)
+	require.Equal(t, deyerr.S009, codeOf(err))
+	require.Contains(t, deyerr.As(err).Fix(), "deyroute security tls acme --cloudflare-token-file")
+	require.NoError(t, tlsutil.WriteSecret(filepath.Join(env.root, config.DefaultCloudflareTokenFile), []byte("cfTok_0123456789abcdefghij\n")))
+	acme.fail = deyerr.New(deyerr.T003, deyerr.Params{"domain": "vpn.example.com"})
+	_, _, err = env.h.obtainACME(ctxT(t), cfg)
+	e := deyerr.As(err)
+	require.Equal(t, deyerr.T003, e.Code)
+	require.Contains(t, e.Fix(), "Zone:DNS:Edit")
+	require.NotContains(t, e.Fix(), "port 80")
+	// A Fix the ACME client chose itself is kept.
+	acme.fail = deyerr.New(deyerr.T003, deyerr.Params{"domain": "vpn.example.com"}).WithFix("own fix")
+	_, _, err = env.h.obtainACME(ctxT(t), cfg)
+	require.Equal(t, "own fix", deyerr.As(err).Fix())
+	// The default T003 Fix names the DNS-01 command too.
+	require.Contains(t, deyerr.New(deyerr.T003, deyerr.Params{"domain": "d"}).Fix(), "deyroute security tls acme --cloudflare-token-file")
+
+	require.Equal(t, api.ACMEHTTP01, acmeChallenge(cfg2(nil)))
+	require.Equal(t, api.ACMEDNS01, acmeChallenge(cfg2(&config.ACME{CloudflareTokenFile: "/x", DisableHTTP01: true})))
+	require.Equal(t, api.ACMENone, acmeChallenge(cfg2(&config.ACME{DisableHTTP01: true})))
+	require.Equal(t, api.ACMEHTTP01, acmeChallenge(cfg2(&config.ACME{Email: "a@b.c"})))
+}
+
+// cfg2 returns a hub configuration with hub.acme a.
+func cfg2(a *config.ACME) *config.Config {
+	c := config.NewHub("ir-1", "127.0.0.1", 44433)
+	c.Hub.ACME = a
+	return c
 }

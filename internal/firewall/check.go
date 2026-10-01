@@ -118,7 +118,14 @@ func (v Verdict) Err(port int, proto string) error {
 	return e
 }
 
-// Open runs the verdict's commands (only after the owner confirmed).
+// Command is the one line the owner sees and confirms: Commands joined
+// with " && "; "" when the port is not blocked or no command is known.
+func (v Verdict) Command() string { return strings.Join(v.Commands, " && ") }
+
+// Open runs the verdict's commands (only after the owner confirmed). The
+// argv was built by Check from the firewall kind (and, for nftables, the
+// blocking table and chain) and the typed port and protocol, never from
+// Commands.
 func (v Verdict) Open(ctx context.Context, r exec.Runner) error {
 	if !v.Blocked {
 		return nil
@@ -256,8 +263,10 @@ func Check(ctx context.Context, r exec.Runner, port int, proto string) (Verdict,
 				if b {
 					v := Verdict{Blocked: true, By: NFTables, Table: t.ref(), Chain: c.name,
 						Detail: t.ref() + " chain " + c.name + ": " + detail}
-					v.argv = [][]string{nftInsertArgv(t, c.name, port, proto)}
-					v.Commands = []string{strings.Join(v.argv[0], " ")}
+					if argv := nftInsertArgv(t, c.name, port, proto); argv != nil {
+						v.argv = [][]string{argv}
+						v.Commands = []string{strings.Join(argv, " ")}
+					}
 					return v, nil
 				}
 				if u {
@@ -331,9 +340,33 @@ func firewalldRefine(ctx context.Context, r exec.Runner, services string, port i
 }
 
 // nftInsertArgv inserts an accept rule at the head of another table's
-// chain.
+// chain. nft joins its arguments into one command line, so the table and
+// chain names read from `nft list ruleset` must be plain nft identifiers;
+// otherwise there is no command (nil) and the owner opens the port by hand.
 func nftInsertArgv(t *nftTable, chain string, port int, proto string) []string {
+	if (t.family != "ip" && t.family != "inet") || !nftIdent(t.name) || !nftIdent(chain) {
+		return nil
+	}
 	return []string{"nft", "insert", "rule", t.family, t.name, chain, proto, "dport", strconv.Itoa(port), "accept"}
+}
+
+// nftIdent reports whether s is an unquoted nft identifier: a letter, "_"
+// or "." followed by letters, digits and "/", "-", "_", "." (nft's scanner),
+// at most 64 bytes.
+func nftIdent(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c == '_', c == '.':
+		case i > 0 && (c >= '0' && c <= '9' || c == '/' || c == '-'):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // openArgv returns the commands that open port/proto in firewall k.

@@ -107,6 +107,8 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-P021` | Port {port} is listed twice with different targets | one listen port can forward to only one target, but {target} and {other} were both given | keep a single entry for {port}, e.g. 443:8443 or just 443 |
 | `DEY-P030` | No free network index for tunnel {tunnel} | every per-tunnel subnet index 1-{max} (WireGuard addressing) is already assigned | delete unused tunnels that use wireguard transports, then retry |
 | `DEY-P031` | deyroute does not manage the firewall | security.firewall_managed is false: table inet deyroute is not applied, so the control port, the backend control ports and the tunnel ports must be opened by hand | run deyroute security firewall show for the suggested commands, or set security.firewall_managed: true and run deyroute config apply |
+| `DEY-P032` | Port {port}: the firewall command is not the one you confirmed | the firewall was checked again and opening the port in {firewall} now needs: {command}; deyroute runs only the exact command the owner confirmed | check the port again (deyroute port check {port} --open) and confirm the command it shows |
+| `DEY-P033` | Could not open port {port} in {firewall} | {reason} | open the port by hand with the firewall's own tool, then run deyroute port check {port} again |
 
 ## TLS (DEY-T0xx)
 
@@ -114,7 +116,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | --- | --- | --- | --- |
 | `DEY-T001` | Certificate expired: {path} | it expired on {expiry} | renew it: deyroute security tls renew |
 | `DEY-T002` | Certificate and key do not match | the private key {key} does not belong to {cert} | provide the matching key file |
-| `DEY-T003` | ACME challenge failed for {domain} | Let's Encrypt could not validate the domain; tunnel TLS fell back to auto (self-signed + pin) | make sure {domain} is DNS-only (no Cloudflare proxy) and port 80 is free, then: deyroute security tls renew |
+| `DEY-T003` | ACME challenge failed for {domain} | Let's Encrypt could not validate the domain; tunnel TLS fell back to auto (self-signed + pin) | make sure {domain} is DNS-only (no Cloudflare proxy) and port 80 is free (or use DNS-01: deyroute security tls acme --cloudflare-token-file F), then: deyroute security tls renew |
 | `DEY-T004` | Domain {domain} does not resolve to the hub | its DNS A record does not point to {ip} | set an A record for {domain} to {ip} (DNS only) and wait for propagation |
 | `DEY-T005` | Certificate chain is invalid: {path} | the certificate is not signed by the provided chain | include the full chain (leaf first) in the cert file |
 | `DEY-T006` | Certificate expires in {days} days: {path} | tunnel certificates are renewed automatically 30 days before expiry; this one was not | run: deyroute security tls renew |

@@ -33,9 +33,37 @@ type portCheck struct {
 	spec ports.Spec
 	res  *api.PortCheckResult
 	err  error
+	keep bool // the owner keeps it although stage 2 or 3 failed
 }
 
 func (p portCheck) ok() bool { return p.err == nil && p.res != nil && p.res.BindFree }
+
+// fwClosed reports that stage 2 found an external firewall closing the port.
+func fwClosed(r *api.PortCheckResult) bool { return !r.FirewallOpen && r.FirewallName != "" }
+
+// warned reports a free port that stage 2 or 3 of the check found closed
+// (an external firewall, or the node cannot connect) and that the owner has
+// not kept yet: no port joins a tunnel without the four checks (section 10).
+func (p portCheck) warned() bool {
+	if !p.ok() || p.keep {
+		return false
+	}
+	return fwClosed(p.res) || p.res.NodeReachable != nil && !*p.res.NodeReachable
+}
+
+// openable reports a warned port whose firewall deyroute can open after the
+// owner confirmed the command.
+func (p portCheck) openable() bool {
+	return p.warned() && fwClosed(p.res) && p.res.FirewallCommand != ""
+}
+
+// wizOpened is the result of opening ports in the firewall: how many
+// commands ran, the first error and the ports checked again.
+type wizOpened struct {
+	ran     int
+	err     error
+	checked wizChecked
+}
 
 // wizChecked is the result of checking the ports at idx.
 type wizChecked struct {
@@ -142,21 +170,38 @@ func (w *wizard) done(a *app, d donePayload) tea.Cmd {
 			w.setStep(wzResolve)
 			return nil
 		}
-		r, _ := d.v.(wizChecked)
-		for i, idx := range r.idx {
-			if idx < len(w.checks) {
-				w.checks[idx] = r.res[i]
+		if o, ok := d.v.(wizOpened); ok {
+			w.apply(o.checked)
+			if o.ran > 0 {
+				w.msg = i18n.T(i18n.TUIWizOpened, o.ran)
 			}
+			cmd := w.afterCheck(a)
+			if o.err != nil {
+				w.inputErr = o.err
+			}
+			return cmd
 		}
+		r, _ := d.v.(wizChecked)
+		w.apply(r)
 		return w.afterCheck(a)
 	}
 	return nil
 }
 
-// afterCheck moves to the first problem port, or on to the confirmation.
+// apply stores checked ports.
+func (w *wizard) apply(r wizChecked) {
+	for i, idx := range r.idx {
+		if idx < len(w.checks) && i < len(r.res) {
+			w.checks[idx] = r.res[i]
+		}
+	}
+}
+
+// afterCheck moves to the first problem port (busy, or closed by stage 2
+// or 3), or on to the confirmation.
 func (w *wizard) afterCheck(a *app) tea.Cmd {
 	for i, c := range w.checks {
-		if !c.ok() {
+		if !c.ok() || c.warned() {
 			w.cur = i
 			w.setStep(wzResolve)
 			return nil
@@ -286,7 +331,20 @@ func (w *wizard) keyResolve(a *app, k tea.KeyMsg) tea.Cmd {
 	n, raw, ok := w.ch.take()
 	w.msg, w.inputErr = "", nil
 	tunnel, stoppable := w.canStop()
+	cur := w.checks[w.cur]
 	switch {
+	case ok && n == 3 && cur.openable():
+		idx := w.openableIdx()
+		return a.push(newConfirm(i18n.T(i18n.TUITunAdd), w.openText(idx), true, func(a *app) tea.Cmd {
+			return tea.Batch(a.pop(), w.openFirewall(a, idx))
+		}))
+	case ok && n == 4 && cur.warned():
+		for i := range w.checks {
+			if w.checks[i].warned() {
+				w.checks[i].keep = true
+			}
+		}
+		return w.afterCheck(a)
 	case ok && n == 0:
 		w.setStep(wzPorts)
 	case ok && n == 1:
@@ -313,6 +371,76 @@ func (w *wizard) keyResolve(a *app, k tea.KeyMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// openableIdx lists the ports whose firewall deyroute can open.
+func (w *wizard) openableIdx() []int {
+	var idx []int
+	for i, c := range w.checks {
+		if c.openable() {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
+
+// countWarned counts the ports stage 2 or 3 found closed.
+func (w *wizard) countWarned() int {
+	n := 0
+	for _, c := range w.checks {
+		if c.warned() {
+			n++
+		}
+	}
+	return n
+}
+
+// openText is the confirmation of opening the ports at idx: the exact
+// commands that run on the hub.
+func (w *wizard) openText(idx []int) string {
+	if len(idx) == 1 {
+		c := w.checks[idx[0]]
+		return i18n.T(i18n.TUIPCOpenConfirm, c.spec.String(), c.res.FirewallName, c.res.FirewallCommand)
+	}
+	specs := make([]ports.Spec, len(idx))
+	cmds := make([]string, len(idx))
+	for i, x := range idx {
+		specs[i] = ports.Spec{Listen: w.checks[x].spec.Listen, Proto: w.checks[x].spec.Proto}
+		cmds[i] = "  " + w.checks[x].res.FirewallCommand
+	}
+	return i18n.T(i18n.TUIWizOpenConfirmAll, ports.FormatList(specs), strings.Join(cmds, "\n"))
+}
+
+// openFirewall opens the ports at idx in the external firewall with the
+// commands the owner confirmed (the hub checks each again first and runs
+// only that command), then checks those ports again.
+func (w *wizard) openFirewall(a *app, idx []int) tea.Cmd {
+	w.setStep(wzChecking)
+	node := w.node.ID
+	specs := make([]ports.Spec, len(idx))
+	reqs := make([]api.PortOpenRequest, len(idx))
+	for i, x := range idx {
+		c := w.checks[x]
+		specs[i] = c.spec
+		reqs[i] = api.PortOpenRequest{Port: c.spec.Listen, Proto: c.spec.Proto, Command: c.res.FirewallCommand}
+	}
+	return a.call(w, 0, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+		var out wizOpened
+		for _, req := range reqs {
+			cctx, cancel := context.WithTimeout(ctx, checkTimeout)
+			res, err := l.PortOpenFirewall(cctx, req)
+			cancel()
+			if err != nil {
+				out.err = err
+				break
+			}
+			if res.Ran != "" {
+				out.ran++
+			}
+		}
+		out.checked = runChecks(ctx, l, node, idx, specs)
+		return out, nil
+	})
 }
 
 // stopService disables the deyroute tunnel holding the port, then re-checks it.
@@ -752,6 +880,20 @@ func (w *wizard) resolveView(a *app) string {
 	b.WriteString(" " + numLine(2, i18n.T(i18n.TUIWizSkip)) + "\n")
 	if t, ok := w.canStop(); ok {
 		b.WriteString(" " + numLine(3, i18n.T(i18n.TUIWizStop, t)) + "\n")
+	}
+	if c.openable() {
+		label := i18n.T(i18n.TUIWizOpenFw, c.res.FirewallCommand)
+		if n := len(w.openableIdx()); n > 1 {
+			label = i18n.T(i18n.TUIWizOpenFwAll, n)
+		}
+		b.WriteString(" " + numLine(3, label) + "\n")
+	}
+	if c.warned() {
+		label := i18n.T(i18n.TUIWizKeep)
+		if n := w.countWarned(); n > 1 {
+			label = i18n.T(i18n.TUIWizKeepAll, n)
+		}
+		b.WriteString(" " + numLine(4, label) + "\n")
 	}
 	b.WriteString(" " + numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
 	w.writeMsg(a, &b)

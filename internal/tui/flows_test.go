@@ -444,7 +444,7 @@ func TestPortCheckFourLines(t *testing.T) {
 	v := h.view()
 	start := strings.Index(v, "  local bind:")
 	require.GreaterOrEqual(t, start, 0, v)
-	body := strings.Split(strings.TrimSpace(v[start:strings.Index(v, "Press Enter")]), "\n")
+	body := strings.Split(strings.TrimSpace(v[start:strings.Index(v, " 1) Open it in the firewall")]), "\n")
 	require.Len(t, body, 4, v)
 	require.Contains(t, body[0], "✖ used by nginx (pid 1234); free ports: 2053")
 	require.Contains(t, body[1], "firewall:")
@@ -834,8 +834,10 @@ func TestOptimizeSecurityNotifyUpdate(t *testing.T) {
 	require.True(t, log.has("rotate []"))
 	h.press("esc")
 	h.choose("2")
+	h.must("Domain       none (tls mode acme needs one)", "HTTP-01 on port 80")
+	h.choose("1")
 	h.must("ca  ", "deyroute CA", "(3650 days left)", "renew soon", "sha256:t1")
-	h.press("esc")
+	h.press("esc", "esc")
 	h.choose("3").choose("1")
 	require.True(t, log.has("renew main"))
 	h.must("(0 days left)")
@@ -972,4 +974,74 @@ func TestLeavingCancelsCalls(t *testing.T) {
 	h.press("esc")
 	h.must("Check for updates")
 	require.Equal(t, 2, h.depth())
+}
+
+// Security > TLS certificates sets the domain and (Advanced) the ACME
+// e-mail and the Cloudflare token file with SettingsSet; "-" removes a
+// setting and the token is only ever a file path (section 10).
+func TestTLSSettingsMenu(t *testing.T) {
+	log := &callLog{}
+	stub := fullStub(log, "advanced")
+	st := sampleStatus()
+	st.Hub.UIMode = "advanced"
+	st.Hub.Domain, st.Hub.ACMEChallenge, st.Hub.ACMEEmail = "vpn.example.com", api.ACMEDNS01, "owner@example.com"
+	stub.StatusFn = func(context.Context) (api.Status, error) { return st, nil }
+	stub.SettingsSetFn = func(_ context.Context, r api.SettingsRequest) error {
+		switch {
+		case r.Domain != nil && *r.Domain == "":
+			return deyerr.New(deyerr.C013, deyerr.Params{"field": "hub.domain", "value": "", "allowed": "a domain name while tunnels use tls.mode acme (main)"}).
+				WithFix("switch those tunnels to another TLS mode first: deyroute tunnel edit main --tls-mode auto")
+		case r.Domain != nil:
+			log.add("domain " + *r.Domain)
+		case r.ACMEEmail != nil:
+			log.add("email " + *r.ACMEEmail)
+		case r.CloudflareTokenFile != nil:
+			log.add("token " + *r.CloudflareTokenFile)
+		}
+		return nil
+	}
+	h := newHarness(t, Options{Caps: Caps{Unicode: true, Width: 120}, Local: stub})
+	h.choose("8").choose("2")
+	h.must("Domain       vpn.example.com", "ACME check   DNS-01 through Cloudflare", "ACME e-mail  owner@example.com",
+		" 1) Show certificates", " 2) Domain (for ACME)", " 3) ACME e-mail", " 4) Cloudflare token (DNS-01)")
+
+	h.choose("2")
+	h.must("DNS-only A record", "Domain [vpn.example.com]: _")
+	h.typeLine("5.6.7.8")
+	h.must("Enter a domain name")
+	h.press("ctrl+u").typeLine("New.Example.com.")
+	require.True(t, log.has("domain new.example.com"))
+	h.must("Domain set to new.example.com.", "Renew TLS certificate")
+	h.press("esc")
+	h.choose("2").typeLine("-")
+	h.must("DEY-C013", "deyroute tunnel edit main --tls-mode auto")
+	h.press("esc")
+
+	h.choose("4")
+	h.must("Zone:DNS:Edit", "the token itself is never", "Cloudflare token file: _")
+	h.typeLine("cf.token")
+	h.must("Enter an absolute path")
+	h.press("ctrl+u").typeLine("/root/cf.token")
+	require.True(t, log.has("token /root/cf.token"))
+	h.must("/etc/deyroute/secrets/cloudflare.token")
+	h.press("esc")
+	h.choose("4").typeLine("-")
+	require.True(t, log.has("token "))
+	h.must("HTTP-01 on port 80 again")
+	h.press("esc")
+
+	h.choose("3").typeLine("")
+	require.True(t, log.has("email owner@example.com"))
+	h.press("esc")
+	h.choose("3").typeLine("-")
+	require.True(t, log.has("email "))
+	h.must("ACME e-mail removed.")
+	h.press("esc", "esc", "esc")
+	require.Equal(t, 1, h.depth())
+
+	// Simple mode: the domain only.
+	h = newHarness(t, Options{Caps: Caps{Unicode: true, Width: 120}, Local: fullStub(log, "simple")})
+	h.choose("8").choose("2")
+	h.must(" 2) Domain (for ACME)", "HTTP-01 on port 80")
+	h.mustNot("ACME e-mail", "Cloudflare token")
 }

@@ -2,9 +2,14 @@ package hub
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
+	"net/mail"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
@@ -13,10 +18,12 @@ import (
 
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
+	"github.com/localroot4/deyroute/internal/daemon/secrets"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
+	"github.com/localroot4/deyroute/internal/tlsutil"
 )
 
 // ConfigApply implements api.Local (section 4: config.yaml is the single
@@ -174,8 +181,10 @@ func diffMaps[V any](prefix string, a, b map[string]V) []string {
 	return out
 }
 
-// SettingsSet implements api.Local (menu 12 Settings, `deyroute settings`):
-// ui_mode, language (one of i18n.Languages), decoy SNIs and the domain.
+// SettingsSet implements api.Local (menu 12 Settings and 8 Security > TLS
+// certificates, `deyroute settings`, `deyroute security tls domain|acme`):
+// ui_mode, language (one of i18n.Languages), decoy SNIs, the domain and the
+// ACME options of section 10 (e-mail, Cloudflare token file for DNS-01).
 // Empty fields are unchanged. A changed domain or decoy list re-renders the
 // tunnels (TLS SANs, Reality decoys).
 func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error {
@@ -199,14 +208,24 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 			decoys = append(decoys, d)
 		}
 	}
-	if mode == "" && lang == "" && len(decoys) == 0 && req.Domain == nil {
+	acme, err := h.acmeRequest(req)
+	if err != nil {
+		return withLog(err)
+	}
+	if mode == "" && lang == "" && len(decoys) == 0 && !acme.any() {
 		return nil
 	}
 	if _, err := h.autoBackup(); err != nil {
 		return withLog(err)
 	}
-	rerender, decoysChanged := false, false
-	_, err := h.mutate(func(c *config.Config) error {
+	if acme.token != "" && acme.tokenSrc != config.DefaultCloudflareTokenFile {
+		// The token is copied before config.yaml points at it.
+		if err := tlsutil.WriteSecret(h.path(config.DefaultCloudflareTokenFile), []byte(acme.token+"\n")); err != nil {
+			return withLog(err)
+		}
+	}
+	rerender, decoysChanged, prevTokenFile := false, false, ""
+	_, err = h.mutate(func(c *config.Config) error {
 		if mode != "" {
 			c.Hub.UIMode = mode
 		}
@@ -217,11 +236,33 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 			c.Hub.DecoySNIs = decoys
 			rerender, decoysChanged = true, true
 		}
-		if req.Domain != nil {
-			d := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(*req.Domain), "."))
-			if d != c.Hub.Domain {
-				c.Hub.Domain = d
-				rerender = true
+		if acme.domain != nil && *acme.domain != c.Hub.Domain {
+			if *acme.domain == "" {
+				if err := acmeTunnelsNeedDomain(c); err != nil {
+					return err
+				}
+			}
+			c.Hub.Domain = *acme.domain
+			rerender = true
+		}
+		if acme.email != nil || acme.tokenSet {
+			var a config.ACME
+			if c.Hub.ACME != nil {
+				a = *c.Hub.ACME
+			}
+			prevTokenFile = a.CloudflareTokenFile
+			if acme.email != nil {
+				a.Email = *acme.email
+			}
+			if acme.tokenSet {
+				a.CloudflareTokenFile = ""
+				if acme.token != "" {
+					a.CloudflareTokenFile = config.DefaultCloudflareTokenFile
+				}
+			}
+			c.Hub.ACME = nil
+			if a != (config.ACME{}) {
+				c.Hub.ACME = &a
 			}
 		}
 		return nil
@@ -229,7 +270,14 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 	if err != nil {
 		return withLog(err)
 	}
-	h.log.Info("settings changed", slog.String("ui_mode", mode), slog.String("language", lang), slog.Bool("rerender", rerender))
+	if acme.tokenSet && acme.token == "" && prevTokenFile == config.DefaultCloudflareTokenFile {
+		// Removed from the configuration: the stored copy goes too.
+		if err := os.Remove(h.path(prevTokenFile)); err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			h.log.Warn("cannot remove the Cloudflare token file", slog.String("path", prevTokenFile), dlog.Err(err))
+		}
+	}
+	h.log.Info("settings changed", slog.String("ui_mode", mode), slog.String("language", lang), slog.Bool("rerender", rerender),
+		slog.Bool("acme", acme.email != nil || acme.tokenSet))
 	if decoysChanged {
 		// The new list is tested from the hub; the first reachable decoy
 		// is used (section 7.4). Until then its first entry is.
@@ -242,4 +290,92 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 		}
 	}
 	return nil
+}
+
+// acmeSettings is the checked domain/ACME part of a SettingsRequest.
+type acmeSettings struct {
+	domain   *string // normalized hub.domain ("" removes it)
+	email    *string // hub.acme.email ("" removes it)
+	tokenSet bool    // the Cloudflare token changes
+	token    string  // the new token ("" removes it)
+	tokenSrc string  // the file it was read from
+}
+
+func (a acmeSettings) any() bool { return a.domain != nil || a.email != nil || a.tokenSet }
+
+// acmeRequest checks the domain, ACME e-mail and Cloudflare token file of
+// req and reads the token (it is registered as a secret, never logged).
+func (h *Hub) acmeRequest(req api.SettingsRequest) (acmeSettings, error) {
+	var out acmeSettings
+	if req.Domain != nil {
+		d := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(*req.Domain), "."))
+		if d != "" && !tlsutil.ValidDomain(d) {
+			return out, deyerr.New(deyerr.C013, deyerr.Params{
+				"field": "hub.domain", "value": *req.Domain, "allowed": "a DNS name such as vpn.example.com (no IP address, wildcard or single label), or empty",
+			})
+		}
+		if d == "" {
+			if err := acmeTunnelsNeedDomain(h.Config()); err != nil {
+				return out, err
+			}
+		}
+		out.domain = &d
+	}
+	if req.ACMEEmail != nil {
+		e := strings.TrimSpace(*req.ACMEEmail)
+		if e != "" {
+			if addr, err := mail.ParseAddress(e); err != nil || addr.Address != e {
+				return out, deyerr.New(deyerr.C013, deyerr.Params{
+					"field": "hub.acme.email", "value": e, "allowed": "an e-mail address such as owner@example.com, or empty",
+				})
+			}
+		}
+		out.email = &e
+	}
+	if req.CloudflareTokenFile != nil {
+		out.tokenSet = true
+		f := strings.TrimSpace(*req.CloudflareTokenFile)
+		if f == "" {
+			return out, nil
+		}
+		if !filepath.IsAbs(f) {
+			return out, deyerr.New(deyerr.C013, deyerr.Params{
+				"field": "cloudflare token file", "value": f, "allowed": "the absolute path of a file holding the Cloudflare API token",
+			})
+		}
+		tok, err := secrets.CloudflareToken(h.path(f))
+		if err != nil {
+			return out, err
+		}
+		out.token, out.tokenSrc = tok, filepath.Clean(f)
+	}
+	return out, nil
+}
+
+// acmeTunnelsNeedDomain refuses to remove hub.domain while tunnels use
+// tls.mode acme (config validation would refuse it with less help).
+func acmeTunnelsNeedDomain(c *config.Config) error {
+	var ids []string
+	for _, t := range c.Tunnels {
+		if t.TLS.Mode == config.TLSModeACME {
+			ids = append(ids, t.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return deyerr.New(deyerr.C013, deyerr.Params{
+		"field": "hub.domain", "value": "", "allowed": "a domain name while tunnels use tls.mode acme (" + strings.Join(ids, ", ") + ")",
+	}).WithFix("switch those tunnels to another TLS mode first: deyroute tunnel edit " + ids[0] + " --tls-mode auto")
+}
+
+// checkACMEDomain refuses tls.mode acme for tunnel id while hub.domain is
+// empty, naming the command that sets the domain.
+func checkACMEDomain(cfg *config.Config, id, mode string) error {
+	if mode != config.TLSModeACME || cfg.Hub == nil || strings.TrimSpace(cfg.Hub.Domain) != "" {
+		return nil
+	}
+	return deyerr.New(deyerr.C013, deyerr.Params{
+		"field": "tunnels[" + id + "].tls.mode", "value": mode, "allowed": "auto or custom until hub.domain is set",
+	}).WithFix(fixSetDomain + ", then choose acme again")
 }

@@ -346,6 +346,12 @@ type taskScreen struct {
 	after       func(a *app, v any) tea.Cmd // runs on success (e.g. a plain page)
 	next        func(a *app, v any) screen  // replaces the task on success (nil = stay)
 	refreshable bool
+	// option offers one action on a successful result, chosen with 1
+	// ("Open it in the firewall"): its label ("" = none) and what it does.
+	// An action that changes what the task shows sets stale: the task then
+	// runs again when it is the top screen again.
+	option func(a *app, v any) (label string, act func(a *app) tea.Cmd)
+	stale  bool
 	// cancellable read-only tasks may be left while they run (leaving
 	// cancels the call). Other running tasks change something on the
 	// server: q/Esc does not abandon them half-way.
@@ -374,6 +380,23 @@ func textResult(msg string) func(*app, any) string {
 }
 
 func (t *taskScreen) start(a *app) tea.Cmd { return t.launch(a) }
+
+// resume runs the task again after an option changed what it shows.
+func (t *taskScreen) resume(a *app) tea.Cmd {
+	if !t.stale || t.running {
+		return nil
+	}
+	t.stale = false
+	return t.launch(a)
+}
+
+// optionItem is the result's option (see taskScreen.option), if any.
+func (t *taskScreen) optionItem(a *app) (string, func(a *app) tea.Cmd) {
+	if t.option == nil || !t.done || t.err != nil {
+		return "", nil
+	}
+	return t.option(a, t.val)
+}
 
 // back keeps a running change on screen: leaving would cancel it half-way
 // (for example a tunnel created on the hub but not on the node). Read-only
@@ -438,6 +461,10 @@ func (t *taskScreen) update(a *app, msg tea.Msg) tea.Cmd {
 			return a.pop()
 		case n == 1 && t.err != nil:
 			return t.launch(a)
+		case n == 1:
+			if label, act := t.optionItem(a); label != "" {
+				return act(a)
+			}
 		}
 	}
 	return nil
@@ -476,6 +503,11 @@ func (t *taskScreen) view(a *app) string {
 	case t.done:
 		if t.render != nil {
 			b.WriteString(t.render(a, t.val))
+		}
+		if label, _ := t.optionItem(a); label != "" {
+			b.WriteString("\n " + numLine(1, label) + "\n " + numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
+			b.WriteString("\n " + i18n.T(i18n.PromptChoice) + t.ch.input + "\n")
+			break
 		}
 		b.WriteString("\n " + i18n.T(i18n.TUIPressEnterBack) + "\n")
 	}

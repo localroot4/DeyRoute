@@ -220,16 +220,6 @@ stated default until the owner decides · **[ANSWERED]** closed.
 The spec audit of 2026-10-01 found 100 gaps; the critical and major ones in
 code are fixed (see CHANGELOG). These remain, none of them a security issue:
 
-- **Backhaul on mixed TCP+UDP tunnels.** Backhaul's TCP-family transports
-  carry TCP only, so a tunnel with both TCP and UDP port maps uses the next
-  rungs (Rathole, FRP, Xray, Hysteria2, direct). A companion Backhaul UDP
-  instance per rung is planned. Workaround: one tunnel for the TCP ports and
-  one for the UDP ports.
-- **Firewall command after confirmation.** When the host firewall blocks a
-  port, the port check and the Add-tunnel wizard show the exact command
-  (`ufw allow …`, `firewall-cmd …`); deyroute does not run it itself yet.
-- **ACME from the menu.** `hub.domain` and the Cloudflare DNS-01 token are
-  set with `deyroute config edit`; the menu has no form for them yet.
 - **Hub move from the menu.** `hub announce-move` and `node set-hub` are CLI
   commands only.
 - **Per-port probe kind** (`auto|tcp|tls|http`) is set in `config.yaml`, not

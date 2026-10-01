@@ -116,6 +116,30 @@ func TestLocalRoundTripNonStreaming(t *testing.T) {
 	require.Contains(t, e.Message(), "TunnelList")
 }
 
+// PortOpenFirewall carries the confirmed command to the daemon and the
+// firewall state back; a refusal (DEY-P032) keeps its code and texts.
+func TestLocalRoundTripPortOpenFirewall(t *testing.T) {
+	var got api.PortOpenRequest
+	stub := &apitest.Stub{PortOpenFirewallFn: func(_ context.Context, req api.PortOpenRequest) (api.PortOpenResult, error) {
+		got = req
+		if req.Command != "ufw allow 443/tcp" {
+			return api.PortOpenResult{}, deyerr.New(deyerr.P032, deyerr.Params{"port": "443/tcp", "firewall": "ufw", "command": "ufw allow 443/tcp"})
+		}
+		return api.PortOpenResult{Port: req.Port, Proto: req.Proto, Ran: req.Command, By: "ufw", FirewallOpen: true, FirewallName: "nftables, ufw"}, nil
+	}}
+	c := apitest.Serve(t, stub)
+	ctx := context.Background()
+	res, err := c.PortOpenFirewall(ctx, api.PortOpenRequest{Port: 443, Proto: "tcp", Command: "ufw allow 443/tcp"})
+	require.NoError(t, err)
+	require.Equal(t, api.PortOpenRequest{Port: 443, Proto: "tcp", Command: "ufw allow 443/tcp"}, got)
+	require.Equal(t, api.PortOpenResult{Port: 443, Proto: "tcp", Ran: "ufw allow 443/tcp", By: "ufw", FirewallOpen: true, FirewallName: "nftables, ufw"}, res)
+
+	_, err = c.PortOpenFirewall(ctx, api.PortOpenRequest{Port: 443, Proto: "tcp", Command: "ufw allow 444/tcp"})
+	e := requireCode(t, err, deyerr.P032)
+	require.Contains(t, e.Why(), "ufw allow 443/tcp")
+	require.Contains(t, e.Fix(), "deyroute port check 443/tcp --open")
+}
+
 func TestLocalRoundTripStreaming(t *testing.T) {
 	stub := &apitest.Stub{
 		TunnelAddFn: func(_ context.Context, req api.TunnelAddRequest, progress func(api.Step)) (api.TunnelInfo, error) {

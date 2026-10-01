@@ -19,6 +19,7 @@ import (
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/supervise"
 	"github.com/localroot4/deyroute/internal/tui"
 )
 
@@ -204,6 +205,25 @@ func newRelayCmd(g *Globals) *cobra.Command {
 	cmd.Flags().StringVar(&tunnel, "tunnel", "", i18n.T(i18n.CLIFlagRelayTunnel))
 	cmd.Flags().StringVar(&cfgPath, "config", "", i18n.T(i18n.CLIFlagRelayConfig))
 	return cmd
+}
+
+// newPairCmd is `deyroute pair <prog> [args] -- <prog> [args]`: the ExecStart
+// of a deyroute-tun@ unit that runs a backend and its UDP companion process
+// together (Backhaul with TCP and UDP maps on a TCP-only transport).
+func newPairCmd(g *Globals) *cobra.Command {
+	return &cobra.Command{
+		Use:                supervise.Command + " <program> [args] -- <program> [args]",
+		Short:              i18n.T(i18n.CLIPairShort),
+		Hidden:             true,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmds, err := supervise.Split(args)
+			if err != nil {
+				return usageErr(err.Error())
+			}
+			return supervise.Run(cmd.Context(), cmds, g.Out, g.Err)
+		},
+	}
 }
 
 // newWGCmd is `deyroute wg up|down --config <wg.json>`: the oneshot units

@@ -120,6 +120,11 @@ func (c *Config) ResolveLadder(t *Tunnel, supports func(transportID, proto strin
 	}
 	if supports != nil {
 		protos := t.Protos()
+		if len(protos) == 2 {
+			// TCP and UDP maps: the UDP maps may also travel through a
+			// companion process of a TCP transport.
+			protos = []string{ProtoTCP, ProtoMixedUDP}
+		}
 		kept := rungs[:0]
 		for _, r := range rungs {
 			all := true

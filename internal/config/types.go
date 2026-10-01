@@ -72,6 +72,11 @@ const (
 
 	ProtoTCP = "tcp"
 	ProtoUDP = "udp"
+	// ProtoMixedUDP stands for the UDP port maps of a tunnel that also has
+	// TCP maps when the ladder is resolved: a transport may carry them
+	// itself or through a UDP companion process (backhaul/wssmux plus
+	// backhaul/udp). It never appears in config.yaml.
+	ProtoMixedUDP = "udp-with-tcp"
 
 	ProbeAuto = "auto"
 	ProbeTCP  = "tcp"
