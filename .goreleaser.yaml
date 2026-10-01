@@ -6,7 +6,7 @@ before:
     - go mod verify
     - go test ./...
     # Signs internal/backend/backends.yaml into dist-extra/backends.yaml.minisig
-    # when MINISIGN_KEY_FILE is set (CI release job).
+    # when MINISIGN_SECRET_KEY is set (CI release job).
     - sh scripts/sign-manifest.sh
 
 builds:
@@ -36,16 +36,16 @@ checksum:
     - glob: ./installer/install.sh
     - glob: ./internal/backend/backends.yaml
 
-# SHA256SUMS is signed with minisign; the public key is hard-coded in
-# installer/install.sh and internal/install (self-update). The secret key
-# is provided by CI as MINISIGN_KEY_FILE with MINISIGN_PASSWORD on stdin.
+# SHA256SUMS is signed with minisign (scripts/minisign, pure Go, the same
+# signer as release-edge.yml); the public key is hard-coded in
+# installer/install.sh and internal/install (self-update). CI provides the
+# secret key text as MINISIGN_SECRET_KEY (and MINISIGN_PASSWORD if it is
+# encrypted); the sign command inherits the environment.
 signs:
   - id: minisign-checksums
     artifacts: checksum
-    cmd: sh
-    args:
-      - -c
-      - 'printf "%s\n" "$MINISIGN_PASSWORD" | minisign -S -s "$MINISIGN_KEY_FILE" -m "${artifact}" -x "${signature}"'
+    cmd: go
+    args: ["run", "./scripts/minisign", "sign", "-in", "${artifact}", "-out", "${signature}"]
     signature: "${artifact}.minisig"
 
 release:

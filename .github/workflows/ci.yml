@@ -127,15 +127,11 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
         with: { go-version: stable }
-      - name: install minisign
-        run: sudo apt-get update && sudo apt-get install -y minisign
-      - name: write signing key
-        run: printf '%s' "${{ secrets.MINISIGN_SECRET_KEY }}" > "$RUNNER_TEMP/minisign.key"
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MINISIGN_KEY_FILE: ${{ runner.temp }}/minisign.key
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}

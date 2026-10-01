@@ -100,4 +100,6 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 
 ### Releases (maintainers)
 
-Each push to `main` or the development branch runs `.github/workflows/release-edge.yml`. It tests, builds amd64 and arm64, signs `SHA256SUMS` with minisign and publishes a GitHub release marked *latest*, so the URLs above always point to the newest build. Signing needs the repository secret **`MINISIGN_SECRET_KEY`**, whose public half is `internal/install/keys.go` / `installer/install.sh`. Generate a new pair with `go run ./scripts/minisign keygen`.
+- **Development builds:** each push to `main` or the development branch runs `.github/workflows/release-edge.yml`. It tests, builds amd64 and arm64, signs `SHA256SUMS` with minisign and publishes `v<ver>-edge.<run>`. Until the first stable release it is marked *latest*, so the URLs above point to the newest build; after a stable tag exists, edge builds are numbered after it (`v1.0.1-edge.N`) and published as pre-releases that never become *latest*.
+- **Stable releases:** push a tag `vX.Y.Z` (for example `git tag v1.0.0 && git push origin v1.0.0`). CI runs lint, unit, build, smoke and the integration scenarios, then goreleaser publishes the signed release, which becomes *latest* for the installer and `deyroute update`.
+- Signing needs the repository secret **`MINISIGN_SECRET_KEY`** (and `MINISIGN_PASSWORD` if the key is encrypted), whose public half is `internal/install/keys.go` / `installer/install.sh`. Generate a new pair with `go run ./scripts/minisign keygen`.

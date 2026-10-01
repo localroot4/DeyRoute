@@ -1,10 +1,10 @@
 #!/bin/sh
-# Sign the backend manifest for a release. No-op without MINISIGN_KEY_FILE.
+# Sign the backend manifest for a release with the Go signer (scripts/minisign,
+# the same one release-edge.yml uses). No-op without MINISIGN_SECRET_KEY.
 set -eu
 mkdir -p dist-extra
-if [ -z "${MINISIGN_KEY_FILE:-}" ]; then
-	echo "sign-manifest: MINISIGN_KEY_FILE not set, skipping"
+if [ -z "${MINISIGN_SECRET_KEY:-}" ]; then
+	echo "sign-manifest: MINISIGN_SECRET_KEY not set, skipping"
 	exit 0
 fi
-printf '%s\n' "${MINISIGN_PASSWORD:-}" | minisign -S -s "$MINISIGN_KEY_FILE" \
-	-m internal/backend/backends.yaml -x dist-extra/backends.yaml.minisig
+go run ./scripts/minisign sign -in internal/backend/backends.yaml -out dist-extra/backends.yaml.minisig
