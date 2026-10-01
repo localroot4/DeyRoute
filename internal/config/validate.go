@@ -60,7 +60,7 @@ var (
 		"failback", "failback_failed", "flapping", "node_online", "node_offline",
 		"service_down", "backend_crash", "probe_error", "update_applied", "update_rolled_back",
 		"backend_update_rolled_back", "node_ip_changed", "acme_failed", "rung_skipped",
-		"rung_restored", "manual_switch", "config_applied",
+		"rung_restored", "config_applied",
 	}
 )
 

@@ -112,7 +112,8 @@ previous rung.
 - If rung 1 does not pass its probe within 15 seconds, the tunnel returns to
   where it was at once, records `failback_failed` (`DEY-F003`) and doubles the
   waiting time for this tunnel (at most 24 hours; reset after a successful
-  failback).
+  failback). With a canary, the next failback then also waits for this
+  doubled time, even while the canary passes.
 
 ## Protection against flapping
 
@@ -135,7 +136,9 @@ switches are always allowed and do not count.
 `test-ladder` interrupts the tunnel for the whole test (users lose their
 connections), so it asks you to type `yes`; in scripts add `--yes`. A paused
 tunnel shows `PAUSED` on the dashboard until you resume it; manual switches
-still work while it is paused.
+still work while it is paused. A manual switch is recorded like any other
+(`switch_transport` or `switch_node`, reason `manual switch to …` or
+`manual reset to rung 1`), so Telegram's `switch` setting covers it too.
 
 ## Rungs and their states
 

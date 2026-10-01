@@ -78,7 +78,7 @@ deyroute events --since 24h --json
 
 لاگ‌های خود deyroute به شکل JSON خط‌به‌خط با زمان UTC هستند؛ لاگ‌ها در ۲۰ مگابایت چرخانده می‌شوند و ۵ فایل فشرده نگه داشته می‌شود. برای جزئیات بیشتر یک دستور را با `--debug` اجرا کنید یا سرویس را با `DEYROUTE_DEBUG=1` روشن کنید. رازها هیچ‌وقت در لاگ نمی‌آیند (به شکل `***` چاپ می‌شوند).
 
-رویدادهای مهم: `tunnel_up`، `tunnel_degraded`، `tunnel_down`، `switch_transport`، `switch_node`، `manual_switch`، `failback`، `failback_failed`، `flapping`، `node_online`، `node_offline`، `node_ip_changed`، `service_down`، `backend_crash`، `probe_error`، `rung_skipped`، `rung_restored`، `config_applied`.
+رویدادهای مهم: `tunnel_up`، `tunnel_degraded`، `tunnel_down`، `switch_transport`، `switch_node`، `failback`، `failback_failed`، `flapping`، `node_online`، `node_offline`، `node_ip_changed`، `service_down`، `backend_crash`، `probe_error`، `rung_skipped`، `rung_restored`، `config_applied`. سوییچ دستی با نام `switch_transport` یا `switch_node` و دلیل `manual switch to …` ثبت می‌شود.
 
 ## مشکلات رایج
 

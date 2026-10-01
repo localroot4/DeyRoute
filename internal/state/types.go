@@ -58,7 +58,6 @@ const (
 	EvACMEFailed        = "acme_failed"                // section 10
 	EvRungSkipped       = "rung_skipped"               // yellow warning: validate failed / UDP closed (section 8)
 	EvRungRestored      = "rung_restored"
-	EvManualSwitch      = "manual_switch"
 	EvConfigApplied     = "config_applied"
 )
 

@@ -136,8 +136,6 @@ func eventMessage(tunnel string, v evt) string {
 		return fmt.Sprintf("Tunnel %s switched node %s -> %s (%s)", tunnel, v.from.Node, v.to.Node, v.to.Transport)
 	case state.EvFailback:
 		return fmt.Sprintf("Tunnel %s failed back to %s", tunnel, v.to.Key())
-	case state.EvManualSwitch:
-		return fmt.Sprintf("Tunnel %s switched to %s by the owner", tunnel, v.to.Key())
 	}
 	return fmt.Sprintf("Tunnel %s: %s", tunnel, v.typ)
 }

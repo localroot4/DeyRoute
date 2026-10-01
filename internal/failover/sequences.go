@@ -758,7 +758,10 @@ func (e *Engine) canaryTick(ctx context.Context) {
 
 // maybeFailback returns to rung 1 of the primary node when the tunnel has
 // been UP elsewhere for FailbackDelay (blind) or the canary passed
-// recover_threshold times in a row.
+// recover_threshold times in a row. After a failed failback the canary
+// also waits for the doubled FailbackDelay (section 9): a rung 1 whose
+// canary passes but whose real path does not is not retried every
+// recover_threshold probes, each attempt an outage of up to StartWait.
 func (e *Engine) maybeFailback(ctx context.Context) {
 	if !e.cfg.failback || e.st.Paused || e.st.State != state.StateUp {
 		return
@@ -774,6 +777,12 @@ func (e *Engine) maybeFailback(ctx context.Context) {
 			return
 		}
 		why = fmt.Sprintf("canary passed %d probes in a row", e.st.CanaryPasses)
+		if e.st.FailbackDelay > e.cfg.failbackAfter {
+			if now.Sub(e.st.StableSince) < e.st.FailbackDelay {
+				return
+			}
+			why += fmt.Sprintf(", up on %s for %s", e.st.Active.Key(), e.st.FailbackDelay)
+		}
 	} else {
 		if now.Sub(e.st.StableSince) < e.st.FailbackDelay {
 			return
@@ -938,7 +947,7 @@ func (e *Engine) manualReset(ctx context.Context) error {
 	if !ok {
 		return e.invalidTarget("rung 1")
 	}
-	return e.manualMove(ctx, target, "reset to rung 1")
+	return e.manualMove(ctx, target, "manual reset to rung 1")
 }
 
 // manualMove switches to target on the owner's request. On failure the
@@ -968,7 +977,7 @@ func (e *Engine) manualMove(ctx context.Context, target state.Candidate, why str
 	}
 	if a.out == outOK {
 		e.upAfterMove(a.probe, why)
-		e.emit(evt{typ: state.EvManualSwitch, level: state.LevelInfo, from: origin, to: target, reason: why})
+		e.emit(evt{typ: manualEvent(origin, target), level: state.LevelInfo, from: origin, to: target, reason: why})
 		e.commit(true)
 		return nil
 	}
@@ -1011,6 +1020,20 @@ func (e *Engine) manualMove(ctx context.Context, target state.Candidate, why str
 		e.commit(true)
 	}
 	return err
+}
+
+// manualEvent is the section 9 event of a successful manual move (the
+// event names are fixed): switch_node when the node changed,
+// switch_transport when only the transport did, tunnel_up when the same
+// candidate was started again (from DOWN).
+func manualEvent(origin, target state.Candidate) string {
+	switch {
+	case origin.IsZero() || origin == target:
+		return state.EvTunnelUp
+	case origin.Node != target.Node:
+		return state.EvSwitchNode
+	}
+	return state.EvSwitchTransport
 }
 
 // ---- test ladder

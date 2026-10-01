@@ -327,6 +327,50 @@ func TestCanaryFailback(t *testing.T) {
 	require.Zero(t, h.st().CanaryPasses)
 }
 
+// A failed canary failback doubles the delay like a blind one (section 9):
+// the canary keeps passing, but the next attempt waits for the doubled
+// delay instead of the next six passes; a success resets it.
+func TestCanaryFailbackFailsWaitsDoubledDelay(t *testing.T) {
+	h := newHarness(t, twoNodes(), state.TunnelState{}, func(f *fakeActions) {
+		f.canaryOn = true
+		f.canaryOK = true
+	}).run()
+	h.act.block(r1.Key(), true)
+	h.advanceUntil(time.Minute, isUpOn(r2))
+	// The canary passes, the real rung 1 does not.
+	took := h.advanceUntil(time.Minute, func(s state.TunnelState) bool { return s.Active == r1 })
+	require.Equal(t, 30*time.Second, took, "the first attempt follows the canary")
+	h.advanceUntil(time.Minute, isUpOn(r2))
+	require.Len(t, h.act.eventsOf(state.EvFailbackFailed), 1)
+	s := h.st()
+	require.Equal(t, 600*time.Second, s.FailbackDelay)
+	revertAt := s.StableSince
+
+	h.advanceUntil(20*time.Minute, func(s state.TunnelState) bool { return s.Active == r1 })
+	require.Equal(t, revertAt.Add(600*time.Second), h.clk.Now(), "the next attempt waits for the doubled delay")
+	h.advanceUntil(time.Minute, isUpOn(r2))
+	require.Len(t, h.act.eventsOf(state.EvFailbackFailed), 2)
+	require.Equal(t, 1200*time.Second, h.st().FailbackDelay)
+	revertAt = h.st().StableSince
+
+	// Rung 1 works again: the failback succeeds after 1200s and resets the
+	// delay; the next one follows the canary alone again.
+	h.act.block(r1.Key(), false)
+	h.advanceUntil(30*time.Minute, isUpOn(r1))
+	require.Equal(t, revertAt.Add(1200*time.Second), h.clk.Now())
+	fb := h.act.eventsOf(state.EvFailback)
+	require.Len(t, fb, 1)
+	require.Contains(t, fb[0].Reason, "up on "+r2.Key()+" for 20m0s")
+	require.Equal(t, 300*time.Second, h.st().FailbackDelay)
+
+	h.act.block(r1.Key(), true)
+	h.advanceUntil(time.Minute, isUpOn(r2))
+	h.act.block(r1.Key(), false)
+	took = h.advanceUntil(time.Minute, isUpOn(r1))
+	require.Equal(t, 30*time.Second, took)
+	require.Len(t, h.act.eventsOf(state.EvFailback), 2)
+}
+
 // ---- node service / control / node failover
 
 // Acceptance (S11): the service on the primary node goes down → switch to
@@ -602,10 +646,16 @@ func TestManualSwitchNotCounted(t *testing.T) {
 	s := h.st()
 	require.Empty(t, s.SwitchTimes, "manual switches are not counted")
 	require.False(t, s.Flapping)
-	ms := h.act.eventsOf(state.EvManualSwitch)
+	// Each manual move is a switch_transport event (section 9: fixed names),
+	// info level, with the owner's request as the reason.
+	ms := h.act.eventsOf(state.EvSwitchTransport)
 	require.Len(t, ms, len(targets))
-	require.Equal(t, "Tunnel main switched to de-1/rathole/noise by the owner", ms[0].Message)
-	require.Empty(t, h.act.eventsOf(state.EvSwitchTransport))
+	require.Equal(t, "Tunnel main switched transport backhaul/wssmux -> rathole/noise on node de-1", ms[0].Message)
+	require.Equal(t, "manual switch to transport rathole/noise", ms[0].Reason)
+	for _, ev := range ms {
+		require.Equal(t, state.LevelInfo, ev.Level)
+	}
+	require.Empty(t, h.act.eventsOf(state.EvSwitchNode))
 
 	// Automatic switching still works normally afterwards.
 	h.act.block(cand("de-1", "frp/tcp").Key(), true)
@@ -644,7 +694,7 @@ func TestManualSwitchFailureReverts(t *testing.T) {
 	s := h.st()
 	require.Empty(t, s.Quarantine, "a failed manual switch does not quarantine")
 	require.Empty(t, s.SwitchTimes)
-	require.Empty(t, h.act.eventsOf(state.EvManualSwitch))
+	require.Empty(t, h.act.eventsOf(state.EvSwitchTransport))
 }
 
 func TestManualSwitchFailureAndRevertFailure(t *testing.T) {
@@ -678,14 +728,20 @@ func TestManualSwitchNodeAndReset(t *testing.T) {
 	require.NoError(t, h.eng.SwitchTransport(ctx, r3.Transport))
 	require.NoError(t, h.eng.SwitchNode(ctx, "nl-1"))
 	h.requireActive(cand("nl-1", r3.Transport), state.StateUp)
-	ms := h.act.eventsOf(state.EvManualSwitch)
-	require.Equal(t, "de-1", ms[1].FromNode)
-	require.Equal(t, "nl-1", ms[1].ToNode)
+	require.Len(t, h.act.eventsOf(state.EvSwitchTransport), 1)
+	ms := h.act.eventsOf(state.EvSwitchNode)
+	require.Len(t, ms, 1, "a manual node switch is switch_node")
+	require.Equal(t, "de-1", ms[0].FromNode)
+	require.Equal(t, "nl-1", ms[0].ToNode)
+	require.Equal(t, "manual switch to node nl-1", ms[0].Reason)
 
+	// Reset from nl-1 to rung 1 of de-1 changes the node too.
 	require.NoError(t, h.eng.Reset(ctx))
 	h.requireActive(r1, state.StateUp)
-	ms = h.act.eventsOf(state.EvManualSwitch)
-	require.Equal(t, "reset to rung 1", ms[len(ms)-1].Reason)
+	ms = h.act.eventsOf(state.EvSwitchNode)
+	require.Len(t, ms, 2)
+	require.Equal(t, "manual reset to rung 1", ms[1].Reason)
+	require.Equal(t, r1.Transport, ms[1].ToTransport)
 	require.Empty(t, h.st().SwitchTimes)
 	// Reset on rung 1 is a no-op.
 	h.act.clearCalls()
@@ -711,12 +767,19 @@ func TestManualSwitchFromDown(t *testing.T) {
 	require.Equal(t, state.StateDown, s.State)
 	require.Equal(t, retryAt, s.DownRetryAt)
 	require.Empty(t, h.act.runningKeys())
+	require.Equal(t, dn, s.Active, "DOWN keeps the last candidate tried")
 
 	// A passing one brings it up.
 	h.act.block(dn.Key(), false)
+	n := len(h.act.eventsOf(state.EvTunnelUp))
 	require.NoError(t, h.eng.SwitchTransport(context.Background(), "direct/native"))
 	h.requireActive(dn, state.StateUp)
 	require.True(t, h.st().DownRetryAt.IsZero())
+	// The same candidate started again: tunnel_up, not a switch.
+	ups := h.act.eventsOf(state.EvTunnelUp)
+	require.Len(t, ups, n+1)
+	require.Equal(t, "manual switch to transport direct/native", ups[n].Reason)
+	require.Empty(t, h.act.eventsOf(state.EvSwitchTransport))
 }
 
 // ---- pause / resume
@@ -1048,9 +1111,11 @@ func TestUpdateConfig(t *testing.T) {
 	h.idle()
 	h.requireActive(r1, state.StateUp)
 	require.Equal(t, 120*time.Second, h.st().FailbackDelay)
-	ms := h.act.eventsOf(state.EvManualSwitch)
-	require.Len(t, ms, 1)
-	require.Equal(t, "active candidate removed by a configuration change", ms[0].Reason)
+	ms := h.act.eventsOf(state.EvSwitchTransport)
+	require.Len(t, ms, 2, "the automatic switch to r2, then the move back to rung 1")
+	require.Equal(t, "active candidate removed by a configuration change", ms[1].Reason)
+	require.Equal(t, r2.Transport, ms[1].FromTransport)
+	require.Equal(t, r1.Transport, ms[1].ToTransport)
 
 	// Unchanged active candidate: nothing moves; stale entries are dropped.
 	h.act.clearCalls()

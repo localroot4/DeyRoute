@@ -231,10 +231,19 @@ func TestEventMessages(t *testing.T) {
 		state.EvSwitchTransport: "Tunnel main switched transport backhaul/wssmux -> rathole/noise on node nl-1",
 		state.EvSwitchNode:      "Tunnel main switched node de-1 -> nl-1 (rathole/noise)",
 		state.EvFailback:        "Tunnel main failed back to nl-1/rathole/noise",
-		state.EvManualSwitch:    "Tunnel main switched to nl-1/rathole/noise by the owner",
 		"other":                 "Tunnel main: other",
 	} {
 		require.Equal(t, want, eventMessage("main", evt{typ: typ, from: a, to: b}))
 	}
 	_ = config.DefaultLadder
+}
+
+// A manual move is reported with the fixed section 9 names.
+func TestManualEvent(t *testing.T) {
+	a, b, c := cand("de-1", "backhaul/wssmux"), cand("de-1", "rathole/noise"), cand("nl-1", "backhaul/wssmux")
+	require.Equal(t, state.EvSwitchTransport, manualEvent(a, b))
+	require.Equal(t, state.EvSwitchNode, manualEvent(a, c))
+	require.Equal(t, state.EvSwitchNode, manualEvent(b, c), "node and transport changed")
+	require.Equal(t, state.EvTunnelUp, manualEvent(a, a), "the same candidate started again")
+	require.Equal(t, state.EvTunnelUp, manualEvent(state.Candidate{}, a))
 }

@@ -95,10 +95,11 @@ detail run a command with `--debug`, or start the service with
 `DEYROUTE_DEBUG=1`. Secrets never appear in logs (they are printed as `***`).
 
 Important event types: `tunnel_up`, `tunnel_degraded`, `tunnel_down`,
-`switch_transport`, `switch_node`, `manual_switch`, `failback`,
-`failback_failed`, `flapping`, `node_online`, `node_offline`,
-`node_ip_changed`, `service_down`, `backend_crash`, `probe_error`,
-`rung_skipped`, `rung_restored`, `config_applied`.
+`switch_transport`, `switch_node`, `failback`, `failback_failed`,
+`flapping`, `node_online`, `node_offline`, `node_ip_changed`,
+`service_down`, `backend_crash`, `probe_error`, `rung_skipped`,
+`rung_restored`, `config_applied`. A manual switch is recorded as
+`switch_transport` or `switch_node` with the reason `manual switch to …`.
 
 ## Common problems
 

@@ -47,8 +47,7 @@ var eventNames = []string{
 	state.EvNodeOffline, state.EvServiceDown, state.EvBackendCrash,
 	state.EvProbeError, state.EvUpdateApplied, state.EvUpdateRolledBack,
 	state.EvBackendRolledBack, state.EvNodeIPChanged, state.EvACMEFailed,
-	state.EvRungSkipped, state.EvRungRestored, state.EvManualSwitch,
-	state.EvConfigApplied,
+	state.EvRungSkipped, state.EvRungRestored, state.EvConfigApplied,
 }
 
 // Aliases returns a copy of the alias → event types mapping:

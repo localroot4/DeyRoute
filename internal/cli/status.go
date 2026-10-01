@@ -301,7 +301,7 @@ func eventWord(t string) string {
 		return i18n.T(i18n.TUIEvDegraded)
 	case state.EvTunnelDown:
 		return i18n.T(i18n.TUIEvDown)
-	case state.EvSwitchTransport, state.EvSwitchNode, state.EvManualSwitch:
+	case state.EvSwitchTransport, state.EvSwitchNode:
 		return i18n.T(i18n.TUIEvSwitch)
 	}
 	return t

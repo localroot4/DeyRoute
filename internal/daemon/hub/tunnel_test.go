@@ -251,10 +251,12 @@ func TestTunnelSwitchResetPause(t *testing.T) {
 	require.Empty(t, ts.SwitchTimes, "a manual switch is not counted")
 	require.Equal(t, []string{hubUnit(id, "de-1", trBeta)}, te.sd.active())
 	require.Equal(t, 1, te.sd.count("stop", hubUnit(id, "de-1", trAlpha)))
-	ev := te.waitEvent(state.EvManualSwitch, "de-1")
+	// A manual switch is switch_transport (section 9: fixed names).
+	ev := te.waitEvent(state.EvSwitchTransport, "de-1")
 	require.Equal(t, trAlpha, ev.FromTransport)
 	require.Equal(t, trBeta, ev.ToTransport)
-	require.Zero(t, te.countEvents(state.EvSwitchTransport))
+	require.Equal(t, "manual switch to transport "+trBeta, ev.Reason)
+	require.Equal(t, state.LevelInfo, ev.Level)
 
 	// Pause / resume.
 	require.NoError(t, te.client.TunnelPause(ctx, id))
