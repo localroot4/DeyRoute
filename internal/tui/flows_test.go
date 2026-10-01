@@ -117,7 +117,7 @@ func TestAddTunnelWizardBusyPort(t *testing.T) {
 	h.must("DEY-C020")
 	h.press("ctrl+u")
 	h.typeLine("443,22,8443")
-	h.must("✖ 443/tcp is used by nginx (pid 1234)", " 1) Change port", " 2) Skip this port")
+	h.must("✖ 443/tcp is used by nginx (pid 1234)", " 1) Change port", " 2) Skip\n")
 	h.mustNot("Stop that service")
 	// Change port with a suggestion shown.
 	h.choose("1")
@@ -287,7 +287,13 @@ func TestAddTunnelAdvanced(t *testing.T) {
 	h.choose("11") // save (8 rungs)
 	h.must("Advanced options.", "Tunnel name (empty = automatic): _")
 	h.typeLine("web")
-	h.typeLine("")     // target default
+	h.typeLine("") // target default
+	// The probe kind of the TCP port (section 9), checked like config.yaml.
+	h.must("Probe kind of 443/tcp (auto, tcp, tls, http) [auto]: _", "tls: a TLS handshake or alert")
+	h.typeLine("icmp")
+	h.must("Enter one of: auto, tcp, tls, http")
+	h.press("ctrl+u")
+	h.typeLine("tls")
 	h.typeLine("nl-9") // unknown backup
 	h.must("nl-9 is not an available node.")
 	h.press("ctrl+u")
@@ -304,13 +310,14 @@ func TestAddTunnelAdvanced(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		h.typeLine("")
 	}
-	h.must("3. Confirm", "Name         web", "Backup       nl-1", "Policy       node_only", "Thresholds   custom",
+	h.must("3. Confirm", "Name         web", "Ports        443/tcp (probe tls)", "Backup       nl-1", "Policy       node_only", "Thresholds   custom",
 		"backhaul/tcpmux → backhaul/wssmux")
 	h.press("enter")
 	h.must("Tunnel web is UP via backhaul/tcpmux (12ms)")
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, "web", got.Name)
+	require.Equal(t, []api.PortSpec{{Listen: 443, Proto: "tcp", Target: "127.0.0.1:443", Probe: "tls"}}, got.Ports)
 	require.Equal(t, []string{"nl-1"}, got.Backups)
 	require.Equal(t, "node_only", got.Policy)
 	require.Equal(t, "auto", got.TLSMode)
@@ -588,11 +595,14 @@ func TestBackupRestoreAndUninstallLocalOps(t *testing.T) {
 			gotPass, gotPlain = pass, plain
 			return "/var/lib/deyroute/backups/b1.tar.gz.age", nil
 		},
-		Restore: func(_ context.Context, path, pass string) (string, error) {
+		RestoreCheck: func(_ context.Context, path, _ string) (RestorePlan, error) {
+			return RestorePlan{Lost: "Restoring " + path + " replaces this server's /etc/deyroute."}, nil
+		},
+		Restore: func(_ context.Context, path, pass, ip string) (string, error) {
 			mu.Lock()
 			defer mu.Unlock()
-			restored = path == "/tmp/b1" && pass == "s3cret"
-			return "The hub address changes from 5.6.7.8 to 9.9.9.9; the hub certificate is re-issued.", nil
+			restored = path == "/tmp/b1" && pass == "s3cret" && ip == ""
+			return "Hub ir-1 restored.", nil
 		},
 		Uninstall: func(_ context.Context, keep, nodes bool) error {
 			mu.Lock()
@@ -626,8 +636,9 @@ func TestBackupRestoreAndUninstallLocalOps(t *testing.T) {
 	// restore
 	h.choose("2").typeLine("/tmp/b1").typeLine("s3cret")
 	h.must("Restoring /tmp/b1 replaces", "Type yes to continue: ")
+	h.mustNot("address changes")
 	h.typeLine("yes")
-	h.must("Restore complete.", "The hub address changes from 5.6.7.8 to 9.9.9.9")
+	h.must("Restore complete.", "Hub ir-1 restored.")
 	h.press("esc", "esc")
 	// uninstall
 	h.choose("12").choose("3")
@@ -650,8 +661,10 @@ func TestLocalOpsNotAvailable(t *testing.T) {
 	h.choose("6").choose("5")
 	h.must("Not available here")
 	h.press("esc", "esc")
-	h.choose("10").choose("2").typeLine("/tmp/b").typeLine("").typeLine("yes")
+	// Restore stops before its confirmation: the backup cannot be read.
+	h.choose("10").choose("2").typeLine("/tmp/b").typeLine("")
 	h.must("Not available here")
+	h.mustNot("Type yes")
 }
 
 func TestDoctor(t *testing.T) {

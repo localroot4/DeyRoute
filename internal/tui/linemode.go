@@ -23,7 +23,8 @@ const (
 // runLines runs the TUI on a terminal that cannot position the cursor
 // (TERM=dumb, scenario S24): every page is printed as plain lines and each
 // input line is one answer ("3" + Enter picks item 3, "q" goes back, an
-// empty line shows the page again). The screens and the Local API calls are
+// empty line is Enter: it takes a default or continues where Enter does,
+// "?" shows the help). The screens and the Local API calls are
 // exactly those of the full-screen mode; only the dashboard does not refresh
 // by itself (r refreshes it) so that the output does not scroll away.
 func runLines(o Options) error {
@@ -227,12 +228,19 @@ var lineKeyNames = map[string]tea.KeyType{
 
 // lineKeys translates one input line into key messages: an empty line is
 // Enter, "q" (or "esc") goes back, a single letter such as r or ? is that
-// key alone, anything else is typed and followed by Enter.
+// key alone, anything else is typed and followed by Enter. In a text field
+// every line is the whole answer: what a rejected answer left in the field
+// is cleared first, and "?" alone shows the help.
 func lineKeys(a *app, line string) []tea.KeyMsg {
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
 	typing := a.helpKey == "" && a.top().base().typing
 	trimmed := strings.TrimSpace(line)
+	clear := tea.KeyMsg{Type: tea.KeyCtrlU}
 	switch {
+	case typing && trimmed == "?":
+		return []tea.KeyMsg{clear, {Type: tea.KeyRunes, Runes: []rune("?")}}
+	case typing && trimmed == "":
+		return []tea.KeyMsg{clear, enter}
 	case trimmed == "":
 		return []tea.KeyMsg{enter}
 	case trimmed == "esc" || (!typing && trimmed == "q"):
@@ -246,5 +254,5 @@ func lineKeys(a *app, line string) []tea.KeyMsg {
 		}
 		return []tea.KeyMsg{{Type: tea.KeyRunes, Runes: []rune(trimmed)}, enter}
 	}
-	return []tea.KeyMsg{{Type: tea.KeyRunes, Runes: []rune(line)}, enter}
+	return []tea.KeyMsg{clear, {Type: tea.KeyRunes, Runes: []rune(line)}, enter}
 }

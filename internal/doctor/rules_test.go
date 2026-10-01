@@ -275,8 +275,18 @@ func TestR10UDPBlocked(t *testing.T) {
 func TestR11Tuning(t *testing.T) {
 	f := healthyHub()
 	f.BBRActive = false
+	f.BBRAvailable, f.BBRApplied = true, true
+	f.SysctlProfile = "aggressive"
 	fd := only(t, Run(f), RuleTuning, SevInfo)
-	require.Contains(t, fd.Message, "BBR")
+	require.Equal(t, "BBR is set by the aggressive profile but the kernel does not use it", fd.Message)
+	require.Contains(t, fd.Fix, "deyroute optimize apply --profile aggressive")
+
+	// No tcp_bbr in this kernel, or the profile was applied without BBR
+	// (tuning.bbr false): applying it again cannot help, so no finding.
+	f.BBRAvailable = false
+	require.Empty(t, Run(f))
+	f.BBRAvailable, f.BBRApplied = true, false
+	require.Empty(t, Run(f))
 
 	f.SysctlProfile = "off"
 	fd = only(t, Run(f), RuleTuning, SevInfo)

@@ -183,7 +183,8 @@ func TestWizardTLSModes(t *testing.T) {
 	h.choose("2").choose("1").choose("1").typeLine("443")
 	h.choose("11") // save the default ladder (8 rungs)
 	h.must("Advanced options.")
-	h.typeLine("").typeLine("").typeLine("").typeLine("")
+	// name, target, probe kind, backup, policy
+	h.typeLine("").typeLine("").typeLine("").typeLine("").typeLine("")
 	h.must("TLS mode (auto, acme; custom is set later with Edit tunnel)")
 	h.typeLine("custom")
 	h.must("Enter one of: auto, acme")

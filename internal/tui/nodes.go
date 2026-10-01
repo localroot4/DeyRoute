@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,18 +23,18 @@ const joinTTL = 15 * time.Minute
 // ---- 3 Nodes
 
 func nodesMenu(a *app) screen {
-	title := i18n.T(i18n.MenuNodes)
+	sub := func(k i18n.Key) string { return subTitle(i18n.MenuNodes, k) }
 	m := newMenu(a, i18n.MenuNodes, i18n.TUIHelpNodes, []menuItem{
 		{label: i18n.TUINdJoin, act: func(a *app) tea.Cmd { return a.push(joinCommand()) }},
 		{label: i18n.TUINdList, act: func(a *app) tea.Cmd { return a.push(nodeList()) }},
 		{label: i18n.TUINdRename, act: func(a *app) tea.Cmd {
-			return a.push(pickNode(title+" - "+i18n.T(i18n.TUINdRename), "", nil, renameNode))
+			return a.push(pickNode(sub(i18n.TUINdRename), "", nil, renameNode))
 		}},
 		{label: i18n.TUINdRemove, act: func(a *app) tea.Cmd {
-			return a.push(pickNode(title+" - "+i18n.T(i18n.TUINdRemove), "", nil, removeNode))
+			return a.push(pickNode(sub(i18n.TUINdRemove), "", nil, removeNode))
 		}},
 		{label: i18n.TUINdTest, act: func(a *app) tea.Cmd {
-			return a.push(pickNode(title+" - "+i18n.T(i18n.TUINdTest), "", nil, func(a *app, n api.NodeInfo) tea.Cmd {
+			return a.push(pickNode(sub(i18n.TUINdTest), "", nil, func(a *app, n api.NodeInfo) tea.Cmd {
 				return a.push(testNode(n.ID))
 			}))
 		}},
@@ -76,14 +77,25 @@ func joinCommand() *taskScreen {
 	return t
 }
 
-// joinText is the join command with its intro and expiry.
+// joinText is the join command with its intro and expiry: "Single use;
+// expires at 13:00:00 (in 15 minutes)".
 func joinText(a *app, j api.JoinCommand) string {
-	left := j.ExpiresAt.Sub(a.opts.Now()).Round(time.Second)
-	if left < 0 {
-		left = 0
+	at := j.ExpiresAt.In(a.opts.Location).Format("15:04:05")
+	expiry := i18n.T(i18n.TUINdJoinExpired, at)
+	if left := j.ExpiresAt.Sub(a.opts.Now()); left > 0 {
+		expiry = i18n.T(i18n.TUINdJoinExpires, at, minutesText(left))
 	}
-	return " " + i18n.T(i18n.TUINdJoinIntro) + "\n\n" + j.Command + "\n\n" +
-		a.paint(colGray, " "+i18n.T(i18n.TUINdJoinExpires, j.ExpiresAt.In(a.opts.Location).Format("15:04:05"), left.String())) + "\n"
+	return " " + i18n.T(i18n.TUINdJoinIntro) + "\n\n" + j.Command + "\n\n" + a.paint(colGray, " "+expiry) + "\n"
+}
+
+// minutesText is a duration in whole minutes, rounded up: "15 minutes",
+// "1 minute".
+func minutesText(d time.Duration) string {
+	n := int((d + time.Minute - 1) / time.Minute)
+	if n <= 1 {
+		return i18n.T(i18n.TUIMinute1)
+	}
+	return i18n.T(i18n.TUIMinutes, n)
 }
 
 // plainPage prints text on the normal terminal while the menu is suspended
@@ -132,40 +144,40 @@ func nodeList() *taskScreen {
 }
 
 func renderNodeInfo(a *app, n api.NodeInfo) string {
-	var b strings.Builder
-	b.WriteString(kv(i18n.T(i18n.TUINdIP), n.PublicIP))
+	var t kvTable
+	t.add(i18n.T(i18n.TUINdIP), n.PublicIP)
 	ctl := i18n.T(i18n.TUIOffline)
 	if n.Online {
 		ctl = i18n.T(i18n.TUIOnline) + " (" + ms(n.ControlRTTms) + ")"
 	}
-	b.WriteString(kv(i18n.T(i18n.TUINdControl), ctl))
+	t.add(i18n.T(i18n.TUINdControl), ctl)
 	if n.UDPOK != nil {
 		udp := i18n.T(i18n.TUIYes)
 		if !*n.UDPOK {
 			udp = a.paint(colYellow, i18n.T(i18n.TUINdUDPBlocked))
 		}
-		b.WriteString(kv(i18n.T(i18n.TUINdUDP), udp))
+		t.add(i18n.T(i18n.TUINdUDP), udp)
 	}
 	ver := n.Version + "  " + i18n.T(i18n.TUINdCompatible)
 	if !n.Compatible {
 		ver = a.paint(colYellow, n.Version+"  "+i18n.T(i18n.TUINdIncompatible))
 	}
-	b.WriteString(kv(i18n.T(i18n.TUINdVersion), ver))
+	t.add(i18n.T(i18n.TUINdVersion), ver)
 	if !n.LastHeartbeat.IsZero() {
-		b.WriteString(kv(i18n.T(i18n.TUINdLastSeen), n.LastHeartbeat.In(a.opts.Location).Format("2006-01-02 15:04:05")))
+		t.add(i18n.T(i18n.TUINdLastSeen), n.LastHeartbeat.In(a.opts.Location).Format("2006-01-02 15:04:05"))
 	}
 	if len(n.Tunnels) > 0 {
-		b.WriteString(kv(i18n.T(i18n.TUINdTunnels), strings.Join(n.Tunnels, ", ")))
+		t.add(i18n.T(i18n.TUINdTunnels), strings.Join(n.Tunnels, ", "))
 	}
 	if a.advanced && n.Fingerprint != "" {
-		b.WriteString(kv(i18n.T(i18n.TUINdFingerprint), n.Fingerprint))
+		t.add(i18n.T(i18n.TUINdFingerprint), n.Fingerprint)
 	}
-	return b.String()
+	return t.String()
 }
 
 func renameNode(a *app, n api.NodeInfo) tea.Cmd {
 	id := n.ID
-	title := i18n.T(i18n.TUINdRename) + ": " + id
+	title := titleOf(i18n.TUINdRename, id)
 	return a.push(newForm(title, "", []field{{key: "name", label: i18n.T(i18n.TUINdNewName, id), def: n.Name}},
 		func(a *app, v map[string]string) tea.Cmd {
 			name := v["name"]
@@ -180,7 +192,7 @@ func renameNode(a *app, n api.NodeInfo) tea.Cmd {
 
 func removeNode(a *app, n api.NodeInfo) tea.Cmd {
 	id := n.ID
-	title := i18n.T(i18n.TUINdRemove) + ": " + id
+	title := titleOf(i18n.TUINdRemove, id)
 	tunnels := strings.Join(n.Tunnels, ", ")
 	if tunnels == "" {
 		tunnels = i18n.T(i18n.TUINone)
@@ -197,32 +209,85 @@ func removeNode(a *app, n api.NodeInfo) tea.Cmd {
 }
 
 func testNode(id string) *taskScreen {
-	t := newTask(i18n.T(i18n.TUINdTest)+": "+id, checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+	t := newTask(titleOf(i18n.TUINdTest, id), checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 		return l.NodeTest(ctx, id)
 	}, func(a *app, v any) string {
 		r, _ := v.(api.NodeTestResult)
 		s := a.sym()
-		var b strings.Builder
+		var t kvTable
 		ctl := a.paint(colRed, s.down+" "+i18n.T(i18n.TUIOffline))
 		if r.Online {
 			ctl = a.paint(colGreen, s.up+" "+i18n.T(i18n.TUIOnline)) + " (" + ms(r.ControlRTTms) + ")"
 		}
-		b.WriteString(kv(i18n.T(i18n.TUINdControl), ctl))
+		t.add(i18n.T(i18n.TUINdControl), ctl)
 		udp := a.paint(colYellow, i18n.T(i18n.TUINdUDPBlocked))
 		if r.UDPOK {
 			udp = a.paint(colGreen, s.ok) + " " + i18n.T(i18n.TUIYes) + " (" + ms(r.UDPRTTms) + ")"
 		}
-		b.WriteString(kv(i18n.T(i18n.TUINdUDP), udp))
-		keys := make([]string, 0, len(r.SysInfo))
-		for k := range r.SysInfo {
-			keys = append(keys, k)
+		t.add(i18n.T(i18n.TUINdUDP), udp)
+		for _, f := range sysFacts(r.SysInfo, id) {
+			t.add(f[0], f[1])
 		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			b.WriteString(kv(k, r.SysInfo[k]))
-		}
-		return b.String()
+		return t.String()
 	})
 	t.refreshable = true
 	return t
+}
+
+// sysInfoKeys are the facts a node reports (the sysinfo command), in the
+// order Nodes > Test shows them, with their labels.
+var sysInfoKeys = []struct {
+	key   string
+	label i18n.Key
+}{
+	{"hostname", i18n.TUISysHostname},
+	{"os", i18n.TUISysOS},
+	{"kernel", i18n.TUISysKernel},
+	{"arch", i18n.TUISysArch},
+	{"cpus", i18n.TUISysCPUs},
+	{"mem_total", i18n.TUISysMemory},
+	{"uptime", i18n.TUISysUptime},
+	{"version", i18n.TUISysVersion},
+	{"go", i18n.TUISysGo},
+	{"node_id", i18n.TUISysNodeID},
+}
+
+// sysFacts turns a node's sysinfo into labelled, human values: memory in
+// GiB, the uptime as "10d 00:02". The node id is left out when it is the
+// tested node's (the title shows it); keys a newer node adds follow as
+// they are.
+func sysFacts(info map[string]string, id string) [][2]string {
+	var out [][2]string
+	known := map[string]bool{}
+	for _, k := range sysInfoKeys {
+		known[k.key] = true
+		v := strings.TrimSpace(info[k.key])
+		if v == "" || (k.key == "node_id" && v == id) {
+			continue
+		}
+		switch k.key {
+		case "mem_total":
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				v = sizeText(n)
+			}
+		case "uptime":
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				v = upTime(time.Duration(n) * time.Second)
+			}
+		case "version":
+			v = strings.TrimPrefix(v, "v")
+		}
+		out = append(out, [2]string{i18n.T(k.label), clean(v)})
+	}
+	var rest []string
+	for k := range info {
+		if !known[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	for _, k := range rest {
+		out = append(out, [2]string{clean(k), clean(info[k])})
+	}
+	return out
 }

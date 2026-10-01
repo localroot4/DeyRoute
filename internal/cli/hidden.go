@@ -51,16 +51,24 @@ func (g *Globals) runTUI(context.Context) error {
 		path, _, _, err := g.backupRun(ctx, out, pass, noEncrypt)
 		return path, err
 	}
-	o.Restore = func(ctx context.Context, path, pass string) (string, error) {
+	o.RestoreCheck = func(ctx context.Context, path, pass string) (tui.RestorePlan, error) {
+		info, err := inspectBackup(path, pass)
+		if err != nil {
+			return tui.RestorePlan{}, err
+		}
+		// Detection only (yes): the menu asks the moved-hub question itself.
+		ip, err := g.restoreAddress(ctx, info, true)
+		if err != nil {
+			return tui.RestorePlan{}, err
+		}
+		return tui.RestorePlan{Lost: g.restoreLost(path, info, ""), MovedIP: ip, OldIP: info.PublicIP}, nil
+	}
+	o.Restore = func(ctx context.Context, path, pass, publicIP string) (string, error) {
 		info, err := inspectBackup(path, pass)
 		if err != nil {
 			return "", err
 		}
-		ip, err := g.restoreAddress(ctx, info, true)
-		if err != nil {
-			return "", err
-		}
-		res, err := g.restoreRun(ctx, path, pass, ip, nil)
+		res, err := g.restoreRun(ctx, path, pass, publicIP, nil)
 		if err != nil {
 			return "", err
 		}
@@ -70,6 +78,7 @@ func (g *Globals) runTUI(context.Context) error {
 		_, err := g.uninstallRun(ctx, keepBackups, nodes, nil)
 		return err
 	}
+	o.SetHub = g.setHub
 	return g.RunTUI(o)
 }
 

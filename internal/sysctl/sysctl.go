@@ -123,7 +123,7 @@ func RecommendAggressive(memBytes uint64) bool { return memBytes >= AggressiveMi
 // ApplyOptions selects what Manager.ApplyWith does.
 type ApplyOptions struct {
 	Profile   string // off | balanced | aggressive
-	BBR       bool   // tuning.bbr: set fq + bbr when the kernel has BBR
+	BBR       bool   // tuning.bbr: set tcp_congestion_control = bbr when the kernel has BBR
 	IPForward bool   // a WireGuard/AmneziaWG transport exists
 }
 
@@ -207,9 +207,13 @@ func (m Manager) Apply(profile string, ipForward bool) (applied []KV, warnings [
 //
 //  1. "off" reverts everything deyroute changed (Revert) and returns; with
 //     IPForward (a running WireGuard/AmneziaWG side) ip_forward stays 1.
-//  2. BBR (fq + bbr) is kept only when requested and available; otherwise
-//     it is skipped with a warning (section 12). Keys this kernel does not
-//     have are skipped with a warning.
+//  2. tcp_congestion_control = bbr is kept only when requested and
+//     available: a kernel without BBR skips it with a warning, tuning.bbr
+//     false skips it silently (section 12). default_qdisc = fq is a profile
+//     line of its own and stays either way. Keys this kernel does not have
+//     are skipped with a warning, and so is aggressive on a server with
+//     less than 4 GB RAM (it is applied, but section 12 meant it for
+//     bigger servers).
 //  3. The current value of every key about to change is added to the backup
 //     file; existing backup entries are never overwritten, so the file
 //     always holds the values from before deyroute's first change.
@@ -237,16 +241,22 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 		return nil, nil, m.ensure(KeyIPForward, "1")
 	}
 
+	if o.Profile == config.SysctlAggressive {
+		if mem, err := m.MemTotal(); err == nil && !RecommendAggressive(mem) {
+			warnings = append(warnings, fmt.Sprintf("aggressive is meant for servers with 4 GB RAM or more; this one has %d MB (balanced suits it better)",
+				mem>>20))
+		}
+	}
 	useBBR := o.BBR
 	if useBBR && !m.BBRAvailable() {
 		useBBR = false
 		avail, _ := m.Get(KeyAvailableCC)
-		warnings = append(warnings, fmt.Sprintf("skip %s and %s: tcp_bbr is not available on this kernel (%s: %s)",
-			KeyDefaultQdisc, KeyCongestion, KeyAvailableCC, avail))
+		warnings = append(warnings, fmt.Sprintf("skip %s = bbr: tcp_bbr is not available on this kernel (%s: %s)",
+			KeyCongestion, KeyAvailableCC, avail))
 	}
 	var keys []KV
 	for _, kv := range want {
-		if (kv.Key == KeyDefaultQdisc || kv.Key == KeyCongestion) && !useBBR {
+		if kv.Key == KeyCongestion && !useBBR {
 			continue
 		}
 		if _, ok := m.Get(kv.Key); !ok {

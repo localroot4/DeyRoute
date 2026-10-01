@@ -87,6 +87,8 @@ type Collection struct {
 	UnitStates    map[string]string  // unit → ActiveState
 	UnitRestarts  map[string]int     // unit → NRestarts
 	BBRActive     bool
+	BBRAvailable  bool   // the kernel has tcp_bbr
+	BBRApplied    bool   // 99-deyroute.conf sets tcp_congestion_control = bbr
 	SysctlProfile string // off|balanced|aggressive; "" when unknown
 	Certs         []CertExpiry
 }
@@ -107,6 +109,8 @@ func (col Collection) Apply(f *Facts) {
 	f.UnitStates = col.UnitStates
 	f.UnitRestarts = col.UnitRestarts
 	f.BBRActive = col.BBRActive
+	f.BBRAvailable = col.BBRAvailable
+	f.BBRApplied = col.BBRApplied
 	f.SysctlProfile = col.SysctlProfile
 	f.Certs = col.Certs
 }
@@ -155,6 +159,7 @@ func (c *Collector) Collect(ctx context.Context) Collection {
 	osText, disk, mem := c.osInfo()
 	unitsText, states, restarts := c.unitsInfo(ctx)
 	sysText, bbr, profile := c.sysctlInfo()
+	m := sysctl.Manager{Root: c.Root}
 	certText, certs := c.certsInfo()
 	sections := map[string]string{
 		SectionOS:       osText,
@@ -171,8 +176,25 @@ func (c *Collector) Collect(ctx context.Context) Collection {
 	return Collection{
 		Sections: sections, DiskFreePct: disk, MemAvailPct: mem,
 		UnitStates: states, UnitRestarts: restarts,
-		BBRActive: bbr, SysctlProfile: profile, Certs: certs,
+		BBRActive: bbr, BBRAvailable: m.BBRAvailable(), BBRApplied: bbrApplied(m),
+		SysctlProfile: profile, Certs: certs,
 	}
+}
+
+// bbrApplied reports whether the applied profile sets BBR: a profile
+// applied without it (no tcp_bbr in the kernel then, or tuning.bbr false)
+// leaves the line out of 99-deyroute.conf.
+func bbrApplied(m sysctl.Manager) bool {
+	kvs, err := m.Applied()
+	if err != nil {
+		return false
+	}
+	for _, kv := range kvs {
+		if kv.Key == sysctl.KeyCongestion && kv.Value == "bbr" {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------- OS

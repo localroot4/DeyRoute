@@ -45,10 +45,10 @@ has another public IP:
 This server's public IP is 7.7.7.7, but the backup's hub address is 5.6.7.8. Use this server's address (the hub moved here)? [Y/n]
 ```
 
-Answer yes. The confirmation lists what will be replaced — type `yes`. The
-hub certificate is re-issued for the new address with the same CA, the
-service starts and re-creates every tunnel. The end of the output tells you
-the next step:
+Answer yes. The confirmation lists what will be replaced and that the hub
+address changes — type `yes`. The hub certificate is re-issued for the new
+address with the same CA, the service starts and re-creates every tunnel.
+The end of the output tells you the next step:
 
 ```text
 Hub ir-1 restored.
@@ -56,6 +56,10 @@ If the hub moved to this server, tell the nodes the new address:
   on the old hub:   deyroute hub announce-move 7.7.7.7:44433
   or on each node:  deyroute node set-hub 7.7.7.7:44433
 ```
+
+In the menu: `10) Backup & Restore` → `2) Restore from a backup` asks the
+same question (`Use this server's address (the hub moved here)? (y/n) [y]`),
+and its result names the menu items of step 4.
 
 **4. On the old hub — tell the nodes.** While the old hub still runs and the
 nodes are connected to it:
@@ -68,12 +72,17 @@ deyroute hub announce-move 7.7.7.7:44433
 New hub address 7.7.7.7:44433 sent to: de-1, nl-1
 ```
 
+In the menu: `10) Backup & Restore` → `3) Announce hub move`, type
+`7.7.7.7:44433` and press Enter to confirm.
+
 Each online node saves the new address and reconnects to the new hub. Nodes
 that were offline are listed (`Offline, not told: …`); run on each of them:
 
 ```bash
 deyroute node set-hub 7.7.7.7:44433
 ```
+
+or, in the node's menu, `10) Backup & Restore` → `3) Set hub address`.
 
 **5. On the new hub — check.**
 
@@ -96,9 +105,10 @@ Answer **no** to `Also uninstall deyroute from every online node?` and never use
 
 ### If the old hub is already dead
 
-Skip step 4 and run `deyroute node set-hub NEW_IP:44433` on every node. It
-works even when the node agent is stopped (the address is written to the
-node's `config.yaml` and used at the next start). You still need a backup of
+Skip step 4 and run `deyroute node set-hub NEW_IP:44433` on every node (menu:
+`10) Backup & Restore` → `3) Set hub address`). It works even when the node
+agent is stopped (the address is written to the node's `config.yaml` and
+used at the next start). You still need a backup of
 the old hub: without it, see "No backup" below.
 
 ## The hub keeps its server but gets a new IP
@@ -116,6 +126,8 @@ the old hub: without it, see "No backup" below.
    ```bash
    deyroute node set-hub NEW_IP:44433
    ```
+
+   (menu: `10) Backup & Restore` → `3) Set hub address`).
 
 3. Check with `deyroute node list`, then give users the new IP.
 

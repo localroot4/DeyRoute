@@ -203,26 +203,33 @@ func newNodeSetHubCmd(g *Globals) *cobra.Command {
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addr := strings.TrimSpace(args[0])
-			if !config.ValidHostPort(addr) {
-				return deyerr.New(deyerr.C013, deyerr.Params{"field": "node.hub_addr", "value": addr, "allowed": "ip:port"})
-			}
-			err := g.call(cmd.Context(), func(ctx context.Context, l api.Local) error {
-				return l.NodeSetHub(ctx, addr)
-			})
-			if deyerr.HasCode(err, deyerr.X003) && g.role() == config.RoleNode {
-				// The daemon is down: write node.hub_addr directly; the
-				// agent reads it when it starts.
-				if err := g.Ops.SetHubAddr(g.Root, addr); err != nil {
-					return err
-				}
-				return g.done(map[string]any{"hub_addr": addr, "daemon_running": false}, i18n.CLINodeSetHubOffline, addr, g.service())
-			}
+			running, err := g.setHub(cmd.Context(), addr)
 			if err != nil {
 				return err
+			}
+			if !running {
+				return g.done(map[string]any{"hub_addr": addr, "daemon_running": false}, i18n.CLINodeSetHubOffline, addr, g.service())
 			}
 			return g.done(map[string]any{"hub_addr": addr, "daemon_running": true}, i18n.CLINodeSetHubDone, addr)
 		},
 	}
+}
+
+// setHub points this node to its hub's new address (node set-hub and the
+// menu's Set hub address): the running agent stores it and reconnects at
+// once. running is false when the agent is down on this node and
+// node.hub_addr was written directly (the agent reads it when it starts).
+func (g *Globals) setHub(ctx context.Context, addr string) (running bool, err error) {
+	if !config.ValidHostPort(addr) {
+		return false, deyerr.New(deyerr.C013, deyerr.Params{"field": "node.hub_addr", "value": addr, "allowed": "ip:port"})
+	}
+	err = g.call(ctx, func(ctx context.Context, l api.Local) error {
+		return l.NodeSetHub(ctx, addr)
+	})
+	if deyerr.HasCode(err, deyerr.X003) && g.role() == config.RoleNode {
+		return false, g.Ops.SetHubAddr(g.Root, addr)
+	}
+	return err == nil, err
 }
 
 func newHubCmd(g *Globals) *cobra.Command {

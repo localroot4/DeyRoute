@@ -18,8 +18,7 @@ const rungTestSeconds = 20
 // ---- 5 Failover
 
 func failoverMenu(a *app) screen {
-	title := i18n.T(i18n.MenuFailover)
-	sub := func(k i18n.Key) string { return title + " - " + i18n.T(k) }
+	sub := func(k i18n.Key) string { return subTitle(i18n.MenuFailover, k) }
 	return newMenu(a, i18n.MenuFailover, i18n.TUIHelpFailover, []menuItem{
 		{label: i18n.TUIFoPolicy, act: func(a *app) tea.Cmd {
 			return a.push(pickTunnel(sub(i18n.TUIFoPolicy), func(a *app, t api.TunnelInfo) tea.Cmd {
@@ -53,7 +52,7 @@ func failoverMenu(a *app) screen {
 
 func pickPolicy(t api.TunnelInfo) *listScreen {
 	id := t.ID
-	title := i18n.T(i18n.TUIFoPolicy) + ": " + id
+	title := titleOf(i18n.TUIFoPolicy, id)
 	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIPolPick, id)}
 	for _, p := range []struct {
 		id  string
@@ -98,7 +97,7 @@ func editLadder(a *app, t api.TunnelInfo) tea.Cmd {
 
 // backupNodes is the backup-node page of one tunnel.
 func backupNodes(a *app, id string) *listScreen {
-	title := i18n.T(i18n.TUIFoBackups) + ": " + id
+	title := titleOf(i18n.TUIFoBackups, id)
 	var l *listScreen
 	current := func() api.TunnelDetail {
 		d, _ := l.data.(api.TunnelDetail)
@@ -138,7 +137,7 @@ func backupNodes(a *app, id string) *listScreen {
 }
 
 func addBackup(a *app, id, node string) tea.Cmd {
-	title := i18n.T(i18n.TUIBkAdd) + ": " + id
+	title := titleOf(i18n.TUIBkAdd, id)
 	text := i18n.T(i18n.TUIBkWarning) + "\n" + i18n.T(i18n.TUIBkAddConfirm, node, id)
 	return a.replace(newConfirm(title, text, false, func(a *app) tea.Cmd {
 		t := newTask(title, longTimeout, func(ctx context.Context, l api.Local, progress func(api.Step)) (any, error) {
@@ -152,7 +151,7 @@ func addBackup(a *app, id, node string) tea.Cmd {
 }
 
 func pickBackup(id string, nodes []string) *listScreen {
-	title := i18n.T(i18n.TUIBkRemove) + ": " + id
+	title := titleOf(i18n.TUIBkRemove, id)
 	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIPickNode), empty: i18n.T(i18n.TUIBkNoBackups, id)}
 	if len(nodes) > 1 {
 		for _, n := range nodes[1:] {
@@ -176,7 +175,7 @@ func pauseResume(a *app, t api.TunnelInfo) tea.Cmd {
 	if pause {
 		msg = i18n.T(i18n.TUIFoPaused, id)
 	}
-	return a.push(newTask(i18n.T(i18n.TUIFoPause)+": "+id, callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+	return a.push(newTask(titleOf(i18n.TUIFoPause, id), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 		if pause {
 			return nil, l.TunnelPause(ctx, id)
 		}
@@ -186,7 +185,7 @@ func pauseResume(a *app, t api.TunnelInfo) tea.Cmd {
 
 func resetTunnel(a *app, t api.TunnelInfo) tea.Cmd {
 	id := t.ID
-	title := i18n.T(i18n.TUIFoReset) + ": " + id
+	title := titleOf(i18n.TUIFoReset, id)
 	return a.push(newConfirm(title, i18n.T(i18n.TUIFoResetConfirm, id), false, func(a *app) tea.Cmd {
 		return a.replace(newTask(title, longTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 			return nil, l.TunnelReset(ctx, id)
@@ -196,7 +195,7 @@ func resetTunnel(a *app, t api.TunnelInfo) tea.Cmd {
 
 func testLadder(a *app, t api.TunnelInfo) tea.Cmd {
 	id := t.ID
-	title := i18n.T(i18n.TUIFoTest) + ": " + id
+	title := titleOf(i18n.TUIFoTest, id)
 	rungs := max(1, len(t.Ladder)*max(1, len(t.Nodes)))
 	minutes := (rungs*rungTestSeconds + 59) / 60
 	about := i18n.T(i18n.TUIMinutes, minutes)
@@ -242,7 +241,7 @@ func renderRungResults(a *app, v any) string {
 // editThresholds loads the tunnel's failover settings, then asks for new ones.
 func editThresholds(a *app, t api.TunnelInfo) tea.Cmd {
 	id := t.ID
-	title := i18n.T(i18n.TUIFoThresholds) + ": " + id
+	title := titleOf(i18n.TUIFoThresholds, id)
 	load := newTask(title, callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 		return l.TunnelShow(ctx, id)
 	}, nil)

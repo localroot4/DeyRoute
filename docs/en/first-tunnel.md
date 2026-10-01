@@ -25,11 +25,11 @@ wizard asks at most three questions:
    chosen for you: `Only one node is online: de-1. It is used for this tunnel.`
 2. **Ports?** — for example `443,2053`. Each port is checked at once:
    `443/tcp is free`, or `443/tcp is used by nginx`. For a busy port choose
-   `Change port`, `Skip this port`, or — only when a deyroute tunnel holds it —
+   `Change port`, `Skip`, or — only when a deyroute tunnel holds it —
    `Stop that service`. deyroute never stops other programs.
    The wizard also stops at a free port that the host firewall (ufw,
    firewalld, iptables or another nftables table) closes, or that the node
-   cannot reach: `Change port`, `Skip this port`, `Open it in the firewall:
+   cannot reach: `Change port`, `Skip`, `Open it in the firewall:
    ufw allow 443/tcp` (shown only when deyroute knows the command) or `Keep it
    and continue`. Opening shows the exact command(s) and runs them on the hub
    only after you type `yes`; the port is then checked again. A port the
@@ -54,8 +54,9 @@ If a step fails you see its code with Why and Fix and can choose
 `1) Retry` or `0) Back`.
 
 Advanced mode (`12) Settings` → `1) UI mode`) adds optional questions: the
-tunnel name, a custom target per port, a backup node, the ladder order, the
-TLS mode and the failover thresholds.
+tunnel name, a custom target per port, the probe kind of each TCP port (see
+[below](#how-the-health-probe-tests-a-port)), a backup node, the ladder
+order, the TLS mode and the failover thresholds.
 
 ## With the command line
 
@@ -98,8 +99,10 @@ deyroute tunnel add --node de-1 --ports 443 --ladder backhaul/wssmux,rathole/noi
 | `443:8443` | listen on 443, deliver to `127.0.0.1:8443` on the node |
 | `443:10.0.0.5:8443` | deliver to another address on the node's side |
 
-A tunnel holds at most 64 port maps (`DEY-C015`); two tunnels cannot use the
-same port and protocol (`DEY-C003`).
+A tunnel holds at most 64 port maps (`DEY-C015`, `DEY-P016`). A range counts
+one port map per port, so `2000-2100` (101 ports) does not fit in one tunnel:
+split it over two tunnels, e.g. `2000-2063` and `2064-2100`. Two tunnels
+cannot use the same port and protocol (`DEY-C003`).
 
 ## What happens when you create a tunnel
 
@@ -183,6 +186,8 @@ tunnel). In the menu: `6) Diagnostics` → `4) Logs`.
 ```bash
 deyroute port add main 8443                           # add a port
 deyroute port add main 8443/tcp --target 127.0.0.1:9443
+deyroute port add main 8080 --probe http              # with its probe kind (below)
+deyroute port set main 443 --probe tls                # change the probe kind
 deyroute port remove main 8443
 deyroute tunnel edit main --name "Main 443"
 deyroute tunnel edit main --probe-port 2053           # which port the health probe uses
@@ -193,8 +198,34 @@ deyroute tunnel delete main                           # asks for yes
 ```
 
 Adding or removing a port restarts the active transport (an interruption of
-up to 3 seconds). Deleting a tunnel removes its units, firewall rules,
-secrets and probe history; its events are kept.
+up to 3 seconds); changing a probe kind restarts nothing. Deleting a tunnel
+removes its units, firewall rules, secrets and probe history; its events are
+kept.
+
+### How the health probe tests a port
+
+The health probe tests the first TCP port of the tunnel (or the one set with
+`tunnel edit --probe-port`) every few seconds; `diag probe --all-ports` and
+the report every 60 seconds test every port. Each TCP port map has a probe
+kind (Advanced):
+
+| Kind | A probe passes when … |
+| --- | --- |
+| `auto` (default) | a TLS hello gets any answer: TLS or not, as long as the service answers |
+| `tcp` | the TCP connection opens |
+| `tls` | a TLS handshake completes or a TLS alert comes back |
+| `http` | `HEAD /` gets an HTTP status line back |
+
+`auto` suits almost every VPN service. Choose `tcp` for a service that stays
+silent or closes the connection when it gets a TLS hello (some proxies do),
+`tls` or `http` to make sure that the right kind of service answers. UDP port
+maps are always `auto` (they are checked through the transport's units).
+
+Set it with `deyroute port add … --probe <kind>` or `deyroute port set <tunnel>
+<port> --probe <kind>`; in the menu, in Advanced mode: `4) Ports` →
+`Probe kind *` (and the probe question of `Add port to tunnel` and of the
+Add-tunnel wizard). The values are checked like `ports[].probe` in
+`config.yaml` (`DEY-C013`).
 
 Next: [add a backup node](backup-node.md). If something fails:
 [Troubleshooting](troubleshooting.md).

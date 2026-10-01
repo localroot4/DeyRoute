@@ -22,16 +22,16 @@ const (
 // ---- 6 Diagnostics
 
 func diagMenu(a *app) screen {
-	title := i18n.T(i18n.MenuDiagnostics)
-	sub := func(k i18n.Key) string { return title + " - " + i18n.T(k) }
+	sub := func(k i18n.Key) string { return subTitle(i18n.MenuDiagnostics, k) }
+	// A node has its logs and the doctor; the checks run from the hub.
 	return newMenu(a, i18n.MenuDiagnostics, i18n.TUIHelpDiag, []menuItem{
-		{label: i18n.TUIDgPortCheck, act: func(a *app) tea.Cmd { return a.push(portCheckForm(a)) }},
-		{label: i18n.TUIDgTunnelTest, act: func(a *app) tea.Cmd {
+		{label: i18n.TUIDgPortCheck, role: roleHub, act: func(a *app) tea.Cmd { return a.push(portCheckForm(a)) }},
+		{label: i18n.TUIDgTunnelTest, role: roleHub, act: func(a *app) tea.Cmd {
 			return a.push(pickTunnel(sub(i18n.TUIDgTunnelTest), func(a *app, t api.TunnelInfo) tea.Cmd {
 				return a.push(probeTunnel(t.ID))
 			}))
 		}},
-		{label: i18n.TUIDgSpeed, act: func(a *app) tea.Cmd {
+		{label: i18n.TUIDgSpeed, role: roleHub, act: func(a *app) tea.Cmd {
 			return a.push(pickTunnel(sub(i18n.TUIDgSpeed), speedTest))
 		}},
 		{label: i18n.TUIDgLogs, act: func(a *app) tea.Cmd { return a.push(pickLog(a)) }},
@@ -41,7 +41,7 @@ func diagMenu(a *app) screen {
 
 // probeTunnel runs DiagProbe on every port of a tunnel (refreshable).
 func probeTunnel(id string) *taskScreen {
-	t := newTask(i18n.T(i18n.TUIDgTunnelTest)+": "+id, checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+	t := newTask(titleOf(i18n.TUIDgTunnelTest, id), checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 		return l.DiagProbe(ctx, id, true)
 	}, func(a *app, v any) string {
 		rs, _ := v.([]api.ProbeReport)
@@ -66,7 +66,7 @@ func probeTunnel(id string) *taskScreen {
 
 func speedTest(a *app, t api.TunnelInfo) tea.Cmd {
 	id := t.ID
-	title := i18n.T(i18n.TUIDgSpeed) + ": " + id
+	title := titleOf(i18n.TUIDgSpeed, id)
 	run := func(secs int) *taskScreen {
 		t := newTask(title, longTimeout, func(ctx context.Context, l api.Local, progress func(api.Step)) (any, error) {
 			return l.DiagSpeed(ctx, id, secs, progress)
@@ -127,7 +127,7 @@ type logsScreen struct {
 }
 
 func newLogs(target string) *logsScreen {
-	return &logsScreen{screenBase: screenBase{title: i18n.T(i18n.TUIDgLogs) + ": " + target, help: i18n.TUIHelpLogs}, target: target}
+	return &logsScreen{screenBase: screenBase{title: titleOf(i18n.TUIDgLogs, target), help: i18n.TUIHelpLogs}, target: target}
 }
 
 func (s *logsScreen) start(a *app) tea.Cmd {
@@ -234,7 +234,7 @@ func doctorTask(a *app) *taskScreen {
 		return [2]string{summary, path}, nil
 	}, func(a *app, v any) string {
 		r, _ := v.([2]string)
-		out := cleanLines(r[0]) + "\n"
+		out := indent(cleanLines(r[0])) + "\n"
 		if r[1] != "" {
 			out += "\n " + i18n.T(i18n.TUIDocSaved, r[1]) + "\n"
 		}

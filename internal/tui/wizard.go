@@ -30,10 +30,11 @@ const (
 
 // portCheck is one entered port and its PortCheck answer.
 type portCheck struct {
-	spec ports.Spec
-	res  *api.PortCheckResult
-	err  error
-	keep bool // the owner keeps it although stage 2 or 3 failed
+	spec  ports.Spec
+	res   *api.PortCheckResult
+	err   error
+	keep  bool   // the owner keeps it although stage 2 or 3 failed
+	probe string // probe kind of a TCP port (Advanced); "" = auto
 }
 
 func (p portCheck) ok() bool { return p.err == nil && p.res != nil && p.res.BindFree }
@@ -73,7 +74,8 @@ type wizChecked struct {
 
 // wizard is the Add tunnel wizard of section 6: in Simple mode at most three
 // questions (node, ports, confirm); Advanced adds the ladder editor and an
-// options form (targets, backup node, policy, TLS mode, thresholds).
+// options form (targets, probe kinds, backup node, policy, TLS mode,
+// thresholds).
 type wizard struct {
 	screenBase
 	step     wizStep
@@ -107,6 +109,8 @@ func (w *wizard) start(a *app) tea.Cmd {
 	w.loading = true
 	return a.call(w, callTimeout, loadNodes)
 }
+
+func (w *wizard) inputEmpty() bool { return w.input == "" }
 
 func (w *wizard) setStep(s wizStep) {
 	w.step = s
@@ -505,7 +509,7 @@ func (w *wizard) keyConfirm(a *app, k tea.KeyMsg) tea.Cmd {
 func (w *wizard) specs() []api.PortSpec {
 	out := make([]api.PortSpec, len(w.checks))
 	for i, c := range w.checks {
-		out[i] = api.PortSpec{Listen: c.spec.Listen, Proto: c.spec.Proto, Target: c.spec.Target}
+		out[i] = api.PortSpec{Listen: c.spec.Listen, Proto: c.spec.Proto, Target: c.spec.Target, Probe: c.probe}
 	}
 	return out
 }
@@ -637,6 +641,12 @@ func (w *wizard) advForm() *formScreen {
 			def = ports.DefaultTarget(c.spec.Listen)
 		}
 		fields = append(fields, field{key: "target" + strconv.Itoa(i), label: i18n.T(i18n.TUIWizTarget, c.spec.String()), def: def, check: checkTarget})
+		// The probe kind of each TCP port (section 9); UDP maps are
+		// always auto.
+		if c.spec.Proto != config.ProtoUDP {
+			fields = append(fields, field{key: "probe" + strconv.Itoa(i), label: i18n.T(i18n.TUIWizProbe, c.spec.String()),
+				hint: i18n.T(i18n.TUIPtProbeHint), def: orDefault(c.probe, config.ProbeAuto), check: checkProbe})
+		}
 	}
 	fields = append(fields,
 		field{key: "backup", label: i18n.T(i18n.TUIWizBackupQ, avail), def: w.backup, optional: true,
@@ -662,6 +672,7 @@ func (w *wizard) advForm() *formScreen {
 		w.name = v["name"]
 		for i := range w.checks {
 			w.checks[i].spec.Target = v["target"+strconv.Itoa(i)]
+			w.checks[i].probe = v["probe"+strconv.Itoa(i)]
 		}
 		w.backup, w.policy, w.tls = v["backup"], v["policy"], v["tls"]
 		w.failover = nil
@@ -764,12 +775,12 @@ func (w *wizard) view(a *app) string {
 	case w.auto:
 		b.WriteString("  " + i18n.T(i18n.TUIWizAutoNode, a.nodeName(w.node)) + "\n")
 	case w.step == wzNode:
-		for i, n := range w.nodes {
-			b.WriteString(" " + numLine(i+1, a.nodeLabel(n)) + "\n")
+		for i, label := range a.nodeLabels(w.nodes) {
+			b.WriteString(numLine(i+1, label) + "\n")
 		}
-		b.WriteString(" " + numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
+		b.WriteString(numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
 		w.writeMsg(a, &b)
-		b.WriteString("\n " + i18n.T(i18n.PromptChoice) + w.ch.input + "\n")
+		b.WriteString("\n" + i18n.T(i18n.PromptChoice) + w.ch.input + "\n")
 		return b.String()
 	default:
 		b.WriteString("  " + a.nodeName(w.node) + "\n")
@@ -797,13 +808,13 @@ func (w *wizard) view(a *app) string {
 		b.WriteString("\n " + a.bold(i18n.T(i18n.TUIWizQConfirm)) + "\n")
 		b.WriteString(w.summary(a))
 		b.WriteString("\n " + i18n.T(i18n.TUIWizCreate) + "\n")
-		b.WriteString(" " + numLine(1, i18n.T(i18n.TUIWizCreateItem)) + "\n")
+		b.WriteString(numLine(1, i18n.T(i18n.TUIWizCreateItem)) + "\n")
 		if a.advanced {
-			b.WriteString(" " + numLine(2, i18n.T(i18n.TUIWizAdvOptions)) + "\n")
+			b.WriteString(numLine(2, i18n.T(i18n.TUIWizAdvOptions)) + "\n")
 		}
-		b.WriteString(" " + numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
+		b.WriteString(numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
 		w.writeMsg(a, &b)
-		b.WriteString("\n " + i18n.T(i18n.PromptChoice) + w.ch.input + "\n")
+		b.WriteString("\n" + i18n.T(i18n.PromptChoice) + w.ch.input + "\n")
 	}
 	return b.String()
 }
@@ -876,28 +887,28 @@ func (w *wizard) resolveView(a *app) string {
 	if w.inputErr != nil {
 		b.WriteString(a.errBlock(w.inputErr) + "\n")
 	}
-	b.WriteString(" " + numLine(1, i18n.T(i18n.TUIWizChange)) + "\n")
-	b.WriteString(" " + numLine(2, i18n.T(i18n.TUIWizSkip)) + "\n")
+	b.WriteString(numLine(1, i18n.T(i18n.TUIWizChange)) + "\n")
+	b.WriteString(numLine(2, i18n.T(i18n.TUIWizSkip)) + "\n")
 	if t, ok := w.canStop(); ok {
-		b.WriteString(" " + numLine(3, i18n.T(i18n.TUIWizStop, t)) + "\n")
+		b.WriteString(numLine(3, i18n.T(i18n.TUIWizStop, t)) + "\n")
 	}
 	if c.openable() {
 		label := i18n.T(i18n.TUIWizOpenFw, c.res.FirewallCommand)
 		if n := len(w.openableIdx()); n > 1 {
 			label = i18n.T(i18n.TUIWizOpenFwAll, n)
 		}
-		b.WriteString(" " + numLine(3, label) + "\n")
+		b.WriteString(numLine(3, label) + "\n")
 	}
 	if c.warned() {
 		label := i18n.T(i18n.TUIWizKeep)
 		if n := w.countWarned(); n > 1 {
 			label = i18n.T(i18n.TUIWizKeepAll, n)
 		}
-		b.WriteString(" " + numLine(4, label) + "\n")
+		b.WriteString(numLine(4, label) + "\n")
 	}
-	b.WriteString(" " + numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
+	b.WriteString(numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
 	w.writeMsg(a, &b)
-	b.WriteString("\n " + i18n.T(i18n.PromptChoice) + w.ch.input + "\n")
+	b.WriteString("\n" + i18n.T(i18n.PromptChoice) + w.ch.input + "\n")
 	return b.String()
 }
 
@@ -910,6 +921,9 @@ func (w *wizard) summary(a *app) string {
 		if c.spec.Target != "" && c.spec.Target != ports.DefaultTarget(c.spec.Listen) {
 			p += " " + a.sym().arrow + " " + c.spec.Target
 		}
+		if c.probe != "" && c.probe != config.ProbeAuto {
+			p += " (" + i18n.T(i18n.TUIWizSumProbe, c.probe) + ")"
+		}
 		ps = append(ps, p)
 	}
 	name, _ := w.defaultLadder()
@@ -918,21 +932,27 @@ func (w *wizard) summary(a *app) string {
 		ladder = strings.Join(r, " "+a.sym().arrow+" ")
 	}
 	backup := orDefault(w.backup, i18n.T(i18n.TUINone))
+	var t kvTable
 	if a.advanced {
-		b.WriteString(kv(i18n.T(i18n.TUIWizSumName), orDefault(w.name, i18n.T(i18n.TUIWizAutomatic))))
+		t.add(i18n.T(i18n.TUIWizSumName), orDefault(w.name, i18n.T(i18n.TUIWizAutomatic)))
 	}
-	b.WriteString(kv(i18n.T(i18n.TUIWizSumNode), a.nodeName(w.node)))
-	b.WriteString(kv(i18n.T(i18n.TUIWizSumPorts), strings.Join(ps, ", ")))
-	b.WriteString(kv(i18n.T(i18n.TUIWizSumLadder), ladder))
-	b.WriteString(kv(i18n.T(i18n.TUIWizSumBackup), backup))
+	t.add(i18n.T(i18n.TUIWizSumNode), a.nodeName(w.node))
+	t.add(i18n.T(i18n.TUIWizSumPorts), strings.Join(ps, ", "))
+	t.add(i18n.T(i18n.TUIWizSumLadder), ladder)
+	t.add(i18n.T(i18n.TUIWizSumBackup), backup)
 	if a.advanced {
-		b.WriteString(kv(i18n.T(i18n.TUIWizSumPolicy), orDefault(w.policy, config.PolicyTransportThenNode)))
-		b.WriteString(kv(i18n.T(i18n.TUIWizSumTLS), orDefault(w.tls, config.TLSModeAuto)))
+		t.add(i18n.T(i18n.TUIWizSumPolicy), orDefault(w.policy, config.PolicyTransportThenNode))
+		t.add(i18n.T(i18n.TUIWizSumTLS), orDefault(w.tls, config.TLSModeAuto))
 		th := i18n.T(i18n.TUIWizDefaultWord)
 		if w.failover != nil {
 			th = i18n.T(i18n.TUIWizCustom)
 		}
-		b.WriteString(kv(i18n.T(i18n.TUIWizSumThresh), th))
+		t.add(i18n.T(i18n.TUIWizSumThresh), th)
+	}
+	b.WriteString(t.String())
+	if w.backup != "" {
+		// Section 6: the fixed warning of every backup node.
+		b.WriteString(a.paint(colYellow, "  "+a.sym().warn+" "+i18n.T(i18n.TUIBkWarning)) + "\n")
 	}
 	return b.String()
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/failover"
+	"github.com/localroot4/deyroute/internal/i18n"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/ports"
 	"github.com/localroot4/deyroute/internal/state"
@@ -101,7 +102,8 @@ func (h *Hub) tunnelInfoOf(id string) api.TunnelInfo {
 }
 
 // portMaps turns request port specs into port maps (proto tcp, target
-// 127.0.0.1:<listen> and probe auto by default).
+// 127.0.0.1:<listen> and probe auto by default). The probe kind follows the
+// config.yaml rule (DEY-C013: auto|tcp|tls|http, auto for UDP).
 func portMaps(specs []api.PortSpec) ([]config.PortMap, error) {
 	out := make([]config.PortMap, 0, len(specs))
 	for _, s := range specs {
@@ -123,13 +125,28 @@ func portMaps(specs []api.PortSpec) ([]config.PortMap, error) {
 		if !config.ValidHostPort(target) {
 			return nil, deyerr.New(deyerr.C004, deyerr.Params{"target": target, "tunnel": "-"})
 		}
-		probe := strings.TrimSpace(s.Probe)
-		if probe == "" || proto == config.ProtoUDP {
-			probe = config.ProbeAuto
+		key := config.ListenKey{Port: s.Listen, Proto: proto}
+		probe, err := probeOf("ports["+key.String()+"].probe", proto, s.Probe)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, config.PortMap{Listen: s.Listen, Proto: proto, Target: target, Probe: probe})
 	}
 	return out, nil
+}
+
+// probeOf is the probe kind a request asks for a port map of proto (case
+// and spaces do not matter; empty = auto), checked like config.yaml
+// (DEY-C013 naming field).
+func probeOf(field, proto, probe string) (string, error) {
+	p := strings.ToLower(strings.TrimSpace(probe))
+	if p == "" {
+		p = config.ProbeAuto
+	}
+	if err := config.CheckProbe(field, proto, p); err != nil {
+		return "", err
+	}
+	return p, nil
 }
 
 // checkNewPorts applies the port rules of section 10 to listen ports a
@@ -420,7 +437,7 @@ func (h *Hub) waitUp(ctx context.Context, c *tunnelCtl, rep *steps) error {
 		case state.StateUp, state.StateDegraded:
 			rep.emit(api.Step{ID: stepProbe, Status: api.StepOK, Detail: strconv.Itoa(st.LastRTTms) + "ms"})
 			rep.emitTitled(api.Step{ID: stepUp, Status: api.StepOK,
-				Title: fmt.Sprintf("Tunnel %s is UP via %s (%dms)", c.id, st.Active.Transport, st.LastRTTms)})
+				Title: i18n.T(i18n.HubTitleTunnelUp, c.id, st.Active.Transport, st.LastRTTms)})
 			return nil
 		case state.StateDown:
 			err := c.failure()
@@ -574,9 +591,10 @@ func (l *local) TunnelShow(ctx context.Context, id string) (api.TunnelDetail, er
 	return d, nil
 }
 
-// TunnelEdit implements api.Local (`deyroute tunnel edit`, Failover menu):
-// name, ladder (profile or inline rungs), node order, policy, probe port,
-// TLS mode (custom certificate files are validated) and failover settings.
+// TunnelEdit implements api.Local (`deyroute tunnel edit`, `deyroute port set`,
+// Failover menu, Ports → Probe kind): name, ladder (profile or inline
+// rungs), node order, policy, probe port, the probe kind of port maps, TLS
+// mode (custom certificate files are validated) and failover settings.
 // config.yaml changes after an automatic backup; the tunnel is re-planned
 // and the engine takes the new ladder, nodes and settings (an active rung
 // that is gone moves to rung 1; changed files restart the active transport).
@@ -662,6 +680,11 @@ func (h *Hub) editTunnel(cfg *config.Config, t config.Tunnel, req api.TunnelEdit
 	if err := checkPolicy(next.Failover.Policy); err != nil {
 		return next, err
 	}
+	for _, s := range req.PortProbes {
+		if err := setPortProbe(&next, s); err != nil {
+			return next, err
+		}
+	}
 	if req.ProbePort != nil {
 		next.ProbePort = *req.ProbePort
 		if p := next.ProbePort; p != 0 {
@@ -696,6 +719,29 @@ func (h *Hub) editTunnel(cfg *config.Config, t config.Tunnel, req api.TunnelEdit
 		return next, err
 	}
 	return next, nil
+}
+
+// setPortProbe sets the probe kind of the existing port map s names
+// (`deyroute port set --probe`, Ports → Probe kind): a port the tunnel does
+// not have and a kind config.yaml would refuse are DEY-C013.
+func setPortProbe(t *config.Tunnel, s api.PortSpec) error {
+	proto, err := normalizeProto(s.Listen, s.Proto)
+	if err != nil {
+		return err
+	}
+	key := config.ListenKey{Port: s.Listen, Proto: proto}
+	idx := slices.IndexFunc(t.Ports, func(pm config.PortMap) bool { return pm.Listen == s.Listen && pm.Proto == proto })
+	if idx < 0 {
+		return deyerr.New(deyerr.C013, deyerr.Params{
+			"field": "tunnels[" + t.ID + "].ports", "value": key.String(), "allowed": "a port of the tunnel: " + formatMaps(t.Ports),
+		})
+	}
+	probe, err := probeOf("tunnels["+t.ID+"].ports["+key.String()+"].probe", proto, s.Probe)
+	if err != nil {
+		return err
+	}
+	t.Ports[idx].Probe = probe
+	return nil
 }
 
 // TunnelSetEnabled implements api.Local (`deyroute tunnel enable|disable`):
@@ -996,7 +1042,7 @@ func (l *local) TunnelTestLadder(ctx context.Context, id string, progress func(a
 	}
 	rep := &steps{progress: progress}
 	results, err := e.TestLadder(ctx, func(r api.RungResult) {
-		st := api.Step{ID: stepRungPrefix + r.Node + "/" + r.Transport, Title: r.Transport + " on " + r.Node}
+		st := api.Step{ID: stepRungPrefix + r.Node + "/" + r.Transport, Title: i18n.T(i18n.HubTitleRung, r.Transport, r.Node)}
 		switch {
 		case r.Skipped != "":
 			st.Status, st.Detail = api.StepSkipped, r.Skipped
@@ -1081,7 +1127,7 @@ func (l *local) TunnelBackupAdd(ctx context.Context, id, node string, progress f
 			warm++
 		}
 	}
-	rep.emitTitled(api.Step{ID: stepBackupReady, Status: api.StepOK, Title: fmt.Sprintf("backup %s ready (warm)", node),
+	rep.emitTitled(api.Step{ID: stepBackupReady, Status: api.StepOK, Title: i18n.T(i18n.HubTitleBackupReady, node),
 		Detail: fmt.Sprintf("%d of %d rungs warm", warm, total)})
 	h.log.Info("backup node added", dlog.Tunnel(t.ID), dlog.Node(node))
 	return nil

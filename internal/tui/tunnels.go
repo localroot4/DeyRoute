@@ -23,31 +23,69 @@ func loadNodes(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) 
 	return l.NodeList(ctx)
 }
 
-// tunnelLabel is one tunnel in a pick list: "main  Main 443/2053  ● UP  443,2053".
-func (a *app) tunnelLabel(t api.TunnelInfo) string {
-	parts := []string{t.ID}
-	if t.Name != "" && t.Name != t.ID {
-		parts = append(parts, t.Name)
+// tunnelLabels are the tunnels of a pick list in aligned columns:
+// " 1) main   Main 443/2053  ● UP    443,2053".
+func (a *app) tunnelLabels(ts []api.TunnelInfo) []string {
+	rows := make([][]string, len(ts))
+	for i, t := range ts {
+		name := t.Name
+		if name == t.ID {
+			name = ""
+		}
+		rows[i] = []string{t.ID, name, a.stateText(t), portsText(t.Ports)}
 	}
-	parts = append(parts, a.stateText(t))
-	if p := portsText(t.Ports); p != "" {
-		parts = append(parts, p)
-	}
-	return strings.Join(parts, "  ")
+	return columns(rows)
 }
 
-// nodeLabel is one node in a pick list: "de-1  Germany 1  ● online".
-func (a *app) nodeLabel(n api.NodeInfo) string {
+// nodeState is "● online" or "○ offline".
+func (a *app) nodeState(n api.NodeInfo) string {
 	s := a.sym()
-	st := s.up + " " + i18n.T(i18n.TUIOnline)
 	if !n.Online {
-		st = s.down + " " + i18n.T(i18n.TUIOffline)
+		return s.down + " " + i18n.T(i18n.TUIOffline)
 	}
-	parts := []string{n.ID}
-	if n.Name != "" && n.Name != n.ID {
-		parts = append(parts, n.Name)
+	return s.up + " " + i18n.T(i18n.TUIOnline)
+}
+
+// nodeLabel is one node on its own: "de-1  Germany 1  ● online".
+func (a *app) nodeLabel(n api.NodeInfo) string { return a.nodeLabels([]api.NodeInfo{n})[0] }
+
+// nodeLabels are the nodes of a pick list in aligned columns: id, name,
+// state.
+func (a *app) nodeLabels(ns []api.NodeInfo) []string {
+	rows := make([][]string, len(ns))
+	for i, n := range ns {
+		name := n.Name
+		if name == n.ID {
+			name = ""
+		}
+		rows[i] = []string{n.ID, name, a.nodeState(n)}
 	}
-	return strings.Join(append(parts, st), "  ")
+	return columns(rows)
+}
+
+// columns joins the cells of every row in aligned columns two spaces
+// apart; a column that is empty in every row takes no room.
+func columns(rows [][]string) []string {
+	var w []int
+	for _, r := range rows {
+		for i, c := range r {
+			if i >= len(w) {
+				w = append(w, 0)
+			}
+			w[i] = max(w[i], width(c))
+		}
+	}
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		var b strings.Builder
+		for j, c := range r {
+			if w[j] > 0 {
+				b.WriteString(pad(c, w[j]+2))
+			}
+		}
+		out[i] = strings.TrimRight(b.String(), " ")
+	}
+	return out
 }
 
 // pickTunnel lists the tunnels and runs then with the chosen one.
@@ -60,8 +98,8 @@ func pickTunnel(title string, then func(a *app, t api.TunnelInfo) tea.Cmd) *list
 		derive: func(a *app, v any) []choice {
 			ts, _ := v.([]api.TunnelInfo)
 			out := make([]choice, 0, len(ts))
-			for _, t := range ts {
-				out = append(out, choice{label: a.tunnelLabel(t), value: t})
+			for i, label := range a.tunnelLabels(ts) {
+				out = append(out, choice{label: label, value: ts[i]})
 			}
 			return out
 		},
@@ -80,12 +118,16 @@ func pickNode(title, empty string, filter func(n api.NodeInfo) bool, then func(a
 		load:       loadNodes,
 		empty:      empty,
 		derive: func(a *app, v any) []choice {
-			ns, _ := v.([]api.NodeInfo)
-			var out []choice
-			for _, n := range ns {
+			all, _ := v.([]api.NodeInfo)
+			var ns []api.NodeInfo
+			for _, n := range all {
 				if filter == nil || filter(n) {
-					out = append(out, choice{label: a.nodeLabel(n), value: n})
+					ns = append(ns, n)
 				}
+			}
+			out := make([]choice, 0, len(ns))
+			for i, label := range a.nodeLabels(ns) {
+				out = append(out, choice{label: label, value: ns[i]})
 			}
 			return out
 		},
@@ -96,30 +138,28 @@ func pickNode(title, empty string, filter func(n api.NodeInfo) bool, then func(a
 // ---- 2 Tunnels
 
 func tunnelsMenu(a *app) screen {
-	title := i18n.T(i18n.MenuTunnels)
+	sub := func(k i18n.Key) string { return subTitle(i18n.MenuTunnels, k) }
 	m := newMenu(a, i18n.MenuTunnels, i18n.TUIHelpTunnels, []menuItem{
 		{label: i18n.TUITunAdd, act: func(a *app) tea.Cmd { return a.push(newWizard()) }},
 		{label: i18n.TUITunEdit, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUITunEdit), func(a *app, t api.TunnelInfo) tea.Cmd {
-				return a.push(editForm(a, t))
-			}))
+			return a.push(pickTunnel(sub(i18n.TUITunEdit), editTunnel))
 		}},
 		{label: i18n.TUITunToggle, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUITunToggle), toggleTunnel))
+			return a.push(pickTunnel(sub(i18n.TUITunToggle), toggleTunnel))
 		}},
 		{label: i18n.TUITunRestart, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUITunRestart), restartTunnel))
+			return a.push(pickTunnel(sub(i18n.TUITunRestart), restartTunnel))
 		}},
 		{label: i18n.TUITunSwitch, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUITunSwitch), func(a *app, t api.TunnelInfo) tea.Cmd {
+			return a.push(pickTunnel(sub(i18n.TUITunSwitch), func(a *app, t api.TunnelInfo) tea.Cmd {
 				return a.push(pickSwitch(t))
 			}))
 		}},
 		{label: i18n.TUITunDelete, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUITunDelete), deleteTunnel))
+			return a.push(pickTunnel(sub(i18n.TUITunDelete), deleteTunnel))
 		}},
 		{label: i18n.TUITunShow, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUITunShow), func(a *app, t api.TunnelInfo) tea.Cmd {
+			return a.push(pickTunnel(sub(i18n.TUITunShow), func(a *app, t api.TunnelInfo) tea.Cmd {
 				return a.push(showTunnel(t.ID))
 			}))
 		}},
@@ -135,22 +175,116 @@ func tunnelsMenu(a *app) screen {
 	return m
 }
 
-// editForm edits the mutable fields of a tunnel (TunnelEdit).
-func editForm(a *app, t api.TunnelInfo) screen {
+// editData is what Edit tunnel loads first in Advanced mode: the tunnel
+// (with its TLS mode) and the ladder profiles.
+type editData struct {
+	t       api.TunnelInfo
+	tls     string
+	ladders []api.Ladder
+}
+
+// editTunnel opens Edit tunnel. In Advanced mode the tunnel and the ladder
+// profiles are loaded first, so that the fixed answers (policy, ladder
+// profile, TLS mode) are numbered lists with the current value marked.
+func editTunnel(a *app, t api.TunnelInfo) tea.Cmd {
+	if !a.advanced {
+		return a.push(editForm(a, editData{t: t}))
+	}
+	id := t.ID
+	load := newTask(titleOf(i18n.TUITunEdit, id), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+		d, err := l.TunnelShow(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		lads, err := l.LadderList(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return editData{t: d.TunnelInfo, tls: d.TLSMode, ladders: lads}, nil
+	}, nil)
+	load.cancellable = true // reads only; the form comes next
+	load.next = func(a *app, v any) screen {
+		d, _ := v.(editData)
+		return editForm(a, d)
+	}
+	return a.push(load)
+}
+
+// policyOpts are the failover policies as numbered answers; cur is marked
+// "(current)".
+func policyOpts(cur string) []fieldOpt {
+	var out []fieldOpt
+	for _, p := range []struct {
+		id  string
+		key i18n.Key
+	}{
+		{config.PolicyTransportThenNode, i18n.TUIPolTTN},
+		{config.PolicyTransportOnly, i18n.TUIPolTO},
+		{config.PolicyNodeOnly, i18n.TUIPolNO},
+	} {
+		out = append(out, fieldOpt{value: p.id, label: markCurrent(i18n.T(p.key), p.id == cur)})
+	}
+	return out
+}
+
+// tlsOpts are the TLS modes as numbered answers (custom only where the
+// certificate files can be given too); cur is marked "(current)".
+func tlsOpts(custom bool, cur string) []fieldOpt {
+	out := []fieldOpt{
+		{value: config.TLSModeAuto, label: markCurrent(i18n.T(i18n.TUITLSAuto), cur == config.TLSModeAuto)},
+		{value: config.TLSModeACME, label: markCurrent(i18n.T(i18n.TUITLSACME), cur == config.TLSModeACME)},
+	}
+	if custom {
+		out = append(out, fieldOpt{value: config.TLSModeCustom, label: markCurrent(i18n.T(i18n.TUITLSCustom), cur == config.TLSModeCustom)})
+	}
+	return out
+}
+
+// ladderOpts are the ladder profiles as numbered answers. A tunnel with
+// its own rung order (no profile) can keep it: the first answer, empty.
+func ladderOpts(ls []api.Ladder, cur string) []fieldOpt {
+	var out []fieldOpt
+	if cur == "" {
+		out = append(out, fieldOpt{label: markCurrent(i18n.T(i18n.TUIEditLadderCustom), true)})
+	}
+	for _, l := range ls {
+		label := l.Name
+		if l.Builtin {
+			label += i18n.T(i18n.TUILadBuiltin)
+		}
+		out = append(out, fieldOpt{value: l.Name, label: markCurrent(label, l.Name == cur)})
+	}
+	return out
+}
+
+// markCurrent appends " (current)" to the label of the current value.
+func markCurrent(label string, cur bool) string {
+	if cur {
+		return label + i18n.T(i18n.TUICurrent)
+	}
+	return label
+}
+
+// editForm edits the mutable fields of a tunnel (TunnelEdit). Enter keeps
+// every current value; only what changed is sent.
+func editForm(a *app, d editData) screen {
+	t := d.t
+	policy := orDefault(t.Policy, config.PolicyTransportThenNode)
+	// With custom TLS in place, Enter on the file questions keeps the
+	// files; switching to custom needs both.
+	keepFiles := d.tls == config.TLSModeCustom
 	fields := []field{{key: "name", label: i18n.T(i18n.TUIEditName), def: t.Name}}
 	if a.advanced {
 		fields = append(fields,
-			field{key: "policy", label: i18n.T(i18n.TUIEditPolicy), def: orDefault(t.Policy, config.PolicyTransportThenNode),
-				check: checkOneOf(config.PolicyTransportThenNode, config.PolicyTransportOnly, config.PolicyNodeOnly)},
-			field{key: "ladder", label: i18n.T(i18n.TUIEditLadder), def: t.LadderName, optional: true},
-			field{key: "tls", label: i18n.T(i18n.TUIEditTLS), optional: true,
-				check: checkOneOf(config.TLSModeAuto, config.TLSModeACME, config.TLSModeCustom)},
-			field{key: "cert", label: i18n.T(i18n.TUIEditTLSCert), skip: notCustomTLS},
-			field{key: "key", label: i18n.T(i18n.TUIEditTLSKey), skip: notCustomTLS},
+			field{key: "policy", label: i18n.T(i18n.TUIEditPolicy), def: policy, opts: policyOpts(policy)},
+			field{key: "ladder", label: i18n.T(i18n.TUIEditLadder), def: t.LadderName, optional: true, opts: ladderOpts(d.ladders, t.LadderName)},
+			field{key: "tls", label: i18n.T(i18n.TUIEditTLS), def: d.tls, optional: true, opts: tlsOpts(true, d.tls)},
+			field{key: "cert", label: i18n.T(i18n.TUIEditTLSCert), optional: keepFiles, skip: notCustomTLS},
+			field{key: "key", label: i18n.T(i18n.TUIEditTLSKey), optional: keepFiles, skip: notCustomTLS},
 			field{key: "probe", label: i18n.T(i18n.TUIEditProbe), optional: true, check: optionalInt(1)},
 		)
 	}
-	title := i18n.T(i18n.TUITunEdit) + ": " + t.ID
+	title := titleOf(i18n.TUITunEdit, t.ID)
 	return newForm(title, i18n.T(i18n.TUIKeepHint), fields, func(a *app, v map[string]string) tea.Cmd {
 		var req api.TunnelEditRequest
 		changed := false
@@ -162,11 +296,14 @@ func editForm(a *app, t api.TunnelInfo) screen {
 			}
 		}
 		set(v["name"], t.Name, &req.Name)
-		set(v["policy"], t.Policy, &req.Policy)
+		set(v["policy"], policy, &req.Policy)
 		set(v["ladder"], t.LadderName, &req.Ladder)
-		set(v["tls"], "", &req.TLSMode)
-		set(v["cert"], "", &req.TLSCert)
-		set(v["key"], "", &req.TLSKey)
+		set(v["tls"], d.tls, &req.TLSMode)
+		if v["tls"] == config.TLSModeCustom && (v["cert"] != "" || v["key"] != "") {
+			set(config.TLSModeCustom, "", &req.TLSMode) // new files for custom TLS
+			set(v["cert"], "", &req.TLSCert)
+			set(v["key"], "", &req.TLSKey)
+		}
 		if p := v["probe"]; p != "" {
 			n := atoi(p)
 			req.ProbePort = &n
@@ -200,7 +337,7 @@ func toggleTunnel(a *app, t api.TunnelInfo) tea.Cmd {
 	if !enable {
 		msg = i18n.T(i18n.TUITunDisabled, id)
 	}
-	task := newTask(i18n.T(i18n.TUITunToggle)+": "+id, callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+	task := newTask(titleOf(i18n.TUITunToggle, id), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 		return nil, l.TunnelSetEnabled(ctx, id, enable)
 	}, textResult(msg))
 	if enable {
@@ -212,7 +349,7 @@ func toggleTunnel(a *app, t api.TunnelInfo) tea.Cmd {
 
 func restartTunnel(a *app, t api.TunnelInfo) tea.Cmd {
 	id := t.ID
-	title := i18n.T(i18n.TUITunRestart) + ": " + id
+	title := titleOf(i18n.TUITunRestart, id)
 	return a.push(newConfirm(title, i18n.T(i18n.TUITunRestartConfirm, id), false, func(a *app) tea.Cmd {
 		return a.replace(newTask(title, longTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 			return nil, l.TunnelRestart(ctx, id)
@@ -222,7 +359,7 @@ func restartTunnel(a *app, t api.TunnelInfo) tea.Cmd {
 
 func deleteTunnel(a *app, t api.TunnelInfo) tea.Cmd {
 	id := t.ID
-	title := i18n.T(i18n.TUITunDelete) + ": " + id
+	title := titleOf(i18n.TUITunDelete, id)
 	nodes := strings.Join(t.Nodes, ", ")
 	if nodes == "" {
 		nodes = i18n.T(i18n.TUINone)
@@ -269,7 +406,7 @@ func clientIPNote(tr map[string]api.TransportInfo, id string) string {
 
 func pickSwitch(t api.TunnelInfo) *listScreen {
 	id := t.ID
-	title := i18n.T(i18n.TUITunSwitch) + ": " + id
+	title := titleOf(i18n.TUITunSwitch, id)
 	return &listScreen{
 		screenBase: screenBase{title: title},
 		intro:      i18n.T(i18n.TUITunSwitchPick, id),
@@ -327,7 +464,7 @@ func pickSwitch(t api.TunnelInfo) *listScreen {
 
 // showTunnel renders TunnelShow (refreshable).
 func showTunnel(id string) *taskScreen {
-	t := newTask(i18n.T(i18n.TUITunShow)+": "+id, callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+	t := newTask(titleOf(i18n.TUITunShow, id), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 		d, err := l.TunnelShow(ctx, id)
 		if err != nil {
 			return nil, err
@@ -351,9 +488,10 @@ func renderDetail(a *app, v any) string {
 	td, _ := v.(tunnelDetail)
 	d := td.d
 	var b strings.Builder
-	b.WriteString(kv(i18n.T(i18n.TUIDetID), d.ID))
+	var t kvTable
+	t.add(i18n.T(i18n.TUIDetID), d.ID)
 	if d.Name != "" {
-		b.WriteString(kv(i18n.T(i18n.TUIDetName), d.Name))
+		t.add(i18n.T(i18n.TUIDetName), d.Name)
 	}
 	sy, w, col := a.stateLook(d.TunnelInfo)
 	st := a.paint(col, sy+" "+w)
@@ -363,12 +501,16 @@ func renderDetail(a *app, v any) string {
 			st += " (" + ms(d.RTTms) + ")"
 		}
 	}
-	b.WriteString(kv(i18n.T(i18n.TUIDetState), st))
+	t.add(i18n.T(i18n.TUIDetState), st)
 	var ps []string
 	for _, p := range d.Ports {
-		ps = append(ps, strconv.Itoa(p.Listen)+"/"+p.Proto+" "+a.sym().arrow+" "+p.Target)
+		x := strconv.Itoa(p.Listen) + "/" + p.Proto + " " + a.sym().arrow + " " + p.Target
+		if a.advanced && p.Probe != "" && p.Probe != config.ProbeAuto {
+			x += " (" + i18n.T(i18n.TUIWizSumProbe, p.Probe) + ")"
+		}
+		ps = append(ps, x)
 	}
-	b.WriteString(kv(i18n.T(i18n.TUIDetPorts), strings.Join(ps, ", ")))
+	t.add(i18n.T(i18n.TUIDetPorts), strings.Join(ps, ", "))
 	var ns []string
 	for i, n := range d.Nodes {
 		role := i18n.T(i18n.TUIDetBackup)
@@ -377,24 +519,25 @@ func renderDetail(a *app, v any) string {
 		}
 		ns = append(ns, n+" ("+role+")")
 	}
-	b.WriteString(kv(i18n.T(i18n.TUIDetNodes), strings.Join(ns, ", ")))
+	t.add(i18n.T(i18n.TUIDetNodes), strings.Join(ns, ", "))
 	if d.ClientIP != "" {
-		b.WriteString(kv(i18n.T(i18n.TUIDetClientIP), d.ClientIP))
+		t.add(i18n.T(i18n.TUIDetClientIP), d.ClientIP)
 	}
 	if a.advanced {
-		b.WriteString(kv(i18n.T(i18n.TUIDetPolicy), d.Policy))
+		t.add(i18n.T(i18n.TUIDetPolicy), d.Policy)
 		lad := strings.Join(d.Ladder, " "+a.sym().arrow+" ")
 		if d.LadderName != "" {
-			lad = d.LadderName + ": " + lad
+			lad = i18n.T(i18n.TUITitleOf, d.LadderName, lad)
 		}
-		b.WriteString(kv(i18n.T(i18n.TUIDetLadder), lad))
+		t.add(i18n.T(i18n.TUIDetLadder), lad)
 		if d.TLSMode != "" {
-			b.WriteString(kv(i18n.T(i18n.TUIDetTLS), d.TLSMode))
+			t.add(i18n.T(i18n.TUIDetTLS), d.TLSMode)
 		}
-		if len(d.Rungs) > 0 {
-			b.WriteString("\n  " + i18n.T(i18n.TUIDetRungs) + "\n")
-			b.WriteString(renderRungs(a, d.Rungs, td.tr))
-		}
+	}
+	b.WriteString(t.String())
+	if a.advanced && len(d.Rungs) > 0 {
+		b.WriteString("\n  " + i18n.T(i18n.TUIDetRungs) + "\n")
+		b.WriteString(renderRungs(a, d.Rungs, td.tr))
 	}
 	for _, w := range d.Warnings {
 		b.WriteString(a.paint(colYellow, "  "+a.sym().warn+" "+clean(w)) + "\n")
@@ -409,28 +552,36 @@ func renderDetail(a *app, v any) string {
 func renderRungs(a *app, rs []api.RungStatus, tr map[string]api.TransportInfo) string {
 	rs = append([]api.RungStatus(nil), rs...)
 	sort.SliceStable(rs, func(i, j int) bool { return rs[i].Node < rs[j].Node })
-	nw, tw := 0, 0
-	for _, r := range rs {
+	nw, tw, sw := 0, 0, 0
+	sts := make([]string, len(rs))
+	cols := make([]string, len(rs))
+	for i, r := range rs {
 		nw, tw = max(nw, width(r.Node)), max(tw, width(r.Transport))
-	}
-	var b strings.Builder
-	for _, r := range rs {
-		st := ""
 		switch {
 		case r.Active:
-			st = a.paint(colGreen, i18n.T(i18n.TUIDetActive))
+			sts[i], cols[i] = i18n.T(i18n.TUIDetActive), colGreen
 		case r.Skipped != "":
-			st = a.paint(colYellow, i18n.T(i18n.TUIDetSkipped, r.Skipped))
+			sts[i], cols[i] = i18n.T(i18n.TUIDetSkipped, clean(r.Skipped)), colYellow
 		case r.Quarantine.After(a.opts.Now()):
-			st = a.paint(colYellow, i18n.T(i18n.TUIDetQuarantine, r.Quarantine.In(a.opts.Location).Format("15:04:05")))
+			sts[i], cols[i] = i18n.T(i18n.TUIDetQuarantine, r.Quarantine.In(a.opts.Location).Format("15:04:05")), colYellow
 		case r.Warm:
-			st = i18n.T(i18n.TUIDetWarm)
+			sts[i] = i18n.T(i18n.TUIDetWarm)
+		}
+		sw = max(sw, width(sts[i]))
+	}
+	var b strings.Builder
+	for i, r := range rs {
+		// The status is padded before it is colored, so that the client-IP
+		// notes after it line up.
+		st := a.paint(cols[i], sts[i]) + strings.Repeat(" ", sw-width(sts[i]))
+		if cols[i] == "" {
+			st = pad(sts[i], sw)
 		}
 		line := "    " + pad(r.Node, nw+2) + pad(r.Transport, tw+2) + st
 		if n := clientIPNote(tr, r.Transport); n != "" {
 			line += "  " + a.paint(colGray, n)
 		}
-		b.WriteString(line + "\n")
+		b.WriteString(strings.TrimRight(line, " ") + "\n")
 	}
 	return b.String()
 }

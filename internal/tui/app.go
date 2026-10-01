@@ -48,10 +48,19 @@ type Options struct {
 	// function makes the item answer "not available here".
 	Doctor func(ctx context.Context) (summary, path string, err error)
 	Backup func(ctx context.Context, out, passphrase string, noEncrypt bool) (string, error)
-	// Restore returns what the owner must know afterwards (a changed hub
-	// address, the next steps); "" = the generic "Restore complete".
-	Restore   func(ctx context.Context, path, passphrase string) (string, error)
+	// RestoreCheck reads a backup before the restore is confirmed: what it
+	// replaces and whether the hub moved to this server.
+	RestoreCheck func(ctx context.Context, path, passphrase string) (RestorePlan, error)
+	// Restore restores the backup; a non-empty publicIP moves the hub to
+	// that address (its certificate is re-issued). It returns what the
+	// owner must know afterwards (a changed hub address, the next steps);
+	// "" = the generic "Restore complete".
+	Restore   func(ctx context.Context, path, passphrase, publicIP string) (string, error)
 	Uninstall func(ctx context.Context, keepBackups, nodes bool) error
+	// SetHub points this node to its hub's new address (deyroute node
+	// set-hub); with the node agent stopped the address is saved for its
+	// next start. running reports whether the agent took it at once.
+	SetHub func(ctx context.Context, addr string) (running bool, err error)
 
 	// Now and Location format dashboard times (default time.Now, time.Local).
 	Now      func() time.Time
@@ -66,6 +75,15 @@ type Options struct {
 
 	// tick schedules a delayed message (tests replace it).
 	tick func(d time.Duration, msg tea.Msg) tea.Cmd
+}
+
+// RestorePlan is what Options.RestoreCheck found in a backup.
+type RestorePlan struct {
+	// Lost is the confirmation text: the backup and what it replaces.
+	Lost string
+	// MovedIP is this server's public IP when a hub backup names another
+	// address (OldIP): the hub may have moved here. "" = no question.
+	MovedIP, OldIP string
 }
 
 // Model is the root Bubble Tea model. It is a thin handle on the shared
@@ -83,6 +101,7 @@ type app struct {
 	sized    bool
 	status   BannerStatus
 	advanced bool
+	ctlPort  int // the hub's control port from Status (0 = not known yet)
 	stack    []screen
 	nextID   int
 	flash    string
@@ -188,7 +207,12 @@ func (m Model) View() string {
 		b.WriteString("\n" + a.paint(colYellow, " "+a.flash) + "\n")
 	}
 	footer := i18n.T(i18n.FooterKeys)
-	if !a.caps.Unicode {
+	switch {
+	case a.helpKey == "" && top.base().typing:
+		// q and r are typed into the answer: only Enter, Esc and "?" on
+		// an empty line are keys here.
+		footer = i18n.T(i18n.FooterTyping)
+	case !a.caps.Unicode:
 		footer = i18n.T(i18n.FooterKeysASCII)
 	}
 	b.WriteString("\n" + a.paint(colGray, footer) + "\n")
@@ -234,7 +258,7 @@ type screenBase struct {
 	id       int
 	title    string
 	help     i18n.Key
-	typing   bool // free text input: q, r and ? are ordinary characters
+	typing   bool // free text input: q and r are ordinary characters, ? on an empty input is help
 	gen      int  // generation of the current background operation
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -353,11 +377,20 @@ func (a *app) key(k tea.KeyMsg) tea.Cmd {
 		}
 		return a.pop()
 	}
-	if !b.typing && s == "?" {
+	if s == "?" && (!b.typing || inputEmpty(top)) {
 		a.helpKey = b.help
 		return nil
 	}
 	return top.update(a, k)
+}
+
+// typer is a screen with a text input: "?" there is an ordinary character
+// except on an empty input, where it shows the help.
+type typer interface{ inputEmpty() bool }
+
+func inputEmpty(s screen) bool {
+	t, ok := s.(typer)
+	return ok && t.inputEmpty()
 }
 
 // ---- background work
@@ -466,6 +499,7 @@ func (a *app) applyStatus(st api.Status) {
 		a.status.Name = st.Hub.Name
 		a.status.PublicIP = st.Hub.PublicIP
 		a.advanced = st.Hub.UIMode == uiAdvanced
+		a.ctlPort = st.Hub.ControlPort
 	}
 	if st.NodeSelf != nil {
 		a.status.Name = st.NodeSelf.ID
@@ -481,14 +515,32 @@ func (a *app) applyStatus(st api.Status) {
 	a.status.TunnelsUp = up
 }
 
+// role is the role the menus are built for: node on a node server, hub
+// otherwise (before setup every action explains how to set up first).
+func (a *app) role() string {
+	if a.status.Role == roleNode {
+		return roleNode
+	}
+	return roleHub
+}
+
+// mainMenu is the main menu of this server's role.
+func (a *app) mainMenu() []MenuItem {
+	if a.role() == roleNode {
+		return NodeMenu()
+	}
+	return MainMenu()
+}
+
 // ---- main menu
 
 // rootScreen is the fixed main menu of section 6.
 type rootScreen struct {
 	screenBase
-	ch  chooser
-	msg string
-	err error
+	ch   chooser
+	msg  string
+	note string // where a hub-only item is done (picked on a node)
+	err  error
 }
 
 func newRoot() *rootScreen {
@@ -527,7 +579,7 @@ func (r *rootScreen) update(a *app, msg tea.Msg) tea.Cmd {
 		}
 	case tea.KeyMsg:
 		if msg.String() == "r" {
-			r.msg = ""
+			r.msg, r.note = "", ""
 			return r.resume(a)
 		}
 		submit, _ := r.ch.key(msg)
@@ -535,7 +587,7 @@ func (r *rootScreen) update(a *app, msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		n, raw, ok := r.ch.take()
-		r.msg = ""
+		r.msg, r.note = "", ""
 		if !ok {
 			if raw != "" {
 				r.msg = i18n.T(i18n.InvalidChoice, raw)
@@ -548,6 +600,11 @@ func (r *rootScreen) update(a *app, msg tea.Msg) tea.Cmd {
 		open := mainScreens(n)
 		if open == nil {
 			r.msg = i18n.T(i18n.InvalidChoice, raw)
+			return nil
+		}
+		if it, ok := mainItem(a.mainMenu(), n); ok && it.HubOnly && a.role() == roleNode {
+			// Nothing to do on a node: say where it is done instead of DEY-X009.
+			r.note = i18n.T(i18n.TUIHubOnlyNote, i18n.T(it.Title), a.status.HubAddr)
 			return nil
 		}
 		return a.push(open(a))
@@ -565,9 +622,12 @@ func (r *rootScreen) view(a *app) string {
 	case r.err != nil:
 		b.WriteString(a.errBlock(r.err) + "\n")
 	}
-	b.WriteString(RenderMenu(a.caps, MainMenu(), a.advanced))
+	b.WriteString(RenderMenu(a.caps, a.mainMenu(), a.advanced))
 	if r.msg != "" {
 		b.WriteString("\n" + a.paint(colRed, r.msg) + "\n")
+	}
+	if r.note != "" {
+		b.WriteString("\n" + a.paint(colYellow, indent(r.note)) + "\n")
 	}
 	b.WriteString("\n" + i18n.T(i18n.PromptChoice) + r.ch.input + "\n")
 	return b.String()

@@ -16,18 +16,23 @@ import (
 // ---- 4 Ports
 
 func portsMenu(a *app) screen {
-	title := i18n.T(i18n.MenuPorts)
+	sub := func(k i18n.Key) string { return subTitle(i18n.MenuPorts, k) }
 	return newMenu(a, i18n.MenuPorts, i18n.TUIHelpPorts, []menuItem{
 		{label: i18n.TUIPtAdd, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUIPtAdd), addPorts))
+			return a.push(pickTunnel(sub(i18n.TUIPtAdd), addPorts))
 		}},
 		{label: i18n.TUIPtRemove, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUIPtRemove), func(a *app, t api.TunnelInfo) tea.Cmd {
+			return a.push(pickTunnel(sub(i18n.TUIPtRemove), func(a *app, t api.TunnelInfo) tea.Cmd {
 				return a.push(pickPort(t))
 			}))
 		}},
 		{label: i18n.TUIPtCheck, act: func(a *app) tea.Cmd { return a.push(portCheckForm(a)) }},
 		{label: i18n.TUIPtFirewall, act: func(a *app) tea.Cmd { return a.push(firewallTask("show")) }},
+		{label: i18n.TUIPtProbe, adv: true, act: func(a *app) tea.Cmd {
+			return a.push(pickTunnel(sub(i18n.TUIPtProbe), func(a *app, t api.TunnelInfo) tea.Cmd {
+				return a.push(pickProbePort(t.ID))
+			}))
+		}},
 	})
 }
 
@@ -37,16 +42,40 @@ func checkPortInput(v string, _ map[string]string) error {
 	return err
 }
 
+// checkProbe accepts a probe kind config.yaml accepts for a TCP port map
+// (ports[].probe, section 9); the probe questions are only asked for TCP
+// ports, as UDP maps are always auto.
+var checkProbe = checkOneOf(config.ProbeKinds...)
+
+// hasTCP reports whether the port input v names a TCP port.
+func hasTCP(v string) bool {
+	specs, _ := ports.ParseInput(v)
+	for _, s := range specs {
+		if s.Proto != config.ProtoUDP {
+			return true
+		}
+	}
+	return false
+}
+
+// addPorts is Ports -> Add port to tunnel; Advanced mode also asks the
+// probe kind of the new TCP ports.
 func addPorts(a *app, t api.TunnelInfo) tea.Cmd {
 	id := t.ID
-	title := i18n.T(i18n.TUIPtAdd) + ": " + id
-	form := newForm(title, "", []field{{
-		key: "ports", label: i18n.T(i18n.TUIPtInput), hint: i18n.T(i18n.TUIWizPortsHint), check: checkPortInput,
-	}}, func(a *app, v map[string]string) tea.Cmd {
+	title := titleOf(i18n.TUIPtAdd, id)
+	fields := []field{{key: "ports", label: i18n.T(i18n.TUIPtInput), hint: i18n.T(i18n.TUIWizPortsHint), check: checkPortInput}}
+	if a.advanced {
+		fields = append(fields, field{key: "probe", label: i18n.T(i18n.TUIPtProbeField), hint: i18n.T(i18n.TUIPtProbeHint),
+			def: config.ProbeAuto, check: checkProbe, skip: func(v map[string]string) bool { return !hasTCP(v["ports"]) }})
+	}
+	form := newForm(title, "", fields, func(a *app, v map[string]string) tea.Cmd {
 		specs, _ := ports.ParseInput(v["ports"])
 		req := make([]api.PortSpec, len(specs))
 		for i, s := range specs {
 			req[i] = api.PortSpec{Listen: s.Listen, Proto: s.Proto, Target: s.Target}
+			if s.Proto != config.ProtoUDP {
+				req[i].Probe = v["probe"]
+			}
 		}
 		list := ports.FormatList(specs)
 		return a.replace(newConfirm(title, i18n.T(i18n.TUIPtAddConfirm, list, id), false, func(a *app) tea.Cmd {
@@ -64,7 +93,7 @@ func addPorts(a *app, t api.TunnelInfo) tea.Cmd {
 // pickPort lists the ports of a tunnel for removal.
 func pickPort(t api.TunnelInfo) *listScreen {
 	id := t.ID
-	title := i18n.T(i18n.TUIPtRemove) + ": " + id
+	title := titleOf(i18n.TUIPtRemove, id)
 	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIPtPick), empty: i18n.T(i18n.TUIPtNoPorts, id)}
 	for _, p := range t.Ports {
 		label := strconv.Itoa(p.Listen) + "/" + p.Proto
@@ -84,6 +113,71 @@ func pickPort(t api.TunnelInfo) *listScreen {
 				return indent(i18n.T(i18n.TUIPtAdded, id, portsText(ti.Ports))) + "\n"
 			}))
 		}))
+	}
+	return l
+}
+
+// pickProbePort lists the TCP ports of tunnel id with their probe kind
+// (Ports -> Probe kind, Advanced). The list is loaded again when the owner
+// comes back, so a changed kind shows at once.
+func pickProbePort(id string) *listScreen {
+	return &listScreen{
+		screenBase: screenBase{title: i18n.T(i18n.TUIPtProbeTitle, id)},
+		intro:      i18n.T(i18n.TUIPtProbePick),
+		empty:      i18n.T(i18n.TUIPtProbeNoTCP, id),
+		load:       loadTunnels,
+		derive: func(_ *app, v any) []choice {
+			ts, _ := v.([]api.TunnelInfo)
+			var out []choice
+			for _, t := range ts {
+				if t.ID != id {
+					continue
+				}
+				for _, p := range t.Ports {
+					if p.Proto == config.ProtoUDP {
+						continue
+					}
+					label := i18n.T(i18n.TUIPtProbePort, specOf(p.Listen, p.Proto), orDefault(p.Probe, config.ProbeAuto))
+					out = append(out, choice{label: label, value: p})
+				}
+			}
+			return out
+		},
+		pick: func(a *app, c choice) tea.Cmd { return a.push(pickProbeKind(id, c.value.(api.PortMapDTO))) },
+	}
+}
+
+// pickProbeKind sets the probe kind of one port map (TunnelEdit; nothing
+// restarts).
+func pickProbeKind(id string, p api.PortMapDTO) *listScreen {
+	spec := specOf(p.Listen, p.Proto)
+	cur := orDefault(p.Probe, config.ProbeAuto)
+	title := i18n.T(i18n.TUIPtProbeTitle, id+" "+spec)
+	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIPtProbeKind, spec, id, cur)}
+	for _, k := range []struct {
+		kind string
+		key  i18n.Key
+	}{
+		{config.ProbeAuto, i18n.TUIProbeAuto},
+		{config.ProbeTCP, i18n.TUIProbeTCP},
+		{config.ProbeTLS, i18n.TUIProbeTLS},
+		{config.ProbeHTTP, i18n.TUIProbeHTTP},
+	} {
+		label := i18n.T(k.key)
+		if k.kind == cur {
+			label += i18n.T(i18n.TUICurrent)
+		}
+		l.fixed = append(l.fixed, choice{label: label, value: k.kind})
+	}
+	l.pick = func(a *app, c choice) tea.Cmd {
+		kind := c.value.(string)
+		if kind == cur {
+			return a.back(i18n.T(i18n.TUINothingChanged))
+		}
+		req := api.TunnelEditRequest{PortProbes: []api.PortSpec{{Listen: p.Listen, Proto: p.Proto, Probe: kind}}}
+		return a.replace(newTask(title, longTimeout, func(ctx context.Context, l api.Local, progress func(api.Step)) (any, error) {
+			return l.TunnelEdit(ctx, id, req, progress)
+		}, textResult(i18n.T(i18n.TUIPtProbeSet, spec, id, kind))))
 	}
 	return l
 }
@@ -108,7 +202,7 @@ func portCheckForm(a *app) screen {
 	return newForm(title, "", fields, func(a *app, v map[string]string) tea.Cmd {
 		specs, _ := ports.ParseInput(v["port"])
 		req := api.PortCheckRequest{Port: specs[0].Listen, Proto: specs[0].Proto, Node: v["node"]}
-		t := newTask(title+": "+specs[0].String(), checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+		t := newTask(titleOf(i18n.TUIPtCheck, specs[0].String()), checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 			return l.PortCheck(ctx, req)
 		}, func(a *app, v any) string {
 			r, _ := v.(api.PortCheckResult)

@@ -74,7 +74,7 @@ deyroute restore /root/deyroute-backup-20260930T120000Z.tar.gz.age
 
 ۲. `config.yaml` داخل بکاپ اعتبارسنجی می‌شود و اگر قدیمی باشد به شکل جدید تبدیل (migrate) می‌شود.
 
-۳. اگر بکاپ مال Hub باشد و IP عمومی این سرور فرق داشته باشد، می‌پرسد آیا Hub به اینجا منتقل شده ([جابه‌جایی Hub](hub-move.md)).
+۳. اگر بکاپ مال Hub باشد و IP عمومی این سرور فرق داشته باشد، می‌پرسد آیا Hub به اینجا منتقل شده ([جابه‌جایی Hub](hub-move.md)). منو هم همین سؤال را می‌پرسد. اگر جواب بله باشد، متن تأیید پایین این را هم می‌گوید: `The hub address changes from 5.6.7.8 to 7.7.7.7; the hub certificate is re-issued.`
 
 ۴. با تایپ `yes` تأیید می‌کنید:
 
@@ -91,6 +91,8 @@ DEYROUTE_BACKUP_PASSPHRASE='long secret phrase' deyroute restore /root/hub.tar.g
 ```
 
 بکاپ Node هم به همین شکل روی Node ریستور می‌شود و Node خودش دوباره به Hubش وصل می‌شود. ریستور روی سروری که با `install.sh --no-setup` نصب شده هم کار می‌کند.
+
+بعد از جابه‌جایی Hub، گزینه ۳ همین منو آدرس جدید را به Nodeها می‌دهد: روی Hub قدیم `3) Announce hub move` و روی هر Node `3) Set hub address` ([جابه‌جایی Hub](hub-move.md)).
 
 ## خطاها
 

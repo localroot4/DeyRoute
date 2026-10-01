@@ -40,7 +40,7 @@ deyroute restore /root/deyroute-backup-20260930T120000Z.tar.gz.age
 This server's public IP is 7.7.7.7, but the backup's hub address is 5.6.7.8. Use this server's address (the hub moved here)? [Y/n]
 ```
 
-جواب بله بدهید. بعد فهرست چیزهایی که جایگزین می‌شوند نشان داده می‌شود — `yes` تایپ کنید. گواهی Hub با همان CA برای آدرس جدید دوباره صادر می‌شود، سرویس روشن می‌شود و همه تانل‌ها را دوباره می‌سازد. آخر خروجی قدم بعدی را می‌گوید:
+جواب بله بدهید. بعد فهرست چیزهایی که جایگزین می‌شوند و عوض شدن آدرس Hub نشان داده می‌شود — `yes` تایپ کنید. گواهی Hub با همان CA برای آدرس جدید دوباره صادر می‌شود، سرویس روشن می‌شود و همه تانل‌ها را دوباره می‌سازد. آخر خروجی قدم بعدی را می‌گوید:
 
 ```text
 Hub ir-1 restored.
@@ -48,6 +48,8 @@ If the hub moved to this server, tell the nodes the new address:
   on the old hub:   deyroute hub announce-move 7.7.7.7:44433
   or on each node:  deyroute node set-hub 7.7.7.7:44433
 ```
+
+در منو: `10) Backup & Restore` ← `2) Restore from a backup` همین سؤال را می‌پرسد (`Use this server's address (the hub moved here)? (y/n) [y]`) و نتیجه‌اش گزینه‌های منوی قدم ۴ را نام می‌برد.
 
 **۴. روی Hub قدیم — به Nodeها خبر بدهید.** تا وقتی Hub قدیم روشن است و Nodeها هنوز به آن وصل‌اند:
 
@@ -59,11 +61,15 @@ deyroute hub announce-move 7.7.7.7:44433
 New hub address 7.7.7.7:44433 sent to: de-1, nl-1
 ```
 
+در منو: `10) Backup & Restore` ← `3) Announce hub move`، آدرس `7.7.7.7:44433` را تایپ کنید و برای تأیید Enter بزنید.
+
 هر Node آنلاین آدرس جدید را ذخیره می‌کند و به Hub جدید وصل می‌شود. Nodeهایی که آفلاین بودند فهرست می‌شوند (`Offline, not told: …`)؛ روی هرکدام بزنید:
 
 ```bash
 deyroute node set-hub 7.7.7.7:44433
 ```
+
+یا در منوی همان Node: `10) Backup & Restore` ← `3) Set hub address`.
 
 **۵. روی Hub جدید — بررسی.**
 
@@ -84,7 +90,7 @@ deyroute uninstall
 
 ### اگر Hub قدیم دیگر در دسترس نیست
 
-قدم ۴ را رد کنید و روی همه Nodeها بزنید `deyroute node set-hub NEW_IP:44433`. این دستور حتی وقتی سرویس Node خاموش است هم کار می‌کند (آدرس در `config.yaml` خود Node نوشته می‌شود و در روشن شدن بعدی استفاده می‌شود). ولی بکاپ Hub قدیم را لازم دارید؛ اگر ندارید، بخش «بکاپ ندارم» پایین را ببینید.
+قدم ۴ را رد کنید و روی همه Nodeها بزنید `deyroute node set-hub NEW_IP:44433` (در منو: `10) Backup & Restore` ← `3) Set hub address`). این دستور حتی وقتی سرویس Node خاموش است هم کار می‌کند (آدرس در `config.yaml` خود Node نوشته می‌شود و در روشن شدن بعدی استفاده می‌شود). ولی بکاپ Hub قدیم را لازم دارید؛ اگر ندارید، بخش «بکاپ ندارم» پایین را ببینید.
 
 ## سرور Hub همان است ولی IP آن عوض شده
 
@@ -101,6 +107,8 @@ deyroute config edit
 ```bash
 deyroute node set-hub NEW_IP:44433
 ```
+
+(در منو: `10) Backup & Restore` ← `3) Set hub address`).
 
 ۳. با `deyroute node list` بررسی کنید و بعد IP جدید را به کاربران بدهید.
 

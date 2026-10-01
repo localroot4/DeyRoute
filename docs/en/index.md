@@ -116,6 +116,12 @@ screen. Items marked `*` appear only in Advanced mode
  0) Exit
 ```
 
+On a node server the menu keeps these numbers. Items only the hub can do
+are marked `(hub only)`; picking one says that it is managed in the hub's
+menu. A node has `1) Dashboard`, `6) Diagnostics` (logs, doctor),
+`10) Backup & Restore` (with `3) Set hub address` after a
+[hub move](hub-move.md)) and `12) Settings` (uninstall).
+
 Everything the menu does is also a command. `deyroute --help` lists them and
 `deyroute <command> --help` shows flags and examples. Every command accepts
 `--json` for scripts ([schema](../cli-json.md)) and `--debug` (or

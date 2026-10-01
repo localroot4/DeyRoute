@@ -121,7 +121,7 @@ func TestAddTunnelOpensFirewall(t *testing.T) {
 	h := newHarness(t, Options{Caps: Caps{Unicode: true, Width: 200}, Local: stub})
 	h.choose("2").choose("1").typeLine("443,2053")
 	h.must("✔ 443/tcp is free", "the firewall (ufw) blocks it", "Open it with: ufw allow 443/tcp",
-		" 1) Change port", " 2) Skip this port", " 3) Open the 2 blocked ports in the firewall",
+		" 1) Change port", " 2) Skip", " 3) Open the 2 blocked ports in the firewall",
 		" 4) Keep these 2 ports and continue (users may not reach them)")
 	h.mustNot("3. Confirm")
 	h.choose("3")

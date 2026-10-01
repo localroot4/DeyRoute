@@ -32,6 +32,8 @@ const (
 	uiAdvanced = config.UIModeAdvanced
 	uiSimple   = config.UIModeSimple
 	stUp       = state.StateUp
+	roleHub    = config.RoleHub
+	roleNode   = config.RoleNode
 )
 
 // paint colors s when the terminal supports colors.
@@ -349,8 +351,50 @@ func atoi(s string) int {
 	return n
 }
 
-// kv renders an aligned "  Label       value" line.
-func kv(label, value string) string { return "  " + pad(label, 12) + " " + value + "\n" }
+// kvTable collects "Label  value" rows of one block; String aligns the
+// values two columns after the widest label of the block.
+type kvTable struct{ rows [][2]string }
+
+func (t *kvTable) add(label, value string) { t.rows = append(t.rows, [2]string{label, value}) }
+
+func (t *kvTable) String() string {
+	w := 0
+	for _, r := range t.rows {
+		w = max(w, width(r[0]))
+	}
+	var b strings.Builder
+	for _, r := range t.rows {
+		b.WriteString("  " + pad(r[0], w+2) + r[1] + "\n")
+	}
+	return b.String()
+}
+
+// itemName is a menu item's label used as a page title: without the " *"
+// that marks Advanced items in the lists.
+func itemName(k i18n.Key) string { return strings.TrimSuffix(i18n.T(k), " *") }
+
+// subTitle is the title of a page opened from a sub-menu:
+// "Tunnels - Edit tunnel".
+func subTitle(menu, item i18n.Key) string {
+	return i18n.T(i18n.TUITitleSub, itemName(menu), itemName(item))
+}
+
+// titleOf is the title of a page about one tunnel, node or port:
+// "Edit tunnel: main".
+func titleOf(item i18n.Key, what string) string {
+	return i18n.T(i18n.TUITitleOf, itemName(item), what)
+}
+
+// sizeText formats a byte count: "3.8 GiB", "1.2 MiB", "12 KiB".
+func sizeText(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return i18n.T(i18n.TUIGiB, float64(n)/(1<<30))
+	case n >= 1<<20:
+		return i18n.T(i18n.TUIMiB, float64(n)/(1<<20))
+	}
+	return i18n.T(i18n.TUIKiB, (max(n, 0)+1023)/1024)
+}
 
 // chooser collects "number + Enter" input.
 type chooser struct{ input string }

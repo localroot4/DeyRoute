@@ -22,6 +22,7 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/firewall"
+	"github.com/localroot4/deyroute/internal/i18n"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/tlsutil"
@@ -802,7 +803,7 @@ func (l *local) SecurityRotateTokens(ctx context.Context, tunnel string, progres
 	var first error
 	for _, t := range tunnels {
 		id := "rotate:" + t.ID
-		title := "rotate the backend token of tunnel " + t.ID
+		title := i18n.T(i18n.HubTitleRotate, t.ID)
 		rep.emitTitled(api.Step{ID: id, Title: title, Status: api.StepRunning})
 		tok, err := h.secretStore().RotateToken(t.ID)
 		if err == nil {

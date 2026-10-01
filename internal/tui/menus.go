@@ -11,6 +11,7 @@ import (
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/i18n"
+	"github.com/localroot4/deyroute/internal/sysctl"
 )
 
 // ---- 7 Optimize
@@ -93,9 +94,19 @@ func renderKV(m map[string]string, sep string) string {
 	return b.String()
 }
 
+// pickProfile offers the three profiles. The hub's RAM decides which one
+// is recommended (section 12: aggressive only from 4 GB), and aggressive on
+// a smaller hub is confirmed with a warning.
 func pickProfile() *listScreen {
 	title := i18n.T(i18n.TUIOpApply)
-	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIOpPick)}
+	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIOpPick), load: loadOptimize}
+	l.header = func(_ *app, v any) string {
+		o, _ := v.(api.OptimizeStatus)
+		if o.MemBytes == 0 || o.Recommended == "" {
+			return ""
+		}
+		return indent(i18n.T(i18n.TUIOpRecommend, o.MemBytes>>20, o.Recommended)) + "\n"
+	}
 	for _, p := range []struct {
 		id  string
 		key i18n.Key
@@ -108,7 +119,11 @@ func pickProfile() *listScreen {
 	}
 	l.pick = func(a *app, c choice) tea.Cmd {
 		profile := c.value.(string)
-		return a.replace(newConfirm(title, i18n.T(i18n.TUIOpApplyConfirm, profile), false, func(a *app) tea.Cmd {
+		text := i18n.T(i18n.TUIOpApplyConfirm, profile)
+		if o, _ := l.data.(api.OptimizeStatus); profile == config.SysctlAggressive && o.MemBytes > 0 && !sysctl.RecommendAggressive(o.MemBytes) {
+			text = i18n.T(i18n.TUIOpSmallRAM, o.MemBytes>>20) + "\n\n" + text
+		}
+		return a.replace(newConfirm(title, text, false, func(a *app) tea.Cmd {
 			return a.replace(newTask(title, callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 				return l.OptimizeApply(ctx, profile)
 			}, func(a *app, v any) string {
@@ -122,14 +137,13 @@ func pickProfile() *listScreen {
 // ---- 8 Security
 
 func securityMenu(a *app) screen {
-	title := i18n.T(i18n.MenuSecurity)
 	return newMenu(a, i18n.MenuSecurity, i18n.TUIHelpSecurity, []menuItem{
 		{label: i18n.TUISeRotate, act: func(a *app) tea.Cmd { return a.push(pickRotate()) }},
 		{label: i18n.TUISeTLS, act: func(a *app) tea.Cmd { return a.push(tlsMenu(a)) }},
 		{label: i18n.TUISeRenew, act: func(a *app) tea.Cmd {
-			return a.push(pickTunnel(title+" - "+i18n.T(i18n.TUISeRenew), func(a *app, t api.TunnelInfo) tea.Cmd {
+			return a.push(pickTunnel(subTitle(i18n.MenuSecurity, i18n.TUISeRenew), func(a *app, t api.TunnelInfo) tea.Cmd {
 				id := t.ID
-				return a.push(newTask(i18n.T(i18n.TUISeRenew)+": "+id, longTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+				return a.push(newTask(titleOf(i18n.TUISeRenew, id), longTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 					return l.SecurityTLSRenew(ctx, id)
 				}, renderCerts))
 			}))
@@ -231,11 +245,13 @@ func renderTLSSettings(a *app, v any) string {
 	case api.ACMENone:
 		challenge = a.paint(colYellow, i18n.T(i18n.TUISeChNone))
 	}
-	out := kv(i18n.T(i18n.TUISeDomainLabel), domain) + kv(i18n.T(i18n.TUISeChLabel), challenge)
+	var t kvTable
+	t.add(i18n.T(i18n.TUISeDomainLabel), domain)
+	t.add(i18n.T(i18n.TUISeChLabel), challenge)
 	if a.advanced && h.ACMEEmail != "" {
-		out += kv(i18n.T(i18n.TUISeEmailLabel), clean(h.ACMEEmail))
+		t.add(i18n.T(i18n.TUISeEmailLabel), clean(h.ACMEEmail))
 	}
-	return out
+	return t.String()
 }
 
 // acmeForm asks one TLS setting and saves it with SettingsSet ("-" removes
@@ -291,8 +307,8 @@ func pickRotate() *listScreen {
 		derive: func(a *app, v any) []choice {
 			ts, _ := v.([]api.TunnelInfo)
 			out := []choice{{label: i18n.T(i18n.TUISeAllTunnels), value: ""}}
-			for _, t := range ts {
-				out = append(out, choice{label: a.tunnelLabel(t), value: t.ID})
+			for i, label := range a.tunnelLabels(ts) {
+				out = append(out, choice{label: label, value: ts[i].ID})
 			}
 			return out
 		},
@@ -448,10 +464,14 @@ func notifyMenu(a *app) screen {
 
 // ---- 10 Backup & Restore
 
+// backupMenu also holds the hub move (section 5): item 3 is Announce hub
+// move on a hub and Set hub address on a node.
 func backupMenu(a *app) screen {
 	return newMenu(a, i18n.MenuBackup, i18n.TUIHelpBackup, []menuItem{
 		{label: i18n.TUIBuCreate, act: func(a *app) tea.Cmd { return a.push(backupForm(a)) }},
 		{label: i18n.TUIBuRestore, act: func(a *app) tea.Cmd { return a.push(restoreForm(a)) }},
+		{label: i18n.TUIBuAnnounce, role: roleHub, act: func(a *app) tea.Cmd { return a.push(announceForm(a)) }},
+		{label: i18n.TUIBuSetHub, role: roleNode, act: func(a *app) tea.Cmd { return a.push(setHubForm(a)) }},
 	})
 }
 
@@ -492,29 +512,131 @@ func backupForm(a *app) screen {
 	})
 }
 
+// restoreForm reads the backup first (RestoreCheck), asks the moved-hub
+// question when a hub backup names another address than this server's,
+// then states what the restore replaces, the address change included,
+// before the typed yes (as deyroute restore does).
 func restoreForm(a *app) screen {
 	title := i18n.T(i18n.TUIBuRestore)
-	fn := a.opts.Restore
+	check, fn := a.opts.RestoreCheck, a.opts.Restore
 	return newForm(title, "", []field{
 		{key: "path", label: i18n.T(i18n.TUIBuPath)},
 		{key: "pass", label: i18n.T(i18n.TUIBuRestPass), masked: true, optional: true},
 	}, func(a *app, v map[string]string) tea.Cmd {
 		path, pass := v["path"], v["pass"]
-		return a.replace(newConfirm(title, i18n.T(i18n.TUIBuRestoreLost, path), true, func(a *app) tea.Cmd {
-			return a.replace(newLocalTask(title, func(ctx context.Context) (any, error) {
-				if fn == nil {
-					return nil, uiErr(i18n.TUINotAvailable)
+		restore := func(ctx context.Context, ip string) (string, error) { return fn(ctx, path, pass, ip) }
+		t := newLocalTask(title, func(ctx context.Context) (any, error) {
+			if check == nil || fn == nil {
+				return nil, uiErr(i18n.TUINotAvailable)
+			}
+			return check(ctx, path, pass)
+		}, nil)
+		t.cancellable = true // reads the backup only
+		t.next = func(_ *app, v any) screen {
+			p, _ := v.(RestorePlan)
+			if p.MovedIP == "" {
+				return restoreConfirm(title, p, "", restore)
+			}
+			return newForm(title, i18n.T(i18n.TUIBuMovedIntro, p.MovedIP, p.OldIP), []field{
+				{key: "move", label: i18n.T(i18n.TUIBuMoveField), def: "y", check: checkYes},
+			}, func(a *app, v map[string]string) tea.Cmd {
+				ip := ""
+				if move, _ := parseYes(v["move"]); move {
+					ip = p.MovedIP
 				}
-				return fn(ctx, path, pass)
-			}, func(_ *app, v any) string {
-				msg := i18n.T(i18n.TUIBuRestored)
-				if s, _ := v.(string); s != "" {
-					msg += "\n\n" + s
+				return a.replace(restoreConfirm(title, p, ip, restore))
+			})
+		}
+		return a.replace(t)
+	})
+}
+
+// restoreConfirm states what the restore replaces (and the new hub
+// address ip, when the owner chose the move) and restores after the typed
+// yes.
+func restoreConfirm(title string, p RestorePlan, ip string, restore func(ctx context.Context, ip string) (string, error)) screen {
+	text := p.Lost
+	if ip != "" {
+		text += "\n" + i18n.T(i18n.CLIRestoreMove, p.OldIP, ip)
+	}
+	return newConfirm(title, text, true, func(a *app) tea.Cmd {
+		return a.replace(newLocalTask(title, func(ctx context.Context) (any, error) {
+			return restore(ctx, ip)
+		}, func(_ *app, v any) string {
+			msg := i18n.T(i18n.TUIBuRestored)
+			if s, _ := v.(string); s != "" {
+				msg += "\n\n" + s
+			}
+			return indent(msg) + "\n"
+		}))
+	})
+}
+
+// announceForm is Announce hub move on the old hub (section 5, deyroute hub
+// announce-move): every online node gets the new address; the offline
+// ones are listed with what to run there.
+func announceForm(a *app) screen {
+	title := i18n.T(i18n.TUIBuAnnounce)
+	port := a.ctlPort
+	if port <= 0 {
+		port = config.DefaultControlPort
+	}
+	return newForm(title, i18n.T(i18n.TUIBuAnnounceIntro), []field{
+		{key: "addr", label: i18n.T(i18n.TUIBuNewAddr), hint: i18n.T(i18n.TUIBuNewAddrHint, port), check: checkHostPort},
+	}, func(a *app, v map[string]string) tea.Cmd {
+		addr := v["addr"]
+		return a.replace(newConfirm(title, i18n.T(i18n.TUIBuAnnounceConfirm, addr), false, func(a *app) tea.Cmd {
+			return a.replace(newTask(title, checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+				return l.HubAnnounceMove(ctx, addr)
+			}, func(a *app, v any) string {
+				r, _ := v.(api.AnnounceResult)
+				sent := strings.Join(r.Accepted, ", ")
+				if sent == "" {
+					sent = i18n.T(i18n.TUIDash)
 				}
-				return indent(msg) + "\n"
+				out := indent(i18n.T(i18n.CLIHubAnnounced, addr, sent)) + "\n"
+				if len(r.Offline) > 0 {
+					off := a.sym().warn + " " + i18n.T(i18n.TUIBuAnnounceOffline, strings.Join(r.Offline, ", "), addr)
+					out += a.paint(colYellow, indent(off)) + "\n"
+				}
+				return out
 			}))
 		}))
 	})
+}
+
+// setHubForm is Set hub address on a node (deyroute node set-hub): the hub
+// moved and this node connects to its new address. It works with the node
+// agent stopped too (Options.SetHub saves the address for its next start).
+func setHubForm(a *app) screen {
+	title := i18n.T(i18n.TUIBuSetHub)
+	fn, service := a.opts.SetHub, a.opts.Service
+	return newForm(title, i18n.T(i18n.TUIBuSetHubIntro, a.status.HubAddr), []field{
+		{key: "addr", label: i18n.T(i18n.TUIBuHubAddr), hint: i18n.T(i18n.TUIBuHubAddrHint), check: checkHostPort},
+	}, func(a *app, v map[string]string) tea.Cmd {
+		addr := v["addr"]
+		t := newLocalTask(title, func(ctx context.Context) (any, error) {
+			if fn == nil {
+				return nil, uiErr(i18n.TUINotAvailable)
+			}
+			return fn(ctx, addr)
+		}, func(_ *app, v any) string {
+			if running, _ := v.(bool); !running {
+				return indent(i18n.T(i18n.CLINodeSetHubOffline, addr, service)) + "\n"
+			}
+			return indent(i18n.T(i18n.CLINodeSetHubDone, addr)) + "\n"
+		})
+		t.onOK = func(a *app, _ any) { a.status.HubAddr = addr }
+		return a.replace(t)
+	})
+}
+
+// checkHostPort accepts the address of a hub: IP:port (or name:port).
+func checkHostPort(v string, _ map[string]string) error {
+	if config.ValidHostPort(v) {
+		return nil
+	}
+	return uiErr(i18n.TUIWantHostPort)
 }
 
 // ---- 11 Update
@@ -639,8 +761,9 @@ func renderBackendUpdates(a *app, v any) string {
 
 func settingsMenu(a *app) screen {
 	return newMenu(a, i18n.MenuSettings, i18n.TUIHelpSettings, []menuItem{
-		{label: i18n.TUIStMode, act: func(a *app) tea.Cmd { return a.push(pickMode(a)) }},
-		{label: i18n.TUIStLang, act: func(a *app) tea.Cmd { return a.push(pickLanguage()) }},
+		// UI mode and language are hub settings; a node only uninstalls.
+		{label: i18n.TUIStMode, role: roleHub, act: func(a *app) tea.Cmd { return a.push(pickMode(a)) }},
+		{label: i18n.TUIStLang, role: roleHub, act: func(a *app) tea.Cmd { return a.push(pickLanguage()) }},
 		{label: i18n.TUIStUninstall, act: func(a *app) tea.Cmd { return a.push(uninstallForm(a)) }},
 	})
 }

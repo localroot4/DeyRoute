@@ -131,6 +131,8 @@ func TestCollectEverything(t *testing.T) {
 	require.Equal(t, "active", col.UnitStates[systemd.HubUnit])
 	require.Equal(t, 7, col.UnitRestarts["deyroute-tun@main.de-1.backhaul-wssmux.service"])
 	require.True(t, col.BBRActive)
+	require.True(t, col.BBRAvailable)
+	require.False(t, col.BBRApplied, "the fake 99-deyroute.conf has no tcp_congestion_control line")
 	require.Equal(t, "balanced", col.SysctlProfile)
 	require.Len(t, col.Certs, 2)
 
@@ -148,6 +150,32 @@ func TestCollectEverything(t *testing.T) {
 	var empty Facts
 	col.Apply(&empty)
 	require.NotEmpty(t, empty.Sections)
+}
+
+// TestCollectBBRForR11: R11 reports BBR only when the applied profile sets
+// it, the kernel has it and does not use it.
+func TestCollectBBRForR11(t *testing.T) {
+	c, _, root := newCollector(t)
+	writeFile(t, root, "/etc/sysctl.d/99-deyroute.conf",
+		"# managed by deyroute (profile: balanced)\nnet.core.default_qdisc = fq\nnet.ipv4.tcp_congestion_control = bbr\n")
+	writeFile(t, root, "/proc/sys/net/ipv4/tcp_congestion_control", "cubic\n")
+	r11 := func() []string {
+		f := Facts{Role: "hub", Now: testNow}
+		c.Collect(context.Background()).Apply(&f)
+		require.True(t, f.BBRApplied)
+		var out []string
+		for _, fd := range Run(f) {
+			if fd.Rule == RuleTuning {
+				out = append(out, fd.Message)
+			}
+		}
+		return out
+	}
+	require.Equal(t, []string{"BBR is set by the balanced profile but the kernel does not use it"}, r11())
+
+	// A kernel without tcp_bbr: section 12 skips BBR, nothing to fix.
+	writeFile(t, root, "/proc/sys/net/ipv4/tcp_available_congestion_control", "reno cubic\n")
+	require.Empty(t, r11())
 }
 
 func TestCollectorOS(t *testing.T) {

@@ -106,10 +106,15 @@ func (a *agent) uninstall(ctx context.Context) error {
 }
 
 // sysctlApply answers sysctl.apply (section 12, only after the owner
-// agreed on the hub).
-func (a *agent) sysctlApply(args api.SysctlArgs) error {
+// agreed on the hub). BBR follows the hub's tuning.bbr; only a hub that
+// does not send it leaves the choice to this node's config. The warnings
+// (BBR or keys skipped, aggressive on a small server) go back to the hub,
+// which shows them to the owner.
+func (a *agent) sysctlApply(args api.SysctlArgs) (api.SysctlResult, error) {
 	bbr := true
-	if cfg, err := config.Load(a.cfgPath); err == nil && cfg.Tuning != nil {
+	if args.BBR != nil {
+		bbr = *args.BBR
+	} else if cfg, err := config.Load(a.cfgPath); err == nil && cfg.Tuning != nil {
 		bbr = cfg.Tuning.BBR
 	}
 	applied, warnings, err := sysctl.Manager{Root: a.o.Root}.ApplyWith(sysctl.ApplyOptions{
@@ -119,10 +124,10 @@ func (a *agent) sysctlApply(args api.SysctlArgs) error {
 		a.log.Warn("sysctl: "+w, slog.String("profile", args.Profile))
 	}
 	if err != nil {
-		return err
+		return api.SysctlResult{}, err
 	}
 	a.log.Info("sysctl profile applied", slog.String("profile", args.Profile), slog.Int("keys", len(applied)))
-	return nil
+	return api.SysctlResult{Warnings: warnings}, nil
 }
 
 // doctorData collects this node's doctor sections and findings (doctor

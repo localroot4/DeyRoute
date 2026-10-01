@@ -13,6 +13,7 @@ import (
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/ports"
 	"github.com/localroot4/deyroute/internal/state"
+	"github.com/localroot4/deyroute/internal/tui"
 	"github.com/localroot4/deyroute/internal/version"
 )
 
@@ -295,20 +296,13 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 	return b.String()
 }
 
-// eventWord is the short event type of LAST EVENTS ("switch", "down").
-func eventWord(t string) string {
-	switch t {
-	case state.EvTunnelUp:
-		return i18n.T(i18n.TUIEvUp)
-	case state.EvTunnelDegraded:
-		return i18n.T(i18n.TUIEvDegraded)
-	case state.EvTunnelDown:
-		return i18n.T(i18n.TUIEvDown)
-	case state.EvSwitchTransport, state.EvSwitchNode:
-		return i18n.T(i18n.TUIEvSwitch)
-	}
-	return t
-}
+// eventWord is the short event type of LAST EVENTS ("switch", "node
+// offline"), the same word as in the menu's dashboard.
+func eventWord(t string) string { return tui.EventWord(t) }
+
+// eventCap caps the tunnel and type columns of LAST EVENTS (as the menu
+// does): a long id is cut instead of pushing the messages away.
+const eventCap = 16
 
 // eventWho is the tunnel or node an event is about.
 func eventWho(e state.Event) string {
@@ -322,24 +316,20 @@ func eventWho(e state.Event) string {
 }
 
 // eventMessage is the event's text, its probe reason when it has none.
-func eventMessage(e state.Event) string {
-	msg := e.Message
-	if msg == "" {
-		msg = e.Reason
-	}
-	return clean(msg)
-}
+func eventMessage(e state.Event) string { return tui.EventMessage(e) }
 
 // eventLines renders LAST EVENTS in local time.
 func (g *Globals) eventLines(evs []state.Event) string {
+	ell := g.sym().ell
 	whoW, typW := 0, 0
 	for _, e := range evs {
-		whoW = max(whoW, width(eventWho(e)))
-		typW = max(typW, width(eventWord(e.Type)))
+		whoW = max(whoW, min(eventCap, width(eventWho(e))))
+		typW = max(typW, min(eventCap, width(eventWord(e.Type))))
 	}
 	var b strings.Builder
 	for _, e := range evs {
-		line := "  " + localTime(e.At, "15:04:05") + "  " + pad(eventWho(e), whoW+3) + pad(eventWord(e.Type), typW+3) + eventMessage(e)
+		who, typ := trunc(eventWho(e), whoW, ell), trunc(eventWord(e.Type), typW, ell)
+		line := "  " + localTime(e.At, "15:04:05") + "  " + pad(who, whoW+3) + pad(typ, typW+3) + eventMessage(e)
 		b.WriteString(strings.TrimRight(line, " ") + "\n")
 	}
 	return b.String()

@@ -222,19 +222,38 @@ func TestTUIWiring(t *testing.T) {
 		return res, nil
 	}
 	e.g.DetectIP = func(context.Context) (string, bool, error) { return "9.9.9.9", false, nil }
-	sum, err := got.Restore(context.Background(), bpath, "")
+	// Same server: no moved-hub question, the backup's address stays.
+	plan, err := got.RestoreCheck(context.Background(), bpath, "")
 	require.NoError(t, err)
-	require.Empty(t, ro.PublicIP) // same server
+	require.Empty(t, plan.MovedIP)
+	require.Contains(t, plan.Lost, "Restoring t.tar.gz (hub ir-1, created ")
+	require.NotContains(t, plan.Lost, "address changes")
+	sum, err := got.Restore(context.Background(), bpath, "", plan.MovedIP)
+	require.NoError(t, err)
+	require.Empty(t, ro.PublicIP)
 	require.NotContains(t, sum, "address changes")
+	// Another server: the menu asks with the detected address, then
+	// restores with the address the owner chose.
 	require.NoError(t, os.Remove(filepath.Join(e.root, "etc/deyroute/config.yaml")))
-	sum, err = got.Restore(context.Background(), bpath, "")
+	plan, err = got.RestoreCheck(context.Background(), bpath, "")
+	require.NoError(t, err)
+	require.Equal(t, "9.9.9.9", plan.MovedIP)
+	require.Equal(t, "5.6.7.8", plan.OldIP)
+	sum, err = got.Restore(context.Background(), bpath, "", plan.MovedIP)
 	require.NoError(t, err)
 	require.Equal(t, "9.9.9.9", ro.PublicIP)
 	require.Nil(t, ro.Progress)
-	// The menu says that the hub moved and what to do on the nodes.
+	// The menu says that the hub moved and what to do on the nodes, by
+	// menu item and by command.
 	require.Contains(t, sum, "to 9.9.9.9; the hub certificate is re-issued")
-	require.Contains(t, sum, "deyroute hub announce-move 9.9.9.9")
-	_, err = got.Restore(context.Background(), filepath.Join(e.root, "none"), "")
+	require.Contains(t, sum, "10) Backup & Restore -> 3) Announce hub move")
+	require.Contains(t, sum, "deyroute hub announce-move 9.9.9.9:44433")
+	_, err = got.Restore(context.Background(), bpath, "", "")
+	require.NoError(t, err)
+	require.Empty(t, ro.PublicIP) // the owner answered no
+	_, err = got.RestoreCheck(context.Background(), filepath.Join(e.root, "none"), "")
+	require.Error(t, err)
+	_, err = got.Restore(context.Background(), filepath.Join(e.root, "none"), "", "")
 	require.Error(t, err)
 
 	var uo setup.UninstallOptions
@@ -252,6 +271,13 @@ func TestTUIWiring(t *testing.T) {
 	require.Equal(t, "deyroute-node", got.Service)
 	require.Equal(t, "de-1", got.Status.Name)
 	require.Equal(t, "5.6.7.8:44433", got.Status.HubAddr)
+	// Set hub address with the node agent stopped writes node.hub_addr.
+	saved := ""
+	e.g.Ops.SetHubAddr = func(_, addr string) error { saved = addr; return nil }
+	running, err := got.SetHub(context.Background(), "5.6.7.9:44433")
+	require.NoError(t, err)
+	require.False(t, running)
+	require.Equal(t, "5.6.7.9:44433", saved)
 }
 
 func TestErrorPrinting(t *testing.T) {

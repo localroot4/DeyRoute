@@ -385,27 +385,71 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// eventWord is the short type shown in LAST EVENTS ("switch", "down").
-func eventWord(t string) string {
-	switch t {
-	case state.EvTunnelUp:
-		return i18n.T(i18n.TUIEvUp)
-	case state.EvTunnelDegraded:
-		return i18n.T(i18n.TUIEvDegraded)
-	case state.EvTunnelDown:
-		return i18n.T(i18n.TUIEvDown)
-	case state.EvSwitchTransport, state.EvSwitchNode:
-		return i18n.T(i18n.TUIEvSwitch)
-	}
-	return t
+// eventWords is the short word of every event type in LAST EVENTS.
+var eventWords = map[string]i18n.Key{
+	state.EvTunnelUp:          i18n.TUIEvUp,
+	state.EvTunnelDegraded:    i18n.TUIEvDegraded,
+	state.EvTunnelDown:        i18n.TUIEvDown,
+	state.EvSwitchTransport:   i18n.TUIEvSwitch,
+	state.EvSwitchNode:        i18n.TUIEvSwitch,
+	state.EvFailback:          i18n.TUIEvFailback,
+	state.EvFailbackFailed:    i18n.TUIEvFailbackFailed,
+	state.EvFlapping:          i18n.TUIEvFlapping,
+	state.EvNodeOnline:        i18n.TUIEvNodeOnline,
+	state.EvNodeOffline:       i18n.TUIEvNodeOffline,
+	state.EvServiceDown:       i18n.TUIEvServiceDown,
+	state.EvBackendCrash:      i18n.TUIEvBackendCrash,
+	state.EvProbeError:        i18n.TUIEvProbeError,
+	state.EvUpdateApplied:     i18n.TUIEvUpdated,
+	state.EvUpdateRolledBack:  i18n.TUIEvRolledBack,
+	state.EvBackendRolledBack: i18n.TUIEvBackendRollback,
+	state.EvNodeIPChanged:     i18n.TUIEvNodeIP,
+	state.EvACMEFailed:        i18n.TUIEvACMEFailed,
+	state.EvRungSkipped:       i18n.TUIEvRungSkipped,
+	state.EvRungRestored:      i18n.TUIEvRungRestored,
+	state.EvConfigApplied:     i18n.TUIEvConfigApplied,
+	eventUpdateAvailable:      i18n.TUIEvUpdateAvailable,
 }
 
-// renderEvents renders LAST EVENTS in local time.
+// eventUpdateAvailable is the hub's notice of a new release (an event type
+// of the hub daemon, not of the failover engine).
+const eventUpdateAvailable = "update_available"
+
+// Column caps of LAST EVENTS: a long tunnel id or an unknown event type is
+// cut with an ellipsis instead of pushing the messages off the screen.
+const (
+	eventWhoCap  = 16
+	eventTypeCap = 16
+)
+
+// EventWord is the short word of an event type shown in LAST EVENTS
+// ("switch", "node offline"); an unknown type is shown with spaces for
+// its underscores. The CLI status dashboard uses it too.
+func EventWord(t string) string {
+	if k, ok := eventWords[t]; ok {
+		return i18n.T(k)
+	}
+	return strings.ReplaceAll(t, "_", " ")
+}
+
+// EventMessage is the text of an event: its message, else its reason; a
+// message that only repeats the type (the hub's default) is dropped.
+func EventMessage(e state.Event) string {
+	msg := e.Message
+	if msg == "" || msg == e.Type {
+		msg = e.Reason
+	}
+	return clean(msg)
+}
+
+// renderEvents renders LAST EVENTS in local time. The tunnel (or node) and
+// type columns are as wide as their longest cell up to a cap.
 func renderEvents(a *app, evs []state.Event) string {
+	ell := a.sym().ell
 	whoW, typW := 0, 0
 	for _, e := range evs {
-		whoW = max(whoW, width(eventWho(e)))
-		typW = max(typW, width(eventWord(e.Type)))
+		whoW = max(whoW, min(eventWhoCap, width(eventWho(e))))
+		typW = max(typW, min(eventTypeCap, width(EventWord(e.Type))))
 	}
 	var b strings.Builder
 	for _, e := range evs {
@@ -416,16 +460,13 @@ func renderEvents(a *app, evs []state.Event) string {
 		case state.LevelWarn:
 			col = colYellow
 		}
-		typ := eventWord(e.Type)
+		typ := trunc(EventWord(e.Type), typW, ell)
 		cell := pad(typ, typW+3)
 		if col != "" {
 			cell = a.paint(col, typ) + strings.Repeat(" ", typW+3-width(typ))
 		}
-		msg := e.Message
-		if msg == "" {
-			msg = e.Reason
-		}
-		line := "  " + e.At.In(a.opts.Location).Format("15:04:05") + "  " + pad(eventWho(e), whoW+3) + cell + clean(msg)
+		who := pad(trunc(eventWho(e), whoW, ell), whoW+3)
+		line := "  " + e.At.In(a.opts.Location).Format("15:04:05") + "  " + who + cell + EventMessage(e)
 		b.WriteString(clipANSI(a, line) + "\n")
 	}
 	return b.String()

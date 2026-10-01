@@ -54,7 +54,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-C012` | Unknown ladder '{ladder}' in tunnel {tunnel} | the ladder name is not defined under ladders: | use an existing ladder (deyroute ladder list) or create it |
 | `DEY-C013` | Invalid value for {field}: '{value}' | allowed values: {allowed} | correct the value and run: deyroute config validate |
 | `DEY-C014` | Cannot read config {path} | the file is missing, unreadable or not valid YAML | check the file, or restore the last good copy from /var/lib/deyroute/backups/auto/ |
-| `DEY-C015` | Tunnel {tunnel} has {count} port maps (max 64) | a tunnel supports at most 64 port maps | use a port range (e.g. 2000-2010) or split into several tunnels |
+| `DEY-C015` | Tunnel {tunnel} has {count} port maps (max 64) | a tunnel supports at most 64 port maps, and a range counts one map per port | put the other ports in another tunnel (deyroute tunnel add), or remove ports the tunnel no longer needs (deyroute port remove) |
 | `DEY-C016` | Config role '{role}' does not match its sections | a hub config needs hub:, a node config needs node:, and not both | fix role: or the sections; run: deyroute config validate |
 | `DEY-C017` | Could not write config {path} | the atomic write (temp file + rename) failed | check free disk space and permissions on /etc/deyroute |
 | `DEY-C018` | The {kind} id '{id}' cannot be changed | ids are immutable after creation; only the name can change | change the name instead, or delete and re-create |
@@ -99,7 +99,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-P013` | Firewall {firewall} blocks port {port} | an external firewall rule drops traffic to this port | allow it: {command} |
 | `DEY-P014` | Port {port} is not reachable from node {node} | the node could not connect to the hub's public IP on this port (datacenter firewall or routing) | open the port in your provider's firewall panel; run deyroute port check {port} again |
 | `DEY-P015` | UDP is blocked between the hub and node {node} | the UDP echo probe got no answer after 3 tries | UDP transports are skipped automatically; open UDP in the provider firewall to use them |
-| `DEY-P016` | Too many port maps ({count}, max 64) | a tunnel supports at most 64 port maps | use a range such as 2000-2010, or split into two tunnels |
+| `DEY-P016` | Too many port maps ({count}, max 64) | a tunnel supports at most 64 port maps, and a range such as 2000-2100 counts one map per port | split the ports over several tunnels of up to 64 ports each, e.g. 2000-2063 and 2064-2100 |
 | `DEY-P017` | Invalid port range: {input} | a range needs start <= end and both between 1 and 65535 | write it as START-END, e.g. 2000-2010 |
 | `DEY-P018` | No free port found | every candidate port is used or reserved | free a port or enter one manually |
 | `DEY-P019` | Could not apply firewall rules ({firewall}) | the firewall tool returned an error | run deyroute security firewall show and see the log; check that nftables is installed |

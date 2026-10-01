@@ -220,6 +220,12 @@ for `remove`).
 
 `{"schema", "tunnel": TunnelInfo}`
 
+### `deyroute port set <tunnel> <ports> --probe <kind>`
+
+`{"schema", "tunnel": TunnelInfo, "steps": [Step]}`. The new kinds are in
+`tunnel.ports[].probe`; an invalid kind or a port the tunnel does not have
+is the error document `DEY-C013`.
+
 ### `deyroute port check <port>`
 
 The `PortCheckResult` DTO: `{"schema", "port", "proto", "bind_free",

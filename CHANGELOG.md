@@ -91,6 +91,22 @@ All notable changes to DEYROUTE are documented here. The format follows
   firewall found and the typed port (`DEY-P032` when that is not the
   confirmed command, `DEY-P033` when it fails); nftables table and chain
   names must be plain identifiers.
+- Hub move from the menu: `10) Backup & Restore` → `3) Announce hub move` on
+  a hub and `3) Set hub address` on a node (saved directly when the node
+  agent is stopped, as `node set-hub` does); a menu restore asks the
+  moved-hub question and its typed-yes confirmation states the address
+  change and the re-issued certificate.
+- The menu on a node server marks the hub-only items `(hub only)` and
+  explains them instead of answering `DEY-X009`; Diagnostics and Settings
+  list only what works on a node (logs, doctor, uninstall).
+- Per-port probe kind (`auto|tcp|tls|http`, Advanced) from the menu and the
+  CLI: `port add --probe`, the new `port set <tunnel> <ports> --probe`,
+  Ports > `Probe kind *`, and a probe question in Ports > Add port and the
+  Advanced Add-tunnel wizard; checked like `ports[].probe` in `config.yaml`
+  (`DEY-C013`, UDP maps stay `auto`); a kind change restarts nothing.
+- `DEY-P016`/`DEY-C015` no longer advise "use a range" (a range counts one
+  port map per port); they advise splitting the ports over several tunnels.
+- The busy-port option of the Add-tunnel wizard reads `Skip`, as in the spec.
 
 ### Fixed (found by the integration scenarios)
 

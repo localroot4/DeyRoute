@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,17 +133,19 @@ func (l *listScreen) view(a *app) string {
 func numLine(n int, label string) string { return fmt.Sprintf("%2d) %s", n, label) }
 
 // menu builds a sub-menu. Items marked adv are only listed in Advanced mode
-// and always come last so that the other numbers never move.
+// and always come last so that the other numbers never move. Items with a
+// role are only listed on a server with that role (hub or node).
 type menuItem struct {
 	label i18n.Key
 	adv   bool
+	role  string
 	act   func(a *app) tea.Cmd
 }
 
 func newMenu(a *app, title i18n.Key, help i18n.Key, items []menuItem) *listScreen {
 	l := &listScreen{screenBase: screenBase{title: i18n.T(title), help: help}}
 	for _, it := range items {
-		if it.adv && !a.advanced {
+		if (it.adv && !a.advanced) || (it.role != "" && it.role != a.role()) {
 			continue
 		}
 		l.fixed = append(l.fixed, choice{label: i18n.T(it.label), value: it.act})
@@ -153,7 +156,9 @@ func newMenu(a *app, title i18n.Key, help i18n.Key, items []menuItem) *listScree
 
 // ---- form: sequential text questions
 
-// field is one question of a form.
+// field is one question of a form. A field with opts is a numbered choice:
+// the owner types the number of an option (or its value) and Enter on an
+// empty line takes def.
 type field struct {
 	key      string
 	label    string
@@ -161,12 +166,61 @@ type field struct {
 	def      string
 	masked   bool
 	optional bool
+	opts     []fieldOpt
 	check    func(v string, vals map[string]string) error
 	skip     func(vals map[string]string) bool
 }
 
+// fieldOpt is one numbered answer of a choice field: the value stored and
+// the label listed ("transport_only - only transports (current)").
+type fieldOpt struct{ value, label string }
+
+// option returns the value of a choice answer: the option number, or an
+// option's value typed out.
+func (fl field) option(in string) (string, bool) {
+	if n, err := strconv.Atoi(in); err == nil {
+		if n >= 1 && n <= len(fl.opts) {
+			return fl.opts[n-1].value, true
+		}
+		return "", false
+	}
+	for _, o := range fl.opts {
+		if o.value != "" && strings.EqualFold(o.value, in) {
+			return o.value, true
+		}
+	}
+	return "", false
+}
+
+// shown is how an answer of fl is listed after it was given: the value,
+// or for a choice whose value is empty ("none") its label.
+func (fl field) shown(v string) string {
+	if fl.masked {
+		return strings.Repeat("*", len([]rune(v)))
+	}
+	if v == "" {
+		for _, o := range fl.opts {
+			if o.value == "" {
+				return o.label
+			}
+		}
+	}
+	return v
+}
+
+// defNumber is the number of the option def selects (0 = none).
+func (fl field) defNumber() int {
+	for i, o := range fl.opts {
+		if o.value == fl.def {
+			return i + 1
+		}
+	}
+	return 0
+}
+
 // formScreen asks its fields one after the other. Enter on an empty line
-// takes the default; Esc cancels. submit decides where to go next.
+// takes the default; Esc cancels; "?" on an empty line shows the help.
+// submit decides where to go next.
 type formScreen struct {
 	screenBase
 	intro  string
@@ -186,6 +240,8 @@ func newForm(title string, intro string, fields []field, submit func(a *app, val
 }
 
 func (f *formScreen) start(a *app) tea.Cmd { return f.advance(a) }
+
+func (f *formScreen) inputEmpty() bool { return f.input == "" }
 
 // advance skips fields that do not apply; after the last field it submits.
 func (f *formScreen) advance(a *app) tea.Cmd {
@@ -212,8 +268,16 @@ func (f *formScreen) update(a *app, msg tea.Msg) tea.Cmd {
 	if fl.masked {
 		v = f.input
 	}
-	if v == "" {
+	switch {
+	case v == "":
 		v = fl.def
+	case len(fl.opts) > 0:
+		val, ok := fl.option(v)
+		if !ok {
+			f.err = uiErr(i18n.InvalidChoice, v)
+			return nil
+		}
+		v = val
 	}
 	if v == "" && !fl.optional {
 		f.err = uiErr(i18n.TUIRequired)
@@ -237,31 +301,43 @@ func (f *formScreen) view(a *app) string {
 	if f.intro != "" {
 		b.WriteString(indent(f.intro) + "\n\n")
 	}
+	answered := false
 	for i := 0; i < f.idx && i < len(f.fields); i++ {
 		fl := f.fields[i]
-		if _, ok := f.vals[fl.key]; !ok {
-			continue
+		if v, ok := f.vals[fl.key]; ok {
+			b.WriteString(" " + fl.label + ": " + fl.shown(v) + "\n")
+			answered = true
 		}
-		v := f.vals[fl.key]
-		if fl.masked {
-			v = strings.Repeat("*", len([]rune(v)))
-		}
-		b.WriteString(" " + fl.label + ": " + v + "\n")
 	}
 	if f.idx < len(f.fields) {
 		fl := f.fields[f.idx]
+		if answered && (fl.hint != "" || len(fl.opts) > 0) {
+			b.WriteString("\n") // the intro already ends with a blank line
+		}
 		if fl.hint != "" {
-			b.WriteString("\n" + a.paint(colGray, indent(fl.hint)) + "\n")
+			b.WriteString(a.paint(colGray, indent(fl.hint)) + "\n")
 		}
 		in := f.input
 		if fl.masked {
 			in = strings.Repeat("*", len([]rune(in)))
 		}
-		def := ""
-		if fl.def != "" && !fl.masked {
-			def = " [" + fl.def + "]"
+		if len(fl.opts) > 0 {
+			b.WriteString(" " + fl.label + ":\n")
+			for i, o := range fl.opts {
+				b.WriteString(a.clip(numLine(i+1, o.label)) + "\n")
+			}
+			prompt := i18n.T(i18n.PromptChoice)
+			if n := fl.defNumber(); n > 0 {
+				prompt = i18n.T(i18n.TUIChoiceDefault, n)
+			}
+			b.WriteString(prompt + in + "_\n")
+		} else {
+			def := ""
+			if fl.def != "" && !fl.masked {
+				def = " [" + fl.def + "]"
+			}
+			b.WriteString(" " + fl.label + def + ": " + in + "_\n")
 		}
-		b.WriteString(" " + fl.label + def + ": " + in + "_\n")
 	}
 	if f.err != nil {
 		b.WriteString("\n" + a.errBlock(f.err))
@@ -284,6 +360,8 @@ type confirmScreen struct {
 func newConfirm(title, text string, typed bool, yes func(a *app) tea.Cmd) *confirmScreen {
 	return &confirmScreen{screenBase: screenBase{title: title, help: i18n.TUIHelpConfirm, typing: typed}, text: text, typed: typed, yes: yes}
 }
+
+func (c *confirmScreen) inputEmpty() bool { return c.input == "" }
 
 func (c *confirmScreen) update(a *app, msg tea.Msg) tea.Cmd {
 	k, ok := msg.(tea.KeyMsg)
@@ -505,8 +583,8 @@ func (t *taskScreen) view(a *app) string {
 			b.WriteString(t.render(a, t.val))
 		}
 		if label, _ := t.optionItem(a); label != "" {
-			b.WriteString("\n " + numLine(1, label) + "\n " + numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
-			b.WriteString("\n " + i18n.T(i18n.PromptChoice) + t.ch.input + "\n")
+			b.WriteString("\n" + numLine(1, label) + "\n" + numLine(0, i18n.T(i18n.TUIBackItem)) + "\n")
+			b.WriteString("\n" + i18n.T(i18n.PromptChoice) + t.ch.input + "\n")
 			break
 		}
 		b.WriteString("\n " + i18n.T(i18n.TUIPressEnterBack) + "\n")

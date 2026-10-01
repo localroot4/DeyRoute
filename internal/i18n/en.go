@@ -58,6 +58,11 @@ const (
 	MenuSettings         Key = "menu.settings"
 	MenuSettingsDesc     Key = "menu.settings.desc"
 	MenuExit             Key = "menu.exit"
+	// On a node server: the same numbers; hub-only items are marked.
+	MenuHubOnly         Key = "menu.hub_only"
+	MenuDiagnosticsNode Key = "menu.diagnostics.node"
+	MenuBackupNode      Key = "menu.backup.node"
+	MenuSettingsNode    Key = "menu.settings.node"
 )
 
 // CLI.
@@ -107,7 +112,8 @@ var en = map[Key]string{
 	HelpTitle:       "Help",
 	HelpMainMenu: "Type the number of an item and press Enter.\n" +
 		"q or Esc goes back, r refreshes, ? shows this help.\n" +
-		"Items marked * are visible in Advanced mode only (Settings -> ui mode).",
+		"Items marked * are visible in Advanced mode only (Settings -> ui mode).\n" +
+		"On a node, items marked (hub only) are managed in the hub's menu.",
 	DaemonNotRunning: "The deyroute daemon is not running. Start it with: systemctl start %s",
 	Loading:          "Loading…",
 
@@ -137,6 +143,10 @@ var en = map[Key]string{
 	MenuSettings:         "Settings",
 	MenuSettingsDesc:     "ui mode (Simple/Advanced) · language · uninstall",
 	MenuExit:             "Exit",
+	MenuHubOnly:          "(hub only)",
+	MenuDiagnosticsNode:  "logs · doctor",
+	MenuBackupNode:       "backup · restore · set hub address",
+	MenuSettingsNode:     "uninstall",
 
 	CLIShort: "DEYROUTE Tunnel Manager",
 	CLILong: "DEYROUTE builds censorship-resistant tunnels from an Iran hub to foreign nodes\n" +
@@ -205,6 +215,7 @@ const (
 	DoctorR11MsgBBR       Key = "doctor.r11.msg_bbr"
 	DoctorR11MsgOff       Key = "doctor.r11.msg_off"
 	DoctorR11Fix          Key = "doctor.r11.fix"
+	DoctorR11FixBBR       Key = "doctor.r11.fix_bbr"
 	DoctorR12MsgDisk      Key = "doctor.r12.msg_disk"
 	DoctorR12FixDisk      Key = "doctor.r12.fix_disk"
 	DoctorR12MsgMem       Key = "doctor.r12.msg_mem"
@@ -265,9 +276,10 @@ var doctorEN = map[Key]string{
 	DoctorR09Fix:         "update both servers to the same release: deyroute update",
 	DoctorR10Msg:         "UDP is blocked between the hub and node %s: UDP transports are skipped",
 	DoctorR10Fix:         "nothing to do while TCP transports work; skipped rungs are re-tested every 30 minutes",
-	DoctorR11MsgBBR:      "BBR congestion control is not active",
+	DoctorR11MsgBBR:      "BBR is set by the %s profile but the kernel does not use it",
 	DoctorR11MsgOff:      "Kernel tuning is off (sysctl profile off)",
 	DoctorR11Fix:         "apply the recommended profile: deyroute optimize apply --profile balanced",
+	DoctorR11FixBBR:      "apply it again on the hub (it loads tcp_bbr; the nodes get it too): deyroute optimize apply --profile %s",
 	DoctorR12MsgDisk:     "Low disk space on %s: %.1f%% free",
 	DoctorR12FixDisk:     "free space (df -h %s): e.g. journalctl --vacuum-size=100M, old backups in /var/lib/deyroute/backups",
 	DoctorR12MsgMem:      "Low memory: %.1f%% available",
@@ -467,6 +479,8 @@ const (
 	TUIWizAdvIntro        Key = "tui.wiz.adv_intro"
 	TUIWizName            Key = "tui.wiz.name"
 	TUIWizTarget          Key = "tui.wiz.target"
+	TUIWizProbe           Key = "tui.wiz.probe"
+	TUIWizSumProbe        Key = "tui.wiz.sum_probe"
 	TUIWizBackupQ         Key = "tui.wiz.backup_q"
 	TUIWizUnknownNode     Key = "tui.wiz.unknown_node"
 	TUIWizThreshQ         Key = "tui.wiz.thresh_q"
@@ -539,6 +553,19 @@ const (
 	TUIPtPick       Key = "tui.pt.pick"
 	TUIPtRemoveLost Key = "tui.pt.remove_lost"
 	TUIPtNoPorts    Key = "tui.pt.no_ports"
+	TUIPtProbe      Key = "tui.pt.probe"
+	TUIPtProbeTitle Key = "tui.pt.probe_title"
+	TUIPtProbeField Key = "tui.pt.probe_field"
+	TUIPtProbeHint  Key = "tui.pt.probe_hint"
+	TUIPtProbePick  Key = "tui.pt.probe_pick"
+	TUIPtProbeNoTCP Key = "tui.pt.probe_no_tcp"
+	TUIPtProbePort  Key = "tui.pt.probe_port"
+	TUIPtProbeKind  Key = "tui.pt.probe_kind"
+	TUIPtProbeSet   Key = "tui.pt.probe_set"
+	TUIProbeAuto    Key = "tui.probe.auto"
+	TUIProbeTCP     Key = "tui.probe.tcp"
+	TUIProbeTLS     Key = "tui.probe.tls"
+	TUIProbeHTTP    Key = "tui.probe.http"
 
 	// port check (Ports -> Check port, Diagnostics -> Port check)
 	TUIPCPort          Key = "tui.pc.port"
@@ -641,6 +668,8 @@ const (
 	TUIOpReverted      Key = "tui.op.reverted"
 	TUIOpBBRHint       Key = "tui.op.bbr_hint"
 	TUIOpNoValues      Key = "tui.op.no_values"
+	TUIOpRecommend     Key = "tui.op.recommend"
+	TUIOpSmallRAM      Key = "tui.op.small_ram"
 
 	// 8 security
 	TUISeRotate         Key = "tui.se.rotate"
@@ -703,19 +732,34 @@ const (
 	TUINtOffConfirm Key = "tui.nt.off_confirm"
 
 	// 10 backup & restore
-	TUIBuCreate      Key = "tui.bu.create"
-	TUIBuRestore     Key = "tui.bu.restore"
-	TUIBuOut         Key = "tui.bu.out"
-	TUIBuEncrypt     Key = "tui.bu.encrypt"
-	TUIBuPass        Key = "tui.bu.pass"  // #nosec G101 -- i18n key, not a credential
-	TUIBuPass2       Key = "tui.bu.pass2" // #nosec G101 -- i18n key, not a credential
-	TUIBuMismatch    Key = "tui.bu.mismatch"
-	TUIBuSaved       Key = "tui.bu.saved"
-	TUIBuPlainWarn   Key = "tui.bu.plain_warn"
-	TUIBuPath        Key = "tui.bu.path"
-	TUIBuRestPass    Key = "tui.bu.rest_pass" // #nosec G101 -- i18n key, not a credential
-	TUIBuRestoreLost Key = "tui.bu.restore_lost"
-	TUIBuRestored    Key = "tui.bu.restored"
+	TUIBuCreate    Key = "tui.bu.create"
+	TUIBuRestore   Key = "tui.bu.restore"
+	TUIBuOut       Key = "tui.bu.out"
+	TUIBuEncrypt   Key = "tui.bu.encrypt"
+	TUIBuPass      Key = "tui.bu.pass"  // #nosec G101 -- i18n key, not a credential
+	TUIBuPass2     Key = "tui.bu.pass2" // #nosec G101 -- i18n key, not a credential
+	TUIBuMismatch  Key = "tui.bu.mismatch"
+	TUIBuSaved     Key = "tui.bu.saved"
+	TUIBuPlainWarn Key = "tui.bu.plain_warn"
+	TUIBuPath      Key = "tui.bu.path"
+	TUIBuRestPass  Key = "tui.bu.rest_pass" // #nosec G101 -- i18n key, not a credential
+	TUIBuRestored  Key = "tui.bu.restored"
+
+	// 10 backup & restore: hub move (section 5) and the node menu
+	TUIBuMovedIntro      Key = "tui.bu.moved_intro"
+	TUIBuMoveField       Key = "tui.bu.move_field"
+	TUIBuAnnounce        Key = "tui.bu.announce"
+	TUIBuAnnounceIntro   Key = "tui.bu.announce_intro"
+	TUIBuNewAddr         Key = "tui.bu.new_addr"
+	TUIBuNewAddrHint     Key = "tui.bu.new_addr_hint"
+	TUIBuAnnounceConfirm Key = "tui.bu.announce_confirm"
+	TUIBuAnnounceOffline Key = "tui.bu.announce_offline"
+	TUIBuSetHub          Key = "tui.bu.set_hub"
+	TUIBuSetHubIntro     Key = "tui.bu.set_hub_intro"
+	TUIBuHubAddr         Key = "tui.bu.hub_addr"
+	TUIBuHubAddrHint     Key = "tui.bu.hub_addr_hint"
+	TUIWantHostPort      Key = "tui.want_host_port"
+	TUIHubOnlyNote       Key = "tui.hub_only_note"
 
 	// 11 update
 	TUIUpCheck           Key = "tui.up.check"
@@ -938,7 +982,7 @@ var tuiEN = map[Key]string{
 	TUIWizPortBusyAny:     "%s is used by another program",
 	TUIWizPortError:       "%s cannot be used:",
 	TUIWizChange:          "Change port",
-	TUIWizSkip:            "Skip this port",
+	TUIWizSkip:            "Skip",
 	TUIWizStop:            "Stop that service (deyroute tunnel %s)",
 	TUIWizNewPort:         "New port for %s",
 	TUIWizSuggest:         "Free suggestions: %s",
@@ -970,6 +1014,8 @@ var tuiEN = map[Key]string{
 	TUIWizAdvIntro:        "Advanced options. Press Enter to keep the value in brackets.",
 	TUIWizName:            "Tunnel name (empty = automatic)",
 	TUIWizTarget:          "Target for %s (host:port)",
+	TUIWizProbe:           "Probe kind of %s (auto, tcp, tls, http)",
+	TUIWizSumProbe:        "probe %s",
 	TUIWizBackupQ:         "Backup node id (empty = none; available: %s)",
 	TUIWizUnknownNode:     "%s is not an available node.",
 	TUIWizThreshQ:         "Customize failover thresholds? (y/n)",
@@ -1039,6 +1085,19 @@ var tuiEN = map[Key]string{
 	TUIPtPick:       "Choose the port to remove:",
 	TUIPtRemoveLost: "Removing %s from tunnel %s stops forwarding that port for good; the active transport restarts (interruption up to 3 seconds).",
 	TUIPtNoPorts:    "Tunnel %s has no ports.",
+	TUIPtProbe:      "Probe kind *",
+	TUIPtProbeTitle: "Probe kind: %s",
+	TUIPtProbeField: "Probe kind of the TCP ports (auto, tcp, tls, http)",
+	TUIPtProbeHint:  "auto: a TLS hello, any answer counts · tcp: the connection opens\ntls: a TLS handshake or alert · http: an HTTP status line",
+	TUIPtProbePick:  "Choose the port whose probe kind to change:",
+	TUIPtProbeNoTCP: "Tunnel %s has no TCP ports; UDP port maps are not probed by type.",
+	TUIPtProbePort:  "%s  probe: %s",
+	TUIPtProbeKind:  "How should the health probe test %s of tunnel %s (now %s)?",
+	TUIPtProbeSet:   "Probe kind of %s in tunnel %s: %s.",
+	TUIProbeAuto:    "auto  a TLS hello; any answer counts (default)",
+	TUIProbeTCP:     "tcp   the TCP connection opens",
+	TUIProbeTLS:     "tls   a TLS handshake or TLS alert comes back",
+	TUIProbeHTTP:    "http  an HTTP status line comes back (HEAD /)",
 
 	TUIPCPort:          "Port (e.g. 443 or 27015/udp)",
 	TUIPCNode:          "Node id (empty = first online node)",
@@ -1128,8 +1187,8 @@ var tuiEN = map[Key]string{
 	TUIOpBBRAvail:      "available, not active",
 	TUIOpBBRNone:       "not available in this kernel",
 	TUIOpPick:          "Kernel tuning profile:",
-	TUIOpBalanced:      "balanced - recommended: larger buffers, BBR, fq",
-	TUIOpAggressive:    "aggressive - 64MB buffers for fast links, uses more memory",
+	TUIOpBalanced:      "balanced - larger buffers, BBR, fq (the default)",
+	TUIOpAggressive:    "aggressive - 64MB buffers for fast links, for servers with 4 GB RAM or more",
 	TUIOpOff:           "off - do not change kernel settings",
 	TUIOpApplyConfirm:  "The %s sysctl profile is written to /etc/sysctl.d/99-deyroute.conf and applied now. The kernel values from before deyroute are kept and can be restored with Revert.",
 	TUIOpRevertConfirm: "The kernel settings saved before deyroute changed them are restored and 99-deyroute.conf is removed.",
@@ -1137,6 +1196,8 @@ var tuiEN = map[Key]string{
 	TUIOpReverted:      "Kernel settings restored (profile %s).",
 	TUIOpBBRHint:       "BBR is switched on by the balanced and aggressive profiles (1) Apply profile).",
 	TUIOpNoValues:      "No kernel values are applied by deyroute.",
+	TUIOpRecommend:     "This hub has %d MB RAM: %s is recommended (aggressive is for 4 GB or more).",
+	TUIOpSmallRAM:      "This hub has only %d MB RAM. aggressive is meant for servers with 4 GB or more; balanced suits this one better. Nodes with less than 4 GB report the same warning.",
 
 	TUISeRotate:         "Rotate tokens",
 	TUISeTLS:            "TLS certificates",
@@ -1196,19 +1257,33 @@ var tuiEN = map[Key]string{
 	TUINtOffDone:    "Telegram notifications are off.",
 	TUINtOffConfirm: "Telegram notifications stop; the bot token file is not deleted.",
 
-	TUIBuCreate:      "Create backup",
-	TUIBuRestore:     "Restore from a backup",
-	TUIBuOut:         "Output file (empty = default location)",
-	TUIBuEncrypt:     "Encrypt with a passphrase? (y/n)",
-	TUIBuPass:        "Passphrase",
-	TUIBuPass2:       "Repeat the passphrase",
-	TUIBuMismatch:    "The passphrases do not match.",
-	TUIBuSaved:       "Backup saved: %s",
-	TUIBuPlainWarn:   "This backup is not encrypted: it contains every secret of this server. Keep it safe.",
-	TUIBuPath:        "Backup file",
-	TUIBuRestPass:    "Passphrase (empty if the backup is not encrypted)",
-	TUIBuRestoreLost: "Restoring %s replaces this server's configuration, secrets, certificates and state with the backup contents. Every change made after that backup was taken is lost; tunnels are re-rendered and restarted.",
-	TUIBuRestored:    "Restore complete. Tunnels were re-rendered from the backup.",
+	TUIBuCreate:    "Create backup",
+	TUIBuRestore:   "Restore from a backup",
+	TUIBuOut:       "Output file (empty = default location)",
+	TUIBuEncrypt:   "Encrypt with a passphrase? (y/n)",
+	TUIBuPass:      "Passphrase",
+	TUIBuPass2:     "Repeat the passphrase",
+	TUIBuMismatch:  "The passphrases do not match.",
+	TUIBuSaved:     "Backup saved: %s",
+	TUIBuPlainWarn: "This backup is not encrypted: it contains every secret of this server. Keep it safe.",
+	TUIBuPath:      "Backup file",
+	TUIBuRestPass:  "Passphrase (empty if the backup is not encrypted)",
+	TUIBuRestored:  "Restore complete. Tunnels were re-rendered from the backup.",
+
+	TUIBuMovedIntro:      "This server's public IP is %s, but the backup's hub address is %s.\nIf the hub moved to this server, the hub takes this server's address and its certificate is re-issued.",
+	TUIBuMoveField:       "Use this server's address (the hub moved here)? (y/n)",
+	TUIBuAnnounce:        "Announce hub move",
+	TUIBuAnnounceIntro:   "Run this on the old hub after its backup was restored on the new server:\nevery online node saves the new address and reconnects there.",
+	TUIBuNewAddr:         "New hub address (IP:port)",
+	TUIBuNewAddrHint:     "The new server's public IP and the control port, e.g. 5.6.7.9:%d (a restore keeps the port).",
+	TUIBuAnnounceConfirm: "Every online node saves %s as its hub address and reconnects there at once.\nThe restored hub must already run at that address: a node told a wrong address\nloses its hub until Set hub address is used on that node.",
+	TUIBuAnnounceOffline: "Offline, not told: %s.\nOn each of them use 10) Backup & Restore -> 3) Set hub address, or run: deyroute node set-hub %s",
+	TUIBuSetHub:          "Set hub address",
+	TUIBuSetHubIntro:     "This node connects to hub %s.\nEnter the hub's new address after the hub moved to another server or IP.\nThe address is saved even when the node agent is stopped.",
+	TUIBuHubAddr:         "Hub address (IP:port)",
+	TUIBuHubAddrHint:     "The hub's public IP and its control port, e.g. 5.6.7.9:44433.",
+	TUIWantHostPort:      "Enter the address as IP:port, for example 5.6.7.9:44433.",
+	TUIHubOnlyNote:       "%s is managed on the hub (%s): open the menu there.\nThe hub applies every change to this node.",
 
 	TUIUpCheck:           "Check for updates",
 	TUIUpApply:           "Apply update",
@@ -1248,7 +1323,7 @@ var tuiEN = map[Key]string{
 
 	TUIHelpDashboard: "Live view of tunnels, nodes and the last events; it refreshes every 2 seconds.\nState words: UP green, DEGR yellow, SWITCHING blue, DOWN red, DISABLED/PAUSED gray.\nNarrow terminals (< 100 columns) hide the RTT and UP-TIME columns.\nr refreshes now; q, Esc or Enter goes back.",
 	TUIHelpList:      "Type the number of an item and press Enter; 0 goes back.\nr reloads the list; q or Esc goes back.",
-	TUIHelpForm:      "Type the answer and press Enter. Enter on an empty line keeps the value in brackets.\nEsc cancels without changes.",
+	TUIHelpForm:      "Type the answer and press Enter. Enter on an empty line keeps the value in brackets.\nA numbered question takes the number of the answer. Esc cancels without changes;\n? on an empty line shows this help.",
 	TUIHelpConfirm:   "Destructive actions need the word yes typed exactly; anything else cancels.\nOther confirmations: Enter continues, q or Esc cancels.",
 	TUIHelpTask:      "Shows the steps of the running action and its result.\nOn an error: 1 + Enter or r retries; 0 + Enter or q goes back.",
 	TUIHelpWizard:    "Add tunnel asks at most three questions: node, ports, confirm.\nEach port is checked at once; a busy port can be changed, skipped or (for deyroute tunnels) stopped.\nA port the firewall closes can be opened (after you confirm the exact command), changed, skipped or kept.\nEsc goes back one question; on the first question it leaves the wizard without creating anything.",
@@ -1256,16 +1331,16 @@ var tuiEN = map[Key]string{
 	TUIHelpLogs:      "Log lines arrive live. Up/Down and PgUp/PgDn scroll, End returns to the live view.\nq stops the stream and goes back; r restarts it.",
 	TUIHelpTunnels:   "Tunnels forward ports from the hub to a node.\n1 adds a tunnel (node, ports, confirm); the other items act on one tunnel you pick.\nDelete asks you to type yes.",
 	TUIHelpNodes:     "Nodes are the foreign servers. 1 shows the one-line join command for a new node\n(single use, 15 minutes). Remove asks you to type yes.",
-	TUIHelpPorts:     "Check port runs the four checks: local bind, firewall, reachable from a node,\nreachable through the tunnel. Filtering inside Iran is not measured.\nWhen an external firewall blocks the port, 1 + Enter opens it after you confirm the exact command.",
+	TUIHelpPorts:     "Check port runs the four checks: local bind, firewall, reachable from a node,\nreachable through the tunnel. Filtering inside Iran is not measured.\nWhen an external firewall blocks the port, 1 + Enter opens it after you confirm the exact command.\nProbe kind * (Advanced) sets how the health probe tests a TCP port: auto, tcp, tls or http.",
 	TUIHelpFailover:  "Failover moves a tunnel to the next transport or node when probes fail.\nBackup nodes need the same service as the primary node. Items marked * need Advanced mode.",
-	TUIHelpDiag:      "Port check, tunnel probes, a speed test through the tunnel, live logs and the doctor bundle.",
+	TUIHelpDiag:      "Port check, tunnel probes, a speed test through the tunnel (on the hub), live logs and the doctor bundle.",
 	TUIHelpOptimize:  "Kernel tuning profiles (sysctl) and BBR. Revert restores the values from before deyroute.",
 	TUIHelpSecurity:  "Rotate tokens replaces tunnel secrets (type yes). TLS certificates shows them and sets the domain for ACME.\nFirewall shows or applies the table inet deyroute.",
 	TUIHelpTLS:       "Domain is the name tls mode acme gets a Let's Encrypt certificate for (DNS-only record, no Cloudflare proxy).\nAdvanced: the ACME e-mail and a Cloudflare token for DNS-01 when port 80 is not free. Switch a tunnel to acme with Tunnels > Edit tunnel.",
 	TUIHelpNotify:    "Telegram sends one message per event (at most one per minute per tunnel and type).",
-	TUIHelpBackup:    "Backups hold /etc/deyroute and the event history, encrypted with a passphrase by default.\nRestore replaces the current configuration (type yes).",
+	TUIHelpBackup:    "Backups hold /etc/deyroute and the event history, encrypted with a passphrase by default.\nRestore replaces the current configuration (type yes).\nAfter the hub moved: Announce hub move on the old hub tells the online nodes its new address;\nSet hub address on a node sets it there (also with the node agent stopped).",
 	TUIHelpUpdate:    "Updates never run without a question; tunnels keep running while deyroute restarts.",
-	TUIHelpSettings:  "Simple mode shows the essentials; Advanced adds the items marked *.\nUninstall removes deyroute from this server (type yes).",
+	TUIHelpSettings:  "Simple mode shows the essentials; Advanced adds the items marked * (UI mode and language are set on the hub).\nUninstall removes deyroute from this server (type yes).",
 
 	TUIStillRunning:      "This change is still running and is not abandoned half-way: wait for its result.\nctrl+c quits the menu and interrupts it.",
 	TUILadAddItem:        "Add a transport",
@@ -1278,7 +1353,7 @@ var tuiEN = map[Key]string{
 	TUIDashUpdatedManual: "Updated %s · r + Enter refreshes",
 	TUIWizNewTunnel:      "(new tunnel)",
 	TUIWizTLS:            "TLS mode (auto, acme; custom is set later with Edit tunnel)",
-	TUILineModeHint:      "Line mode: type a number and press Enter · q goes back (esc in a text field) · an empty line shows the page again",
+	TUILineModeHint:      "Line mode: type the answer and press Enter · an empty line is Enter · q goes back (esc in a text field) · ? help",
 }
 
 // tui — merge the block above into the English table.
@@ -1372,6 +1447,8 @@ const (
 	CLIFlagSwitchTransport       Key = "cli.flag_switch_transport"
 	CLIFlagSwitchNode            Key = "cli.flag_switch_node"
 	CLIFlagTarget                Key = "cli.flag_target"
+	CLIFlagProbe                 Key = "cli.flag_probe"
+	CLIProbeFix                  Key = "cli.probe_fix"
 	CLIFlagCheckNode             Key = "cli.flag_check_node"
 	CLIFlagOpenFirewall          Key = "cli.flag_open_firewall"
 	CLIFlagCount                 Key = "cli.flag_count"
@@ -1561,6 +1638,9 @@ const (
 	CLIPortRemoveShort           Key = "cli.port_remove_short"
 	CLIPortRemoveExample         Key = "cli.port_remove_example"
 	CLIPortRemoved               Key = "cli.port_removed"
+	CLIPortSetShort              Key = "cli.port_set_short"
+	CLIPortSetLong               Key = "cli.port_set_long"
+	CLIPortSetExample            Key = "cli.port_set_example"
 	CLIPortCheckShort            Key = "cli.port_check_short"
 	CLIPortCheckLong             Key = "cli.port_check_long"
 	CLIPortCheckExample          Key = "cli.port_check_example"
@@ -1717,6 +1797,7 @@ const (
 	CLIRestoreNextHub            Key = "cli.restore_next_hub"
 	CLIRestoredNode              Key = "cli.restored_node"
 	CLIRestoreNextNode           Key = "cli.restore_next_node"
+	CLIRestoreNextMenu           Key = "cli.restore_next_menu"
 	CLIRestorePrevious           Key = "cli.restore_previous"
 	CLIUpdateShort               Key = "cli.update_short"
 	CLIUpdateLong                Key = "cli.update_long"
@@ -1869,6 +1950,8 @@ var cliEN = map[Key]string{
 	CLIFlagSwitchTransport:       "transport to switch to, e.g. backhaul/tcpmux",
 	CLIFlagSwitchNode:            "node to switch to, e.g. nl-1",
 	CLIFlagTarget:                "target on the node (default 127.0.0.1:<port>)",
+	CLIFlagProbe:                 "probe kind of the port maps: auto (default), tcp, tls or http; UDP maps are always auto",
+	CLIProbeFix:                  "run it again with --probe auto, tcp, tls or http (UDP ports: auto only)",
 	CLIFlagCheckNode:             "node that tests reachability from outside (default: the first online node)",
 	CLIFlagOpenFirewall:          "open the port in the external firewall that blocks it (ufw, firewalld, iptables, nftables); asks first unless --yes",
 	CLIFlagCount:                 "how many free ports to suggest",
@@ -2048,16 +2131,19 @@ var cliEN = map[Key]string{
 	CLITunnelBackupRemoveShort:   "Remove a backup node from a tunnel",
 	CLITunnelBackupRemoveExample: "  deyroute tunnel backup remove main --node nl-1",
 	CLIBackupRemoved:             "Backup node %s removed from tunnel %s.",
-	CLIPortShort:                 "Tunnel ports: add, remove, check, suggest",
+	CLIPortShort:                 "Tunnel ports: add, remove, set the probe kind, check, suggest",
 	CLIPortAddShort:              "Add ports to a tunnel",
-	CLIPortAddLong:               "Add one or more ports to a tunnel. The port is checked first; the active transport\nrestarts to apply the change (interruption up to 3 seconds).",
-	CLIPortAddExample:            "  deyroute port add main 8443\n  deyroute port add main 8443/tcp --target 127.0.0.1:9443\n  deyroute port add main 27015/udp",
+	CLIPortAddLong:               "Add one or more ports to a tunnel. The port is checked first; the active transport\nrestarts to apply the change (interruption up to 3 seconds).\n\n--probe sets how the health probe tests the new TCP ports (Advanced): auto sends a TLS\nhello and accepts any answer, tcp only connects, tls needs a TLS handshake or alert,\nhttp needs an HTTP status line. deyroute port set changes it later.",
+	CLIPortAddExample:            "  deyroute port add main 8443\n  deyroute port add main 8443/tcp --target 127.0.0.1:9443\n  deyroute port add main 8080 --probe http\n  deyroute port add main 27015/udp",
 	CLITargetOnePort:             "--target needs exactly one port",
 	CLIPortRestartNote:           "The active transport of %s restarts to apply the change (interruption up to 3 seconds).",
 	CLIPortAdded:                 "Port %s added to tunnel %s (target %s).",
 	CLIPortRemoveShort:           "Remove a port from a tunnel",
 	CLIPortRemoveExample:         "  deyroute port remove main 8443\n  deyroute port remove main 27015/udp",
 	CLIPortRemoved:               "Port %s removed from tunnel %s.",
+	CLIPortSetShort:              "Change the probe kind of ports of a tunnel",
+	CLIPortSetLong:               "Change how the health probe tests ports a tunnel already has (Advanced; config.yaml\nports[].probe): auto sends a TLS hello and accepts any answer, tcp only connects, tls\nneeds a TLS handshake or alert, http needs an HTTP status line. UDP maps are always\nauto. Nothing restarts.",
+	CLIPortSetExample:            "  deyroute port set main 443 --probe tls\n  deyroute port set main 8080,8081 --probe http\n  deyroute port set main 443 --probe auto",
 	CLIPortCheckShort:            "Check a port in four stages: local bind, firewall, from a node, via the tunnel",
 	CLIPortCheckLong:             "The most important troubleshooting tool: is the port free on this server, does a\nfirewall block it, can a node reach it from the internet, and does traffic pass\nthrough the tunnel. Filtering inside Iran is not measured.\n\nWith --open, deyroute opens the port in the external firewall that blocks it: it\nshows the exact command (ufw allow 443/tcp, firewall-cmd ..., iptables ...,\nnft ...) and runs it only after you type yes (or with --yes).",
 	CLIPortCheckExample:          "  deyroute port check 443\n  deyroute port check 27015/udp --node nl-1\n  deyroute port check 443 --open",
@@ -2214,6 +2300,7 @@ var cliEN = map[Key]string{
 	CLIRestoreNextHub:            "If the hub moved to this server, tell the nodes the new address:\n  on the old hub:   deyroute hub announce-move %s\n  or on each node:  deyroute node set-hub %s",
 	CLIRestoredNode:              "Node %s restored.",
 	CLIRestoreNextNode:           "It reconnects to its hub by itself; check with: deyroute status",
+	CLIRestoreNextMenu:           "If the hub moved to this server, tell the nodes its address %s:\n  on the old hub:   10) Backup & Restore -> 3) Announce hub move\n  or on each node:  10) Backup & Restore -> 3) Set hub address\n  (commands: deyroute hub announce-move %s, deyroute node set-hub %s)",
 	CLIRestorePrevious:           "The previous configuration is in %s.",
 	CLIUpdateShort:               "Update deyroute (tunnels keep running)",
 	CLIUpdateLong:                "Check for a new release, show its changelog, download and verify it (checksum and\nsignature), replace the binary and restart the deyroute service. Tunnel units are\nnot touched, so traffic keeps flowing. The previous binary is kept for --rollback.",
@@ -2315,6 +2402,231 @@ func init() {
 		en[k] = v
 	}
 	for k, v := range cliReviewEN {
+		en[k] = v
+	}
+}
+
+// tui polish (spec audit of 2026-10-01): page titles, the footer of text
+// fields, one word per event type, the node facts of Nodes > Test, numbered
+// choices, Telegram and backup context, log lines and the hub's progress
+// steps (hub.step.<step id>; hub.title.* take arguments).
+const (
+	// page titles ("Tunnels - Edit tunnel", "Edit tunnel: main") and the
+	// footer of a text field
+	TUITitleSub      Key = "tui.title.sub"
+	TUITitleOf       Key = "tui.title.of"
+	FooterTyping     Key = "footer.typing"
+	TUIChoiceDefault Key = "tui.common.choice_default"
+
+	// LAST EVENTS: the short word of every event type
+	TUIEvFailback        Key = "tui.dash.ev_failback"
+	TUIEvFailbackFailed  Key = "tui.dash.ev_failback_failed"
+	TUIEvFlapping        Key = "tui.dash.ev_flapping"
+	TUIEvNodeOnline      Key = "tui.dash.ev_node_online"
+	TUIEvNodeOffline     Key = "tui.dash.ev_node_offline"
+	TUIEvServiceDown     Key = "tui.dash.ev_service_down"
+	TUIEvBackendCrash    Key = "tui.dash.ev_backend_crash"
+	TUIEvProbeError      Key = "tui.dash.ev_probe_error"
+	TUIEvUpdated         Key = "tui.dash.ev_updated"
+	TUIEvRolledBack      Key = "tui.dash.ev_rolled_back"
+	TUIEvBackendRollback Key = "tui.dash.ev_backend_rollback"
+	TUIEvNodeIP          Key = "tui.dash.ev_node_ip"
+	TUIEvACMEFailed      Key = "tui.dash.ev_acme_failed"
+	TUIEvRungSkipped     Key = "tui.dash.ev_rung_skipped"
+	TUIEvRungRestored    Key = "tui.dash.ev_rung_restored"
+	TUIEvConfigApplied   Key = "tui.dash.ev_config_applied"
+	TUIEvUpdateAvailable Key = "tui.dash.ev_update_available"
+
+	// Nodes > Test: the facts the node reports; sizes; join expiry
+	TUISysNodeID     Key = "tui.nd.sys_node_id"
+	TUISysHostname   Key = "tui.nd.sys_hostname"
+	TUISysOS         Key = "tui.nd.sys_os"
+	TUISysKernel     Key = "tui.nd.sys_kernel"
+	TUISysArch       Key = "tui.nd.sys_arch"
+	TUISysCPUs       Key = "tui.nd.sys_cpus"
+	TUISysMemory     Key = "tui.nd.sys_memory"
+	TUISysUptime     Key = "tui.nd.sys_uptime"
+	TUISysVersion    Key = "tui.nd.sys_version"
+	TUISysGo         Key = "tui.nd.sys_go"
+	TUIGiB           Key = "tui.common.gib"
+	TUIMiB           Key = "tui.common.mib"
+	TUIKiB           Key = "tui.common.kib"
+	TUINdJoinExpired Key = "tui.nd.join_expired"
+
+	// numbered choices: Edit tunnel and the Add tunnel wizard
+	TUIEditLadderCustom Key = "tui.edit.ladder_custom"
+	TUITLSAuto          Key = "tui.edit.tls_auto"
+	TUITLSACME          Key = "tui.edit.tls_acme"
+	TUITLSCustom        Key = "tui.edit.tls_custom"
+	TUIWizTLSHint       Key = "tui.wiz.tls_hint"
+	TUIWizNoBackup      Key = "tui.wiz.no_backup"
+	TUIBkNotWarm        Key = "tui.fo.bk_not_warm"
+	TUIBkWarmDetail     Key = "tui.fo.bk_warm_detail"
+
+	// Notifications: the current settings
+	TUINtLabel       Key = "tui.nt.label"
+	TUINtStateOn     Key = "tui.nt.state_on"
+	TUINtStateOff    Key = "tui.nt.state_off"
+	TUINtChatLabel   Key = "tui.nt.chat_label"
+	TUINtEventsLabel Key = "tui.nt.events_label"
+	TUINtEventsHint  Key = "tui.nt.events_hint"
+
+	// Restore: the backups on this server
+	TUIBuPick    Key = "tui.bu.pick"
+	TUIBuOther   Key = "tui.bu.other"
+	TUIBuNoFiles Key = "tui.bu.no_files"
+	TUIBuAutoTag Key = "tui.bu.auto_tag"
+
+	// Logs: the side a tunnel log line comes from
+	TUILogSource Key = "tui.dg.log_source"
+
+	// hub progress steps, by step id
+	HubStepValidate    Key = "hub.step.validate"
+	HubStepBackup      Key = "hub.step.backup"
+	HubStepApply       Key = "hub.step.apply"
+	HubStepReconcile   Key = "hub.step.reconcile"
+	HubStepInstallHub  Key = "hub.step.install_hub"
+	HubStepInstallNode Key = "hub.step.install_node"
+	HubStepRender      Key = "hub.step.render"
+	HubStepFirewall    Key = "hub.step.firewall"
+	HubStepStart       Key = "hub.step.start"
+	HubStepProbe       Key = "hub.step.probe"
+	HubStepCheckPorts  Key = "hub.step.check_ports"
+	HubStepEngine      Key = "hub.step.engine"
+	HubStepRestart     Key = "hub.step.restart"
+	HubStepStop        Key = "hub.step.stop"
+	HubStepRemove      Key = "hub.step.remove"
+	HubStepConfig      Key = "hub.step.config"
+	HubStepCleanup     Key = "hub.step.cleanup"
+	HubStepNewCA       Key = "hub.step.new_ca"
+	HubStepHubCert     Key = "hub.step.hub_cert"
+	HubStepTrustNewCA  Key = "hub.step.trust_new_ca"
+	HubStepTunnelsCA   Key = "hub.step.tunnels"
+	HubStepResolve     Key = "hub.step.resolve"
+	HubStepDownload    Key = "hub.step.download"
+	HubStepInstall     Key = "hub.step.install"
+	HubStepNodes       Key = "hub.step.nodes"
+	HubStepRestartHub  Key = "hub.step.restart_hub"
+	HubStepSpeedServer Key = "hub.step.speed_server"
+	HubStepDiagRender  Key = "hub.step.diag_render"
+	HubStepDiagStart   Key = "hub.step.diag_start"
+	HubStepMeasure     Key = "hub.step.measure"
+	HubStepDiagStop    Key = "hub.step.diag_stop"
+	// hub progress steps with arguments
+	HubTitleTunnelUp    Key = "hub.title.tunnel_up"
+	HubTitleBackupReady Key = "hub.title.backup_ready"
+	HubTitleRung        Key = "hub.title.rung"
+	HubTitleBackend     Key = "hub.title.backend"
+	HubTitleRotate      Key = "hub.title.rotate"
+	HubTitleNodeCert    Key = "hub.title.node_cert"
+)
+
+// tui polish — English texts (merged into en by init).
+var tuiPolishEN = map[Key]string{
+	TUITitleSub:      "%s - %s",
+	TUITitleOf:       "%s: %s",
+	FooterTyping:     "type the answer + Enter · Esc cancel · ? on an empty line: help",
+	TUIChoiceDefault: "Choice [%d]: ",
+
+	TUIEvFailback:        "failback",
+	TUIEvFailbackFailed:  "failback failed",
+	TUIEvFlapping:        "flapping",
+	TUIEvNodeOnline:      "node online",
+	TUIEvNodeOffline:     "node offline",
+	TUIEvServiceDown:     "service down",
+	TUIEvBackendCrash:    "backend crash",
+	TUIEvProbeError:      "probe error",
+	TUIEvUpdated:         "updated",
+	TUIEvRolledBack:      "rolled back",
+	TUIEvBackendRollback: "backend rollback",
+	TUIEvNodeIP:          "node IP changed",
+	TUIEvACMEFailed:      "ACME failed",
+	TUIEvRungSkipped:     "rung skipped",
+	TUIEvRungRestored:    "rung restored",
+	TUIEvConfigApplied:   "config applied",
+	TUIEvUpdateAvailable: "update available",
+
+	TUISysNodeID:     "Node id",
+	TUISysHostname:   "Hostname",
+	TUISysOS:         "OS",
+	TUISysKernel:     "Kernel",
+	TUISysArch:       "Architecture",
+	TUISysCPUs:       "CPUs",
+	TUISysMemory:     "Memory",
+	TUISysUptime:     "Uptime",
+	TUISysVersion:    "deyroute",
+	TUISysGo:         "Go runtime",
+	TUIGiB:           "%.1f GiB",
+	TUIMiB:           "%.1f MiB",
+	TUIKiB:           "%d KiB",
+	TUINdJoinExpired: "Expired at %s. Press r for a new command.",
+
+	TUIEditLadderCustom: "keep the custom order of this tunnel",
+	TUITLSAuto:          "auto - a certificate of the internal CA",
+	TUITLSACME:          "acme - a Let's Encrypt certificate for the hub's domain",
+	TUITLSCustom:        "custom - your own certificate and key files",
+	TUIWizTLSHint:       "custom (your own certificate files) is set after the tunnel exists: 2) Tunnels → 2) Edit tunnel.",
+	TUIWizNoBackup:      "none",
+	TUIBkNotWarm:        "backup %s: no rung is warm yet; 2) Tunnels → 7) Show details lists its rungs.",
+	TUIBkWarmDetail:     "%d of %d rungs warm",
+
+	TUINtLabel:       "Telegram",
+	TUINtStateOn:     "on",
+	TUINtStateOff:    "off; 1) Set up Telegram turns it on",
+	TUINtChatLabel:   "Chat id",
+	TUINtEventsLabel: "Events",
+	TUINtEventsHint:  "Comma separated. Names: down, up, degraded, switch, failback, node_offline, node_online,\nflapping, service_down, backend_crash, probe_error, update (or a full event name).",
+
+	TUIBuPick:    "Choose the backup to restore (newest first):",
+	TUIBuOther:   "Another file (type its path)",
+	TUIBuNoFiles: "No backups in %s yet.",
+	TUIBuAutoTag: "automatic",
+
+	TUILogSource: "[%s]",
+
+	HubStepValidate:    "validate config.yaml",
+	HubStepBackup:      "automatic backup",
+	HubStepApply:       "apply configuration",
+	HubStepReconcile:   "reconcile tunnels",
+	HubStepInstallHub:  "install backend on hub",
+	HubStepInstallNode: "install on node",
+	HubStepRender:      "render",
+	HubStepFirewall:    "firewall",
+	HubStepStart:       "start",
+	HubStepProbe:       "probe",
+	HubStepCheckPorts:  "check ports",
+	HubStepEngine:      "update failover engine",
+	HubStepRestart:     "restart active transport",
+	HubStepStop:        "stop units",
+	HubStepRemove:      "remove units and files",
+	HubStepConfig:      "update config.yaml",
+	HubStepCleanup:     "remove secrets and state",
+	HubStepNewCA:       "create a new internal CA",
+	HubStepHubCert:     "issue the hub certificate with the new CA",
+	HubStepTrustNewCA:  "nodes trust only the new CA",
+	HubStepTunnelsCA:   "render the tunnels with the new CA",
+	HubStepResolve:     "check the release",
+	HubStepDownload:    "download and verify",
+	HubStepInstall:     "install the new binary",
+	HubStepNodes:       "nodes follow the hub",
+	HubStepRestartHub:  "restart deyroute-hub",
+	HubStepSpeedServer: "start the traffic generator on the node",
+	HubStepDiagRender:  "render a temporary copy of the active transport",
+	HubStepDiagStart:   "start the temporary copy",
+	HubStepMeasure:     "measure ping, download and upload",
+	HubStepDiagStop:    "remove the temporary copy",
+
+	HubTitleTunnelUp:    "Tunnel %s is UP via %s (%dms)",
+	HubTitleBackupReady: "backup %s ready (warm)",
+	HubTitleRung:        "%s on %s",
+	HubTitleBackend:     "update %s %s → %s",
+	HubTitleRotate:      "rotate the backend token of tunnel %s",
+	HubTitleNodeCert:    "issue a new certificate for node %s",
+}
+
+// tui polish — merge the block above into the English table.
+func init() {
+	for k, v := range tuiPolishEN {
 		en[k] = v
 	}
 }

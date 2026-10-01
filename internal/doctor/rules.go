@@ -38,7 +38,7 @@ const (
 	RuleCertExpiry     = "R08" // certificate expired / expiring within 14 days
 	RuleVersion        = "R09" // hub/node major.minor mismatch
 	RuleUDPBlocked     = "R10" // UDP rungs skipped
-	RuleTuning         = "R11" // BBR not active / sysctl profile off
+	RuleTuning         = "R11" // BBR set by the profile but not active / sysctl profile off
 	RuleResources      = "R12" // low disk / low memory
 	RuleClockSkew      = "R13" // hub/node clock difference
 	RuleFlapping       = "R14" // flapping in the last hour
@@ -75,6 +75,13 @@ type Facts struct {
 
 	BBRActive     bool
 	SysctlProfile string // off|balanced|aggressive; "" = unknown
+	// BBRAvailable reports that the kernel has tcp_bbr and BBRApplied that
+	// the applied profile sets it. A profile applied without BBR (a kernel
+	// without tcp_bbr, or tuning.bbr false) is a choice, not a problem:
+	// R11 reports BBR only when the profile sets it and the kernel, which
+	// has it, does not use it.
+	BBRAvailable bool
+	BBRApplied   bool
 
 	// ExternalFirewallBlocks lists ports an external firewall (ufw,
 	// firewalld, iptables) blocks, one entry per port, built with
@@ -453,16 +460,19 @@ func ruleUDPBlocked(f Facts) []api.DoctorFinding {
 	return out
 }
 
-// R11: BBR not active or kernel tuning off (info). Skipped when the
-// profile is unknown.
+// R11: kernel tuning off, or BBR set by the applied profile but not in
+// use (info). Skipped when the profile is unknown; a kernel without
+// tcp_bbr and tuning.bbr false are not findings (section 12: BBR is then
+// skipped with a warning, and applying the profile again cannot change it).
 func ruleTuning(f Facts) []api.DoctorFinding {
 	switch {
 	case f.SysctlProfile == "":
 		return nil
 	case f.SysctlProfile == "off":
 		return []api.DoctorFinding{finding(RuleTuning, SevInfo, i18n.T(i18n.DoctorR11MsgOff), i18n.T(i18n.DoctorR11Fix))}
-	case !f.BBRActive:
-		return []api.DoctorFinding{finding(RuleTuning, SevInfo, i18n.T(i18n.DoctorR11MsgBBR), i18n.T(i18n.DoctorR11Fix))}
+	case !f.BBRActive && f.BBRAvailable && f.BBRApplied:
+		return []api.DoctorFinding{finding(RuleTuning, SevInfo, i18n.T(i18n.DoctorR11MsgBBR, f.SysctlProfile),
+			i18n.T(i18n.DoctorR11FixBBR, f.SysctlProfile))}
 	}
 	return nil
 }

@@ -701,6 +701,46 @@ func TestSysinfoMetricsDoctorSysctl(t *testing.T) {
 	requireCode(t, err, deyerr.C013)
 }
 
+// TestSysctlApplyReportsWarnings: the node returns what it skipped (no BBR
+// in this kernel, aggressive on 1 MB of RAM) and follows the hub's
+// tuning.bbr; without it (an older hub) its own config decides.
+func TestSysctlApplyReportsWarnings(t *testing.T) {
+	e := newEnv(t)
+	for k, v := range map[string]string{
+		"net/core/default_qdisc": "fq_codel", "net/ipv4/tcp_congestion_control": "cubic",
+		"net/ipv4/tcp_available_congestion_control": "reno cubic", "net/core/somaxconn": "4096",
+	} {
+		writeFile(t, e.path("proc/sys/"+k), v+"\n", 0o644)
+	}
+	s := e.start()
+	on, off := true, false
+	hasBBRWarning := func(ws []string) bool {
+		for _, w := range ws {
+			if strings.Contains(w, "tcp_bbr is not available") {
+				return true
+			}
+		}
+		return false
+	}
+
+	res, err := call[api.SysctlResult](t, s, api.CmdSysctlApply, api.SysctlArgs{Profile: "balanced", BBR: &on})
+	require.NoError(t, err)
+	require.True(t, hasBBRWarning(res.Warnings), "%v", res.Warnings)
+	qdisc, err := os.ReadFile(e.path("proc/sys/net/core/default_qdisc"))
+	require.NoError(t, err)
+	require.Equal(t, "fq\n", string(qdisc))
+
+	res, err = call[api.SysctlResult](t, s, api.CmdSysctlApply, api.SysctlArgs{Profile: "aggressive", BBR: &off})
+	require.NoError(t, err)
+	require.False(t, hasBBRWarning(res.Warnings), "%v", res.Warnings)
+	require.Contains(t, strings.Join(res.Warnings, "\n"), "aggressive is meant for servers with 4 GB RAM or more")
+
+	// An older hub sends no bbr: the node's own config (default true) decides.
+	res, err = call[api.SysctlResult](t, s, api.CmdSysctlApply, api.SysctlArgs{Profile: "balanced"})
+	require.NoError(t, err)
+	require.True(t, hasBBRWarning(res.Warnings), "%v", res.Warnings)
+}
+
 func TestLogsTailAndFollow(t *testing.T) {
 	e := newEnv(t)
 	s := e.start()

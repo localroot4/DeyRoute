@@ -214,16 +214,19 @@ stated default until the owner decides · **[ANSWERED]** closed.
 34. **[DEFAULT] Removing a tunnel's only node is refused.** `node remove`
     refuses (`DEY-C008`) while a tunnel has no other node; the owner gives it
     a backup node first or deletes it. Texts and docs say so.
+35. **[DEFAULT] A port range counts one port map per port.** Spec 10 says more
+    than 64 port maps is an error "with the advice to use a range", but every
+    backend forwards port by port, so `2000-2100` becomes 101 port maps and a
+    range cannot get around the limit. Supporting a range as one map would
+    change the config schema and every backend renderer; instead the limit
+    counts every port of a range and `DEY-P016`/`DEY-C015` advise splitting
+    the ports over several tunnels (up to 64 each).
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
 The spec audit of 2026-10-01 found 100 gaps; the critical and major ones in
 code are fixed (see CHANGELOG). These remain, none of them a security issue:
 
-- **Hub move from the menu.** `hub announce-move` and `node set-hub` are CLI
-  commands only.
-- **Per-port probe kind** (`auto|tcp|tls|http`) is set in `config.yaml`, not
-  from the menu or `port add`.
 - **Smaller UX items** found by the audit (raw event ids in LAST EVENTS,
   column alignment on some screens, help on text-input screens, numbered
   answers for fixed options, the update changelog shown as a URL, doctor

@@ -20,8 +20,20 @@ const DefaultSuggestCount = 3
 
 func newPortCmd(g *Globals) *cobra.Command {
 	cmd := newGroup("port", i18n.CLIPortShort)
-	cmd.AddCommand(newPortAddCmd(g), newPortRemoveCmd(g), newPortCheckCmd(g), newPortSuggestCmd(g))
+	cmd.AddCommand(newPortAddCmd(g), newPortRemoveCmd(g), newPortSetCmd(g), newPortCheckCmd(g), newPortSuggestCmd(g))
 	return cmd
+}
+
+// probeArg checks --probe for every port map of specs with the config.yaml
+// rule (DEY-C013): auto, tcp, tls or http, and auto for UDP maps.
+func probeArg(v string, specs []ports.Spec) (string, error) {
+	p := strings.ToLower(strings.TrimSpace(v))
+	for _, s := range specs {
+		if err := config.CheckProbe("--probe of "+s.String(), s.Proto, p); err != nil {
+			return "", deyerr.As(err).WithFix(i18n.T(i18n.CLIProbeFix))
+		}
+	}
+	return p, nil
 }
 
 // onePort parses "8443" or "8443/udp" (exactly one port, no target).
@@ -37,7 +49,7 @@ func onePort(s string) (ports.Spec, error) {
 }
 
 func newPortAddCmd(g *Globals) *cobra.Command {
-	var target string
+	var target, probe string
 	cmd := &cobra.Command{
 		Use:     "add <tunnel> 8443[/tcp]",
 		Short:   i18n.T(i18n.CLIPortAddShort),
@@ -58,13 +70,23 @@ func newPortAddCmd(g *Globals) *cobra.Command {
 				}
 				specs[0].Target = t
 			}
+			req := portSpecs(specs)
+			if cmd.Flags().Changed("probe") {
+				kind, err := probeArg(probe, specs)
+				if err != nil {
+					return err
+				}
+				for i := range req {
+					req[i].Probe = kind
+				}
+			}
 			if !g.JSON {
 				g.say(i18n.CLIPortRestartNote, args[0])
 			}
 			p := g.newProgress()
 			var t api.TunnelInfo
 			err = g.callLong(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
-				t, err = l.PortAdd(ctx, args[0], portSpecs(specs), p.step)
+				t, err = l.PortAdd(ctx, args[0], req, p.step)
 				return err
 			})
 			if err != nil {
@@ -85,6 +107,57 @@ func newPortAddCmd(g *Globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", "", i18n.T(i18n.CLIFlagTarget))
+	cmd.Flags().StringVar(&probe, "probe", "", i18n.T(i18n.CLIFlagProbe))
+	return cmd
+}
+
+func newPortSetCmd(g *Globals) *cobra.Command {
+	var probe string
+	cmd := &cobra.Command{
+		Use:     "set <tunnel> 8443[/tcp] --probe auto|tcp|tls|http",
+		Short:   i18n.T(i18n.CLIPortSetShort),
+		Long:    i18n.T(i18n.CLIPortSetLong),
+		Example: i18n.T(i18n.CLIPortSetExample),
+		Args:    exactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("probe") {
+				return usageErr(i18n.T(i18n.CLIWantFlag, "--probe"))
+			}
+			// The ports name existing maps: a target has no place here.
+			if strings.Contains(args[1], ":") {
+				return deyerr.New(deyerr.C020, deyerr.Params{"input": args[1]})
+			}
+			specs, err := ports.ParseInput(args[1])
+			if err != nil {
+				return err
+			}
+			kind, err := probeArg(probe, specs)
+			if err != nil {
+				return err
+			}
+			req := api.TunnelEditRequest{PortProbes: make([]api.PortSpec, len(specs))}
+			for i, s := range specs {
+				req.PortProbes[i] = api.PortSpec{Listen: s.Listen, Proto: s.Proto, Probe: kind}
+			}
+			p := g.newProgress()
+			var t api.TunnelInfo
+			err = g.callLong(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
+				t, err = l.TunnelEdit(ctx, args[0], req, p.step)
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			if g.JSON {
+				return g.emitJSON(map[string]any{"tunnel": t, "steps": p.steps})
+			}
+			for _, s := range specs {
+				g.say(i18n.TUIPtProbeSet, s.String(), args[0], kind)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&probe, "probe", "", i18n.T(i18n.CLIFlagProbe))
 	return cmd
 }
 

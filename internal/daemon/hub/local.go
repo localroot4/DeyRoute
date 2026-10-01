@@ -52,46 +52,6 @@ func (l *local) NodeSetHub(context.Context, string) error {
 	return withLog(deyerr.New(deyerr.X009, deyerr.Params{"role": config.RoleHub, "need": config.RoleNode}))
 }
 
-// Step titles of the hub's progress screens; looked up in internal/i18n
-// under "hub.step.<id>" first.
-var stepTitles = map[string]string{
-	stepValidate:  "validate config.yaml",
-	stepBackup:    "automatic backup",
-	stepApply:     "apply configuration",
-	stepReconcile: "reconcile tunnels",
-	// Tunnel operations (section 6: Add tunnel progress screen).
-	stepInstallHub:  "install backend on hub",
-	stepInstallNode: "install on node",
-	stepRender:      "render",
-	stepFirewall:    "firewall",
-	stepStart:       "start",
-	stepProbe:       "probe",
-	stepCheckPorts:  "check ports",
-	stepEngine:      "update failover engine",
-	stepRestart:     "restart active transport",
-	stepStop:        "stop units",
-	stepRemove:      "remove units and files",
-	stepConfig:      "update config.yaml",
-	stepCleanup:     "remove secrets and state",
-	// Security (rotate-ca).
-	stepNewCA:     "create a new internal CA",
-	stepHubCert:   "issue the hub certificate with the new CA",
-	stepTrustOnly: "nodes trust only the new CA",
-	stepTunnelsCA: "render the tunnels with the new CA",
-	// Update.
-	stepResolve:  "check the release",
-	stepDownload: "download and verify",
-	stepInstall:  "install the new binary",
-	stepNodes:    "nodes follow the hub",
-	stepRestart2: "restart " + ServiceName,
-	// Diagnostics (diag speed).
-	stepSpeedServer: "start the traffic generator on the node",
-	stepDiagRender:  "render a temporary copy of the active transport",
-	stepDiagStart:   "start the temporary copy",
-	stepMeasure:     "measure ping, download and upload",
-	stepDiagStop:    "remove the temporary copy",
-}
-
 // Step ids of ConfigApply.
 const (
 	stepValidate  = "validate"
@@ -100,13 +60,12 @@ const (
 	stepReconcile = "reconcile"
 )
 
-// stepTitle returns the title of step id.
+// stepTitle returns the title of step id: the text of the i18n key
+// "hub.step.<id>" (internal/i18n/en.go), or the id itself when there is
+// none.
 func stepTitle(id string) string {
 	k := i18n.Key("hub.step." + id)
 	if t := i18n.T(k); t != string(k) {
-		return t
-	}
-	if t, ok := stepTitles[id]; ok {
 		return t
 	}
 	return id

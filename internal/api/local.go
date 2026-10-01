@@ -328,7 +328,7 @@ type PortSpec struct {
 	Listen int    `json:"listen"`
 	Proto  string `json:"proto"`
 	Target string `json:"target,omitempty"` // default 127.0.0.1:<listen>
-	Probe  string `json:"probe,omitempty"`
+	Probe  string `json:"probe,omitempty"`  // auto|tcp|tls|http; default auto
 }
 
 // TunnelAddRequest is `deyroute tunnel add` / the Add tunnel wizard.
@@ -360,6 +360,10 @@ type TunnelEditRequest struct {
 	TLSCert   *string           `json:"tls_cert,omitempty"`
 	TLSKey    *string           `json:"tls_key,omitempty"`
 	Failover  *FailoverSettings `json:"failover,omitempty"`
+	// PortProbes sets the probe kind of existing port maps (Advanced,
+	// section 9): Listen and Proto name the map, Probe is the new kind
+	// (auto|tcp|tls|http; UDP maps stay auto). Target is ignored.
+	PortProbes []PortSpec `json:"port_probes,omitempty"`
 }
 
 // SwitchRequest is `deyroute tunnel switch` (exactly one of the fields).
@@ -498,13 +502,17 @@ type DoctorFinding struct {
 	Fix      string `json:"fix,omitempty"`
 }
 
-// OptimizeStatus describes sysctl/BBR state.
+// OptimizeStatus describes sysctl/BBR state. MemBytes is the hub's RAM
+// (MemTotal, 0 = unknown) and Recommended the profile for it: aggressive
+// from 4 GB, balanced below (section 12).
 type OptimizeStatus struct {
 	Profile      string            `json:"profile"`
 	BBRAvailable bool              `json:"bbr_available"`
 	BBRActive    bool              `json:"bbr_active"`
 	Applied      map[string]string `json:"applied,omitempty"`
 	Warnings     []string          `json:"warnings,omitempty"`
+	MemBytes     uint64            `json:"mem_bytes,omitempty"`
+	Recommended  string            `json:"recommended,omitempty"`
 }
 
 // RotateCAResult lists nodes re-issued and nodes that must re-join.

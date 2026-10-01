@@ -16,13 +16,19 @@ import (
 // sysctlManager is the hub's sysctl manager (below Options.Root).
 func (h *Hub) sysctlManager() sysctl.Manager { return sysctl.Manager{Root: h.o.Root} }
 
-// optimizeStatus reads the hub's tuning state.
+// optimizeStatus reads the hub's tuning state, its RAM and the profile
+// recommended for it.
 func (h *Hub) optimizeStatus() (api.OptimizeStatus, error) {
-	st, err := h.sysctlManager().Status()
+	m := h.sysctlManager()
+	st, err := m.Status()
 	if err != nil {
 		return api.OptimizeStatus{}, err
 	}
-	out := api.OptimizeStatus{Profile: st.Profile, BBRAvailable: st.BBRAvailable, BBRActive: st.BBRActive}
+	out := api.OptimizeStatus{Profile: st.Profile, BBRAvailable: st.BBRAvailable, BBRActive: st.BBRActive,
+		Recommended: m.Recommended()}
+	if mem, err := m.MemTotal(); err == nil {
+		out.MemBytes = mem
+	}
 	if len(st.Applied) > 0 {
 		out.Applied = make(map[string]string, len(st.Applied))
 		for _, kv := range st.Applied {
@@ -33,8 +39,9 @@ func (h *Hub) optimizeStatus() (api.OptimizeStatus, error) {
 }
 
 // OptimizeStatus implements api.Local (section 12): the sysctl profile
-// applied on the hub, BBR availability and state, and the values deyroute
-// set in /etc/sysctl.d/99-deyroute.conf.
+// applied on the hub, BBR availability and state, the values deyroute set in
+// /etc/sysctl.d/99-deyroute.conf, and the hub's RAM with the profile
+// recommended for it.
 func (l *local) OptimizeStatus(context.Context) (api.OptimizeStatus, error) {
 	st, err := l.h.optimizeStatus()
 	return st, withLog(err)
@@ -63,7 +70,9 @@ func (h *Hub) ipForwardNeeds() (hub bool, nodes map[string]bool) {
 // section 12): the profile is applied on the hub (backup of the previous
 // values, /etc/sysctl.d/99-deyroute.conf, BBR only when the kernel has it —
 // otherwise a warning), tuning.sysctl_profile is saved, and every online
-// node applies the same profile (sysctl.apply). "off" reverts everything.
+// node applies the same profile with the hub's tuning.bbr (sysctl.apply);
+// what a node skipped comes back as a warning naming it. "off" reverts
+// everything.
 func (l *local) OptimizeApply(ctx context.Context, profile string) (api.OptimizeStatus, error) {
 	h := l.h
 	profile = strings.TrimSpace(profile)
@@ -94,7 +103,7 @@ func (l *local) OptimizeApply(ctx context.Context, profile string) (api.Optimize
 	}); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
-	warnings = append(warnings, h.optimizeNodes(ctx, profile, nodeFwd)...)
+	warnings = append(warnings, h.optimizeNodes(ctx, profile, bbr, nodeFwd)...)
 	st, err := h.optimizeStatus()
 	if err != nil {
 		return api.OptimizeStatus{}, withLog(err)
@@ -134,7 +143,8 @@ func (l *local) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) 
 	}); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
-	warnings := h.optimizeNodes(ctx, config.SysctlOff, nodeFwd)
+	cfg := h.Config()
+	warnings := h.optimizeNodes(ctx, config.SysctlOff, cfg.Tuning == nil || cfg.Tuning.BBR, nodeFwd)
 	st, err := h.optimizeStatus()
 	if err != nil {
 		return api.OptimizeStatus{}, withLog(err)
@@ -145,22 +155,29 @@ func (l *local) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) 
 	return st, nil
 }
 
-// optimizeNodes sends sysctl.apply to every node; nodes that are offline
-// or refuse are returned as warnings.
-func (h *Hub) optimizeNodes(ctx context.Context, profile string, fwd map[string]bool) []string {
+// optimizeNodes sends sysctl.apply with the hub's tuning.bbr to every
+// node; nodes that are offline or refuse, and what a node skipped (no BBR
+// in its kernel, aggressive on a small node), are returned as warnings
+// prefixed with the node id.
+func (h *Hub) optimizeNodes(ctx context.Context, profile string, bbr bool, fwd map[string]bool) []string {
 	var warnings []string
 	for _, n := range h.Config().Nodes {
 		if !h.Online(n.ID) {
 			warnings = append(warnings, "node "+n.ID+" is offline: run deyroute optimize apply --profile "+profile+" again when it is back")
 			continue
 		}
+		var res api.SysctlResult
 		cctx, cancel := context.WithTimeout(ctx, nodeCallTimeout)
-		err := h.Call(cctx, n.ID, api.CmdSysctlApply, api.SysctlArgs{Profile: profile, IPForward: fwd[n.ID]}, nil)
+		err := h.Call(cctx, n.ID, api.CmdSysctlApply, api.SysctlArgs{Profile: profile, IPForward: fwd[n.ID], BBR: &bbr}, &res)
 		cancel()
 		if err != nil {
 			e := deyerr.As(err)
 			warnings = append(warnings, "node "+n.ID+": "+string(e.Code)+" "+e.Message())
 			h.log.Warn("node did not apply the sysctl profile", dlog.Node(n.ID), dlog.Err(err))
+			continue
+		}
+		for _, w := range res.Warnings {
+			warnings = append(warnings, "node "+n.ID+": "+dlog.Redact(w))
 		}
 	}
 	return warnings

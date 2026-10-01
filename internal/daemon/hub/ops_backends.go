@@ -9,6 +9,7 @@ import (
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/backend"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
@@ -88,7 +89,7 @@ func (h *Hub) updateBackend(ctx context.Context, rep *steps, old, cur backend.Ma
 	name := cur.Name
 	res := api.BackendUpdate{Backend: name, From: old.Version, To: cur.Version}
 	id := "backend:" + name
-	title := "update " + name + " " + old.Version + " → " + cur.Version
+	title := i18n.T(i18n.HubTitleBackend, name, old.Version, cur.Version)
 	rep.emitTitled(api.Step{ID: id, Title: title, Status: api.StepRunning})
 	fail := func(status string, err error) api.BackendUpdate {
 		res.Status, res.Error = status, api.ToDTO(err)

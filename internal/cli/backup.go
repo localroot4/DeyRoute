@@ -399,7 +399,8 @@ func (g *Globals) restoreLost(path string, info backupInfo, newIP string) string
 }
 
 // restoreSummary is what the menu shows after a restore: a changed hub
-// address (the certificate was re-issued) and the next steps.
+// address (the certificate was re-issued) and the next steps, named by
+// their menu items.
 func (g *Globals) restoreSummary(info backupInfo, res *setup.RestoreResult) string {
 	var lines []string
 	if res.Role != config.RoleHub {
@@ -413,7 +414,7 @@ func (g *Globals) restoreSummary(info backupInfo, res *setup.RestoreResult) stri
 		if info.ControlPort > 0 {
 			addr = res.PublicIP + ":" + strconv.Itoa(info.ControlPort)
 		}
-		lines = append(lines, i18n.T(i18n.CLIRestoreNextHub, addr, addr))
+		lines = append(lines, i18n.T(i18n.CLIRestoreNextMenu, addr, addr, addr))
 	}
 	if res.PreviousDir != "" {
 		lines = append(lines, i18n.T(i18n.CLIRestorePrevious, res.PreviousDir))

@@ -164,7 +164,7 @@ const (
 	CmdEchoStart       = "echo.start"              // EchoArgs → EchoResult (canary loopback echo)
 	CmdEchoStop        = "echo.stop"               // EchoArgs → nil (stops the canary loopback echo on Port)
 	CmdNodeFirewall    = "firewall.apply"          // NodeFirewallArgs → nil (hysteria2 port hopping DNAT)
-	CmdSysctlApply     = "sysctl.apply"            // SysctlArgs → nil
+	CmdSysctlApply     = "sysctl.apply"            // SysctlArgs → SysctlResult
 	CmdSpeedServe      = "speed.serve"             // SpeedServeArgs → nil (built-in generator for diag speed)
 )
 
@@ -334,10 +334,19 @@ type NodeFirewallArgs struct {
 	NAT []backend.NATRule `json:"nat"`
 }
 
-// SysctlArgs applies a sysctl profile on the node.
+// SysctlArgs applies a sysctl profile on the node. BBR is the hub's
+// tuning.bbr (the hub config is the only source of truth, section 4); nil
+// (a hub before it was sent) makes the node read its own config.
 type SysctlArgs struct {
 	Profile   string `json:"profile"`
 	IPForward bool   `json:"ip_forward"`
+	BBR       *bool  `json:"bbr,omitempty"`
+}
+
+// SysctlResult reports what the node skipped (no tcp_bbr, keys its kernel
+// lacks, aggressive on less than 4 GB RAM) so the hub shows it to the owner.
+type SysctlResult struct {
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // SpeedServeArgs starts the built-in traffic generator behind a tunnel port.

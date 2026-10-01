@@ -13,25 +13,57 @@ type MenuItem struct {
 	Title   i18n.Key
 	Desc    i18n.Key // Simple-mode description ("" for none)
 	DescAdv i18n.Key // Advanced-mode description; falls back to Desc
+	// NodeDesc describes the item on a node server ("" = Desc). HubOnly
+	// items have nothing to do on a node: NodeMenu marks them.
+	NodeDesc i18n.Key
+	HubOnly  bool
 }
 
 // MainMenu returns the main menu. Numbers are fixed across modes.
 func MainMenu() []MenuItem {
 	return []MenuItem{
-		{1, i18n.MenuDashboard, "", ""},
-		{2, i18n.MenuTunnels, i18n.MenuTunnelsDesc, ""},
-		{3, i18n.MenuNodes, i18n.MenuNodesDesc, ""},
-		{4, i18n.MenuPorts, i18n.MenuPortsDesc, ""},
-		{5, i18n.MenuFailover, i18n.MenuFailoverDesc, i18n.MenuFailoverDescAdv},
-		{6, i18n.MenuDiagnostics, i18n.MenuDiagnosticsDesc, ""},
-		{7, i18n.MenuOptimize, i18n.MenuOptimizeDesc, i18n.MenuOptimizeDescAdv},
-		{8, i18n.MenuSecurity, i18n.MenuSecurityDesc, i18n.MenuSecurityDescAdv},
-		{9, i18n.MenuNotifications, i18n.MenuNotificationsDes, ""},
-		{10, i18n.MenuBackup, "", ""},
-		{11, i18n.MenuUpdate, i18n.MenuUpdateDesc, ""},
-		{12, i18n.MenuSettings, i18n.MenuSettingsDesc, ""},
-		{0, i18n.MenuExit, "", ""},
+		{1, i18n.MenuDashboard, "", "", "", false},
+		{2, i18n.MenuTunnels, i18n.MenuTunnelsDesc, "", "", true},
+		{3, i18n.MenuNodes, i18n.MenuNodesDesc, "", "", true},
+		{4, i18n.MenuPorts, i18n.MenuPortsDesc, "", "", true},
+		{5, i18n.MenuFailover, i18n.MenuFailoverDesc, i18n.MenuFailoverDescAdv, "", true},
+		{6, i18n.MenuDiagnostics, i18n.MenuDiagnosticsDesc, "", i18n.MenuDiagnosticsNode, false},
+		{7, i18n.MenuOptimize, i18n.MenuOptimizeDesc, i18n.MenuOptimizeDescAdv, "", true},
+		{8, i18n.MenuSecurity, i18n.MenuSecurityDesc, i18n.MenuSecurityDescAdv, "", true},
+		{9, i18n.MenuNotifications, i18n.MenuNotificationsDes, "", "", true},
+		{10, i18n.MenuBackup, "", "", i18n.MenuBackupNode, false},
+		{11, i18n.MenuUpdate, i18n.MenuUpdateDesc, "", "", true},
+		{12, i18n.MenuSettings, i18n.MenuSettingsDesc, "", i18n.MenuSettingsNode, false},
+		{0, i18n.MenuExit, "", "", "", false},
 	}
+}
+
+// NodeMenu is the main menu of a node server: the same numbers, the items
+// only the hub can do marked "(hub only)" (picking one explains where it
+// is done instead of answering DEY-X009) and the others described by what
+// they do on a node.
+func NodeMenu() []MenuItem {
+	items := MainMenu()
+	for i := range items {
+		it := &items[i]
+		switch {
+		case it.HubOnly:
+			it.Desc, it.DescAdv = i18n.MenuHubOnly, ""
+		case it.NodeDesc != "":
+			it.Desc, it.DescAdv = it.NodeDesc, ""
+		}
+	}
+	return items
+}
+
+// mainItem returns the main-menu item with number n.
+func mainItem(items []MenuItem, n int) (MenuItem, bool) {
+	for _, it := range items {
+		if it.Num == n {
+			return it, true
+		}
+	}
+	return MenuItem{}, false
 }
 
 // RenderMenu renders the menu in the layout of section 6: a right-aligned

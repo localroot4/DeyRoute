@@ -14,6 +14,7 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/secrets"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/i18n"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 )
@@ -168,7 +169,7 @@ func (h *Hub) reissueNodes(ctx context.Context, rep *steps, newCA *tlsutil.CA, b
 	var migrated []string
 	for _, n := range h.Config().Nodes {
 		id := stepNodePfx + n.ID
-		title := "issue a new certificate for node " + n.ID
+		title := i18n.T(i18n.HubTitleNodeCert, n.ID)
 		if !h.Online(n.ID) {
 			res.Offline = append(res.Offline, n.ID)
 			w := deyerr.New(deyerr.N003, deyerr.Params{"node": n.ID})

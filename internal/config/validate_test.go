@@ -273,6 +273,25 @@ func TestValidatePorts(t *testing.T) {
 	require.Contains(t, e.Why(), "main and second")
 }
 
+// CheckProbe is the ports[].probe rule the menu, the CLI and the Local API
+// share with config.yaml.
+func TestCheckProbe(t *testing.T) {
+	for _, p := range ProbeKinds {
+		require.NoError(t, CheckProbe("probe", ProtoTCP, p), p)
+	}
+	require.NoError(t, CheckProbe("probe", ProtoUDP, ProbeAuto))
+	e := deyerr.As(CheckProbe("ports[443/tcp].probe", ProtoTCP, "icmp"))
+	require.Equal(t, deyerr.C013, e.Code)
+	require.Equal(t, "ports[443/tcp].probe", e.Params["field"])
+	require.Equal(t, "auto, tcp, tls, http", e.Params["allowed"])
+	for _, p := range []string{ProbeTCP, ProbeTLS, ProbeHTTP, "icmp", ""} {
+		e = deyerr.As(CheckProbe("probe", ProtoUDP, p))
+		require.Equal(t, deyerr.C013, e.Code, p)
+		require.Contains(t, e.Params["allowed"], "UDP port maps are not probed by type")
+	}
+	require.Error(t, CheckProbe("probe", ProtoTCP, "TLS"), "case-sensitive like config.yaml")
+}
+
 func TestValidateTunnelLadder(t *testing.T) {
 	noRegistry := ValidateOptions{}
 	udpOnly := func(c *Config) {

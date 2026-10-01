@@ -52,6 +52,7 @@ func TestOptimizeApplyRevert(t *testing.T) {
 		"net.ipv4.tcp_available_congestion_control": "reno cubic",
 		"kernel.osrelease":                          "6.1.0-test",
 	})
+	require.NoError(t, os.WriteFile(filepath.Join(env.root, "proc", "meminfo"), []byte("MemTotal:        1000000 kB\n"), 0o644)) // #nosec G306 -- fake procfs
 	env.startEnv(o)
 	ctx := ctxT(t)
 	n := env.joinNode("de-1")
@@ -63,7 +64,8 @@ func TestOptimizeApplyRevert(t *testing.T) {
 		mu.Lock()
 		got = append(got, a)
 		mu.Unlock()
-		return nil, nil
+		// What the node skipped comes back to the owner.
+		return api.SysctlResult{Warnings: []string{"skip net.ipv4.tcp_congestion_control = bbr: tcp_bbr is not available"}}, nil
 	})
 	n.start()
 	env.waitOnline("de-1", true)
@@ -73,6 +75,8 @@ func TestOptimizeApplyRevert(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, config.SysctlOff, st.Profile)
 	require.False(t, st.BBRAvailable)
+	require.Equal(t, uint64(1000000*1024), st.MemBytes)
+	require.Equal(t, config.SysctlBalanced, st.Recommended)
 
 	_, err = env.client.OptimizeApply(ctx, "turbo")
 	require.Equal(t, deyerr.C013, codeOf(err))
@@ -87,10 +91,12 @@ func TestOptimizeApplyRevert(t *testing.T) {
 	joined := strings.Join(st.Warnings, "\n")
 	require.Contains(t, joined, "tcp_bbr is not available")
 	require.Contains(t, joined, "node nl-1 is offline")
+	require.Contains(t, joined, "node de-1: skip net.ipv4.tcp_congestion_control = bbr")
 	require.FileExists(t, filepath.Join(env.root, config.SysctlConfPath))
 	require.Equal(t, config.SysctlBalanced, env.h.Config().Tuning.SysctlProfile)
+	bbrOn := true
 	mu.Lock()
-	require.Equal(t, []api.SysctlArgs{{Profile: config.SysctlBalanced}}, got)
+	require.Equal(t, []api.SysctlArgs{{Profile: config.SysctlBalanced, BBR: &bbrOn}}, got)
 	mu.Unlock()
 	env.waitEvent(state.EvConfigApplied, "")
 
@@ -106,13 +112,28 @@ func TestOptimizeApplyRevert(t *testing.T) {
 	require.Equal(t, config.SysctlOff, got[1].Profile)
 	mu.Unlock()
 
-	// A node that refuses is reported, the hub still applies.
+	// The hub's tuning.bbr reaches the nodes (the hub config is the only
+	// source of truth).
+	_, err = env.h.mutate(func(c *config.Config) error { c.Tuning.BBR = false; return nil })
+	require.NoError(t, err)
+	_, err = env.client.OptimizeApply(ctx, config.SysctlBalanced)
+	require.NoError(t, err)
+	mu.Lock()
+	require.Len(t, got, 3)
+	require.NotNil(t, got[2].BBR)
+	require.False(t, *got[2].BBR)
+	mu.Unlock()
+
+	// A node that refuses is reported, the hub still applies; aggressive on
+	// this 1 GB hub is applied with a warning.
 	n.on(api.CmdSysctlApply, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
 		return nil, deyerr.New(deyerr.X033, deyerr.Params{"key": "net.core.somaxconn", "value": "65535"})
 	})
 	st, err = env.client.OptimizeApply(ctx, config.SysctlAggressive)
 	require.NoError(t, err)
-	require.Contains(t, strings.Join(st.Warnings, "\n"), "node de-1: DEY-X033")
+	joined = strings.Join(st.Warnings, "\n")
+	require.Contains(t, joined, "node de-1: DEY-X033")
+	require.Contains(t, joined, "aggressive is meant for servers with 4 GB RAM or more; this one has 976 MB")
 }
 
 // withIPForward creates the ip_forward switch a NAT transport sets.

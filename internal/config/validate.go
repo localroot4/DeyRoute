@@ -569,14 +569,27 @@ func (v *validator) ports(p string, t *Tunnel) {
 		if !ValidHostPort(pm.Target) {
 			v.add(deyerr.New(deyerr.C004, deyerr.Params{"target": pm.Target, "tunnel": t.ID}))
 		}
-		switch {
-		case pm.Probe == "":
-		case pm.Proto == ProtoUDP && pm.Probe != ProbeAuto:
-			v.bad(pp+".probe", pm.Probe, "auto (UDP port maps are not probed by type)")
-		case !contains(ProbeKinds, pm.Probe):
-			v.bad(pp+".probe", pm.Probe, strings.Join(ProbeKinds, ", "))
+		if pm.Probe != "" {
+			if err := CheckProbe(pp+".probe", pm.Proto, pm.Probe); err != nil {
+				v.add(deyerr.As(err))
+			}
 		}
 	}
+}
+
+// CheckProbe applies the rule of config.yaml ports[].probe (section 9) to
+// the probe kind of a port map of proto: auto, tcp, tls or http, and auto
+// only for UDP. The UI and the Local API use it so that a kind set there
+// is accepted or refused exactly as in config.yaml; field names the value
+// in the DEY-C013 error.
+func CheckProbe(field, proto, probe string) error {
+	switch {
+	case proto == ProtoUDP && probe != ProbeAuto:
+		return deyerr.New(deyerr.C013, deyerr.Params{"field": field, "value": probe, "allowed": "auto (UDP port maps are not probed by type)"})
+	case !contains(ProbeKinds, probe):
+		return deyerr.New(deyerr.C013, deyerr.Params{"field": field, "value": probe, "allowed": strings.Join(ProbeKinds, ", ")})
+	}
+	return nil
 }
 
 func (v *validator) ladderRef(p string, t *Tunnel) {

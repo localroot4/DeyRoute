@@ -89,7 +89,9 @@ Menu: `10) Backup & Restore` → `2) Restore from a backup`.
    valid backup.
 2. Its `config.yaml` is validated; an older schema is migrated.
 3. If this is a hub backup and this server has another public IP, you are
-   asked whether the hub moved here ([Hub move](hub-move.md)).
+   asked whether the hub moved here ([Hub move](hub-move.md)); the menu asks
+   the same question. After a yes the confirmation also says
+   `The hub address changes from 5.6.7.8 to 7.7.7.7; the hub certificate is re-issued.`
 4. You confirm by typing `yes`:
 
    ```text
@@ -111,6 +113,10 @@ DEYROUTE_BACKUP_PASSPHRASE='long secret phrase' deyroute restore /root/hub.tar.g
 A node backup is restored the same way on a node; the node then reconnects
 to its hub by itself. Restoring works on a server that was set up with
 `install.sh --no-setup`.
+
+After a hub move, item 3 of the same menu gives the nodes the new address:
+`3) Announce hub move` on the old hub, `3) Set hub address` on a node
+([Hub move](hub-move.md)).
 
 ## Errors
 

@@ -237,13 +237,13 @@ func TestSwitchProfilesRestoresDroppedKeys(t *testing.T) {
 	require.Equal(t, "0", get(t, m, KeyIPForward))
 	require.Equal(t, "16777216", get(t, m, "net.core.rmem_max"))
 
-	// BBR switched off in the config: qdisc/cc restored, no warning.
+	// BBR switched off in the config: cc restored, fq kept, no warning.
 	applied, warnings, err := m.ApplyWith(ApplyOptions{Profile: config.SysctlBalanced, BBR: false})
 	require.NoError(t, err)
 	require.Empty(t, warnings)
-	require.Len(t, applied, 18)
+	require.Len(t, applied, 19)
 	require.Equal(t, "cubic", get(t, m, KeyCongestion))
-	require.Equal(t, "fq_codel", get(t, m, KeyDefaultQdisc))
+	require.Equal(t, "fq", get(t, m, KeyDefaultQdisc))
 	st, err := m.Status()
 	require.NoError(t, err)
 	require.False(t, st.BBRActive)
@@ -282,12 +282,15 @@ func TestApplyWithoutBBR(t *testing.T) {
 	require.Len(t, warnings, 1)
 	require.Contains(t, warnings[0], "tcp_bbr is not available")
 	require.Contains(t, warnings[0], "reno cubic")
-	require.Len(t, applied, 18)
+	require.NotContains(t, warnings[0], KeyDefaultQdisc)
+	// Only BBR is skipped (section 12): default_qdisc = fq is its own line.
+	require.Len(t, applied, 19)
+	require.Equal(t, KV{KeyDefaultQdisc, "fq"}, applied[0])
 	require.Equal(t, "cubic", get(t, m, KeyCongestion))
-	require.Equal(t, "fq_codel", get(t, m, KeyDefaultQdisc))
+	require.Equal(t, "fq", get(t, m, KeyDefaultQdisc))
 	conf, _ := os.ReadFile(m.ConfPath())
 	require.NotContains(t, string(conf), KeyCongestion)
-	require.NotContains(t, string(conf), KeyDefaultQdisc)
+	require.Contains(t, string(conf), "net.core.default_qdisc = fq\n")
 }
 
 func TestBBRAvailableFromModules(t *testing.T) {
@@ -466,8 +469,20 @@ func TestMemoryRecommendation(t *testing.T) {
 	require.Equal(t, uint64(8123456*1024), mem)
 	require.Equal(t, config.SysctlAggressive, m.Recommended())
 
+	_, warnings, err := m.Apply(config.SysctlAggressive, false)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+
 	require.NoError(t, os.WriteFile(mi, []byte("MemTotal:        1000000 kB\n"), 0o600))
 	require.Equal(t, config.SysctlBalanced, m.Recommended())
+	// aggressive on 1 GB is applied with a warning (section 12: >= 4 GB).
+	applied, warnings, err := m.Apply(config.SysctlAggressive, false)
+	require.NoError(t, err)
+	require.Len(t, applied, 21)
+	require.Equal(t, []string{"aggressive is meant for servers with 4 GB RAM or more; this one has 976 MB (balanced suits it better)"}, warnings)
+	_, warnings, err = m.Apply(config.SysctlBalanced, false)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
 
 	require.NoError(t, os.WriteFile(mi, []byte("MemTotal: lots kB\n"), 0o600))
 	_, err = m.MemTotal()

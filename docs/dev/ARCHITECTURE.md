@@ -105,6 +105,7 @@ func (c *Config) ResolveLadder(t *Tunnel) ([]string, error) // profile or inline
 func (c *Config) Tunnel(id string) (*Tunnel, bool)
 func (c *Config) NodeByID(id string) (*Node, bool)
 func (t *Tunnel) HasProto(p string) bool; func (t *Tunnel) ProbeTarget() (PortMap, bool) // first TCP port or probe_port
+func CheckProbe(field, proto, probe string) error     // ports[].probe rule (auto|tcp|tls|http, auto for UDP; C013), shared with the UI and the Local API
 func ValidID(s string) bool                          // [a-z0-9-]{2,32}
 func Slugify(name string) string                     // derive an id from a name
 func Migrate(raw map[string]any, from int) (map[string]any, error) // framework; v1 is current (C006/C019)
@@ -115,7 +116,8 @@ Validation rules (§4): ids `[a-z0-9-]{2,32}` unique (C007/C002); `listen` 1–6
 `control_port`, not in `30000-31999`, not 22 (C011); `target` valid host:port
 (C004), default `127.0.0.1:<listen>`; ≥1 node (C008) that exists (C010);
 non-empty ladder (C009) with known transports (C005) and known profile
-(C012); ≤ 64 port maps (C015); enums (C013); role/sections (C016).
+(C012); ≤ 64 port maps, a range counting one map per port (C015); enums
+(C013); role/sections (C016).
 UDP-requiring rungs are *not* a config error (runtime skip).
 
 ### internal/state
