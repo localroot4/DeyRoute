@@ -44,6 +44,38 @@ All notable changes to DEYROUTE are documented here. The format follows
 - Rung 4 of the default ladder is `frp/tcp` (frps cannot serve `frp/wss`
   without a separate TLS terminator; QUESTIONS.md C.31).
 - `uninstall` also removes the `deyroute` user and group (QUESTIONS.md C.30).
+- Offline installs (`install.sh --local`) need `SHA256SUMS` and
+  `SHA256SUMS.minisig` next to the archive; nothing unverified is installed.
+- Running the installer again repairs the server (`deyroute setup --repair`:
+  unit files, directories, service restart; config untouched).
+- Hysteria2: the node serves its own pinned certificate; the tunnel's TLS
+  key (internal CA, ACME or the owner's) never leaves the hub.
+- Manual switches are recorded as `switch_transport` / `switch_node`
+  (`manual_switch` in Telegram settings is kept as an alias).
+- Edge builds stop being "latest" once a stable tag exists; stable releases
+  are signed with the same Go signer.
+
+### Fixed (spec audit of 2026-10-01)
+
+- Join command shown on a plain screen so it can be copied whole; long lines
+  wrap instead of being cut; pages taller than the window keep the error's
+  code, Why and Fix visible; `0` cancels a confirmation instead of running it.
+- Retry after a failed Add-tunnel step restarts the saved tunnel; line mode
+  works with piped input; the ladder order is editable in Simple mode;
+  "DEGR (service down)" is shown; a menu restore reports a moved hub address.
+- Canary failback waits for the doubled delay after a failed failback; UDP
+  rungs wait for a passed UDP probe; certificate renewals that restart the
+  active transport say so.
+- Tunnel logs are rotated (20 MB, 5 compressed files).
+- `update --rollback` works when the daemon is down and on nodes.
+- The automatic backup before `config apply` keeps the running configuration.
+- A changed control port is announced to the nodes; the firewall keeps the
+  listening port protected until the restart.
+- `optimize revert` keeps `ip_forward` while WireGuard/AmneziaWG forwards.
+- `direct/haproxy` finds the hub's haproxy; port check stage 3 really tests a
+  free port and the wizard shows firewall and node warnings.
+- Node removal texts match the refusal for a tunnel's only node.
+- Flaky tests made robust (failover pause, hub diag probe).
 
 ### Fixed (found by the integration scenarios)
 

@@ -17,6 +17,7 @@ import (
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/ports"
+	"github.com/localroot4/deyroute/internal/tui"
 	"github.com/localroot4/deyroute/internal/version"
 )
 
@@ -111,6 +112,10 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 		return deyerr.New(deyerr.I013, deyerr.Params{"role": g.role()})
 	}
 	interactive := g.IsTTY && !f.yes
+	if interactive {
+		// The wizard opens with the DEYROUTE banner (section 6: every page).
+		fmt.Fprintln(g.promptOut(), tui.Banner(g.caps(), tui.BannerStatus{})+"\n")
+	}
 	role := strings.ToLower(strings.TrimSpace(f.role))
 	switch role {
 	case "", config.RoleHub, config.RoleNode:

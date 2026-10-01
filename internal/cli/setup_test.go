@@ -53,6 +53,8 @@ func TestSetupWizardHub(t *testing.T) {
 	// port (busy answer, then default), sysctl (default yes).
 	e.tty("", "", "not-an-ip", "5.6.7.9", "5000", "", "")
 	out := e.ok("setup")
+	require.Contains(t, out, "DEYROUTE Tunnel Manager", "the wizard opens with the banner")
+	require.Contains(t, out, "not set up")
 	require.Equal(t, "ir-server", o.Name)
 	require.Equal(t, "5.6.7.9", o.PublicIP)
 	require.Equal(t, 44434, o.ControlPort)

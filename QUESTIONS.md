@@ -78,14 +78,11 @@ stated default until the owner decides · **[ANSWERED]** closed.
    (services), `deyroute relay --tunnel <id>` (the `direct/native` data plane named
    in section 7.8), `deyroute menu --once` (renders the first screen without a TTY
    for smoke tests / S24).
-9. **[OPEN] Backend binary checksums.** From this build environment GitHub
-   release downloads are blocked, so the sha256 values in
-   `internal/install/backends.yaml` could not be computed. Every entry is
-   present with its pinned version and URL template; sha256 fields are empty and
-   the installer **refuses** to install a backend without a sha256 (`DEY-S006`).
-   The release pipeline fills them with `scripts/manifest-hashes.sh` before
-   signing. Owner action: run it once with GitHub access, or answer with the
-   hashes.
+9. **[ANSWERED] Backend binary checksums.** Every sha256 in
+   `internal/backend/backends.yaml` is now recorded (computed from the
+   upstream files with `scripts/manifest-hashes`, checked against upstream
+   checksum files where they exist; see C.29). A backend without a sha256
+   would still be refused with `DEY-S006`.
 10. **[DEFAULT] WireGuard key configuration.** Section 15 allows `exec` of `ip`
     only (not `wg`). The kernel WireGuard transport therefore configures keys and
     peers through the WireGuard generic-netlink API directly
@@ -140,10 +137,10 @@ stated default until the owner decides · **[ANSWERED]** closed.
 19. **[DEFAULT] Manifest file location.** `backends.yaml` is embedded from
     `internal/backend/backends.yaml` (the backend registry owns it); the
     release publishes and signs that same file.
-20. **[OPEN] AmneziaWG binary.** `amneziawg-go` publishes no release binaries.
-    The manifest points at `{mirror}/backends/amneziawg-go/<ver>/…`; the
-    release pipeline must build it (static, from the pinned module version)
-    and upload it to the owner's mirror. Owner: confirm this is acceptable.
+20. **[DEFAULT] AmneziaWG binary.** `amneziawg-go` publishes no release
+    binaries. DEYROUTE builds it reproducibly and publishes it on the GitHub
+    release `backend-builds` (C.29); the manifest points there. The owner may
+    mirror it and override the manifest.
 21. **[DEFAULT] HAProxy.** HAProxy has no official static Linux binaries.
     `direct/haproxy` (optional, phase 7) uses the distribution's `haproxy`
     binary when present and is otherwise marked unavailable with DEY-B006.
@@ -204,3 +201,44 @@ stated default until the owner decides · **[ANSWERED]** closed.
     tunnel with a permanent yellow warning. `frp/tcp` keeps the intent of the
     rung (a third program with a different traffic pattern) and is a TLS
     session on the wire. `frp/wss` stays a known id for custom ladders.
+32. **[DEFAULT] Join applies the hub's kernel profile.** `deyroute join` without
+    a terminal (the one-line join command) applies the balanced profile the
+    owner chose when setting up the hub, so hub and nodes match (spec 12);
+    `optimize apply --profile off` on the hub reverts it everywhere. On a
+    terminal it asks first.
+33. **[DEFAULT] Changing the control port.** A changed `hub.control_port`
+    (`config apply`) takes effect at the next hub restart: the online nodes
+    are told the new address at once (as `hub announce-move`) and switch at
+    the restart; offline nodes need `deyroute node set-hub`. Until the restart
+    the firewall keeps protecting the port the hub listens on.
+34. **[DEFAULT] Removing a tunnel's only node is refused.** `node remove`
+    refuses (`DEY-C008`) while a tunnel has no other node; the owner gives it
+    a backup node first or deletes it. Texts and docs say so.
+
+## D. Known limitations after the v1.0 audit (follow-up work)
+
+The spec audit of 2026-10-01 found 100 gaps; the critical and major ones in
+code are fixed (see CHANGELOG). These remain, none of them a security issue:
+
+- **Backhaul on mixed TCP+UDP tunnels.** Backhaul's TCP-family transports
+  carry TCP only, so a tunnel with both TCP and UDP port maps uses the next
+  rungs (Rathole, FRP, Xray, Hysteria2, direct). A companion Backhaul UDP
+  instance per rung is planned. Workaround: one tunnel for the TCP ports and
+  one for the UDP ports.
+- **Firewall command after confirmation.** When the host firewall blocks a
+  port, the port check and the Add-tunnel wizard show the exact command
+  (`ufw allow …`, `firewall-cmd …`); deyroute does not run it itself yet.
+- **ACME from the menu.** `hub.domain` and the Cloudflare DNS-01 token are
+  set with `deyroute config edit`; the menu has no form for them yet.
+- **Hub move from the menu.** `hub announce-move` and `node set-hub` are CLI
+  commands only.
+- **Per-port probe kind** (`auto|tcp|tls|http`) is set in `config.yaml`, not
+  from the menu or `port add`.
+- **Smaller UX items** found by the audit (raw event ids in LAST EVENTS,
+  column alignment on some screens, help on text-input screens, numbered
+  answers for fixed options, the update changelog shown as a URL, doctor
+  details) are listed in the audit record and do not change behaviour.
+- **Lab coverage.** The integration lab cannot run a real Xray client, the
+  WireGuard kernel module, or real provider firewalls; those parts of
+  phases 4, 6 and 7 are covered by unit tests and need the 72-hour test on
+  real servers (docs/en/acceptance.md).
