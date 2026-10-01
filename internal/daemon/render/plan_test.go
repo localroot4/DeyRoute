@@ -22,7 +22,7 @@ import (
 func TestPlanEndToEnd(t *testing.T) {
 	e := newEnv(t)
 	in := e.input()
-	in.UDPBlocked = func(node string) bool { return node == "nl-1" }
+	in.UDPProbe = func(node string) (bool, bool) { return node != "nl-1", true } // blocked to nl-1
 	plan, err := Plan(in)
 	require.NoError(t, err)
 
@@ -159,9 +159,46 @@ func TestPlanEndToEnd(t *testing.T) {
 	require.Equal(t, c.ControlPort, c2.ControlPort)
 	require.Equal(t, c.Hub.Files, c2.Hub.Files)
 	require.Equal(t, c.Hub.DropIn, c2.Hub.DropIn)
-	// Without UDPBlocked the UDP rungs are planned on nl-1 too.
+	// Without UDPProbe the UDP rungs are planned on nl-1 too.
 	_, ok = plan2.Candidate("nl-1", "fwd/quic")
 	require.True(t, ok)
+}
+
+// Section 7.6: rungs that need UDP enter the ladder only after a passed
+// UDP probe; a node whose probe failed or never ran gets DEY-B007.
+func TestPlanUDPRungsWaitForAPassedProbe(t *testing.T) {
+	e := newEnv(t)
+	in := e.input()
+	in.UDPProbe = func(node string) (bool, bool) {
+		if node == "de-1" {
+			return false, true // probed: blocked
+		}
+		return false, false // nl-1: not probed yet
+	}
+	plan, err := Plan(in)
+	require.NoError(t, err)
+	reasons := map[string]string{}
+	for _, s := range plan.Skipped {
+		if s.Code == deyerr.B007 {
+			reasons[s.Node+"|"+s.TransportID] = s.Reason
+		}
+	}
+	require.Len(t, reasons, 4, "fwd/quic and nat/wg on both nodes")
+	require.Equal(t, "Transport fwd/quic needs UDP and was skipped for tunnel main: the UDP probe between hub and node failed",
+		reasons["de-1|fwd/quic"])
+	require.Equal(t, "Transport fwd/quic needs UDP and was skipped for tunnel main: "+udpNotTested, reasons["nl-1|fwd/quic"])
+	require.Contains(t, reasons["nl-1|nat/wg"], "has not run yet")
+	for _, c := range plan.Candidates {
+		require.NotContains(t, []string{"fwd/quic", "nat/wg"}, c.TransportID)
+	}
+
+	// A passed probe plans them.
+	in.UDPProbe = func(string) (bool, bool) { return true, true }
+	plan, err = Plan(in)
+	require.NoError(t, err)
+	for _, id := range []string{"de-1|fwd/quic", "de-1|nat/wg", "nl-1|fwd/quic"} {
+		require.Contains(t, candidateIDs(plan), id)
+	}
 }
 
 func TestPlanP12AndIPv6(t *testing.T) {

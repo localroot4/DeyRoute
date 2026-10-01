@@ -340,19 +340,19 @@ func (h *Hub) planInput(cfg *config.Config, t config.Tunnel) render.Input {
 		nodes[n.ID] = n
 	}
 	return render.Input{
-		Cfg:        cfg,
-		Tunnel:     t,
-		Hub:        cfg.Hub.Info(),
-		Nodes:      nodes,
-		CtlPort:    h.allocCtlPort,
-		NetIndex:   func(tunnel string) (int, error) { return h.st.AllocNetIndex(tunnel, netIndexMax) },
-		Secrets:    h.secretStore(),
-		Registry:   hubRegistry{h},
-		Layout:     install.Layout{Root: "/"},
-		Decoy:      h.currentDecoy(cfg),
-		FirstRun:   h.firstRun,
-		CAPEM:      h.tunnelCAPEM(),
-		UDPBlocked: h.udpBlocked,
+		Cfg:      cfg,
+		Tunnel:   t,
+		Hub:      cfg.Hub.Info(),
+		Nodes:    nodes,
+		CtlPort:  h.allocCtlPort,
+		NetIndex: func(tunnel string) (int, error) { return h.st.AllocNetIndex(tunnel, netIndexMax) },
+		Secrets:  h.secretStore(),
+		Registry: hubRegistry{h},
+		Layout:   install.Layout{Root: "/"},
+		Decoy:    h.currentDecoy(cfg),
+		FirstRun: h.firstRun,
+		CAPEM:    h.tunnelCAPEM(),
+		UDPProbe: h.udpProbe,
 	}
 }
 
@@ -392,10 +392,14 @@ func (h *Hub) firstRun(instance string) bool {
 	return stderrors.Is(err, os.ErrNotExist)
 }
 
-// udpBlocked reports that the last UDP echo probe to node failed.
-func (h *Hub) udpBlocked(node string) bool {
+// udpProbe reports the last UDP echo probe to node: tested is false while
+// none has completed (rungs that need UDP then wait for one, section 7.6).
+func (h *Hub) udpProbe(node string) (passed, tested bool) {
 	ns, _ := h.nodeState(node)
-	return ns.UDPOK != nil && !*ns.UDPOK
+	if ns.UDPOK == nil {
+		return false, false
+	}
+	return *ns.UDPOK, true
 }
 
 // udpRung returns the first rung of t that needs UDP between hub and node
@@ -1156,6 +1160,9 @@ type updateOpts struct {
 	only          string // node work only on this node
 	add           bool   // no online node is a failed step
 	quietInstall  bool   // do not report the install steps
+	// onRestart, when set, is called with "<transport> on <node>" after
+	// restartActive restarted the active transport.
+	onRestart func(detail string)
 }
 
 // update re-plans a running tunnel after a change (config, node attached,
@@ -1195,7 +1202,7 @@ func (c *tunnelCtl) update(ctx context.Context, o updateOpts) error {
 		}
 	}
 	if o.restartActive {
-		c.restartChanged(ctx, eng, res, rep)
+		c.restartChanged(ctx, eng, res, rep, o.onRestart)
 	}
 	c.removeStaleCandidates(ctx, res.stale)
 	c.checkCanary(ctx, t, plan)
@@ -1204,8 +1211,8 @@ func (c *tunnelCtl) update(ctx context.Context, o updateOpts) error {
 }
 
 // restartChanged restarts the sides of the active candidate whose rendered
-// files changed (server side first).
-func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, res applyResult, rep *steps) {
+// files changed (server side first); done (optional) learns of a restart.
+func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, res applyResult, rep *steps, done func(string)) {
 	// The engine cannot start or stop a candidate meanwhile: the restart
 	// never revives a unit it has just stopped.
 	c.unitMu.Lock()
@@ -1220,7 +1227,8 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 		}
 		return
 	}
-	_ = rep.run(stepRestart, func() (string, error) {
+	detail := pc.TransportID + " on " + pc.Node
+	err := rep.run(stepRestart, func() (string, error) {
 		h := c.h
 		restartHub := func() error {
 			if !hubCh {
@@ -1257,8 +1265,11 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 			return "", err
 		}
 		h.log.Info("active transport restarted after a change", dlog.Tunnel(c.id), dlog.Node(pc.Node), dlog.Transport(pc.TransportID))
-		return pc.TransportID + " on " + pc.Node, nil
+		return detail, nil
 	})
+	if err == nil && done != nil {
+		done(detail)
+	}
 }
 
 // removeStaleCandidates removes candidates that are no longer planned (not

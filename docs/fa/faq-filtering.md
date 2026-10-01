@@ -57,7 +57,7 @@ deyroute ladder set stealth --rungs xray/reality,backhaul/wssmux,direct/native
 
 پله‌ای که الان برای **همین** تانل قابل استفاده نیست. با یک هشدار زرد از نردبان این تانل کنار گذاشته می‌شود (رویداد `rung_skipped`)، در `deyroute tunnel show main` به شکل `skipped: <reason>` دیده می‌شود و هر ۳۰ دقیقه دوباره تست می‌شود؛ اگر پاس شد برمی‌گردد (`rung_restored`). این یک هشدار است، نه خطا. دلیل‌های رایج:
 
-- **UDP بین Hub و Node بسته است** (`DEY-B007`): `hysteria2/udp`، `wireguard/kernel`، `backhaul/udp`، `frp/quic` و `frp/kcp` به UDP نیاز دارند.
+- **UDP بین Hub و Node بسته است یا هنوز تست نشده** (`DEY-B007`): `hysteria2/udp`، `wireguard/kernel`، `backhaul/udp`، `frp/quic` و `frp/kcp` به UDP نیاز دارند و فقط بعد از پاس شدن تست UDP استفاده می‌شوند. این تست وقتی Node وصل می‌شود و در هر بررسی دوباره ۳۰ دقیقه‌ای اجرا می‌شود.
 - **ترنسپورت قابل استفاده نیست** (`DEY-B006`) — مثلاً `frp/wss` با نسخه FRP که در پروژه ثابت شده در دسترس نیست (صفحه [frp](../backends/frp.md))، یا `direct/haproxy` انتخاب شده ولی روی Hub برنامه `haproxy` نصب نیست.
 - **ترنسپورت نمی‌تواند پروتکل تانل را ببرد** (`DEY-B010`)، مثلاً پله فقط‌TCP در تانل UDP؛ این پله‌ها بی‌صدا کنار گذاشته می‌شوند.
 

@@ -516,12 +516,12 @@ func (l *local) SecurityTLSRenew(ctx context.Context, tunnel string) ([]api.Cert
 	acme := &acmeRun{}
 	var errs []error
 	for _, t := range tunnels {
+		prev := h.servedCert(t)
 		if err := h.renewTunnelCert(ctx, cfg, t, acme, true); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if err := h.rerender(ctx, t, nil); err != nil {
-			h.log.Warn("tunnel not rendered after a certificate renewal", dlog.Tunnel(t.ID), dlog.Err(err))
+		if err := h.renderRenewed(ctx, t, prev); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -699,14 +699,44 @@ func (h *Hub) renewDue(ctx context.Context) {
 		if !due {
 			continue
 		}
+		prev := h.servedCert(t)
 		if err := h.renewTunnelCert(ctx, cfg, t, acme, false); err != nil {
 			h.log.Warn("tunnel certificate renewal failed", dlog.Tunnel(t.ID), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
 			continue
 		}
-		if err := h.rerender(ctx, t, nil); err != nil {
-			h.log.Warn("tunnel not rendered after a certificate renewal", dlog.Tunnel(t.ID), dlog.Err(err))
-		}
+		_ = h.renderRenewed(ctx, t, prev)
 	}
+}
+
+// servedCert describes the certificate tunnel t serves now (zero when it
+// has none yet).
+func (h *Hub) servedCert(t config.Tunnel) api.CertInfo {
+	now := h.now()
+	file, mode := h.tunnelCertFile(t, now)
+	ci, _ := h.certFile("tunnel", t.ID, mode, file, now)
+	return ci
+}
+
+// renderRenewed renders tunnel t again after a certificate renewal (its
+// active transport restarts when its files changed) and, when the served
+// certificate changed, emits config_applied with the mode, the new expiry
+// and the restarted transport (section 10: the active transport restarts
+// with a notification).
+func (h *Hub) renderRenewed(ctx context.Context, t config.Tunnel, prev api.CertInfo) error {
+	restarted, err := h.rerender(ctx, t, nil)
+	if err != nil {
+		h.log.Warn("tunnel not rendered after a certificate renewal", dlog.Tunnel(t.ID), dlog.Err(err))
+	}
+	cur := h.servedCert(t)
+	if cur.Fingerprint == "" || cur.Fingerprint == prev.Fingerprint {
+		return err
+	}
+	msg := fmt.Sprintf("Tunnel %s: certificate renewed (%s, expires %s)", t.ID, cur.Mode, cur.NotAfter.UTC().Format("2006-01-02"))
+	if restarted != "" {
+		msg += "; active transport " + restarted + " restarted"
+	}
+	h.opsEvent(t.ID, msg)
+	return err
 }
 
 // ---------------------------------------------------------------- rotate tokens
@@ -741,7 +771,7 @@ func (l *local) SecurityRotateTokens(ctx context.Context, tunnel string, progres
 		tok, err := h.secretStore().RotateToken(t.ID)
 		if err == nil {
 			dlog.RegisterSecret(tok)
-			err = h.rerender(ctx, t, rep)
+			_, err = h.rerender(ctx, t, rep)
 		}
 		var offline []string
 		for _, n := range t.Nodes {

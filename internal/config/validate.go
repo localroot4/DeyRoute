@@ -48,7 +48,7 @@ var (
 	// event names of section 9 (e.g. switch → switch_transport + switch_node).
 	TelegramEventAliases = []string{
 		"down", "up", "degraded", "switch", "failback", "node_offline", "node_online",
-		"flapping", "service_down", "backend_crash", "probe_error", "update",
+		"flapping", "service_down", "backend_crash", "probe_error", "update", "manual_switch",
 	}
 	// TelegramEventNames are the full event names (section 9, plus
 	// acme_failed of section 10 and the other internal/state event types)

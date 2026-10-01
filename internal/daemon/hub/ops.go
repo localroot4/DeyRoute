@@ -336,15 +336,18 @@ func tunnelsOf(cfg *config.Config, id string) ([]config.Tunnel, error) {
 // rerender re-plans tunnel t and makes the hub and its nodes match (after a
 // secret changed): an enabled tunnel re-renders through its controller and
 // restarts the active transport when its files changed (server side
-// first); a disabled one re-renders its warm rungs only. opMu is held.
-func (h *Hub) rerender(ctx context.Context, t config.Tunnel, rep *steps) error {
+// first; restarted is then "<transport> on <node>"); a disabled one
+// re-renders its warm rungs only. opMu is held.
+func (h *Hub) rerender(ctx context.Context, t config.Tunnel, rep *steps) (restarted string, err error) {
 	if c := h.tun.lookup(t.ID); c != nil {
-		return c.update(ctx, updateOpts{rep: rep, restartActive: true, quietInstall: true})
+		err := c.update(ctx, updateOpts{rep: rep, restartActive: true, quietInstall: true,
+			onRestart: func(detail string) { restarted = detail }})
+		return restarted, err
 	}
 	tmp := newTunnelCtl(h, t.ID)
 	res, err := tmp.apply(ctx, applyOpts{rep: rep, quietInstall: true})
 	if err != nil {
-		return err
+		return "", err
 	}
-	return res.fatal
+	return "", res.fatal
 }

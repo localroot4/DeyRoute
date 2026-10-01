@@ -20,15 +20,16 @@ func TestMain(m *testing.M) {
 func TestAliases(t *testing.T) {
 	a := Aliases()
 	want := map[string][]string{
-		"down":         {"tunnel_down"},
-		"up":           {"tunnel_up"},
-		"degraded":     {"tunnel_degraded"},
-		"switch":       {"switch_transport", "switch_node"},
-		"failback":     {"failback", "failback_failed"},
-		"node_offline": {"node_offline"},
-		"node_online":  {"node_online"},
-		"flapping":     {"flapping"},
-		"service_down": {"service_down"},
+		"down":          {"tunnel_down"},
+		"up":            {"tunnel_up"},
+		"degraded":      {"tunnel_degraded"},
+		"switch":        {"switch_transport", "switch_node"},
+		"manual_switch": {"switch_transport", "switch_node"},
+		"failback":      {"failback", "failback_failed"},
+		"node_offline":  {"node_offline"},
+		"node_online":   {"node_online"},
+		"flapping":      {"flapping"},
+		"service_down":  {"service_down"},
 		"backend_crash": {
 			"backend_crash",
 		},

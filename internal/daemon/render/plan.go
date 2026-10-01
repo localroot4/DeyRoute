@@ -102,10 +102,11 @@ type Input struct {
 	// CAPEM is the internal CA certificate, copied to every config dir as
 	// ca.crt.
 	CAPEM []byte
-	// UDPBlocked optionally reports that the last UDP echo probe to node
-	// failed (section 10); rungs with NeedsUDP are then skipped with
-	// DEY-B007. nil = never blocked.
-	UDPBlocked func(node string) bool
+	// UDPProbe optionally reports the last UDP echo probe to node (section
+	// 10); tested is false while none has completed. Rungs with NeedsUDP
+	// are planned only after a passed probe (section 7.6): a failed probe,
+	// or none yet, skips them with DEY-B007. nil = UDP is open to every node.
+	UDPProbe func(node string) (passed, tested bool)
 }
 
 // Side is one rendered half of a candidate, ready to be written.
@@ -312,6 +313,12 @@ func newPlanner(in Input) (*planner, []string, error) {
 	return p, ladder, nil
 }
 
+// udpNotTested is the DEY-B007 reason of a UDP rung on a node whose UDP
+// probe has not completed yet (offline since it joined, or the probe could
+// not be sent); the probe runs when the node connects and on every
+// 30-minute re-check.
+const udpNotTested = "the UDP probe between hub and node has not run yet; the rung is used once it passes"
+
 // skipped builds a SkippedCandidate from err (its DEY code, or fallback).
 func skipped(node, rung string, err error, fallback deyerr.Code) *SkippedCandidate {
 	c, reason := fallback, err.Error()
@@ -331,8 +338,14 @@ func (p *planner) candidate(node config.Node, rung string) (Candidate, *SkippedC
 	if err != nil {
 		return Candidate{}, skipped(node.ID, rung, err, deyerr.C005)
 	}
-	if tr.NeedsUDP && p.in.UDPBlocked != nil && p.in.UDPBlocked(node.ID) {
-		return Candidate{}, skipped(node.ID, rung, deyerr.New(deyerr.B007, deyerr.Params{"transport": rung, "tunnel": t.ID}), deyerr.B007)
+	if tr.NeedsUDP && p.in.UDPProbe != nil {
+		if passed, tested := p.in.UDPProbe(node.ID); !passed {
+			e := deyerr.New(deyerr.B007, deyerr.Params{"transport": rung, "tunnel": t.ID})
+			if !tested {
+				e = e.WithWhy(udpNotTested)
+			}
+			return Candidate{}, skipped(node.ID, rung, e, deyerr.B007)
+		}
 	}
 	ctl, err := p.in.CtlPort(state.Key(t.ID, node.ID, rung))
 	if err != nil {

@@ -237,6 +237,46 @@ func TestTunnelSkippedRungs(t *testing.T) {
 	require.Equal(t, 1, te.countEvents(state.EvRungRestored))
 }
 
+// Section 7.6: a rung that needs UDP is used only after a passed UDP
+// probe. While the probe cannot run it is skipped (DEY-B007, "not run
+// yet"); the re-check probes again and brings it back.
+func TestTunnelUDPRungWaitsForAPassedProbe(t *testing.T) {
+	te := startTunnelHub(t)
+	n := te.tunnelNode("de-1")
+	n.tmu.Lock()
+	n.udpListenErr = deyerr.New(deyerr.P020, nil)
+	n.tmu.Unlock()
+	info, err := te.client.TunnelAdd(ctxT(t), api.TunnelAddRequest{
+		Node: "de-1", Ports: []api.PortSpec{{Listen: freePort(t)}},
+		Rungs: []string{trAlpha, trGamma}, Failover: fastFailover(false),
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, trAlpha, info.ActiveTransport)
+	ns, _ := te.h.nodeState("de-1")
+	require.Nil(t, ns.UDPOK, "the probe could not run")
+	key := state.Candidate{Node: "de-1", Transport: trGamma}.Key()
+	ts, _ := te.h.tunnelState(info.ID)
+	require.Contains(t, ts.Skipped, key)
+	require.Equal(t, string(deyerr.B007), ts.Skipped[key].Code)
+	require.Contains(t, ts.Skipped[key].Reason, "has not run yet")
+	err = te.client.TunnelSwitch(ctxT(t), info.ID, api.SwitchRequest{Transport: trGamma})
+	require.Equal(t, deyerr.B007, codeOf(err))
+
+	n.tmu.Lock()
+	n.udpListenErr = nil
+	n.tmu.Unlock()
+	c := te.h.tun.lookup(info.ID)
+	require.NotNil(t, c)
+	c.recheck(ctxT(t))
+	restored := te.waitEvent(state.EvRungRestored, "de-1")
+	require.Equal(t, trGamma, restored.ToTransport)
+	ns, _ = te.h.nodeState("de-1")
+	require.NotNil(t, ns.UDPOK)
+	require.True(t, *ns.UDPOK)
+	ts, _ = te.h.tunnelState(info.ID)
+	require.NotContains(t, ts.Skipped, key)
+}
+
 func TestTunnelSwitchResetPause(t *testing.T) {
 	te := startTunnelHub(t)
 	n := te.tunnelNode("de-1")

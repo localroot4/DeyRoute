@@ -73,8 +73,10 @@ the tunnel's ladder with a yellow warning (event `rung_skipped`), shown as
 30 minutes; when it passes it comes back (`rung_restored`). It is a warning,
 not an error. Typical reasons:
 
-- **UDP is blocked** between hub and node (`DEY-B007`): `hysteria2/udp`,
-  `wireguard/kernel`, `backhaul/udp`, `frp/quic`, `frp/kcp` need UDP.
+- **UDP is blocked** between hub and node, or not tested yet (`DEY-B007`):
+  `hysteria2/udp`, `wireguard/kernel`, `backhaul/udp`, `frp/quic`,
+  `frp/kcp` need UDP and are used only after the UDP test passed. The test
+  runs when the node connects and on every 30-minute re-check.
 - **The transport cannot be used** (`DEY-B006`) — for example `frp/wss` is
   not available with the pinned FRP release (see
   [frp](../backends/frp.md)), or `direct/haproxy` is chosen but the hub has no

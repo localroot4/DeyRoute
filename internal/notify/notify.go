@@ -25,10 +25,13 @@ var DefaultEvents = []string{"down", "switch", "failback", "node_offline"}
 
 // aliases maps each alias of hub.notify.telegram.events to event types.
 var aliases = map[string][]string{
-	"down":          {state.EvTunnelDown},
-	"up":            {state.EvTunnelUp},
-	"degraded":      {state.EvTunnelDegraded},
-	"switch":        {state.EvSwitchTransport, state.EvSwitchNode},
+	"down":     {state.EvTunnelDown},
+	"up":       {state.EvTunnelUp},
+	"degraded": {state.EvTunnelDegraded},
+	"switch":   {state.EvSwitchTransport, state.EvSwitchNode},
+	// manual_switch was an event of its own before manual moves became
+	// switch_transport / switch_node; kept so older configs still load.
+	"manual_switch": {state.EvSwitchTransport, state.EvSwitchNode},
 	"failback":      {state.EvFailback, state.EvFailbackFailed},
 	"node_offline":  {state.EvNodeOffline},
 	"node_online":   {state.EvNodeOnline},

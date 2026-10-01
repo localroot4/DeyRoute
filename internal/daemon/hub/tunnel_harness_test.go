@@ -519,6 +519,9 @@ type tnode struct {
 	restarted  []string
 	stopped    []string
 	udpBlocked bool
+	// udpListenErr, when set, is the answer of probe.udp_listen (the UDP
+	// probe cannot run).
+	udpListenErr error
 	// nrestarts is the NRestarts unit.status reports per instance.
 	nrestarts map[string]int
 	// failStart, when set, is the answer of unit.start for an instance
@@ -631,6 +634,9 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 		decode(t, cmd, &args)
 		n.tmu.Lock()
 		defer n.tmu.Unlock()
+		if n.udpListenErr != nil {
+			return nil, n.udpListenErr
+		}
 		if n.udpBlocked || n.udp[args.Port] != nil {
 			return nil, nil
 		}

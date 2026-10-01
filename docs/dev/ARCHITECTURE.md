@@ -390,9 +390,10 @@ parallel without breaking each other's builds:
    render (all rungs, all nodes, both sides), firewall, start (failover engine
    INIT→STARTING), probe → result "Tunnel main is UP via backhaul/wssmux (41ms)".
    Each step reports `api.Step` progress; a failing step returns its DEY error.
-2. Rungs whose `Validate` fails or whose UDP probe fails are recorded in
-   `TunnelState.Skipped` with `RecheckAt = now+30m` and event `rung_skipped`
-   (yellow); a periodic job re-tests and clears them (`rung_restored`).
+2. Rungs whose `Validate` fails or whose UDP probe has not passed (failed,
+   or not run yet: section 7.6) are recorded in `TunnelState.Skipped` with
+   `RecheckAt = now+30m` and event `rung_skipped` (yellow); a periodic job
+   re-tests and clears them (`rung_restored`).
 3. Failover `Actions` (hub implementation): `Start` starts the server side
    unit first (`Direction.ServerSide()`), then the other side; applies the
    candidate's NAT (hub firewall + node `firewall.apply`); for `awg` runs the

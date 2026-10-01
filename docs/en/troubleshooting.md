@@ -145,6 +145,9 @@ The UDP test between hub and node failed, so transports that need UDP
 are skipped for this node. TCP transports keep working. Open UDP between the
 servers (provider firewall) if you want them; skipped rungs are re-tested
 every 30 minutes. `deyroute node test de-1` shows `UDP ok` or `blocked`.
+These rungs are also skipped while the test has not run yet (the node has
+been offline since it joined): the reason then says `has not run yet`, and
+they come back once the node is online and the test passes.
 
 ### The node is offline — `DEY-N003`
 

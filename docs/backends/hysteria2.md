@@ -147,7 +147,7 @@ credentials, and the port is still limited to a configured target port.
 ## Known limitations
 
 - Needs UDP between hub and node; the rung is skipped while the UDP probe
-  fails and re-tested every 30 minutes.
+  fails or has not run yet, and re-tested every 30 minutes.
 - With port hopping the node redirects all external UDP to ports
   20000-20999; do not run other public UDP services in that range on the node.
 - The node service sees the node's own address, not the user's IP.
