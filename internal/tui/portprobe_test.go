@@ -56,11 +56,11 @@ func TestPortsProbeKind(t *testing.T) {
 	// Add: one question for the TCP ports of the input.
 	h.choose("1").choose("1")
 	h.typeLine("8080,27015/udp")
-	h.must("Probe kind of the TCP ports (auto, tcp, tls, http) [auto]: _", "http: an HTTP status line")
+	h.must(" Probe kind of the TCP ports:\n 1) auto", " 4) http", "Choice [1]: _")
 	h.typeLine("ping")
-	h.must("Enter one of: auto, tcp, tls, http")
+	h.mustNot("Adding 8080")
 	h.press("ctrl+u")
-	h.typeLine("http")
+	h.typeLine("4") // http
 	h.must("Adding 8080,27015/udp to tunnel main")
 	h.press("enter")
 	mu.Lock()

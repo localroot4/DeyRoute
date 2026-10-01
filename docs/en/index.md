@@ -72,7 +72,7 @@ Optional, but recommended: join a second node and make it a backup:
 | [Backup & restore](backup.md) | backups, passphrase, `DEYROUTE_BACKUP_PASSPHRASE`, automatic backups, what a backup holds |
 | [Update & uninstall](update-uninstall.md) | updating deyroute and the backends, rollback, uninstall |
 | [Security](security.md) | control channel, join tokens, firewall table, secrets, rotation, TLS, audit, no telemetry |
-| [Benchmarks](benchmarks.md) | how resource use and failover times are measured (results pending) |
+| [Benchmarks](benchmarks.md) | how resource use and failover times are measured; lab results recorded, real-server results pending |
 
 Reference: [error codes](../ERRORS.md) · [`--json` output](../cli-json.md) ·
 backends: [backhaul](../backends/backhaul.md), [rathole](../backends/rathole.md),

@@ -292,18 +292,18 @@ func TestAddTunnelAdvanced(t *testing.T) {
 	h.choose("8").choose("3") // remove direct/native
 	h.mustNot("direct/native  ")
 	h.choose("8") // add (7 rungs left)
-	h.must("Add a transport:", "direct/haproxy  client IP: preserved")
+	h.must("Add a transport:", "direct/haproxy  client IP: masked (preserved with advanced.proxy_protocol)")
 	h.choose("1")  // direct/haproxy
 	h.choose("11") // save (8 rungs)
 	h.must("Advanced options.", "Tunnel name (empty = automatic): _")
 	h.typeLine("web")
 	h.typeLine("") // target default
 	// The probe kind of the TCP port (section 9), checked like config.yaml.
-	h.must("Probe kind of 443/tcp (auto, tcp, tls, http) [auto]: _", "tls: a TLS handshake or alert")
+	h.must(" Probe kind of 443/tcp:\n 1) auto  a TLS hello; any answer counts (default)", " 3) tls", "Choice [1]: _")
 	h.typeLine("icmp")
-	h.must("Enter one of: auto, tcp, tls, http")
+	h.mustNot("Backup node:")
 	h.press("ctrl+u")
-	h.typeLine("tls")
+	h.typeLine("3") // tls
 	// Fixed answers are numbered (section 6: numbers and Enter only); the
 	// backup node shows the fixed backup warning.
 	h.must("Backup only works if the same service runs on both nodes.", " Backup node:\n 1) none\n 2) nl-1  Netherlands 1  ● online\nChoice [1]: _")

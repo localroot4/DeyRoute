@@ -13,8 +13,8 @@
 #    rendered credentials whose destination is 8.8.8.8:53 (xray: a
 #    dokodemo-door; hysteria2: tcp/udpForwarding; direct/native: the relay
 #    preamble and datagram for target indexes the node does not have;
-#    awg: the hub peer widened to 8.8.8.8/32 and a route into the tunnel),
-#    after the same client reached the tunnel's own target.
+#    WireGuard and AWG: the hub peer widened to 8.8.8.8/32 and a route into
+#    the tunnel), after the same client reached the tunnel's own target.
 # The node counts (and drops) what it sends or routes to 8.8.8.8:53: 0.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
@@ -38,14 +38,19 @@ wait_tunnel_up "$T" 180
 set_failover failback false # stay on each switched-to rung while it is probed
 
 # Count (and drop) anything the node sends or routes to 8.8.8.8:53: a late
-# postrouting chain sees what would really leave, after every filter.
+# postrouting chain sees what would really leave, after every filter. What
+# arrives for 8.8.8.8:53 (routed into a WireGuard tunnel by the hub) is
+# counted too, so that probe cannot pass without reaching the node.
 on node1 nft -f - <<'EOF'
 table inet it_watch {
   counter leak {}
+  counter arrived {}
+  chain arriving { type filter hook prerouting priority -300; ip daddr 8.8.8.8 th dport 53 counter name arrived; }
   chain leaving { type filter hook postrouting priority 500; ip daddr 8.8.8.8 th dport 53 counter name leak drop; }
 }
 EOF
-leaked() { on node1 nft -j list counter inet it_watch leak | jq '.nftables[] | select(.counter) | .counter.packets'; }
+watched() { on node1 nft -j list counter inet it_watch "$1" | jq '.nftables[] | select(.counter) | .counter.packets'; }
+leaked() { watched leak; }
 
 # From outside: open-proxy style requests to every public TCP and UDP
 # listener of the node, from the client and from the hub.
@@ -198,32 +203,21 @@ for i in (len(c["ports"]), 999, 65535):
 print("index 0 reached the target; unknown indexes sent")
 PY
 }
-# probe_awg: the hub's amneziawg-go peer widened to 8.8.8.8/32 over UAPI and a
-# route into the tunnel: the node must not route it (the firewall confines
-# the tunnel interface even though the lab containers have ip_forward=1).
-probe_awg() {
-  local cfg iface node_addr
-  cfg=$(hub_dir awg/userspace)/wg.json
+# probe_wg TRANSPORT: the hub's WireGuard peer widened to 8.8.8.8/32 (deyroute
+# wg up with a copy of the hub's wg.json) and a route into the tunnel: the
+# node must not route it (the firewall confines the tunnel interface even
+# though the lab containers have ip_forward=1). The hub's own wg.json is
+# applied again afterwards.
+probe_wg() {
+  local tr=$1 cfg iface node_addr
+  cfg=$(hub_dir "$tr")/wg.json
   iface=$(on hub cat "$cfg" | jq -r .interface)
   node_addr=$(on hub cat "$cfg" | jq -r '.peer.allowed_ips[0]' | cut -d/ -f1)
   sh_on hub "curl -fsS -o /dev/null --max-time 10 http://$node_addr:443/" ||
-    fail "awg/userspace: the hub does not reach the target through $iface"
-  uapi() {
-    on hub python3 - "$cfg" "$1" <<'PY'
-import base64, json, socket, sys
-c = json.load(open(sys.argv[1]))
-s = socket.socket(socket.AF_UNIX)
-s.connect("/var/run/amneziawg/%s.sock" % c["interface"])
-ips = "".join("allowed_ip=%s\n" % a for a in c["peer"]["allowed_ips"] + sys.argv[2].split())
-s.sendall(("set=1\npublic_key=%s\nupdate_only=true\nreplace_allowed_ips=true\n%s\n"
-           % (base64.b64decode(c["peer"]["public_key"]).hex(), ips)).encode())
-r = s.recv(64)
-if not r.startswith(b"errno=0"):
-    sys.exit("UAPI: %r" % r)
-PY
-  }
-  uapi 8.8.8.8/32
-  log "awg/userspace: hub peer widened to 8.8.8.8/32, routing 8.8.8.8 into $iface"
+    fail "$tr: the hub does not reach the target through $iface"
+  on hub cat "$cfg" | jq '.peer.allowed_ips += ["8.8.8.8/32"]' | on hub sh -c 'umask 077 && cat > /tmp/it-s17-wg.json'
+  on hub deyroute wg up --config /tmp/it-s17-wg.json >/dev/null || fail "$tr: cannot widen the hub peer"
+  log "$tr: hub peer widened to 8.8.8.8/32, routing 8.8.8.8 into $iface"
   sh_on hub "ip route replace 8.8.8.8/32 dev $iface"
   on hub python3 - <<'PY' || true
 import socket
@@ -235,7 +229,8 @@ except OSError as e:
     print("tcp:", e)
 PY
   sh_on hub "ip route del 8.8.8.8/32 dev $iface"
-  uapi ""
+  on hub deyroute wg up --config "$cfg" >/dev/null || fail "$tr: cannot restore the hub peer"
+  [ "$(watched arrived)" -gt 0 ] || fail "$tr: what the hub routed into $iface never reached the node"
 }
 
 rungs=$(tunnel_json "$T" | jq -r '[.rungs[] | select(.node == env.NODE1 and (.skipped | not or . == "")) | .transport] | unique | .[]')
@@ -251,8 +246,7 @@ for tr in $rungs; do
   case $tr in
     xray/* | hysteria2/*) probe_client "$tr" ;;
     direct/native) probe_relay >&2 ;;
-    awg/userspace) probe_awg ;;
-    wireguard/kernel) log "wireguard/kernel: the lab has no wg tool to widen a kernel peer; probed from outside only" ;;
+    awg/userspace | wireguard/kernel) probe_wg "$tr" ;;
   esac
   n=$(leaked)
   [ "$n" = 0 ] || fail "with $tr active the node sent or routed $n packet(s) to 8.8.8.8:53"

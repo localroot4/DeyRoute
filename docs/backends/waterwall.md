@@ -76,7 +76,7 @@ build environment could only read files by exact path (no directory listing),
 and no reverse-reality page was found under the names tried. The graph is
 therefore assembled from official material of the pinned tag, listed in the
 header table. Owner action: compare `config.json` with that example page and
-report any difference (QUESTIONS).
+report any difference (QUESTIONS.md C.40).
 
 This is the official reverse layout (`ReverseServer -> Bridge` and
 `Bridge -> ReverseClient` directly adjacent, as the Bridge/Reverse references
@@ -124,14 +124,16 @@ The hub binds `<ctl>/tcp` (purpose `control`) and every user port on
   `ProtectSystem=strict`.
 - `tcp-tune` and `try-enabling-bbr` are off: deyroute owns kernel tuning
   (spec section 12).
-- `workers`: the spec asks for `min(4, CPU)`. `Render` is pure and writes
-  `DefaultWorkers` (4); the daemon rewrites `core.json` with
-  `waterwall.CoreJSONFor(waterwall.Workers(runtime.NumCPU()), in.FirstRun)` on
-  the side that runs the unit (`CoreJSON(workers)` is the steady-state form).
+- `workers`: `min(4, CPU)` of the side that runs the unit. The hub passes
+  its own CPU count and each node's (reported in the node's hello) in
+  `RenderInput.HubCPUs` / `NodeCPUs`; while a node's count is unknown
+  `DefaultWorkers` (4) is rendered.
 
 ### Pre-start validation
 
-`waterwall.ValidateJSON(files)` must pass before the unit is started:
+The backend's `PreStart` hook (run by the hub and the node daemon right
+before `systemctl start`) reads the `*.json` files of the config directory
+and runs `waterwall.ValidateJSON`:
 `DEY-B041` when `core.json` is missing, `DEY-B040` (file + reason in the
 error detail) when any file is not valid JSON, `core.json` lists a missing
 config, or a graph is inconsistent (duplicate/missing names, unknown `next`,
@@ -140,11 +142,12 @@ two nodes chained to the same node, unknown Bridge `pair` or RealityServer
 
 ### Hardening
 
-`DropHardening = {MemoryDenyWriteExecute}`: the Linux x64 release is a packed
-executable that restores itself in memory at start (`memfd_create` +
-`execveat` of an anonymous executable file, documented in the installation
-guide of the pinned version). `MemoryDenyWriteExecute` (PR_SET_MDWE, inherited
-across exec) breaks that loader. Every other option of the template stays.
+No option of the hardened template is dropped. The pinned Linux x64 release
+is a plain dynamically linked ELF (not packed) and runs under
+`MemoryDenyWriteExecute` (checked with `systemd-run -p
+MemoryDenyWriteExecute=yes -p NoNewPrivileges=yes -p
+SystemCallFilter=@system-service` on systemd 255: the reverse-reality hub
+config reaches `active` and listens).
 
 ## Differences between the spec sample (section 7.4) and v1.46.94
 
@@ -155,11 +158,15 @@ across exec) breaks that loader. Every other option of the template stays.
 | `ReverseServer` "takes the user ports" | user `TcpListener -> Bridge <=> Bridge <- ReverseServer` | Bridge pair is mandatory between ReverseServer and the user branch |
 | node: `ReverseClient -> RealityClient -> TcpConnector` | same, preceded by `Bridge (pair) -> ReverseClient` | Bridge adjacency rule |
 | final `TcpConnector` to `127.0.0.1:<port>` | same; with several ports `HeaderClient`/`HeaderServer` + `port: "dest_context->port"` | one ReverseServer chain carries every port |
-| `core.json` `ram-profile: server`, threads = min(4, CPU) | `misc.ram-profile`, `misc.workers` (4 in the pure renderer, see above) | key names of `misc` |
+| `core.json` `ram-profile: server`, threads = min(4, CPU) | `misc.ram-profile`, `misc.workers` (min(4, CPU) of the side, see above) | key names of `misc` |
 | `log-level: debug` on first run | `log.<logger>.loglevel: "DEBUG"` | per-logger levels in v1.46 |
 
 ## Known limitations
 
+- **glibc 2.34.** The pinned x64 and arm64 assets are linked against glibc
+  2.34: on Ubuntu 20.04, Debian 11 and Rocky/Alma 8 (Tier 2) Waterwall exits
+  at start ("GLIBC_2.34 not found"), the unit fails with `DEY-B043` and the
+  failover uses the other rungs (QUESTIONS.md C.38).
 - TCP only.
 - **Client-speaks-first protocols only.** `ReverseServer` pairs a user
   connection with a reverse link only when the user sends the first bytes

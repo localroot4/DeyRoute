@@ -110,6 +110,10 @@ type Input struct {
 	// are planned only after a passed probe (section 7.6): a failed probe,
 	// or none yet, skips them with DEY-B007. nil = UDP is open to every node.
 	UDPProbe func(node string) (passed, tested bool)
+	// HubCPUs and NodeCPUs are the CPU counts of the hub and of a node (0
+	// = unknown); backends size their workers with them (Waterwall).
+	HubCPUs  int
+	NodeCPUs func(node string) int
 }
 
 // Side is one rendered half of a candidate, ready to be written.
@@ -481,7 +485,16 @@ func (p *planner) renderInput(b backend.Backend, tr backend.Transport, node conf
 		ListenAddr:  listenAddr(p.in.Hub),
 		Decoy:       p.in.Decoy,
 		NetIndex:    p.netIndex,
+		HubCPUs:     p.in.HubCPUs,
+		NodeCPUs:    p.nodeCPUs(node.ID),
 	}, nil
+}
+
+func (p *planner) nodeCPUs(node string) int {
+	if p.in.NodeCPUs == nil {
+		return 0
+	}
+	return p.in.NodeCPUs(node)
 }
 
 func (p *planner) backendKeys(name string, tr backend.Transport, kg backend.KeyGenerator) (map[string]string, error) {

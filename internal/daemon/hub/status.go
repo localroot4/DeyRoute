@@ -151,6 +151,7 @@ func (h *Hub) tunnelInfo(cfg *config.Config, t *config.Tunnel) api.TunnelInfo {
 		Policy:     firstNonEmpty(t.Failover.Policy, config.DefaultPolicy),
 		Ports:      make([]api.PortMapDTO, 0, len(t.Ports)),
 	}
+	ti.ProxyProtocol = t.Advanced != nil && t.Advanced.ProxyProtocol
 	for _, p := range t.Ports {
 		ti.Ports = append(ti.Ports, api.PortMapDTO{Listen: p.Listen, Proto: p.Proto, Target: p.Target, Probe: p.Probe})
 	}

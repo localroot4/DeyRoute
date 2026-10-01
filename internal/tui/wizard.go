@@ -697,7 +697,7 @@ func (w *wizard) advForm(a *app) *formScreen {
 		// always auto.
 		if c.spec.Proto != config.ProtoUDP {
 			fields = append(fields, field{key: "probe" + strconv.Itoa(i), label: i18n.T(i18n.TUIWizProbe, c.spec.String()),
-				hint: i18n.T(i18n.TUIPtProbeHint), def: orDefault(c.probe, config.ProbeAuto), check: checkProbe})
+				hint: i18n.T(i18n.TUIPtProbeHint), def: orDefault(c.probe, config.ProbeAuto), opts: probeOpts(), check: checkProbe})
 		}
 	}
 	fields = append(fields,

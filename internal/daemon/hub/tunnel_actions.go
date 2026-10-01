@@ -369,9 +369,10 @@ func (h *Hub) watchStart(ctx context.Context, unit, tunnel string) error {
 // unitFailed is DEY-B003 for a hub unit with the last 40 (redacted) lines
 // of the tunnel log.
 func (h *Hub) unitFailed(unit, tunnel string, cause error) error {
-	e := deyerr.New(deyerr.B003, deyerr.Params{"unit": unit})
+	code := startFailureCode(unit)
+	e := deyerr.New(code, deyerr.Params{"unit": unit})
 	if cause != nil {
-		e = deyerr.Wrap(deyerr.B003, cause, deyerr.Params{"unit": unit})
+		e = deyerr.Wrap(code, cause, deyerr.Params{"unit": unit})
 	}
 	var lines []string
 	if config.ValidID(tunnel) {
@@ -386,6 +387,17 @@ func (h *Hub) unitFailed(unit, tunnel string, cause error) error {
 		lines[i] = dlog.Redact(lines[i])
 	}
 	return e.WithDetail(strings.Join(lines, "\n")).WithLog(systemd.TunnelLogFile(tunnel))
+}
+
+// startFailureCode is the DEY code of a tunnel unit that failed to start:
+// its backend's own (Waterwall: DEY-B043) or DEY-B003.
+func startFailureCode(unit string) deyerr.Code {
+	if inst, ok := systemd.InstanceOf(unit); ok {
+		if in, err := systemd.ParseInstance(inst); err == nil && in.Transport != "" {
+			return backend.StartFailureCode(in.Transport)
+		}
+	}
+	return deyerr.B003
 }
 
 // ensureTunnelLogDir creates /var/log/deyroute/tunnels: systemd refuses to

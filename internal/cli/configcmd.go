@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -175,7 +176,8 @@ func (g *Globals) configApply(ctx context.Context, l api.Local, extra map[string
 // private copy in $EDITOR; the result is validated (strict schema, every
 // DEY-C rule, registered transports, immutable ids). When it is invalid
 // the editor opens again with the DEY errors as comment lines on top, until
-// the file is valid or emptied (abort). A valid file atomically replaces
+// the file is valid or emptied (abort); saving the same invalid file again
+// stops and keeps the edited copy. A valid file atomically replaces
 // config.yaml and the daemon applies it.
 func (g *Globals) configEdit(ctx context.Context) error {
 	orig, err := g.readConfig()
@@ -242,8 +244,13 @@ func (g *Globals) configEdit(ctx context.Context) error {
 			break
 		}
 		if bytes.Equal(body, lastBad) || round+1 >= maxEditRounds {
-			// The editor saved the same invalid file again (or the
-			// owner gave up): stop instead of looping.
+			// The editor saved the same invalid file again (the owner quit
+			// without changing it): stop instead of looping, and keep the
+			// edited copy so no edit is lost.
+			if err := os.WriteFile(tmpPath, append(editHeader(verr), body...), 0o600); err == nil {
+				keepCopy = true
+				fmt.Fprintln(g.Err, g.text(i18n.T(i18n.CLIConfigEditKept, tmpPath)))
+			}
 			return verr
 		}
 		lastBad = body

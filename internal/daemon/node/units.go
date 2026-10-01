@@ -598,12 +598,18 @@ func (a *agent) unitStart(ctx context.Context, args api.UnitArgs, restart bool) 
 	return a.unitStatus(st, rec.Tunnel), nil
 }
 
-// startFailed builds DEY-B003 with the last 40 (redacted) lines of the
-// tunnel log.
+// startFailed builds DEY-B003 (or the backend's own code, Waterwall's
+// DEY-B043) with the last 40 (redacted) lines of the tunnel log.
 func (a *agent) startFailed(unit, tunnel string, cause error) error {
-	e := deyerr.New(deyerr.B003, deyerr.Params{"unit": unit})
+	code := deyerr.B003
+	if inst, ok := systemd.InstanceOf(unit); ok {
+		if in, err := systemd.ParseInstance(inst); err == nil && in.Transport != "" {
+			code = backend.StartFailureCode(in.Transport)
+		}
+	}
+	e := deyerr.New(code, deyerr.Params{"unit": unit})
 	if cause != nil {
-		e = deyerr.Wrap(deyerr.B003, cause, deyerr.Params{"unit": unit})
+		e = deyerr.Wrap(code, cause, deyerr.Params{"unit": unit})
 	}
 	lines := a.logTail(tunnel)
 	if len(lines) == 0 && cause != nil {

@@ -203,8 +203,7 @@ func TestHubGraph(t *testing.T) {
 	}, r.Binds)
 	require.Equal(t, []string{in.Paths.Binary}, r.Unit.ExecStart)
 	require.Equal(t, in.Paths.ConfigDir, r.Unit.WorkingDirectory, "WorkingDirectory must hold core.json")
-	require.Contains(t, r.Unit.DropHardening, "MemoryDenyWriteExecute")
-	require.Len(t, r.Unit.DropHardening, 1)
+	require.Empty(t, r.Unit.DropHardening, "Waterwall runs with the full hardening, MemoryDenyWriteExecute included")
 }
 
 func TestNodeGraph(t *testing.T) {
@@ -506,4 +505,59 @@ func TestDecoyFallback(t *testing.T) {
 	var de *deyerr.Error
 	require.True(t, errors.As(err, &de))
 	require.Contains(t, fmt.Sprint(de.Params["reason"]), "no decoy")
+}
+
+// Spec 7.4: core.json gets min(4, CPU) workers of the side that runs it.
+func TestWorkersFollowTheSideCPUCount(t *testing.T) {
+	b := New()
+	workers := func(r backend.Rendered) int {
+		var c struct {
+			Misc struct {
+				Workers int `json:"workers"`
+			} `json:"misc"`
+		}
+		require.NoError(t, json.Unmarshal(r.Files[CoreFile], &c))
+		return c.Misc.Workers
+	}
+	in := fixture(t)
+	hub, err := b.Render(in, backend.SideHub)
+	require.NoError(t, err)
+	require.Equal(t, DefaultWorkers, workers(hub), "unknown CPU count")
+	in.HubCPUs, in.NodeCPUs = 2, 16
+	hub, err = b.Render(in, backend.SideHub)
+	require.NoError(t, err)
+	node, err := b.Render(in, backend.SideNode)
+	require.NoError(t, err)
+	require.Equal(t, 2, workers(hub))
+	require.Equal(t, 4, workers(node))
+	in.NodeCPUs = 1
+	node, err = b.Render(in, backend.SideNode)
+	require.NoError(t, err)
+	require.Equal(t, 1, workers(node))
+}
+
+// Spec 7.4: the JSON is validated before the unit starts; a start failure
+// is DEY-B043.
+func TestPreStartValidatesTheJSON(t *testing.T) {
+	b := New()
+	r, err := b.Render(fixture(t), backend.SideHub)
+	require.NoError(t, err)
+	dir := t.TempDir()
+	for name, data := range r.Files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o600))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), []byte("not json"), 0o600))
+	require.NoError(t, b.PreStart(context.Background(), dir, nil))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ConfigFile), []byte(`{"name": "x", "nodes": [`), 0o600))
+	err = b.PreStart(context.Background(), dir, nil)
+	require.True(t, deyerr.HasCode(err, deyerr.B040), "%v", err)
+
+	require.NoError(t, os.Remove(filepath.Join(dir, CoreFile)))
+	require.True(t, deyerr.HasCode(b.PreStart(context.Background(), dir, nil), deyerr.B041))
+	require.True(t, deyerr.HasCode(b.PreStart(context.Background(), filepath.Join(dir, "missing"), nil), deyerr.B041))
+
+	require.Equal(t, deyerr.B043, b.StartFailureCode())
+	require.Equal(t, deyerr.B043, backend.StartFailureCode("waterwall/reverse-reality"))
+	require.Equal(t, deyerr.B003, backend.StartFailureCode("nosuch/x"))
 }

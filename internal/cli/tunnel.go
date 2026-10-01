@@ -684,7 +684,8 @@ func newTunnelTestLadderCmd(g *Globals) *cobra.Command {
 }
 
 func newTunnelBackupCmd(g *Globals, add bool) *cobra.Command {
-	var node string
+	var nodes []string
+	var yes bool
 	use, short, example := "add <id> --node <nid>", i18n.CLITunnelBackupAddShort, i18n.CLITunnelBackupAddExample
 	if !add {
 		use, short, example = "remove <id> --node <nid>", i18n.CLITunnelBackupRemoveShort, i18n.CLITunnelBackupRemoveExample
@@ -695,9 +696,17 @@ func newTunnelBackupCmd(g *Globals, add bool) *cobra.Command {
 		Example: i18n.T(example),
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, nid := args[0], strings.TrimSpace(node)
-			if nid == "" {
+			if len(nodes) == 0 || strings.TrimSpace(nodes[0]) == "" {
 				return usageErr(i18n.T(i18n.CLIWantFlag, "--node"))
+			}
+			id, nid := args[0], strings.TrimSpace(nodes[0])
+			if len(nodes) > 1 || strings.Contains(nid, ",") {
+				return usageErr(i18n.T(i18n.CLIOneBackupNode))
+			}
+			if !add {
+				if err := g.confirm(i18n.T(i18n.TUIBkRemoveLost, nid, id, id, nid), yes); err != nil {
+					return err
+				}
 			}
 			p := g.newProgress()
 			err := g.callLong(cmd.Context(), func(ctx context.Context, l api.Local) error {
@@ -721,6 +730,9 @@ func newTunnelBackupCmd(g *Globals, add bool) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&node, "node", "", i18n.T(i18n.CLIFlagBackupNode))
+	cmd.Flags().StringArrayVar(&nodes, "node", nil, i18n.T(i18n.CLIFlagBackupNodeOne))
+	if !add {
+		cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
+	}
 	return cmd
 }

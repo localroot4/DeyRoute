@@ -81,7 +81,7 @@ func TestRoundTripEverything(t *testing.T) {
 	tun.TLS = TLS{Mode: TLSModeACME}
 	tun.ProbePort = 2053
 	tun.Ports[1].Probe = ProbeTLS
-	tun.Advanced = &Advanced{ConnectionPool: 16, HysteriaPortHopping: true, BackhaulWebPort: 8081}
+	tun.Advanced = &Advanced{ConnectionPool: 16, HysteriaPortHopping: true}
 	c.Tunnels = append(c.Tunnels, NewTunnel("game", "Game", []string{"nl-1"}, []PortMap{{Listen: 27015, Proto: ProtoUDP}}))
 	c.Tunnels[1].Ladder = LadderRef{Name: "fast"}
 	c.Tuning.BBR = false

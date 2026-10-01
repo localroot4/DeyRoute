@@ -369,16 +369,13 @@ func TestValidateProbePortAndAdvanced(t *testing.T) {
 			tun0(c).ProbePort = 27015
 		}, codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].probe_port"},
 		{name: "advanced ok", mut: a(func(a *Advanced) {
-			*a = Advanced{ConnectionPool: 16, HysteriaUpMbps: 200, HysteriaDownMbps: 300, HysteriaPortHopping: true, ProxyProtocol: true, BackhaulWebPort: 8081}
+			*a = Advanced{ConnectionPool: 16, HysteriaUpMbps: 200, HysteriaDownMbps: 300, HysteriaPortHopping: true, ProxyProtocol: true}
 		})},
 		{name: "pool negative", mut: a(func(a *Advanced) { a.ConnectionPool = -1 }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.connection_pool"},
 		{name: "pool huge", mut: a(func(a *Advanced) { a.ConnectionPool = 5000 }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.connection_pool"},
 		{name: "hysteria up", mut: a(func(a *Advanced) { a.HysteriaUpMbps = 200000 }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.hysteria_up_mbps"},
 		{name: "hysteria down", mut: a(func(a *Advanced) { a.HysteriaDownMbps = -5 }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.hysteria_down_mbps"},
-		{name: "web port = listen", mut: a(func(a *Advanced) { a.BackhaulWebPort = 443 }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.backhaul_web_port"},
-		{name: "web port ctl range", mut: a(func(a *Advanced) { a.BackhaulWebPort = 30001 }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.backhaul_web_port"},
-		{name: "web port control", mut: a(func(a *Advanced) { a.BackhaulWebPort = DefaultControlPort }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.backhaul_web_port"},
-		{name: "web port range", mut: a(func(a *Advanced) { a.BackhaulWebPort = 70000 }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.backhaul_web_port"},
+		{name: "web port", mut: a(func(a *Advanced) { a.BackhaulWebPort = 8081 }), codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].advanced.backhaul_web_port"},
 	})
 }
 
@@ -576,18 +573,6 @@ func TestValidateEmptyInlineLadder(t *testing.T) {
 	tun0(c).Ladder = LadderRef{Inline: []string{}}
 	c.ApplyDefaults()
 	require.Equal(t, []string{}, tun0(c).Ladder.Inline, "ApplyDefaults keeps an explicit empty list")
-}
-
-func TestValidateBackhaulWebPortUnique(t *testing.T) {
-	c := validHub()
-	c.Tunnels = append(c.Tunnels, NewTunnel("second", "", []string{"nl-1"}, []PortMap{{Listen: 8443}}))
-	c.Tunnels[0].Advanced = &Advanced{BackhaulWebPort: 8081}
-	c.Tunnels[1].Advanced = &Advanced{BackhaulWebPort: 8081}
-	err := c.Validate(fakeOpts())
-	requireCodes(t, err, deyerr.C013)
-	require.Equal(t, "tunnels[second].advanced.backhaul_web_port", firstErr(t, err).Params["field"])
-	c.Tunnels[1].Advanced.BackhaulWebPort = 8082
-	require.NoError(t, c.Validate(fakeOpts()))
 }
 
 func TestValidateDuplicateListenSameTunnelWording(t *testing.T) {

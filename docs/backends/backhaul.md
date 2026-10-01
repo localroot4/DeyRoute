@@ -154,7 +154,7 @@ the server sends it (the node's service, e.g. `127.0.0.1:443`).
 | `mux_con` | server | server only (`mux_con`, default 8); the client has no such key | server only |
 | `mux_session` | not shown | exists (default 1) but the README describes `mux_con` | not rendered (default) |
 | `heartbeat` | 20 | default 40, minimum 1; used by every server transport | 20 |
-| `web_port` | `0`; "only on 127.0.0.1 and only if the owner wants stats" | serves on `":<web_port>"` (every interface); there is no web bind-address key | always `0`. `advanced.backhaul_web_port` fails `Validate` with `DEY-B006` because v0.7.2 cannot keep it on 127.0.0.1 (a public Backhaul dashboard would identify the hub) |
+| `web_port` | `0`; "only on 127.0.0.1 and only if the owner wants stats" | serves on `":<web_port>"` (every interface); there is no web bind-address key | always `0`. `advanced.backhaul_web_port` is refused by config validation (`DEY-C013`) because v0.7.2 cannot keep it on 127.0.0.1 (a public Backhaul dashboard would identify the hub); `Validate` still fails such an input with `DEY-B006` |
 | `sniffer_log` | not shown | default `backhaul.json` in the working directory, used only with the sniffer / web port | not rendered (sniffer off) |
 | `proxy_protocol` | not shown | server key (PROXY v2 to the target) for tcp, tcpmux, wsmux, wssmux | not rendered; client IP is preserved only by `direct/haproxy` and Xray (spec 10). Every rung of a ladder must deliver the same byte stream to the node service, so a PROXY header on some rungs only would break the others |
 | `edge_ip` | not shown | client key for CDN edge IPs (ws transports) | not rendered (direct connection to the hub) |

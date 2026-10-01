@@ -60,7 +60,7 @@ deyroute port check 443
 | [بکاپ و ریستور](backup.md) | بکاپ، رمز عبور، `DEYROUTE_BACKUP_PASSPHRASE`، بکاپ خودکار، محتوای بکاپ |
 | [آپدیت و حذف](update-uninstall.md) | آپدیت deyroute و بک‌اندها، برگشت به نسخه قبل، حذف کامل |
 | [امنیت](security.md) | کانال کنترل، توکن Join، جدول فایروال، رازها، عوض کردن توکن و CA، TLS، audit، بدون telemetry |
-| [Benchmarks (انگلیسی)](../en/benchmarks.md) | روش اندازه‌گیری مصرف منابع و زمان Failover (هنوز اندازه‌گیری نشده) |
+| [Benchmarks (انگلیسی)](../en/benchmarks.md) | روش اندازه‌گیری مصرف منابع و زمان Failover؛ نتایج آزمایشگاه ثبت شده، نتایج سرورهای واقعی هنوز نه |
 
 مرجع‌ها (انگلیسی): [کدهای خطا](../ERRORS.md) · [خروجی `--json`](../cli-json.md) · صفحه هر بک‌اند: [backhaul](../backends/backhaul.md)، [rathole](../backends/rathole.md)، [frp](../backends/frp.md)، [xray](../backends/xray.md)، [hysteria2](../backends/hysteria2.md)، [waterwall](../backends/waterwall.md)، [wireguard / awg](../backends/wireguard.md)، [direct](../backends/direct.md)، [gost](../backends/gost.md)، [chisel](../backends/chisel.md).
 

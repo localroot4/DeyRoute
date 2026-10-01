@@ -162,7 +162,8 @@ func newPortSetCmd(g *Globals) *cobra.Command {
 }
 
 func newPortRemoveCmd(g *Globals) *cobra.Command {
-	return &cobra.Command{
+	var yes bool
+	cmd := &cobra.Command{
 		Use:     "remove <tunnel> 8443[/tcp]",
 		Short:   i18n.T(i18n.CLIPortRemoveShort),
 		Example: i18n.T(i18n.CLIPortRemoveExample),
@@ -170,6 +171,10 @@ func newPortRemoveCmd(g *Globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := onePort(args[1])
 			if err != nil {
+				return err
+			}
+			spec := ports.FormatSpec(ports.Spec{Listen: s.Listen, Proto: s.Proto})
+			if err := g.confirm(i18n.T(i18n.TUIPtRemoveLost, spec, args[0]), yes); err != nil {
 				return err
 			}
 			if !g.JSON {
@@ -186,10 +191,12 @@ func newPortRemoveCmd(g *Globals) *cobra.Command {
 			if g.JSON {
 				return g.emitJSON(map[string]any{"tunnel": t})
 			}
-			g.say(i18n.CLIPortRemoved, ports.FormatSpec(ports.Spec{Listen: s.Listen, Proto: s.Proto}), args[0])
+			g.say(i18n.CLIPortRemoved, spec, args[0])
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
+	return cmd
 }
 
 // maxOpenRounds bounds `port check --open`: each round opens the port in

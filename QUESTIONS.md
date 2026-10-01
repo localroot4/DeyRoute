@@ -109,7 +109,11 @@ stated default until the owner decides · **[ANSWERED]** closed.
     `advanced:` (`connection_pool`, Hysteria2 bandwidth/port hopping,
     `proxy_protocol`, `backhaul_web_port`). They are all **optional** and
     omitted when empty, so the section 4 sample validates unchanged; any other
-    unknown key is still `DEY-C001`.
+    unknown key is still `DEY-C001`. `backhaul_web_port` is refused by
+    validation (`DEY-C013`): the pinned Backhaul v0.7.2 serves its stats page
+    on every interface and has no bind-address key, so "stats only on
+    127.0.0.1" (§7.1) cannot be honoured; earlier it silently skipped every
+    Backhaul rung instead.
 15. **[DEFAULT] Exec allow-list.** Section 15 allows only `systemctl, nft, ss,
     ip, xray x25519, rathole --genkey`, but section 10 requires detecting and
     (after confirmation) running `ufw` / `firewall-cmd` / `iptables`, and the
@@ -232,13 +236,65 @@ stated default until the owner decides · **[ANSWERED]** closed.
     gets only by joining, and the hub sends `self.update` to its nodes only
     to finish its own `deyroute update`. `docs/en/join.md` and
     `docs/fa/join.md` show the flag and say why it is there.
+37. **[DEFAULT] The integration lab's blocker and client (spec 17).** The
+    spec's `blocker` is a separate container with `NET_ADMIN` on the same
+    network; on a Docker bridge such a container is not on the path between
+    hub and node and cannot drop their packets. `test/integration/lib.sh`
+    `block`/`unblock` run the same nftables DROP rules in the hub's network
+    namespace instead (input and output, established flows cut too). The
+    `client` is a real Xray VLESS+ws+tls client (the Xray pinned in
+    `backends.yaml`) that dials `hub:<port>`, with a real Xray server behind
+    the tunnel on the node (`vpn_up`); curl uses it with `--proxy` and
+    `--proxytunnel`, because Xray's plain-HTTP proxying fails short responses
+    that the server closes at once. Offline (`DEY_OFFLINE=1`) Xray cannot be
+    downloaded and the client requests the hub's port directly. S04's "user
+    IP = hub IP" is checked as: the client talks only to the hub, the VPN
+    service on the node never sees the client's address (it sees the tunnel:
+    127.0.0.1 for the reverse transports, 10.77.n.1 for WireGuard) and the
+    user's traffic leaves at the node.
+38. **[DEFAULT] rathole and Waterwall on Tier 2 and minimal images.** The
+    pinned rathole v0.5.0 amd64 asset needs glibc 2.34 and `libssl.so.3`; the
+    Waterwall v1.46.94 assets need glibc 2.34. On Ubuntu 20.04, Debian 11 and
+    Rocky/Alma 8 (Tier 2), or an image without OpenSSL 3, those units fail at
+    start (`DEY-B003`, Waterwall `DEY-B043`, the loader's message in the
+    detail), the rungs are quarantined and failover uses the other rungs:
+    the tunnel works, rungs 3 and 7 of the default ladder do not. The arm64
+    rathole asset has no TLS feature, so `rathole/tls` cannot start on arm64.
+    A static (musl, rustls) rathole published on `backend-builds` would remove
+    the first limit; it is not built yet.
+39. **[DEFAULT] `frp/quic` and `frp/kcp` need UDP.** They carry the tunnel
+    over UDP between node and hub, so they set `NeedsUDP` like Hysteria2 and
+    WireGuard (spec 7.6 names only those): the UDP probe and DEY-B007 skip
+    apply to them too.
+40. **[DEFAULT] Waterwall reverse-reality graph.** The pinned Waterwall
+    release has no reverse-reality example file in its repository
+    (`tests/examples`, `tests/cases` at v1.46.94); the graph is assembled from
+    the node documentation of that tag (docs/backends/waterwall.md lists the
+    sources). Owner check: compare a rendered `config.json` with upstream's
+    documentation page and report a difference.
+41. **[DEFAULT] `awg/userspace` runtime directory.** The unit does not use
+    systemd's `RuntimeDirectory=`; the backend's `PreStart` hook creates
+    `/run/amneziawg`. When systemd restarts the unit on its own before that,
+    amneziawg-go exits once and `Restart=always` brings it back within 2 s.
+42. **[DEFAULT] Backhaul with TCP and UDP port maps.** The TCP-family Backhaul
+    transports carry TCP only. In a tunnel with both, the rung runs two
+    Backhaul processes in one unit through `deyroute pair`: the main process
+    with the TCP maps and a `backhaul/udp` process with the UDP maps on a
+    second control port (docs/backends/backhaul.md). Such a rung needs the
+    UDP probe to pass, like the other UDP rungs.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
 The spec audit of 2026-10-01 found 100 gaps; the critical and major ones in
 code are fixed (see CHANGELOG). These remain, none of them a security issue:
 
-- **Lab coverage.** The integration lab cannot run a real Xray client, the
-  WireGuard kernel module, or real provider firewalls; those parts of
-  phases 4, 6 and 7 are covered by unit tests and need the 72-hour test on
-  real servers (docs/en/acceptance.md).
+- **Lab coverage.** The lab now runs a real Xray VLESS+ws+tls client (S04,
+  S08, S19, S32), the phase 4 manual switch (S32), awg/userspace (S33) and
+  every Forward transport from inside (S17). `wireguard/kernel` did not run
+  in the recorded lab: the kernel of the build host has no WireGuard module
+  (`CONFIG_WIREGUARD` is not set; `ip link add type wireguard` fails even in
+  the privileged containers, which share that kernel). S33 and S17 add it
+  by themselves on a host whose kernel has it (the CI runners), so its first
+  real run is the next CI `integration` run. Real provider firewalls, the
+  resource budget on 1 vCPU / 1 GB servers and the 72-hour test need real
+  servers (docs/en/acceptance.md, docs/en/benchmarks.md).

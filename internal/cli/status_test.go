@@ -137,6 +137,7 @@ func TestStatusJSONAndErrors(t *testing.T) {
 	require.NoError(t, json.Unmarshal(e.out.Bytes(), &d))
 	require.EqualValues(t, 2, d["exit_code"])
 	require.Equal(t, "DEY-X009", d["error"].(map[string]any)["code"])
+	require.Equal(t, deyerr.DefaultLogPath, d["error"].(map[string]any)["log"], "docs/cli-json.md: the log the human block names")
 
 	e.down()
 	require.Contains(t, e.fail(2, "status"), "DEY-X003")

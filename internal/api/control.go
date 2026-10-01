@@ -101,7 +101,8 @@ type Hello struct {
 	Arch       string `json:"arch,omitempty"`
 	OS         string `json:"os,omitempty"`
 	Kernel     string `json:"kernel,omitempty"`
-	Compatible bool   `json:"compatible"` // hub → node: false = node must not run commands except self.update
+	CPUs       int    `json:"cpus,omitempty"` // runtime.NumCPU of the node (Waterwall workers)
+	Compatible bool   `json:"compatible"`     // hub → node: false = node must not run commands except self.update
 }
 
 // Heartbeat is sent every 5 seconds (section 3). UnitsUnknown is set while
@@ -236,6 +237,9 @@ type ProbeResultDTO struct {
 type UDPListenArgs struct {
 	Port    int `json:"port"`
 	Seconds int `json:"seconds"`
+	// Stop closes the echo on Port at once (the hub's probe is done, so the
+	// rung that uses the port can start).
+	Stop bool `json:"stop,omitempty"`
 }
 
 // PortCheckArgs asks the node to connect to the hub's public ip:port.

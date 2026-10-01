@@ -14,7 +14,7 @@ import (
 func TestStepTitlesComeFromI18n(t *testing.T) {
 	ids := []string{
 		stepValidate, stepBackup, stepApply, stepReconcile,
-		stepInstallHub, stepInstallNode, stepRender, stepFirewall, stepStart, stepProbe,
+		stepInstallHub, stepInstallNode, stepRender, stepFirewall, stepExtFirewall, stepStart, stepProbe,
 		stepCheckPorts, stepEngine, stepRestart, stepStop, stepRemove, stepConfig, stepCleanup,
 		stepNewCA, stepHubCert, stepTrustOnly, stepTunnelsCA,
 		stepResolve, stepDownload, stepInstall, stepNodes, stepRestart2,

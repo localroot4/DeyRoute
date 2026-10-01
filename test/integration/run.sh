@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Integration scenarios S01-S30 (spec section 17) in Docker containers running
-# systemd. Usage (from anywhere; needs docker compose, go, jq):
+# Integration scenarios S01-S30 (spec section 17) and S31-S33 (acceptance
+# criteria of section 16 that S01-S30 do not cover) in Docker containers
+# running systemd. Usage (from anywhere; needs docker compose, go, jq):
 #
 #   DISTRO=ubuntu-24.04 test/integration/run.sh            # every scenario
 #   SCENARIOS="S01 S07" test/integration/run.sh            # a selection
@@ -8,8 +9,10 @@
 # Environment: DISTRO (ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|debian-12|
 # debian-13), DEY_IMAGE (use a prebuilt image instead of building one),
 # DEY_OFFLINE=1 (no internet in the containers: only direct/native tunnels;
-# scenarios that need other backends are skipped), DEY_ARTIFACTS (where results
-# and diagnostics go; default dist/integration).
+# scenarios that need other backends are skipped; the client has no Xray),
+# DEY_PROXY / DEY_PROXY_CA (the containers reach the internet only through this
+# HTTPS proxy; see lib.sh use_proxy), DEY_ARTIFACTS (where results and
+# diagnostics go; default dist/integration).
 set -euo pipefail
 
 IT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

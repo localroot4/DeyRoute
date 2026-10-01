@@ -44,9 +44,7 @@ log:
   "RemainAfterExit": false,
   "RunAsRoot": false,
   "ExtraCaps": null,
-  "DropHardening": {
-    "MemoryDenyWriteExecute": "gost release binaries are UPX-packed; the UPX loader maps the unpacked code executable at start"
-  },
+  "DropHardening": null,
   "AddressFamilies": null,
   "ReadWritePaths": null
 }

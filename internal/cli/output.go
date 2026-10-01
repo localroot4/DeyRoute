@@ -382,7 +382,10 @@ func (g *Globals) printError(err error) int {
 	if g.JSON {
 		dtos := make([]*api.ErrorDTO, 0, len(list))
 		for _, e := range list {
-			dtos = append(dtos, api.ToDTO(e))
+			d := api.ToDTO(e)
+			// The log the human block names (docs/cli-json.md: "log").
+			d.Log = e.Log()
+			dtos = append(dtos, d)
 		}
 		doc := map[string]any{"schema": api.JSONSchemaVersion, "error": dtos[0], "exit_code": code}
 		if len(dtos) > 1 {

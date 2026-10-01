@@ -81,6 +81,7 @@ func (l *local) PortAdd(ctx context.Context, tunnel string, specs []api.PortSpec
 	}); err != nil {
 		return api.TunnelInfo{}, withLog(err)
 	}
+	h.extFirewallStep(ctx, rep, maps)
 	if _, err := h.autoBackup(); err != nil {
 		return api.TunnelInfo{}, withLog(err)
 	}

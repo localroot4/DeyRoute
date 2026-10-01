@@ -28,7 +28,7 @@ looks like any TLS session (3), `websocket` exposes frp's fixed path
 
 `frp/quic` and `frp/kcp` run over UDP between node and hub, so they set
 `NeedsUDP` (the spec only names Hysteria2/WireGuard; the same UDP
-reachability check and skip logic applies — QUESTIONS.md). UDP port maps are
+reachability check and skip logic applies — QUESTIONS.md C.39). UDP port maps are
 frp `type = "udp"` proxies and work on every transport.
 
 ### Why `frp/wss` is refused

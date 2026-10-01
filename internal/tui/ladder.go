@@ -167,7 +167,7 @@ func (le *ladderEditor) addPicker(a *app) tea.Cmd {
 	}
 	l := &listScreen{screenBase: screenBase{title: le.title}, intro: i18n.T(i18n.TUILadAdd)}
 	for _, id := range ids {
-		l.fixed = append(l.fixed, choice{label: strings.TrimRight(pad(id, w+2)+clientIPNote(le.tr, id), " "), value: id})
+		l.fixed = append(l.fixed, choice{label: strings.TrimRight(pad(id, w+2)+clientIPNote(le.tr, id, false), " "), value: id})
 	}
 	l.pick = func(a *app, c choice) tea.Cmd {
 		le.rungs = append(le.rungs, c.value.(string))
@@ -241,7 +241,7 @@ func (le *ladderEditor) view(a *app) string {
 		if i == le.sel {
 			mark = a.sym().sel + " "
 		}
-		line := mark + numLine(i+1, strings.TrimRight(pad(r, w+2)+clientIPNote(le.tr, r), " "))
+		line := mark + numLine(i+1, strings.TrimRight(pad(r, w+2)+clientIPNote(le.tr, r, false), " "))
 		if i == le.sel {
 			line = a.bold(line)
 		}

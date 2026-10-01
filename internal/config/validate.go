@@ -208,7 +208,7 @@ func (c *Config) Validate(opt ValidateOptions) error {
 	if c == nil {
 		return deyerr.New(deyerr.C016, deyerr.Params{"role": ""})
 	}
-	v := &validator{c: c, opt: opt, listen: map[ListenKey]string{}, webPorts: map[int]string{}}
+	v := &validator{c: c, opt: opt, listen: map[ListenKey]string{}}
 	if c.SchemaVersion != currentSchema {
 		v.add(deyerr.New(deyerr.C019, deyerr.Params{"version": c.SchemaVersion}))
 	}
@@ -231,11 +231,10 @@ func (c *Config) Validate(opt ValidateOptions) error {
 }
 
 type validator struct {
-	c        *Config
-	opt      ValidateOptions
-	errs     []error
-	listen   map[ListenKey]string // listen/proto → first tunnel id
-	webPorts map[int]string       // advanced.backhaul_web_port → first tunnel id
+	c      *Config
+	opt    ValidateOptions
+	errs   []error
+	listen map[ListenKey]string // listen/proto → first tunnel id
 }
 
 // add records a DEY error with every string parameter made printable.
@@ -654,15 +653,11 @@ func (v *validator) advanced(p string, a *Advanced) {
 	v.intRange(p+".hysteria_up_mbps", a.HysteriaUpMbps, 0, MaxHysteriaMbps)
 	v.intRange(p+".hysteria_down_mbps", a.HysteriaDownMbps, 0, MaxHysteriaMbps)
 	if w := a.BackhaulWebPort; w != 0 {
-		allowed := "1-65535, not 22, the control port, 30000-31999, a TCP listen port or another tunnel's backhaul_web_port"
-		_, usedTCP := v.c.UsedListenPorts()[ListenKey{Port: w, Proto: ProtoTCP}]
-		_, usedWeb := v.webPorts[w]
-		if reserved, _ := ReservedListen(w, v.controlPort(), nil); w < 1 || w > 65535 || reserved || usedTCP || usedWeb {
-			v.bad(p+".backhaul_web_port", w, allowed)
-		}
-		if !usedWeb {
-			v.webPorts[w] = p
-		}
+		// Spec 7.1 allows the Backhaul stats page only on 127.0.0.1. The
+		// pinned Backhaul (v0.7.2) serves it on every interface, which would
+		// put a dashboard that identifies the hub on its public address, so
+		// the key is refused here instead of skipping every Backhaul rung.
+		v.bad(p+".backhaul_web_port", w, "0 (the pinned Backhaul serves its stats page on every interface, not only 127.0.0.1; remove the key)")
 	}
 }
 

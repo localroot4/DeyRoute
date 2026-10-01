@@ -345,6 +345,7 @@ const (
 	TUIClientIP       Key = "tui.common.client_ip"
 	TUIClientKept     Key = "tui.common.client_preserved"
 	TUIClientMasked   Key = "tui.common.client_masked"
+	TUIClientMaskedPP Key = "tui.client_masked_pp"
 
 	// tunnel and node states (always shown as words, never color only)
 	TUIStateUp          Key = "tui.state.up"
@@ -878,6 +879,7 @@ var tuiEN = map[Key]string{
 	TUIClientIP:       "client IP: %s",
 	TUIClientKept:     "preserved",
 	TUIClientMasked:   "masked",
+	TUIClientMaskedPP: "masked (preserved with advanced.proxy_protocol)",
 
 	TUIStateUp:          "UP",
 	TUIStateDegraded:    "DEGR",
@@ -1018,7 +1020,7 @@ var tuiEN = map[Key]string{
 	TUIWizAdvIntro:        "Advanced options. Press Enter to keep the value in brackets.",
 	TUIWizName:            "Tunnel name (empty = automatic)",
 	TUIWizTarget:          "Target for %s (host:port)",
-	TUIWizProbe:           "Probe kind of %s (auto, tcp, tls, http)",
+	TUIWizProbe:           "Probe kind of %s",
 	TUIWizSumProbe:        "probe %s",
 	TUIWizBackupQ:         "Backup node",
 	TUIWizThreshQ:         "Customize failover thresholds? (y/n)",
@@ -1091,7 +1093,7 @@ var tuiEN = map[Key]string{
 	TUIPtNoPorts:    "Tunnel %s has no ports.",
 	TUIPtProbe:      "Probe kind *",
 	TUIPtProbeTitle: "Probe kind: %s",
-	TUIPtProbeField: "Probe kind of the TCP ports (auto, tcp, tls, http)",
+	TUIPtProbeField: "Probe kind of the TCP ports",
 	TUIPtProbeHint:  "auto: a TLS hello, any answer counts · tcp: the connection opens\ntls: a TLS handshake or alert · http: an HTTP status line",
 	TUIPtProbePick:  "Choose the port whose probe kind to change:",
 	TUIPtProbeNoTCP: "Tunnel %s has no TCP ports; UDP port maps are not probed by type.",
@@ -1444,6 +1446,8 @@ const (
 	CLIFlagTunnelName            Key = "cli.flag_tunnel_name"
 	CLIFlagLadder                Key = "cli.flag_ladder"
 	CLIFlagBackupNode            Key = "cli.flag_backup_node"
+	CLIFlagBackupNodeOne         Key = "cli.flag_backup_node_one"
+	CLIOneBackupNode             Key = "cli.one_backup_node"
 	CLIFlagYesAdd                Key = "cli.flag_yes_add"
 	CLIFlagPolicy                Key = "cli.flag_policy"
 	CLIFlagProbePort             Key = "cli.flag_probe_port"
@@ -1834,6 +1838,7 @@ const (
 	CLIConfigEditLong            Key = "cli.config_edit_long"
 	CLIConfigEditExample         Key = "cli.config_edit_example"
 	CLIConfigEditAborted         Key = "cli.config_edit_aborted"
+	CLIConfigEditKept            Key = "cli.config_edit_kept"
 	CLIConfigUnchanged           Key = "cli.config_unchanged"
 	CLIConfigEditInvalid         Key = "cli.config_edit_invalid"
 	CLIConfigEditHeader          Key = "cli.config_edit_header"
@@ -1947,6 +1952,8 @@ var cliEN = map[Key]string{
 	CLIFlagTunnelName:            "display name of the tunnel (the id is derived from it)",
 	CLIFlagLadder:                "ladder profile (default) or an inline list such as backhaul/wssmux,rathole/noise",
 	CLIFlagBackupNode:            "backup node id (repeat the flag or separate ids with commas)",
+	CLIFlagBackupNodeOne:         "backup node id, e.g. nl-1 (one node per command)",
+	CLIOneBackupNode:             "give one backup node per command (--node nl-1); run the command again for the next node",
 	CLIFlagYesAdd:                "create at once, without showing the summary first",
 	CLIFlagPolicy:                "failover policy: transport_then_node, transport_only or node_only",
 	CLIFlagProbePort:             "listen port used by the health probe (0 = first TCP port)",
@@ -2334,9 +2341,10 @@ var cliEN = map[Key]string{
 	CLIConfigValidHub:            "%s is valid: %d tunnel(s), %d node(s).",
 	CLIConfigValid:               "%s is valid (%s).",
 	CLIConfigEditShort:           "Edit config.yaml in $EDITOR; validated, saved atomically and applied",
-	CLIConfigEditLong:            "Open a copy of config.yaml in $EDITOR (vi when unset). After saving, the file is\nvalidated; when it has problems the editor opens again with the DEY errors as\ncomments at the top, until the file is valid or you empty it to abort. A valid file\natomically replaces config.yaml and the daemon applies it (an automatic backup is\ntaken first).",
+	CLIConfigEditLong:            "Open a copy of config.yaml in $EDITOR (vi when unset). After saving, the file is\nvalidated; when it has problems the editor opens again with the DEY errors as\ncomments at the top, until the file is valid or you empty it to abort. Quitting\nwithout changing an invalid file stops and keeps your edited copy. A valid file\natomically replaces config.yaml and the daemon applies it (an automatic backup is\ntaken first).",
 	CLIConfigEditExample:         "  deyroute config edit\n  EDITOR=nano deyroute config edit",
 	CLIConfigEditAborted:         "The file was emptied: config.yaml is unchanged.",
+	CLIConfigEditKept:            "! config.yaml is unchanged; your edited copy is kept in %s (fix it there and copy it over /etc/deyroute/config.yaml, then run: deyroute config apply).",
 	CLIConfigUnchanged:           "No changes.",
 	CLIConfigEditInvalid:         "! %d problem(s) found; the editor opens again with them at the top (empty the file to abort).",
 	CLIConfigEditHeader:          "config.yaml was NOT saved: fix the problems below and save again.",
@@ -2493,6 +2501,7 @@ const (
 	HubStepInstallNode Key = "hub.step.install_node"
 	HubStepRender      Key = "hub.step.render"
 	HubStepFirewall    Key = "hub.step.firewall"
+	HubStepExtFirewall Key = "hub.step.external_firewall"
 	HubStepStart       Key = "hub.step.start"
 	HubStepProbe       Key = "hub.step.probe"
 	HubStepCheckPorts  Key = "hub.step.check_ports"
@@ -2596,6 +2605,7 @@ var tuiPolishEN = map[Key]string{
 	HubStepInstallNode: "install on node",
 	HubStepRender:      "render",
 	HubStepFirewall:    "firewall",
+	HubStepExtFirewall: "other firewalls on the hub",
 	HubStepStart:       "start",
 	HubStepProbe:       "probe",
 	HubStepCheckPorts:  "check ports",

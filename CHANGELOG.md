@@ -179,6 +179,24 @@ All notable changes to DEYROUTE are documented here. The format follows
   the installer's `--version` instead.
 - The security docs say that `security audit` warns about every unexpired
   join token and that `doctor` reports the long-lived and expired ones.
+- Lab: the client is a real Xray VLESS+ws+tls client with a real Xray server
+  behind the tunnel (S04, S08, S19, S32); S04 also checks TLS errors, that
+  the node's service never sees the client and that traffic exits at the
+  node (QUESTIONS.md C.37 records the in-namespace blocker).
+- Lab S17 probes every Forward transport (xray/reality, hysteria2/udp,
+  WireGuard/AWG, direct/native) from inside with a client built from the
+  hub's credentials, and the node's UDP listeners too.
+- Lab S32 (new) measures the phase 4 manual switch between three backends
+  with the client every 200 ms and fails above a 3 s outage.
+- Lab S33 (new) runs wireguard/kernel (where the kernel has it) and
+  awg/userspace with a TCP and a UDP port and diffs `nft list ruleset` and
+  the interfaces before the tunnel and after `tunnel delete`.
+- `docs/en/benchmarks.md` and `docs/en/acceptance.md` record the lab
+  numbers (binary size, join, S04, S07, S08, S09, S12, S19, S25, S32);
+  real-server rows stay pending. The lab's test service listens with a
+  backlog of 1024 (python's 5 made S25 fail 75 of 500 connections).
+- Lab S01 and S03 assert phase 2's join < 30 s (installer or `deyroute join`
+  to node online); S08 asserts the client is back <= 3 s after the switch.
 
 ### Fixed (found by the integration scenarios)
 
@@ -186,6 +204,12 @@ All notable changes to DEYROUTE are documented here. The format follows
 - A node briefly reported itself incompatible before the hub's hello arrived.
 - Kernel-setting warnings were printed twice by setup and join.
 - Join-command `--ttl` outside 1m–24h now names the allowed range.
+- A node with `net.ipv4.ip_forward` already on (Docker, another VPN) routed
+  what the hub sent into a WireGuard/AWG tunnel to other hosts; the tunnel
+  interface is now confined in the forward chain of `inet deyroute` (S17).
+- The first start of an awg/userspace or wireguard/kernel rung failed with
+  `DEY-B071`/`DEY-B070` while the node's UDP reachability echo still held the
+  listen port; the configuration is retried for up to 15 s (S33).
 
 ### Added — documentation, integration scenarios, backend hashes
 

@@ -169,7 +169,7 @@ func TestQuarantineInThePastIsNotShown(t *testing.T) {
 	out := renderRungs(a, []api.RungStatus{
 		{Node: "de-1", Transport: "rathole/noise", Warm: true, Quarantine: testNow.Add(-time.Minute)},
 		{Node: "de-1", Transport: "frp/wss", Warm: true, Quarantine: testNow.Add(time.Minute)},
-	}, nil)
+	}, nil, false)
 	require.Contains(t, out, "rathole/noise  warm")
 	require.Contains(t, out, "frp/wss        quarantined until 12:46:00")
 }
@@ -468,4 +468,17 @@ func TestLineModePipedInput(t *testing.T) {
 	require.Contains(t, got, "TUNNELS", "the dashboard answered line 1")
 	require.Contains(t, got, "de-1 Germany 1")
 	require.Contains(t, got, "1) Add tunnel", "the Tunnels menu answered the last line")
+}
+
+// Section 10: direct/haproxy keeps the client IP only with the tunnel's
+// advanced.proxy_protocol; the TUI must not claim "preserved" without it.
+func TestClientIPNoteFollowsProxyProtocol(t *testing.T) {
+	tr := map[string]api.TransportInfo{
+		"direct/haproxy":  {ID: "direct/haproxy", ClientIPPreserved: true},
+		"backhaul/wssmux": {ID: "backhaul/wssmux"},
+	}
+	require.Equal(t, "client IP: preserved", clientIPNote(tr, "direct/haproxy", true))
+	require.Equal(t, "client IP: masked (preserved with advanced.proxy_protocol)", clientIPNote(tr, "direct/haproxy", false))
+	require.Equal(t, "client IP: masked", clientIPNote(tr, "backhaul/wssmux", true))
+	require.Empty(t, clientIPNote(tr, "unknown/x", true))
 }

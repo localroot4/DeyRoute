@@ -16,6 +16,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/failover"
+	"github.com/localroot4/deyroute/internal/firewall"
 	"github.com/localroot4/deyroute/internal/i18n"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/ports"
@@ -30,6 +31,7 @@ const (
 	stepInstallNode = "install_node"
 	stepRender      = "render"
 	stepFirewall    = "firewall"
+	stepExtFirewall = "external_firewall"
 	stepStart       = "start"
 	stepProbe       = "probe"
 	stepCheckPorts  = "check_ports"
@@ -356,6 +358,68 @@ func (h *Hub) firewallStep(ctx context.Context, rep *steps) error {
 	})
 }
 
+// maxExtFirewallChecks bounds the external firewall checks of one
+// TunnelAdd/PortAdd (each runs the firewall tools; a range adds up to 64
+// ports). The other ports are checked by deyroute port check.
+const maxExtFirewallChecks = 16
+
+// extFirewallStep is stage 2 of the port check for the new listen ports
+// (section 10): a port that another firewall on the hub blocks (ufw,
+// firewalld, iptables, another nftables table) is reported as a yellow
+// step with DEY-P013 and the command that opens it. The tunnel is added
+// anyway: the owner decides, and deyroute port check <port> --open or the
+// menu runs the command after confirmation. Nothing is checked when no
+// one watches the progress, and nothing is reported when no port is
+// blocked.
+func (h *Hub) extFirewallStep(ctx context.Context, rep *steps, maps []config.PortMap) {
+	if rep == nil || rep.progress == nil || len(maps) == 0 {
+		return
+	}
+	seen := map[config.ListenKey]bool{}
+	var blocked, cmds []string
+	var first error
+	checked, skipped := 0, 0
+	for _, m := range maps {
+		proto := m.Proto
+		if proto == "" {
+			proto = config.ProtoTCP
+		}
+		k := config.ListenKey{Port: m.Listen, Proto: proto}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		if checked == maxExtFirewallChecks {
+			skipped++
+			continue
+		}
+		checked++
+		v, err := firewall.Check(ctx, h.o.Runner, m.Listen, proto)
+		if err != nil || !v.Blocked {
+			continue
+		}
+		spec := strconv.Itoa(m.Listen) + "/" + proto
+		blocked = append(blocked, spec+" ("+string(v.By)+")")
+		cmds = append(cmds, v.Command())
+		if first == nil {
+			first = deyerr.New(deyerr.P013, deyerr.Params{"firewall": string(v.By), "port": spec, "command": v.Command()})
+		}
+	}
+	detail := ""
+	if skipped > 0 {
+		detail = strconv.Itoa(skipped) + " more port(s) not checked; run deyroute port check <port>"
+	}
+	if first == nil {
+		return // only a blocked port is worth a step
+	}
+	d := "blocked: " + strings.Join(blocked, ", ") + "; to open: " + strings.Join(cmds, "; ") +
+		" (or deyroute port check <port> --open)"
+	if detail != "" {
+		d += "; " + detail
+	}
+	rep.emit(api.Step{ID: stepExtFirewall, Status: api.StepWarn, Detail: d, Error: api.ToDTO(first)})
+}
+
 // listenDetail is "tcp 443, 2053; udp 27015".
 func listenDetail(tcp, udp []int) string {
 	join := func(ps []int) string {
@@ -490,6 +554,7 @@ func (l *local) TunnelAdd(ctx context.Context, req api.TunnelAddRequest, progres
 	if _, err := h.autoBackup(); err != nil {
 		return api.TunnelInfo{}, withLog(err)
 	}
+	h.extFirewallStep(ctx, rep, t.Ports)
 	if _, err := h.mutate(func(c *config.Config) error { return c.AddTunnel(t) }); err != nil {
 		return api.TunnelInfo{}, withLog(err)
 	}

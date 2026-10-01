@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -145,13 +146,23 @@ func TestConfigEditLoop(t *testing.T) {
 	require.NotContains(t, string(data), "bogus")
 
 	// The editor saving the same invalid file again ends the loop with the
-	// validation error.
+	// validation error and keeps the edited copy (no edit is lost).
 	s = &editorScript{t: t, edits: []func(string) string{
-		func(c string) string { return strings.Replace(c, "id: main", "id: Main!", 1) },
+		func(c string) string {
+			return strings.Replace(strings.Replace(c, "id: main", "id: Main!", 1), "name: ir-1", "name: ir-1-edited", 1)
+		},
 		func(c string) string { return c },
 	}}
 	e.g.Editor = s.edit
-	require.Contains(t, e.fail(1, "config", "edit"), "DEY-C007")
+	out = e.fail(1, "config", "edit")
+	require.Contains(t, out, "DEY-C007")
+	m := regexp.MustCompile(`kept in (\S+)`).FindStringSubmatch(out)
+	require.Len(t, m, 2, out)
+	kept, err := os.ReadFile(m[1])
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Remove(m[1]) })
+	require.Contains(t, string(kept), "ir-1-edited")
+	require.Contains(t, string(kept), "DEY-C007", "the problems stay on top")
 
 	// Ids are immutable (C018).
 	s = &editorScript{t: t, edits: []func(string) string{

@@ -115,9 +115,7 @@
   "RemainAfterExit": false,
   "RunAsRoot": false,
   "ExtraCaps": null,
-  "DropHardening": {
-    "MemoryDenyWriteExecute": "the Linux x64 release of Waterwall is a packed executable that restores itself in memory at start (memfd_create + execveat of an anonymous executable file); MemoryDenyWriteExecute (PR_SET_MDWE, inherited across exec) makes that loader fail"
-  },
+  "DropHardening": null,
   "AddressFamilies": null,
   "ReadWritePaths": null
 }

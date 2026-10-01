@@ -233,13 +233,19 @@ func (a *agent) udpListen(ctx context.Context, args api.UDPListenArgs) error {
 	if args.Port < 1 || args.Port > 65535 {
 		return a.refuse(cmd, fmt.Sprintf("port %d is out of range", args.Port))
 	}
+	key := "udp-echo/" + strconv.Itoa(args.Port)
+	if args.Stop {
+		if a.listeners.stop(key) {
+			a.log.Info("UDP echo stopped", slog.Int("port", args.Port))
+		}
+		return nil
+	}
 	secs := args.Seconds
 	if secs <= 0 {
 		secs = DefaultUDPListenSeconds
 	}
 	secs = min(secs, MaxUDPListenSeconds)
 	life := time.Duration(secs) * time.Second
-	key := "udp-echo/" + strconv.Itoa(args.Port)
 	if a.listeners.extend(key, life) {
 		return nil
 	}

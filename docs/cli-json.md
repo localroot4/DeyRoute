@@ -114,7 +114,9 @@ ErrorDTO}` and the stream continues.
 PAUSED|DISABLED), "active_node", "active_node_name", "active_transport",
 "rtt_ms", "up_since", "ports": [{"listen", "proto", "target", "probe"}],
 "nodes": [primary, backups…], "ladder_name", "ladder": [rung], "policy",
-"paused", "service_down", "client_ip" (preserved|masked), "warnings"}`
+"paused", "service_down", "client_ip" (preserved|masked), "proxy_protocol"
+(advanced.proxy_protocol: direct/haproxy keeps the client IP only with it),
+"warnings"}`
 
 ### NodeInfo
 

@@ -280,7 +280,7 @@ func TestParsedConfig(t *testing.T) {
 		require.Equal(t, []string{in.Paths.Binary, "-C", in.Paths.ConfigDir + "/gost.yaml"}, r.Unit.ExecStart)
 		require.Equal(t, in.Paths.ConfigDir, r.Unit.WorkingDirectory)
 		require.NotContains(t, strings.Join(r.Unit.ExecStart, " "), "tok-test")
-		require.Contains(t, r.Unit.DropHardening, "MemoryDenyWriteExecute")
+		require.Empty(t, r.Unit.DropHardening, "gost runs with the full hardening, MemoryDenyWriteExecute included")
 		require.False(t, r.Unit.RunAsRoot)
 		require.Empty(t, r.Unit.Env)
 	}

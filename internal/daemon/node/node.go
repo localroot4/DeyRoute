@@ -333,6 +333,7 @@ func newAgent(o Options, cfg *config.Config, cfgPath string, logger *slog.Logger
 		Arch:    o.Arch,
 		OS:      osPrettyName(o.Root),
 		Kernel:  readTrim(filepath.Join(o.Root, "/proc/sys/kernel/osrelease")),
+		CPUs:    runtime.NumCPU(),
 	}
 	return a
 }

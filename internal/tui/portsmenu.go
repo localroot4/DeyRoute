@@ -47,6 +47,17 @@ func checkPortInput(v string, _ map[string]string) error {
 // ports, as UDP maps are always auto.
 var checkProbe = checkOneOf(config.ProbeKinds...)
 
+// probeOpts are the probe kinds as numbered answers (section 6: fixed
+// options are numbers); a typed kind is accepted too.
+func probeOpts() []fieldOpt {
+	return []fieldOpt{
+		{value: config.ProbeAuto, label: i18n.T(i18n.TUIProbeAuto)},
+		{value: config.ProbeTCP, label: i18n.T(i18n.TUIProbeTCP)},
+		{value: config.ProbeTLS, label: i18n.T(i18n.TUIProbeTLS)},
+		{value: config.ProbeHTTP, label: i18n.T(i18n.TUIProbeHTTP)},
+	}
+}
+
 // hasTCP reports whether the port input v names a TCP port.
 func hasTCP(v string) bool {
 	specs, _ := ports.ParseInput(v)
@@ -66,7 +77,7 @@ func addPorts(a *app, t api.TunnelInfo) tea.Cmd {
 	fields := []field{{key: "ports", label: i18n.T(i18n.TUIPtInput), hint: i18n.T(i18n.TUIWizPortsHint), check: checkPortInput}}
 	if a.advanced {
 		fields = append(fields, field{key: "probe", label: i18n.T(i18n.TUIPtProbeField), hint: i18n.T(i18n.TUIPtProbeHint),
-			def: config.ProbeAuto, check: checkProbe, skip: func(v map[string]string) bool { return !hasTCP(v["ports"]) }})
+			def: config.ProbeAuto, opts: probeOpts(), check: checkProbe, skip: func(v map[string]string) bool { return !hasTCP(v["ports"]) }})
 	}
 	form := newForm(title, "", fields, func(a *app, v map[string]string) tea.Cmd {
 		specs, _ := ports.ParseInput(v["ports"])

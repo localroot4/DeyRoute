@@ -160,7 +160,9 @@ wait_event() { wait_for "${3:-60}" "event $1" has_event "$1" "${2:-}"; }
 
 # serve_http SERVICE PORT SIZE_MB: an HTTP "VPN service" on 127.0.0.1:PORT with
 # a random file /blob of SIZE_MB megabytes (the tunnel target on a node).
-# The service is an enabled unit, so it survives a reboot (S15).
+# The service is an enabled unit, so it survives a reboot (S15). Its listen
+# backlog is 1024 (python's http.server has 5, too few for S25's 500
+# simultaneous connections).
 serve_http() {
   local s=$1 port=$2 mb=${3:-1}
   sh_on "$s" "mkdir -p /srv/it && { [ -s /srv/it/blob ] || { head -c ${mb}M /dev/urandom > /srv/it/blob && sha256sum /srv/it/blob | cut -d' ' -f1 > /srv/it/blob.sha256; }; }
@@ -169,7 +171,8 @@ serve_http() {
 Description=integration test service on 127.0.0.1:$port
 [Service]
 WorkingDirectory=/srv/it
-ExecStart=/usr/bin/python3 -m http.server $port --bind 127.0.0.1
+ExecStart=/usr/bin/python3 -c 'import http.server as h; h.ThreadingHTTPServer.request_queue_size = 1024; \
+h.test(h.SimpleHTTPRequestHandler, h.ThreadingHTTPServer, port=$port, bind=\"127.0.0.1\")'
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -312,6 +315,17 @@ start_prober() {
     systemd-run --quiet --unit it-prober -E NO_PROXY= -E no_proxy= bash -c 'while :; do
       if curl -fsS -o /dev/null --max-time 1 $px $url/; then r=ok; else r=fail; fi
       echo \"\$(date +%s%3N) \$r\" >> /tmp/prober.log; sleep 0.2; done'"
+}
+# recovery_ms TUNNEL: milliseconds from the tunnel's last switch_transport
+# or switch_node event (the new rung is UP) to the prober's first good
+# request after it; -1 when there is none.
+recovery_ms() {
+  local at
+  at=$(dey events --since 2h --json --tunnel "$1" |
+    jq -r '[.events[] | select(.type == "switch_transport" or .type == "switch_node")] | max_by(.seq) | .at')
+  on client cat /tmp/prober.log | awk -v t1="$(date -d "$at" +%s%3N)" '
+    $1 >= t1 && $2 == "ok" { print $1 - t1; found = 1; exit }
+    END { if (!found) print -1 }'
 }
 stop_prober() {
   sh_on client "systemctl stop it-prober 2>/dev/null || true"

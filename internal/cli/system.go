@@ -343,6 +343,7 @@ func newTLSACMECmd(g *Globals) *cobra.Command {
 }
 
 func newFirewallCmd(g *Globals, action string) *cobra.Command {
+	var yes bool
 	short, example := i18n.CLIFirewallShowShort, i18n.CLIFirewallShowExample
 	switch action {
 	case "apply":
@@ -350,12 +351,17 @@ func newFirewallCmd(g *Globals, action string) *cobra.Command {
 	case "disable":
 		short, example = i18n.CLIFirewallDisableShort, i18n.CLIFirewallDisableExample
 	}
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:     action,
 		Short:   i18n.T(short),
 		Example: i18n.T(example),
 		Args:    noArgs(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if action == "disable" {
+				if err := g.confirm(i18n.T(i18n.TUISeFwDisableLost), yes); err != nil {
+					return err
+				}
+			}
 			var fi api.FirewallInfo
 			err := g.call(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
 				fi, err = l.SecurityFirewall(ctx, action)
@@ -390,6 +396,10 @@ func newFirewallCmd(g *Globals, action string) *cobra.Command {
 			return nil
 		},
 	}
+	if action == "disable" {
+		cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
+	}
+	return cmd
 }
 
 func newAuditCmd(g *Globals) *cobra.Command {

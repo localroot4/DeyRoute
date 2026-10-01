@@ -215,7 +215,10 @@ func TestSecurityCommands(t *testing.T) {
 	require.Contains(t, out, "table inet deyroute {")
 	require.Contains(t, e.ok("security", "firewall", "apply"), "applied")
 	require.Equal(t, "apply", fwAction)
-	out = e.ok("security", "firewall", "disable")
+	fwAction = ""
+	require.Contains(t, e.fail(3, "security", "firewall", "disable"), "control port is no longer limited")
+	require.Empty(t, fwAction, "no confirmation, nothing disabled")
+	out = e.ok("security", "firewall", "disable", "--yes")
 	require.Contains(t, out, "removed")
 	require.Contains(t, out, "suggestions only")
 	require.Contains(t, out, "nft add rule ...")

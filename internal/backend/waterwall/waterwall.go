@@ -20,6 +20,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -47,10 +48,9 @@ const (
 // (24 random alphanumeric characters; Waterwall accepts 1..32 bytes).
 const KeyPassword = "password"
 
-// DefaultWorkers is the worker count the pure renderer writes into
-// core.json. The spec asks for min(4, CPU); the renderer cannot see the CPU
-// count, so the daemon rewrites core.json with CoreJSONFor(Workers(n), …)
-// where n is runtime.NumCPU() of the side that runs the unit.
+// DefaultWorkers is the core.json worker count when the CPU count of the
+// side is unknown (RenderInput.HubCPUs/NodeCPUs 0); otherwise the spec's
+// min(4, CPU) is rendered (Workers).
 const DefaultWorkers = 4
 
 // Rendering constants.
@@ -154,7 +154,7 @@ func (b *Backend) Render(in backend.RenderInput, side backend.Side) (backend.Ren
 	}
 	return backend.Rendered{
 		Files: map[string][]byte{
-			CoreFile:   CoreJSONFor(DefaultWorkers, in.FirstRun),
+			CoreFile:   CoreJSONFor(sideWorkers(in, side), in.FirstRun),
 			ConfigFile: cfg,
 		},
 		Unit: backend.UnitSpec{
@@ -162,11 +162,6 @@ func (b *Backend) Render(in backend.RenderInput, side backend.Side) (backend.Ren
 			// working directory must be the directory of core.json.
 			ExecStart:        []string{in.Paths.Binary},
 			WorkingDirectory: in.Paths.ConfigDir,
-			DropHardening: map[string]string{
-				"MemoryDenyWriteExecute": "the Linux x64 release of Waterwall is a packed executable that restores itself " +
-					"in memory at start (memfd_create + execveat of an anonymous executable file); " +
-					"MemoryDenyWriteExecute (PR_SET_MDWE, inherited across exec) makes that loader fail",
-			},
 		},
 		Binds: binds,
 	}, nil
@@ -302,6 +297,53 @@ func validDomain(h string) bool {
 
 func isLabelRune(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-'
+}
+
+// sideWorkers is the worker count of side: Workers of its CPU count, or
+// DefaultWorkers while it is unknown.
+func sideWorkers(in backend.RenderInput, side backend.Side) int {
+	n := in.HubCPUs
+	if side == backend.SideNode {
+		n = in.NodeCPUs
+	}
+	if n < 1 {
+		return DefaultWorkers
+	}
+	return Workers(n)
+}
+
+// StartFailureCode makes a Waterwall unit that fails to start DEY-B043
+// (spec section 7.4), with the last 40 log lines as its detail.
+func (*Backend) StartFailureCode() deyerr.Code { return deyerr.B043 }
+
+// Runner is the runner the daemons pass to backend hooks (unused here).
+type Runner = interface {
+	Run(ctx context.Context, name string, args []string, stdin []byte) (stdout, stderr []byte, err error)
+}
+
+// PreStart validates the rendered JSON files in configDir before the unit
+// starts (spec section 7.4: Waterwall explains broken configs badly):
+// DEY-B041 without core.json, DEY-B040 for an invalid file.
+func (*Backend) PreStart(_ context.Context, configDir string, _ Runner) error {
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		return deyerr.Wrap(deyerr.B041, err, deyerr.Params{"dir": configDir})
+	}
+	files := map[string][]byte{}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(configDir, e.Name())) // #nosec G304 -- the unit's own config directory
+		if err != nil {
+			return deyerr.Wrap(deyerr.B040, err, deyerr.Params{"file": e.Name()})
+		}
+		files[e.Name()] = data
+	}
+	if _, ok := files[CoreFile]; !ok {
+		return deyerr.New(deyerr.B041, deyerr.Params{"dir": configDir})
+	}
+	return ValidateJSON(files)
 }
 
 // Workers returns the core.json worker count for a machine with ncpu CPUs:

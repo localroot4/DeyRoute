@@ -85,6 +85,7 @@ type NodeState struct {
 	Arch          string            `json:"arch,omitempty"`
 	OS            string            `json:"os,omitempty"`
 	Kernel        string            `json:"kernel,omitempty"`
+	CPUs          int               `json:"cpus,omitempty"`
 	Country       string            `json:"country,omitempty"`
 	UDPOK         *bool             `json:"udp_ok,omitempty"` // last UDP echo probe result
 	UDPCheckedAt  time.Time         `json:"udp_checked_at"`

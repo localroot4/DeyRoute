@@ -101,5 +101,3 @@ users through `systemctl show`; deriving the password keeps the tunnel token
 * The server's TLS minimum version is chisel's (Go default); Go clients
   negotiate TLS 1.3.
 * The node service sees the chisel client as the source (client IP masked).
-* sha256 of the release files is empty until `scripts/manifest-hashes.sh`
-  fills it (QUESTIONS.md C.9).

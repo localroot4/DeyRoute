@@ -125,9 +125,11 @@ What `Up` does:
 * both: while the listen port is still in use (`EADDRINUSE` from
   `WG_CMD_SET_DEVICE`, `errno=-98` from amneziawg-go) the whole configuration
   is sent again every 250 ms for up to 15 s. Right before a rung starts, the
-  node agent's UDP reachability echo (`probe.udp_listen`, 10 s) may still hold
-  the rung's control port; without the retry the first start of a WireGuard
-  rung failed with `DEY-B070`/`DEY-B071` (found by lab scenario S33).
+  node agent's UDP reachability echo (`probe.udp_listen`) held the rung's
+  control port for 10 s, and the first start of a WireGuard rung failed with
+  `DEY-B070`/`DEY-B071` (found by lab scenario S33). The hub now closes the
+  echo as soon as its probe is done (`probe.udp_listen` with `stop`); the
+  retry stays for any other short-lived holder of the port.
 
 `Down` runs `ip link del dev <iface>` when the interface exists (a missing
 interface is not an error). Together with the NAT rules living only in
@@ -197,7 +199,7 @@ so every junk packet fits a 1280-byte path. `Validate` checks every key
   daemon's `PreStart`) before `/run/amneziawg` exists, amneziawg-go exits
   once; `Up` creates the directory and systemd's `Restart=always` brings it
   back within 2 s (Up waits up to 15 s for the socket). A `RuntimeDirectory=`
-  in `UnitSpec` would remove this (QUESTIONS.md).
+  in `UnitSpec` would remove this (QUESTIONS.md C.41).
 * `awg/userspace`: the device configuration lives only in the running
   amneziawg-go process; after a crash/restart of the unit the tunnel stays
   down until the daemon runs `PostStart` again (or the failover engine

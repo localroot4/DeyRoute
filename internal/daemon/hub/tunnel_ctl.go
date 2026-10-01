@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -355,6 +356,8 @@ func (h *Hub) planInput(cfg *config.Config, t config.Tunnel) render.Input {
 		CAPEM:    h.tunnelCAPEM(),
 		UDPProbe: h.udpProbe,
 		LookPath: exec.LookPath,
+		HubCPUs:  runtime.NumCPU(),
+		NodeCPUs: func(node string) int { ns, _ := h.nodeState(node); return ns.CPUs },
 	}
 }
 
@@ -462,6 +465,11 @@ func (h *Hub) ensureUDP(ctx context.Context, tunnel, node, rung string, notBefor
 		if err == nil {
 			r := health.UDPEcho(ctx, net.JoinHostPort(host, strconv.Itoa(port)), health.UDPTries, h.o.UDPProbeTimeout)
 			tested, udpOK = true, r.OK
+			// The echo holds the rung's port: close it now, or the rung
+			// started right after would find the port in use.
+			sctx, scancel := context.WithTimeout(ctx, nodeCmdTimeout)
+			_ = h.Call(sctx, node, api.CmdProbeUDPListen, api.UDPListenArgs{Port: port, Stop: true}, nil)
+			scancel()
 		}
 	}
 	if !tested {

@@ -203,15 +203,13 @@ template stays.
   Debian 12+, Rocky/Alma 9+, Fedora and Arch; on Ubuntu 20.04, Debian 11 and
   Rocky/Alma 8 (Tier 2) it will not start (missing `libssl.so.3`/newer glibc),
   so the unit fails and failover moves on. A static musl build published on
-  the owner's mirror would remove this (QUESTIONS.md).
+  the owner's mirror would remove this (QUESTIONS.md C.38).
 - **arm64 has no TLS.** The aarch64 asset is built with
   `--features embedded --no-default-features` (server, client, noise,
   hot-reload): `rathole/noise` and `rathole/tcp` work, `rathole/tls` exits at
   start with "feature not compiled" on arm64 hubs/nodes. The renderer is pure
   and does not know the architecture, so the failure shows up as a unit start
   failure (`DEY-B003`) and the rung is quarantined.
-- The sha256 of both assets is still empty in the manifest (QUESTIONS.md C.9);
-  installation is refused with `DEY-S006` until the release pipeline fills it.
 - rathole watches its config file (`hot-reload` feature); deyroute always
   restarts the unit after a re-render anyway.
 - The TLS version is not configurable in rathole v0.5.0; native-tls on

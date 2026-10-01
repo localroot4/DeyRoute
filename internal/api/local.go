@@ -250,7 +250,10 @@ type TunnelInfo struct {
 	Paused          bool         `json:"paused"`
 	ServiceDown     bool         `json:"service_down"`
 	ClientIP        string       `json:"client_ip"` // preserved|masked for the active transport
-	Warnings        []string     `json:"warnings,omitempty"`
+	// ProxyProtocol is advanced.proxy_protocol: transports that can keep the
+	// client IP (direct/haproxy) keep it only with it.
+	ProxyProtocol bool     `json:"proxy_protocol"`
+	Warnings      []string `json:"warnings,omitempty"`
 }
 
 // RungStatus is one ladder rung on one node in TunnelDetail.

@@ -391,15 +391,21 @@ func transportMap(ctx context.Context, l api.Local) (map[string]api.TransportInf
 	return m, nil
 }
 
-// clientIPNote is "client IP: preserved|masked" for a transport.
-func clientIPNote(tr map[string]api.TransportInfo, id string) string {
+// clientIPNote is "client IP: preserved|masked" for a transport (section
+// 10). A transport that can keep the client IP keeps it only with the
+// tunnel's advanced.proxy_protocol (proxy); without a tunnel (ladder
+// screens) proxy is false and the note says how to keep it.
+func clientIPNote(tr map[string]api.TransportInfo, id string, proxy bool) string {
 	x, ok := tr[id]
 	if !ok {
 		return ""
 	}
 	w := i18n.T(i18n.TUIClientMasked)
-	if x.ClientIPPreserved {
+	switch {
+	case x.ClientIPPreserved && proxy:
 		w = i18n.T(i18n.TUIClientKept)
+	case x.ClientIPPreserved:
+		w = i18n.T(i18n.TUIClientMaskedPP)
 	}
 	return i18n.T(i18n.TUIClientIP, w)
 }
@@ -435,7 +441,7 @@ func pickSwitch(t api.TunnelInfo) *listScreen {
 			}
 			var out []choice
 			for _, r := range d.t.Ladder {
-				label := pad(r, w+2) + clientIPNote(d.tr, r)
+				label := pad(r, w+2) + clientIPNote(d.tr, r, d.t.ProxyProtocol)
 				if r == d.t.ActiveTransport {
 					label = strings.TrimRight(label, " ") + i18n.T(i18n.TUICurrent)
 				}
@@ -537,7 +543,7 @@ func renderDetail(a *app, v any) string {
 	b.WriteString(t.String())
 	if a.advanced && len(d.Rungs) > 0 {
 		b.WriteString("\n  " + i18n.T(i18n.TUIDetRungs) + "\n")
-		b.WriteString(renderRungs(a, d.Rungs, td.tr))
+		b.WriteString(renderRungs(a, d.Rungs, td.tr, d.ProxyProtocol))
 	}
 	for _, w := range d.Warnings {
 		b.WriteString(a.paint(colYellow, "  "+a.sym().warn+" "+clean(w)) + "\n")
@@ -549,7 +555,7 @@ func renderDetail(a *app, v any) string {
 	return b.String()
 }
 
-func renderRungs(a *app, rs []api.RungStatus, tr map[string]api.TransportInfo) string {
+func renderRungs(a *app, rs []api.RungStatus, tr map[string]api.TransportInfo, proxy bool) string {
 	rs = append([]api.RungStatus(nil), rs...)
 	sort.SliceStable(rs, func(i, j int) bool { return rs[i].Node < rs[j].Node })
 	nw, tw, sw := 0, 0, 0
@@ -578,7 +584,7 @@ func renderRungs(a *app, rs []api.RungStatus, tr map[string]api.TransportInfo) s
 			st = pad(sts[i], sw)
 		}
 		line := "    " + pad(r.Node, nw+2) + pad(r.Transport, tw+2) + st
-		if n := clientIPNote(tr, r.Transport); n != "" {
+		if n := clientIPNote(tr, r.Transport, proxy); n != "" {
 			line += "  " + a.paint(colGray, n)
 		}
 		b.WriteString(strings.TrimRight(line, " ") + "\n")

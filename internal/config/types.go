@@ -209,7 +209,7 @@ type Advanced struct {
 	HysteriaDownMbps    int  `yaml:"hysteria_down_mbps,omitempty"`    // default 100
 	HysteriaPortHopping bool `yaml:"hysteria_port_hopping,omitempty"` // node_ip:20000-20999
 	ProxyProtocol       bool `yaml:"proxy_protocol,omitempty"`        // direct/haproxy send-proxy
-	BackhaulWebPort     int  `yaml:"backhaul_web_port,omitempty"`     // stats on 127.0.0.1 only
+	BackhaulWebPort     int  `yaml:"backhaul_web_port,omitempty"`     // refused: the pinned Backhaul cannot serve stats on 127.0.0.1 only
 }
 
 // Failover is tunnels[].failover.

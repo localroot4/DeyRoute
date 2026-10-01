@@ -2,6 +2,7 @@ package hub
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -158,4 +159,38 @@ func TestPortOpenFirewallFailures(t *testing.T) {
 	for _, l := range env.runner.Lines() {
 		require.NotContains(t, l, "nft insert")
 	}
+}
+
+// Section 10 stage 2 on tunnel add / port add: a port another firewall on
+// the hub blocks is a yellow step with DEY-P013 and the command; the tunnel
+// is added anyway.
+func TestTunnelAddReportsExternalFirewallBlocks(t *testing.T) {
+	te := startTunnelHub(t)
+	te.tunnelNode("de-1")
+	te.runner.On("ufw status", exec.OK("Status: active\n"))
+	te.runner.On("ufw status verbose", ufwStatus())
+	port := freePort(t)
+	var log stepLog
+	info, err := te.client.TunnelAdd(ctxT(t), api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port}},
+		Rungs: []string{trAlpha}, Failover: fastFailover(false)}, log.add)
+	require.NoError(t, err, "%v", log.finished())
+	require.Contains(t, log.finished(), "external_firewall:warn")
+	var warn api.Step
+	log.mu.Lock()
+	for _, s := range log.steps {
+		if s.ID == stepExtFirewall {
+			warn = s
+		}
+	}
+	log.mu.Unlock()
+	require.NotNil(t, warn.Error)
+	require.Equal(t, string(deyerr.P013), warn.Error.Code)
+	require.Contains(t, warn.Detail, "ufw allow "+strconv.Itoa(port)+"/tcp")
+	require.Zero(t, te.runner.Count("ufw allow "+strconv.Itoa(port)+"/tcp"), "nothing is opened without the owner")
+
+	p2 := freePort(t)
+	var log2 stepLog
+	_, err = te.client.PortAdd(ctxT(t), info.ID, []api.PortSpec{{Listen: p2}}, log2.add)
+	require.NoError(t, err)
+	require.Contains(t, log2.finished(), "external_firewall:warn")
 }

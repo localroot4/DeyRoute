@@ -245,16 +245,12 @@ func marshal(in backend.RenderInput, cfg gostConfig) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// unit runs "gost -C <ConfigDir>/gost.yaml". The upstream linux release
-// binaries are UPX-compressed (.goreleaser.yaml "upx" for linux
-// amd64/arm64/arm), and the UPX loader makes its unpacked code executable
-// at start, which MemoryDenyWriteExecute forbids.
+// unit runs "gost -C <ConfigDir>/gost.yaml" under the full template
+// hardening: the pinned release runs with MemoryDenyWriteExecute (checked
+// with systemd 255, see docs/backends/gost.md).
 func unit(in backend.RenderInput) backend.UnitSpec {
 	return backend.UnitSpec{
 		ExecStart:        []string{in.Paths.Binary, "-C", filepath.Join(in.Paths.ConfigDir, ConfigFile)},
 		WorkingDirectory: in.Paths.ConfigDir,
-		DropHardening: map[string]string{
-			"MemoryDenyWriteExecute": "gost release binaries are UPX-packed; the UPX loader maps the unpacked code executable at start",
-		},
 	}
 }

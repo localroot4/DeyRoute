@@ -170,6 +170,9 @@ func (h *Hub) attach(s *api.Session, compatible bool) bool {
 	nr.st.AgentVersion = s.Hello.Version
 	nr.st.Compatible = compatible
 	nr.st.Arch, nr.st.OS, nr.st.Kernel = s.Hello.Arch, s.Hello.OS, s.Hello.Kernel
+	if s.Hello.CPUs > 0 {
+		nr.st.CPUs = s.Hello.CPUs
+	}
 	nr.st.RemoteIP = s.RemoteIP
 	nr.persisted = now
 	snap := copyNodeState(nr.st)

@@ -25,9 +25,10 @@ travel through the same connection (`rudp` over relay BIND).
 Both sides run `gost -C <ConfigDir>/gost.yaml` (config file instead of `-L`/`-F`
 URLs so the token is not visible in `ps`). The file is YAML in the v3 schema
 (gost reads it through viper; keys are matched case-insensitively).
-`MemoryDenyWriteExecute` is dropped for this unit with the documented reason
-that the release binaries are UPX-packed (the UPX loader makes its unpacked
-code executable at start). Files live in
+The unit keeps every option of the hardened template, `MemoryDenyWriteExecute`
+included: the pinned v3.2.6 linux/amd64 release starts under it (checked with
+`systemd-run -p MemoryDenyWriteExecute=yes -p NoNewPrivileges=yes
+-p SystemCallFilter=@system-service` on systemd 255). Files live in
 `/etc/deyroute/backends/gost/<tunnel>/<node>/relay-wss/` (`0640 root:deyroute`).
 
 Hub (shortened):
@@ -137,5 +138,3 @@ CA roots when `secure` is false).
 * Stealth depends on TLS: the per-tunnel path hides the relay endpoint from
   probes that do not know the token, but the WebSocket upgrade and mux traffic
   pattern are gost's.
-* sha256 of the release archives is empty until `scripts/manifest-hashes.sh`
-  fills it (QUESTIONS.md C.9); the installer refuses the backend until then.

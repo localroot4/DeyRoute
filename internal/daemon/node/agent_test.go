@@ -508,6 +508,14 @@ func TestProbeHelpers(t *testing.T) {
 	require.True(t, res.OK, res.Err)
 	_, err = call[json.RawMessage](t, s, api.CmdProbeUDPListen, api.UDPListenArgs{Port: up, Seconds: 30})
 	require.NoError(t, err, "asking again extends the running echo")
+	// Stop frees the port at once (the rung that uses it starts next).
+	_, err = call[json.RawMessage](t, s, api.CmdProbeUDPListen, api.UDPListenArgs{Port: up, Stop: true})
+	require.NoError(t, err)
+	pc, err := net.ListenPacket("udp", net.JoinHostPort("0.0.0.0", strconv.Itoa(up)))
+	require.NoError(t, err, "the echo released the port")
+	require.NoError(t, pc.Close())
+	_, err = call[json.RawMessage](t, s, api.CmdProbeUDPListen, api.UDPListenArgs{Port: up, Stop: true})
+	require.NoError(t, err, "stopping an echo that is not running is fine")
 	_, err = call[json.RawMessage](t, s, api.CmdProbeUDPListen, api.UDPListenArgs{Port: 0})
 	requireCode(t, err, deyerr.N050)
 

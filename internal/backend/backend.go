@@ -155,12 +155,34 @@ type RenderInput struct {
 	// maps and Transport carries its UDP maps through Transport.UDPCompanion:
 	// the control port of that second process (allocated like ControlPort).
 	CompanionControlPort int
+	// HubCPUs and NodeCPUs are the CPU counts of the two sides (0 =
+	// unknown); Waterwall renders min(4, CPU) workers per side (§7.4).
+	HubCPUs  int
+	NodeCPUs int
 }
 
 // UsesCompanion reports whether the UDP maps of in travel through the UDP
 // companion of its transport.
 func (in RenderInput) UsesCompanion() bool {
 	return in.CompanionControlPort != 0 && in.Transport.UDPCompanion != "" && !in.Transport.Supports(config.ProtoUDP)
+}
+
+// StartFailureCoder is an optional Backend interface: the DEY code of one
+// of its units that fails to start, instead of DEY-B003 (Waterwall:
+// DEY-B043). The log tail is the error's detail either way.
+type StartFailureCoder interface {
+	StartFailureCode() deyerr.Code
+}
+
+// StartFailureCode returns the DEY code of a failed start of a unit of
+// transportID ("backend/name"): the backend's own, or DEY-B003.
+func StartFailureCode(transportID string) deyerr.Code {
+	if b, _, err := Lookup(transportID); err == nil {
+		if c, ok := b.(StartFailureCoder); ok {
+			return c.StartFailureCode()
+		}
+	}
+	return deyerr.B003
 }
 
 // NeedsUDPFor reports whether transport tr needs UDP between hub and node

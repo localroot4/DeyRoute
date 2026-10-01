@@ -314,12 +314,18 @@ func TestTunnelTestLadderAndBackup(t *testing.T) {
 	require.Equal(t, [2]string{"main", "nl-1"}, added)
 	require.Contains(t, out, "backup nl-1 ready (warm)")
 	require.Contains(t, out, "Backup only works")
-	out = e.ok("tunnel", "backup", "remove", "main", "--node", "nl-1")
+	require.Contains(t, e.fail(3, "tunnel", "backup", "remove", "main", "--node", "nl-1"), "deletes the warm units")
+	require.Empty(t, removed[0], "no confirmation, nothing removed")
+	out = e.ok("tunnel", "backup", "remove", "main", "--node", "nl-1", "--yes")
 	require.Equal(t, [2]string{"main", "nl-1"}, removed)
 	require.Contains(t, out, "Backup node nl-1 removed from tunnel main.")
 	doc = e.json("tunnel", "backup", "add", "main", "--node", "nl-1")
 	require.Len(t, doc["steps"], 1)
 	require.Contains(t, e.fail(1, "tunnel", "backup", "add", "main"), "--node")
+	added = [2]string{}
+	require.Contains(t, e.fail(1, "tunnel", "backup", "add", "main", "--node", "nl-1,de-2"), "one backup node per command")
+	require.Contains(t, e.fail(1, "tunnel", "backup", "add", "main", "--node", "nl-1", "--node", "de-2"), "one backup node per command")
+	require.Empty(t, added[0])
 	require.Contains(t, e.ok("tunnel", "backup"), "add")
 }
 
@@ -351,9 +357,11 @@ func TestPortCommands(t *testing.T) {
 		rm = [2]any{listen, proto}
 		return api.TunnelInfo{ID: tunnel}, nil
 	}
-	require.Contains(t, e.ok("port", "remove", "main", "8443/udp"), "Port 8443/udp removed from tunnel main.")
+	require.Contains(t, e.fail(3, "port", "remove", "main", "8443/udp"), "stops forwarding that port for good")
+	require.Nil(t, rm[0], "no confirmation, nothing removed")
+	require.Contains(t, e.ok("port", "remove", "main", "8443/udp", "--yes"), "Port 8443/udp removed from tunnel main.")
 	require.Equal(t, [2]any{8443, "udp"}, rm)
-	e.json("port", "remove", "main", "8443")
+	e.json("port", "remove", "main", "8443", "--yes")
 	require.Equal(t, [2]any{8443, "tcp"}, rm)
 	require.Contains(t, e.fail(1, "port", "remove", "main", "443,2053"), "DEY-C020")
 	require.Contains(t, e.fail(1, "port", "remove", "main", "443:8443"), "DEY-C020")
