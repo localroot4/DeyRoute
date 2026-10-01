@@ -1300,6 +1300,10 @@ func TestPauseDuringFailback(t *testing.T) {
 	}).run()
 	h.advanceUntil(time.Minute, func(s state.TunnelState) bool { return s.Active == r1 })
 	require.NoError(t, h.eng.Pause(context.Background()))
+	// Pause is answered inside the failback's wait; the sequence then leaves
+	// (afterPreempt) a moment later, while its old timer still counts as a
+	// sleeper for idle(). Wait for the state the sequence ends in.
+	require.Eventually(t, func() bool { return h.st().State == state.StatePaused }, idleWait, time.Millisecond)
 	h.idle()
 	s := h.st()
 	require.Equal(t, state.StatePaused, s.State)
