@@ -4,7 +4,9 @@
 
 **DEYROUTE** تانل ضدفیلتر بین سرور ایران (**Hub**) و سرورهای خارج (**Node**) می‌سازد. کاربر فقط به `IP ایران:پورت` وصل می‌شود و ترافیکش بدون دست خوردن TLS به سرویس روی سرور خارج (Xray / Marzban / 3x-ui …) می‌رسد. اگر فیلترینگ روش فعلی را ببندد، خودکار به روش بعدی و بعد به سرور خارج پشتیبان می‌رود.
 
-> ⚠️ **وضعیت: نسخهٔ در حال توسعه.** بیلد فعلی باینری، منو و نسخه را نصب می‌کند. ویزارد `setup`، `join` و ساخت تانل در بیلدهای بعدی اضافه می‌شوند. همان دستور نصب را دوباره بزنید تا ارتقا بگیرید؛ کانفیگ دست نمی‌خورد. جزئیات در [CHANGELOG.md](CHANGELOG.md).
+> **وضعیت: نسخهٔ توسعه (edge).** نصب یک‌خطی، Join، ساخت تانل با نردبان ۸ پله‌ای، failover خودکار بین روش‌ها و Nodeها، Node پشتیبان، منوی کامل انگلیسی و همه دستورهای CLI کار می‌کنند و روی systemd و nftables واقعی آزموده شده‌اند ([شواهد](docs/en/acceptance.md)). مانده: تست ۷۲ ساعته روی سرور واقعی در ایران. همان دستور نصب را دوباره بزنید تا ارتقا بگیرید؛ کانفیگ دست نمی‌خورد.
+>
+> 📖 راهنمای کامل فارسی: [docs/fa](docs/fa/index.md) — نصب، Join، اولین تانل، Node پشتیبان، عیب‌یابی، جابه‌جایی Hub، بکاپ
 
 ## نصب با یک خط
 
@@ -82,7 +84,7 @@ Ubuntu 22.04 / 24.04 / 26.04 یا Debian 12 / 13 (پشتیبانی اصلی)؛ R
 
 DEYROUTE is a single static Go binary that turns an Iran server (**hub**) and foreign servers (**nodes**) into a censorship-resistant tunnel. It has multiple transports (Backhaul, Rathole, FRP, Xray-Reality, Hysteria2, Waterwall, WireGuard/AmneziaWG, direct) with automatic transport and node failover.
 
-**Status:** under active development. Current builds install the binary, menu and `version`. `setup`, `join` and tunnels land in upcoming builds; re-running the install command upgrades in place.
+**Status:** development (edge) builds. One-line install, join, tunnels on an 8-rung transport ladder, automatic transport and node failover, backup nodes, the complete English menu and every CLI command work, tested with real systemd, nftables and backends ([evidence](docs/en/acceptance.md)). Still to do: the 72-hour test on real servers. Re-running the install command upgrades in place.
 
 ```bash
 # hub (Iran server), as root
@@ -91,7 +93,9 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://…'
 ```
 
-- Docs: [error codes](docs/ERRORS.md) · [architecture](docs/dev/ARCHITECTURE.md) · [specification (fa)](docs/spec/DEYROUTE-spec-v1.0.fa.md) · [open questions](QUESTIONS.md)
+- Guides: [English](docs/en/index.md) · [فارسی](docs/fa/index.md) · [error codes](docs/ERRORS.md) · [backends](docs/backends/) · [`--json` output](docs/cli-json.md)
+- Project: [architecture](docs/dev/ARCHITECTURE.md) · [specification (fa)](docs/spec/DEYROUTE-spec-v1.0.fa.md) · [decisions and open questions](QUESTIONS.md) · [acceptance evidence](docs/en/acceptance.md)
+- Tests: `make test lint` · integration scenarios S01–S30 in systemd containers: `test/integration/run.sh` (see the script header)
 - Build from source: `make build` (static, `CGO_ENABLED=0`) · `make build-all` · `make test lint`
 
 ### Releases (maintainers)

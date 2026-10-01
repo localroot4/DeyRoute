@@ -6,6 +6,52 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — the working system (phases 1–8)
+
+- **Install and lifecycle:** one-line installer (`install.sh`: GitHub
+  releases, mirror, offline `--local`, minisign + SHA256SUMS), `deyroute setup`
+  (hub wizard, at most five questions), `deyroute join` with CA pinning,
+  `update` / `--rollback` (signed, tunnels keep running), `uninstall`
+  (units, nftables table, kernel settings, files, system account),
+  encrypted `backup` / `restore`, hub move (`hub announce-move`,
+  `node set-hub`).
+- **Hub daemon:** mTLS control channel, single-use join tokens, node
+  registry with heartbeats, firewall manager (`table inet deyroute`, `@nodes`,
+  join window), events and Telegram, backend downloads through a node when
+  GitHub is blocked, assets for node updates.
+- **Tunnels:** default ladder of eight rungs (Backhaul wssmux/tcpmux,
+  Rathole noise, FRP tcp, Xray-Reality, Hysteria2, Waterwall reverse-reality,
+  direct/native), warm rungs, skipped rungs with a yellow warning, backup
+  nodes, port maps (up to 64, ranges), 4-stage port check, canary failback,
+  `test-ladder`, `diag speed`, `diag probe`.
+- **Failover engine:** probes (path, node service, control), the state machine
+  of spec 9, quarantine, anti-flapping, failback with backoff,
+  `backend_crash` detection on hub and node, reconcile after a restart.
+- **Node agent:** every control command (backend install/render, units, NAT,
+  probes, fetch, self-update, certificate rotation, logs, doctor); never an
+  open proxy.
+- **Operations:** doctor (15 rules, bundle without secrets), optimize
+  profiles with BBR detection, security audit, token and CA rotation, TLS
+  show/renew (auto, ACME, custom), backend updates with automatic rollback,
+  signed manifest updates.
+- **CLI and menu:** every command of spec 14 with `--json` (schema 1,
+  `docs/cli-json.md`) and exit codes 0/1/2/3; the full English menu of spec 6
+  with dashboard, wizards, ASCII mode for dumb terminals and a guide screen
+  on servers that are not set up yet.
+
+### Changed
+
+- Rung 4 of the default ladder is `frp/tcp` (frps cannot serve `frp/wss`
+  without a separate TLS terminator; QUESTIONS.md C.31).
+- `uninstall` also removes the `deyroute` user and group (QUESTIONS.md C.30).
+
+### Fixed (found by the integration scenarios)
+
+- `backend_crash` was not emitted when systemd restarted a killed backend.
+- A node briefly reported itself incompatible before the hub's hello arrived.
+- Kernel-setting warnings were printed twice by setup and join.
+- Join-command `--ttl` outside 1m–24h now names the allowed range.
+
 ### Added — documentation, integration scenarios, backend hashes
 
 - User guides in Persian and English (`docs/fa/`, `docs/en/`): install, join,

@@ -1137,7 +1137,7 @@ var tuiEN = map[Key]string{
 	TUIStLangSet:        "Language: %s",
 	TUIStKeepBackups:    "Keep backups? (y/n)",
 	TUIStNodes:          "Also uninstall deyroute on every online node? (y/n)",
-	TUIStUninstallLost:  "Uninstall removes from this server:\n  - every deyroute tunnel unit and the deyroute service (stopped and disabled)\n  - the nftables table inet deyroute\n  - the kernel settings of deyroute (restored from sysctl-before-deyroute.conf)\n  - /etc/deyroute: configuration, secrets and certificates\n  - /var/lib/deyroute: state and backend binaries%s\n  - the deyroute binary\n%sEvery tunnel stops.",
+	TUIStUninstallLost:  "Uninstall removes from this server:\n  - every deyroute tunnel unit and the deyroute service (stopped and disabled)\n  - the nftables table inet deyroute\n  - the kernel settings of deyroute (restored from sysctl-before-deyroute.conf)\n  - /etc/deyroute: configuration, secrets and certificates\n  - /var/lib/deyroute: state and backend binaries%s\n  - the deyroute system user and group\n  - the deyroute binary\n%sEvery tunnel stops.",
 	TUIStUninstallKeep:  " (backups are kept)",
 	TUIStUninstallAll:   ", and every backup",
 	TUIStUninstallNodes: "  - deyroute on every online node as well\n",

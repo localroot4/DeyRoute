@@ -95,7 +95,7 @@ Uninstall removes from this server:
   - the kernel settings of deyroute (restored from sysctl-before-deyroute.conf)
   - /etc/deyroute: configuration, secrets and certificates
   - /var/lib/deyroute: state and backend binaries, except the backups in /var/lib/deyroute/backups
-  - /var/log/deyroute and the deyroute binary
+  - /var/log/deyroute, the deyroute system user and group, and the deyroute binary
 Every tunnel stops.
 ```
 
