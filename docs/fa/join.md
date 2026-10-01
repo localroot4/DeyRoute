@@ -37,7 +37,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 - لینک داخل دستور این شکل را دارد: `dey://TOKEN@HUB_IP:CONTROL_PORT#CA_FINGERPRINT`. کل خط را کپی کنید و چیزی از آن را عوض نکنید.
 - هر Join command **یک‌بارمصرف** است: هر دستور فقط یک Node را وصل می‌کند. برای هر Node یک دستور تازه بسازید.
 - اعتبارش ۱۵ دقیقه است. برای زمان بیشتر از `--ttl` استفاده کنید، از `1m` تا `24h`: `deyroute node join-command --ttl 1h`.
-- `--version` باعث می‌شود Node همان نسخه‌ای را نصب کند که روی Hub است.
+- `--version` باعث می‌شود Node همان نسخه‌ای را نصب کند که روی Hub است. بدون آن نصب‌کننده جدیدترین نسخه را نصب می‌کرد و Hubی که major.minor قدیمی‌تری دارد نمی‌توانست از آن Node استفاده کند (`DEY-N004`).
 - اگر Hub با `DEYROUTE_MIRROR` راه‌اندازی شده باشد، دستور نصاب را از همان Mirror دانلود می‌کند.
 
 ## ۲. اجرای آن روی Node
@@ -77,7 +77,7 @@ deyroute node list
 deyroute node test de-1
 ```
 
-`node list` همه Nodeها را با وضعیت، تأخیر کانال کنترل، نسخه و مصرف منابع نشان می‌دهد. `node test` تأخیر کنترل را اندازه می‌گیرد، UDP بین Hub و Node را تست می‌کند (`UDP ok` یا `blocked`؛ اگر بسته باشد ترنسپورت‌هایی که UDP لازم دارند برای این Node کنار گذاشته می‌شوند) و اطلاعات سیستم Node را چاپ می‌کند: سیستم‌عامل، kernel، تعداد CPU، `Memory: 3.8 GiB`، `Uptime: 10d 00:02` و نسخه deyroute (`3) Nodes` ← `5) Test` در منو همین را نشان می‌دهد). در داشبورد (`deyroute status`، یا `1) Dashboard (live)` در منو) هم Node زیر NODES دیده می‌شود.
+`node list` همه Nodeها را با وضعیت، تأخیر کانال کنترل، نسخه و مصرف منابع نشان می‌دهد و زیر جدول آخرین خطایی را که agent هر Node گزارش کرده می‌آورد (مثلاً `Last error on de-1: DEY-B003 …`؛ در منو `3) Nodes` ← `2) List` همین را با عنوان `Last error` نشان می‌دهد). `node test` تأخیر کنترل را اندازه می‌گیرد، UDP بین Hub و Node را تست می‌کند (`UDP ok` یا `blocked`؛ اگر بسته باشد ترنسپورت‌هایی که UDP لازم دارند برای این Node کنار گذاشته می‌شوند) و اطلاعات سیستم Node را چاپ می‌کند: سیستم‌عامل، kernel، تعداد CPU، `Memory: 3.8 GiB`، `Uptime: 10d 00:02` و نسخه deyroute (`3) Nodes` ← `5) Test` در منو همین را نشان می‌دهد). در داشبورد (`deyroute status`، یا `1) Dashboard (live)` در منو) هم Node زیر NODES دیده می‌شود.
 
 قدم بعدی: [اولین تانل](first-tunnel.md).
 

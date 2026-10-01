@@ -13,7 +13,7 @@ on hub bash /dist/install.sh --skip-signature --local "$OLD" --role hub --name i
 on node1 bash /dist/install.sh --skip-signature --local "$OLD" join "$(join_link)" >&2
 NODE1=$(node_id_of node1)
 wait_node_online "$NODE1"
-serve_http node1 8443 1
+vpn_up node1 8443 1
 T=$(add_tunnel "$NODE1" 8443)
 wait_tunnel_up "$T"
 unit=$(unit_of "$T")
@@ -36,4 +36,4 @@ log "requests: $total, failed: ${fails:-0}, longest outage ${out}ms"
 [ "$(main_pid hub "$unit")" = "$hp" ] || fail "the hub backend unit was restarted by the update"
 [ "$(main_pid node1 "$unit")" = "$np" ] || fail "the node backend unit was restarted by the update"
 tunnel_up "$T" || fail "tunnel not UP after the update"
-pass
+pass "$total requests, 0 failed"

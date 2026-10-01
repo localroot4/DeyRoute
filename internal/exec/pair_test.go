@@ -1,4 +1,4 @@
-package supervise
+package exec
 
 import (
 	"bytes"
@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSplit(t *testing.T) {
-	got, err := Split([]string{"/opt/b", "-c", "a.toml", "--", "/opt/b", "-c", "b.toml"})
+func TestSplitPair(t *testing.T) {
+	got, err := SplitPair([]string{"/opt/b", "-c", "a.toml", "--", "/opt/b", "-c", "b.toml"})
 	require.NoError(t, err)
 	require.Equal(t, [][]string{{"/opt/b", "-c", "a.toml"}, {"/opt/b", "-c", "b.toml"}}, got)
 
@@ -22,15 +22,15 @@ func TestSplit(t *testing.T) {
 		{"b", "--", "/opt/b"},
 		{"/opt/../b", "--", "/opt/b"},
 	} {
-		_, err := Split(args)
+		_, err := SplitPair(args)
 		require.Error(t, err, "%q", args)
 	}
 }
 
-func TestRunStopsTheOthersWhenOneExits(t *testing.T) {
+func TestRunPairStopsTheOthersWhenOneExits(t *testing.T) {
 	var out bytes.Buffer
 	start := time.Now()
-	err := Run(context.Background(), [][]string{
+	err := RunPair(context.Background(), [][]string{
 		{"/bin/sh", "-c", "exec sleep 30"},
 		{"/bin/sh", "-c", "echo up; exit 3"},
 	}, &out, &out)
@@ -39,20 +39,20 @@ func TestRunStopsTheOthersWhenOneExits(t *testing.T) {
 	require.Contains(t, out.String(), "up")
 
 	// A clean exit fails the set too.
-	err = Run(context.Background(), [][]string{{"/bin/sh", "-c", "exec sleep 30"}, {"/bin/sh", "-c", "exit 0"}}, &out, &out)
+	err = RunPair(context.Background(), [][]string{{"/bin/sh", "-c", "exec sleep 30"}, {"/bin/sh", "-c", "exit 0"}}, &out, &out)
 	require.ErrorContains(t, err, "exited")
 }
 
-func TestRunReturnsNilWhenStopped(t *testing.T) {
+func TestRunPairReturnsNilWhenStopped(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
 	var out bytes.Buffer
-	err := Run(ctx, [][]string{{"/bin/sh", "-c", "exec sleep 30"}, {"/bin/sh", "-c", "exec sleep 30"}}, &out, &out)
+	err := RunPair(ctx, [][]string{{"/bin/sh", "-c", "exec sleep 30"}, {"/bin/sh", "-c", "exec sleep 30"}}, &out, &out)
 	require.NoError(t, err)
 }
 
-func TestRunStartFailureStopsTheStarted(t *testing.T) {
+func TestRunPairStartFailureStopsTheStarted(t *testing.T) {
 	var out bytes.Buffer
-	err := Run(context.Background(), [][]string{{"/bin/sh", "-c", "exec sleep 30"}, {"/nonexistent/deyroute-test"}}, &out, &out)
+	err := RunPair(context.Background(), [][]string{{"/bin/sh", "-c", "exec sleep 30"}, {"/nonexistent/deyroute-test"}}, &out, &out)
 	require.ErrorContains(t, err, "start /nonexistent/deyroute-test")
 }

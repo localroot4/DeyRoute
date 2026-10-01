@@ -182,6 +182,9 @@ func TestSetupNodeAndJoin(t *testing.T) {
 	require.Contains(t, out, "Not accepted: DEY-N006")
 	require.Contains(t, out, "Node de-1 joined hub ir-1; it appears on the hub dashboard shortly")
 	require.Contains(t, out, "The hub runs deyroute 1.1.0")
+	// An incompatible node is not updated by the hub (only its own
+	// `deyroute update` does that): the owner installs the hub's release.
+	require.Contains(t, out, "Run the installer here again with --version 1.1.0\n")
 	require.Contains(t, out, "! w")
 
 	// setup --role node --name on a TTY asks the link and the sysctl.

@@ -17,10 +17,10 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/hub"
 	"github.com/localroot4/deyroute/internal/daemon/node"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
-	"github.com/localroot4/deyroute/internal/supervise"
 	"github.com/localroot4/deyroute/internal/tui"
 )
 
@@ -236,16 +236,16 @@ func newRelayCmd(g *Globals) *cobra.Command {
 // together (Backhaul with TCP and UDP maps on a TCP-only transport).
 func newPairCmd(g *Globals) *cobra.Command {
 	return &cobra.Command{
-		Use:                supervise.Command + " <program> [args] -- <program> [args]",
+		Use:                exec.PairCommand + " <program> [args] -- <program> [args]",
 		Short:              i18n.T(i18n.CLIPairShort),
 		Hidden:             true,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cmds, err := supervise.Split(args)
+			cmds, err := exec.SplitPair(args)
 			if err != nil {
 				return usageErr(err.Error())
 			}
-			return supervise.Run(cmd.Context(), cmds, g.Out, g.Err)
+			return exec.RunPair(cmd.Context(), cmds, g.Out, g.Err)
 		},
 	}
 }

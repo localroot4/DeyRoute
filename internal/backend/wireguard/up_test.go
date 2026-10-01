@@ -62,6 +62,7 @@ type fakeNetlink struct {
 	family  uint16
 	reqs    [][]byte
 	setErr  syscall.Errno
+	busy    int // SET_DEVICE calls that fail with EADDRINUSE first
 	noFam   bool
 	closed  bool
 	failGet error
@@ -79,6 +80,10 @@ func (f *fakeNetlink) Roundtrip(_ context.Context, req []byte, seq uint32) ([]nl
 		payload := append([]byte{1, 2, 0, 0}, nlU16(ctrlAttrID, f.family)...)
 		payload = append(payload, nlString(ctrlAttrName, wgGenlName)...)
 		return []nlMessage{{typ: genlIDCtrl, seq: 1, data: payload}}, nil
+	}
+	if f.busy > 0 {
+		f.busy--
+		return nil, syscall.EADDRINUSE
 	}
 	if f.setErr != 0 {
 		return nil, f.setErr
@@ -293,6 +298,111 @@ func TestUpUserspace(t *testing.T) {
 	require.NoError(t, Down(context.Background(), cfg, fr))
 	fr.failOn = "ip -o"
 	require.True(t, deyerr.HasCode(Down(context.Background(), cfg, fr), deyerr.B071))
+}
+
+// TestUpListenPortInUse: a listen port that is still taken when the rung
+// starts (the node's UDP reachability echo holds it for 10s) is retried
+// until it is free, within PortWait; other errors are not retried.
+func TestUpListenPortInUse(t *testing.T) {
+	// Kernel: SET_DEVICE fails twice with EADDRINUSE, then succeeds.
+	cfg := writeConfig(t, false, backend.SideHub, nil)
+	nl := &fakeNetlink{family: 1, busy: 2}
+	f := &fakeRunner{}
+	m := &Manager{Runner: f, openNetlink: func() (nlTransport, error) { return nl, nil }}
+	require.NoError(t, m.Up(context.Background(), cfg))
+	require.Len(t, nl.reqs, 4, "family lookup + three SET_DEVICE")
+	require.Equal(t, nl.reqs[1], nl.reqs[3], "the retry sends the same request")
+	require.True(t, f.exists["dey-main"])
+
+	// Kernel: still taken after PortWait.
+	nl = &fakeNetlink{family: 1, busy: 1000}
+	f = &fakeRunner{}
+	m = &Manager{Runner: f, PortWait: 600 * time.Millisecond, openNetlink: func() (nlTransport, error) { return nl, nil }}
+	start := time.Now()
+	err := m.Up(context.Background(), cfg)
+	require.True(t, deyerr.HasCode(err, deyerr.B070), "%v", err)
+	require.Contains(t, err.Error(), "address already in use")
+	require.Less(t, time.Since(start), 5*time.Second)
+	require.Greater(t, len(nl.reqs), 2)
+	require.False(t, f.exists["dey-main"], "half-built interface removed")
+
+	// Kernel: another error is not retried.
+	nl = &fakeNetlink{family: 1, setErr: syscall.EPERM}
+	m = &Manager{Runner: &fakeRunner{}, openNetlink: func() (nlTransport, error) { return nl, nil }}
+	require.Error(t, m.Up(context.Background(), cfg))
+	require.Len(t, nl.reqs, 2)
+
+	// Userspace: amneziawg-go answers errno=-98 twice, then 0; every
+	// attempt is a new UAPI connection with the whole request.
+	awg := writeConfig(t, true, backend.SideNode, nil)
+	root, _ := procRoot(t, "dey-main")
+	var mu sync.Mutex
+	var reqs []string
+	var wg sync.WaitGroup
+	dial := func(context.Context, string) (net.Conn, error) {
+		c1, c2 := net.Pipe()
+		mu.Lock()
+		reply := "errno=0\n\n"
+		if len(reqs) < 2 {
+			reply = "errno=-98\n\n"
+		}
+		reqs = append(reqs, "")
+		n := len(reqs) - 1
+		mu.Unlock()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { _ = c2.Close() }()
+			r := bufio.NewReader(c2)
+			var b strings.Builder
+			for {
+				line, err := r.ReadString('\n')
+				if err != nil {
+					return
+				}
+				b.WriteString(line)
+				if line == "\n" {
+					break
+				}
+			}
+			mu.Lock()
+			reqs[n] = b.String()
+			mu.Unlock()
+			_, _ = c2.Write([]byte(reply))
+		}()
+		return c1, nil
+	}
+	m = &Manager{Root: root, Runner: &fakeRunner{}, dialUAPI: dial}
+	require.NoError(t, m.Up(context.Background(), awg))
+	wg.Wait()
+	require.Len(t, reqs, 3)
+	require.Equal(t, reqs[0], reqs[2])
+	require.Contains(t, reqs[0], "listen_port=30001\n")
+
+	// Userspace: still taken after PortWait.
+	busy := func(context.Context, string) (net.Conn, error) {
+		c1, c2 := net.Pipe()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { _ = c2.Close() }()
+			r := bufio.NewReader(c2)
+			for {
+				line, err := r.ReadString('\n')
+				if err != nil || line == "\n" {
+					break
+				}
+			}
+			_, _ = c2.Write([]byte("errno=-98\n\n"))
+		}()
+		return c1, nil
+	}
+	m = &Manager{Root: root, Runner: &fakeRunner{}, dialUAPI: busy, PortWait: 600 * time.Millisecond}
+	err = m.Up(context.Background(), awg)
+	wg.Wait()
+	require.True(t, deyerr.HasCode(err, deyerr.B071), "%v", err)
+	require.Contains(t, err.Error(), "listen port is in use")
+	require.True(t, errors.Is(err, syscall.EADDRINUSE), "%v", err)
 }
 
 // TestUpUserspaceUnixSocket exercises the real dialer with a unix socket.

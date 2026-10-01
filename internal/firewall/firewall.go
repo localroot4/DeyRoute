@@ -46,7 +46,12 @@
 // tunnel address 10.77.n.1), not 127.0.0.1. A forward filter chain clamps
 // the TCP MSS to the route MTU on masqueraded interfaces, because the
 // tunnel MTU is smaller than the clients' and ICMP "fragmentation needed"
-// is often filtered on the way.
+// is often filtered on the way. An interface that NAT rules match on (the
+// node side of WireGuard: DNAT of tunnel traffic to the local targets) is
+// confined in the same chain: traffic from it that would be routed onward
+// is dropped unless it was DNATed or belongs to an established flow, so a
+// node with net.ipv4.ip_forward already on (Docker, another VPN) never
+// routes for the hub (section 11, scenario S17).
 //
 // A node's changed public IP (section 11) is handled by re-rendering the
 // Spec with the new address in NodeIPs4 and calling Apply again; the
@@ -109,7 +114,8 @@ type Spec struct {
 	CtlLow, CtlHigh int
 	// ListenTCP and ListenUDP are the active tunnel listen ports.
 	ListenTCP, ListenUDP []int
-	// NAT are DNAT/redirect rules of NAT-based transports.
+	// NAT are DNAT/redirect rules of NAT-based transports. The input
+	// interface of a rule (Iface) is also confined in the forward chain.
 	NAT []backend.NATRule
 	// Masquerade are interfaces to masquerade on (postrouting).
 	Masquerade []string

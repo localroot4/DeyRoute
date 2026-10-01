@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # S01: fresh install on a Tier 1 distribution: < 60s, exit 0, services enabled
+# Phase 2 "join < 30s" is timed here too: from the start of the node's
+# one-line `install.sh … join` to the node being online on the hub.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -7,11 +9,18 @@ up hub node1
 t0=$SECONDS
 install_hub hub ir-1 || fail "the hub installer failed"
 th=$((SECONDS - t0))
+link=$(join_link)
+j0=$(date +%s%3N)
 t0=$SECONDS
-install_node node1 || fail "the node installer failed"
+install_node node1 "$link" || fail "the node installer failed"
 tn=$((SECONDS - t0))
 [ "$th" -lt 60 ] || fail "hub install took ${th}s (limit 60s)"
 [ "$tn" -lt 60 ] || fail "node install took ${tn}s (limit 60s)"
+NODE1=$(node_id_of node1)
+wait_node_online "$NODE1" 30
+jms=$(($(date +%s%3N) - j0))
+log "join: node online ${jms}ms after the installer started"
+[ "$jms" -lt 30000 ] || fail "join took ${jms}ms (limit 30s)"
 
 for pair in hub:deyroute-hub node1:deyroute-node; do
   s=${pair%%:*} u=${pair#*:}
@@ -27,5 +36,4 @@ for pair in hub:deyroute-hub node1:deyroute-node; do
   bad=$(sh_on "$s" "find /etc/deyroute/secrets -type f ! -perm 0600 -printf '%p %m\n'")
   [ -z "$bad" ] || fail "secret files on $s are not 0600: $bad"
 done
-wait_node_online "$(node_id_of node1)"
-pass "hub ${th}s, node ${tn}s"
+pass "hub ${th}s, node ${tn}s, join ${jms}ms"

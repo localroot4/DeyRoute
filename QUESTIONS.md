@@ -221,6 +221,17 @@ stated default until the owner decides · **[ANSWERED]** closed.
     change the config schema and every backend renderer; instead the limit
     counts every port of a range and `DEY-P016`/`DEY-C015` advise splitting
     the ports over several tunnels (up to 64 each).
+36. **[DEFAULT] The join command pins the hub's release.** Spec 3 (Join 1)
+    shows `bash <(curl -fsSL <installer>) join 'dey://…'`. A release build
+    of the hub appends ` --version X.Y.Z` (its own version; a development
+    build appends nothing), so the command is the spec's form plus that
+    flag. The installer URL is the `latest` one: without the flag a node
+    would install the newest release, and a hub on another major.minor
+    could not use it (`DEY-N004`, no commands). The node cannot take the
+    hub's binary instead, because `/v1/assets` needs the certificate it
+    gets only by joining, and the hub sends `self.update` to its nodes only
+    to finish its own `deyroute update`. `docs/en/join.md` and
+    `docs/fa/join.md` show the flag and say why it is there.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

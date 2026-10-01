@@ -43,7 +43,9 @@ Back in the menu, `r` makes a new command.
   command for every node.
 - It is valid for 15 minutes. For a longer window use `--ttl`, from `1m` to
   `24h`: `deyroute node join-command --ttl 1h`.
-- `--version` makes the node install the same release as the hub.
+- `--version` makes the node install the same release as the hub. Without
+  it the installer would take the newest release, and a hub on an older
+  major.minor could not use the node (`DEY-N004`).
 - When the hub was set up with `DEYROUTE_MIRROR`, the command downloads the
   installer from that mirror.
 
@@ -88,8 +90,10 @@ deyroute node list
 deyroute node test de-1
 ```
 
-`node list` shows every node with its state, control RTT, version and load.
-`node test` measures the control RTT, tests UDP between hub and node
+`node list` shows every node with its state, control RTT, version and load,
+and below the table the last error each node agent reported (for example
+`Last error on de-1: DEY-B003 …`; the menu's `3) Nodes` → `2) List` shows it
+as `Last error`). `node test` measures the control RTT, tests UDP between hub and node
 (`UDP ok` or `blocked`: transports that need UDP are then skipped for this
 node) and prints the node's system: OS, kernel, CPUs, `Memory: 3.8 GiB`,
 `Uptime: 10d 00:02`, the deyroute version (the menu's `3) Nodes` → `5) Test`

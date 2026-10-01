@@ -22,8 +22,14 @@ registered=$(dey node list --json | jq '.nodes | length')
 [ "$registered" = 0 ] || fail "$registered node(s) registered after failed joins"
 on node1 test ! -e /etc/deyroute/config.yaml || fail "a failed join left a config on the node"
 
-# A token is single-use: the valid link works once.
+# A token is single-use: the valid link works once. The join itself (phase 2:
+# < 30s) is timed up to the node being online on the hub.
+j0=$(date +%s%3N)
 dey --on node1 join "$link" --yes >&2 || fail "join with the valid link failed"
+wait_node_online "$(node_id_of node1)" 30
+jms=$(($(date +%s%3N) - j0))
+log "deyroute join: node online after ${jms}ms"
+[ "$jms" -lt 30000 ] || fail "join took ${jms}ms (limit 30s)"
 expect_code DEY-N001 dey --on node2 join "$link" --yes >&2
 [ "$(dey node list --json | jq '.nodes | length')" = 1 ] || fail "the reused token registered a second node"
-pass
+pass "join ${jms}ms"

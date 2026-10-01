@@ -160,6 +160,25 @@ All notable changes to DEYROUTE are documented here. The format follows
   Fix no longer asks for a restart that does not remove them.
 - `DEY-P014` is raised when the node cannot connect to the port (port check
   in the CLI and the menu, `node_error` in `--json`, the doctor bundle).
+- Hub changes (join, menu, CLI, node IP) build on the applied configuration
+  and are refused with the new `DEY-C026` while `config.yaml` holds an edit
+  that is not applied, instead of taking it over without config apply's
+  checks; a join spends its token only when it succeeds.
+- `security.firewall_managed: false` that takes effect at hub start (edit
+  and restart, restore) removes a table `inet deyroute` left from before.
+- The node agent pings the systemd watchdog only while its monitor makes
+  progress (a deadlocked lock or a stuck monitor gets it restarted).
+- Heartbeats sent before the node agent listed its units say so; the hub
+  keeps the last unit list and runs the per-stream cleanup on the first
+  heartbeat with the list.
+- The node agent's last error is shown by `deyroute node list` (and
+  `last_error` in `--json`, the status) and in the menu's node list.
+- The join command keeps ` --version X.Y.Z` after the spec's form, recorded
+  as QUESTIONS.md C.36 (the node must install the hub's release); `join` on
+  an incompatible node no longer promises an automatic update and names
+  the installer's `--version` instead.
+- The security docs say that `security audit` warns about every unexpired
+  join token and that `doctor` reports the long-lived and expired ones.
 
 ### Fixed (found by the integration scenarios)
 

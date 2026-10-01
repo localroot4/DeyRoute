@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -92,6 +93,10 @@ func uapiExchange(ctx context.Context, conn net.Conn, req string) error {
 		return nil
 	case "":
 		return fmt.Errorf("UAPI socket closed without an errno reply")
+	case "-" + strconv.Itoa(int(syscall.EADDRINUSE)):
+		// amneziawg-go answers a listen port it cannot bind with the
+		// negative errno; Up retries this one (Manager.PortWait).
+		return fmt.Errorf("amneziawg-go rejected the configuration (errno=%s, the listen port is in use; see the tunnel log): %w", errno, syscall.EADDRINUSE)
 	default:
 		return fmt.Errorf("amneziawg-go rejected the configuration (errno=%s; see the tunnel log)", errno)
 	}

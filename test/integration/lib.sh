@@ -185,13 +185,132 @@ fetch_via_hub() {
 }
 blob_sha() { on "$1" cat /srv/it/blob.sha256; }
 
-# start_prober PORT: the client requests http://hub:PORT/ every 200ms and logs
-# one line per request (epoch-ms and ok|fail); stop_prober prints the longest
-# outage in milliseconds.
+# xray_install SERVICE: the Xray release pinned in backends.yaml, downloaded
+# into a server (through DEY_PROXY when set), checked against the manifest's
+# sha256 and installed as /usr/local/bin/it-xray. Needs internet access.
+xray_install() {
+  on "$1" bash -s "$ARCH" "${DEY_PROXY:-}" <<'SH'
+set -euo pipefail
+[ -x /usr/local/bin/it-xray ] && exit 0
+read -r url sha < <(python3 - "$1" <<'PY'
+import re, sys
+b = re.search(r'(?ms)^  xray:\n.*?(?=^  \S|\Z)', open('/dist/backends.yaml').read()).group(0)
+print(re.search(r'%s: (https://\S+)' % sys.argv[1], b).group(1),
+      re.search(r'sha256: \{[^}]*%s: "([0-9a-f]{64})"' % sys.argv[1], b).group(1))
+PY
+)
+curl -fsSL --retry 3 ${2:+--proxy "$2"} -o /tmp/it-xray.zip "$url"
+echo "$sha  /tmp/it-xray.zip" | sha256sum -c --quiet
+python3 -c 'import zipfile; zipfile.ZipFile("/tmp/it-xray.zip").extract("xray", "/tmp/it-xray.d")'
+install -m 0755 /tmp/it-xray.d/xray /usr/local/bin/it-xray
+SH
+}
+# it_unit SERVICE NAME COMMAND: an enabled unit it-NAME running COMMAND (it
+# survives a reboot, like the services of serve_http).
+it_unit() {
+  sh_on "$1" "cat > /etc/systemd/system/it-$2.service <<EOF
+[Service]
+ExecStart=$3
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload && systemctl enable --now --quiet it-$2"
+}
+
+# vpn_up NODE PORT [SIZE_MB]: the user's VPN behind the tunnel port PORT, as
+# in spec section 17: a real Xray VLESS+ws+tls server on NODE 127.0.0.1:PORT
+# (the tunnel target; certificate for vpn.it.lab, which the client trusts)
+# whose "internet" is the serve_http web server on NODE 127.0.0.1:8080, and a
+# real Xray client on the client that dials hub:PORT and offers an HTTP proxy
+# on 127.0.0.1:10809 for curl --proxy. Offline (Xray cannot be downloaded)
+# the web server listens on NODE 127.0.0.1:PORT itself and the client requests
+# hub:PORT directly. Sets VPN_URL and VPN_CURL (curl's proxy options, ""
+# offline) for fetch_via_vpn and start_prober. curl tunnels through the proxy
+# (CONNECT): Xray's plain-HTTP proxying fails short responses that the server
+# closes right away (503, "read/write on closed pipe").
+VPN_UUID=6f1c4a52-3b9e-4d1a-9c55-2e8a6b0d4f13 VPN_WEB_PORT=8080 VPN_PROXY_PORT=10809
+vpn_up() {
+  local n=$1 port=$2 mb=${3:-1} crt
+  if [ "$DEY_OFFLINE" = 1 ]; then
+    log "offline: no Xray download, the client requests hub:$port without the VPN client"
+    serve_http "$n" "$port" "$mb"
+    VPN_URL=http://$HUB_IP:$port VPN_CURL=""
+    return
+  fi
+  serve_http "$n" "$VPN_WEB_PORT" "$mb"
+  xray_install "$n" >&2
+  xray_install client >&2
+  sh_on "$n" "mkdir -p /etc/it-xray && { [ -s /etc/it-xray/vpn.crt ] || openssl req -x509 -newkey ec \
+    -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj /CN=vpn.it.lab -addext subjectAltName=DNS:vpn.it.lab \
+    -keyout /etc/it-xray/vpn.key -out /etc/it-xray/vpn.crt 2>/dev/null; }
+    cat > /etc/it-xray/server.json <<EOF
+{\"log\": {\"loglevel\": \"warning\", \"access\": \"/var/log/it-xray-access.log\"},
+ \"inbounds\": [{\"tag\": \"vless-in\", \"listen\": \"127.0.0.1\", \"port\": $port, \"protocol\": \"vless\",
+   \"settings\": {\"clients\": [{\"id\": \"$VPN_UUID\"}], \"decryption\": \"none\"},
+   \"streamSettings\": {\"network\": \"ws\", \"security\": \"tls\", \"wsSettings\": {\"path\": \"/it-vless\"},
+     \"tlsSettings\": {\"certificates\": [{\"certificateFile\": \"/etc/it-xray/vpn.crt\", \"keyFile\": \"/etc/it-xray/vpn.key\"}]}}}],
+ \"outbounds\": [{\"protocol\": \"freedom\"}]}
+EOF"
+  it_unit "$n" xray-server "/usr/local/bin/it-xray run -c /etc/it-xray/server.json"
+  crt=$(on "$n" cat /etc/it-xray/vpn.crt)
+  on client sh -c 'cat > /usr/local/share/ca-certificates/it-vpn.crt && update-ca-certificates >/dev/null 2>&1' <<<"$crt"
+  sh_on client "mkdir -p /etc/it-xray && cat > /etc/it-xray/client.json <<EOF
+{\"log\": {\"loglevel\": \"warning\"},
+ \"inbounds\": [{\"listen\": \"127.0.0.1\", \"port\": $VPN_PROXY_PORT, \"protocol\": \"http\"}],
+ \"outbounds\": [{\"protocol\": \"vless\",
+   \"settings\": {\"vnext\": [{\"address\": \"$HUB_IP\", \"port\": $port, \"users\": [{\"id\": \"$VPN_UUID\", \"encryption\": \"none\"}]}]},
+   \"streamSettings\": {\"network\": \"ws\", \"security\": \"tls\", \"wsSettings\": {\"path\": \"/it-vless\"},
+     \"tlsSettings\": {\"serverName\": \"vpn.it.lab\"}}}]}
+EOF"
+  it_unit client xray-client "/usr/local/bin/it-xray run -c /etc/it-xray/client.json"
+  wait_for 20 "xray server on $n:$port" sh_on "$n" "ss -Hltn 'sport = :$port' | grep -q ."
+  wait_for 20 "xray client on the client" sh_on client "ss -Hltn 'sport = :$VPN_PROXY_PORT' | grep -q ."
+  VPN_URL=http://127.0.0.1:$VPN_WEB_PORT VPN_CURL="--proxy http://127.0.0.1:$VPN_PROXY_PORT --proxytunnel"
+}
+# fetch_via_vpn [PATH]: download PATH (default /blob) through the user's VPN
+# (vpn_up) from the client; prints the sha256 of what arrived.
+fetch_via_vpn() {
+  sh_on client "curl -fsS --max-time 120 ${VPN_CURL:-} $VPN_URL${1:-/blob} | sha256sum | cut -d' ' -f1"
+}
+# vpn_tls_errors: TLS/certificate errors logged by the Xray server and client.
+vpn_tls_errors() {
+  local s n=${1:-node1}
+  for s in client "$n"; do
+    sh_on "$s" "journalctl --no-pager -q -u 'it-xray-*' | grep -i -E 'tls|x509|certificate|handshake' || true"
+  done
+}
+
+# udp_echo SERVICE PORT: a UDP echo service on 127.0.0.1:PORT ("echo:" + the
+# datagram); udp_ask HOST PORT prints the reply to one datagram from the client.
+udp_echo() {
+  it_unit "$1" "udp-echo-$2" "/usr/bin/python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); \
+s.bind((\"127.0.0.1\", $2)); [s.sendto(b\"echo:\" + d, a) for d, a in iter(lambda: s.recvfrom(65535), None)]'"
+}
+udp_ask() {
+  on client python3 - "$1" "$2" <<'PY'
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(2)
+for _ in range(5):
+    s.sendto(b"it-ping", (sys.argv[1], int(sys.argv[2])))
+    try:
+        print(s.recvfrom(65535)[0].decode()); break
+    except OSError:
+        pass
+PY
+}
+
+# start_prober [PORT]: the client requests the VPN's web server through the
+# Xray client (vpn_up) — or http://hub:PORT/ when there is no VPN — every
+# 200ms and logs one line per request (epoch-ms and ok|fail); stop_prober
+# prints the longest outage in milliseconds. The unit clears the NO_PROXY of
+# use_proxy, which would send 127.0.0.1 around the VPN's proxy.
 start_prober() {
+  local url=${VPN_URL:-http://$HUB_IP:$1} px=${VPN_CURL:-}
   sh_on client "systemctl stop it-prober 2>/dev/null; rm -f /tmp/prober.log
-    systemd-run --quiet --unit it-prober bash -c 'while :; do
-      if curl -fsS -o /dev/null --max-time 1 http://$HUB_IP:$1/; then r=ok; else r=fail; fi
+    systemd-run --quiet --unit it-prober -E NO_PROXY= -E no_proxy= bash -c 'while :; do
+      if curl -fsS -o /dev/null --max-time 1 $px $url/; then r=ok; else r=fail; fi
       echo \"\$(date +%s%3N) \$r\" >> /tmp/prober.log; sleep 0.2; done'"
 }
 stop_prober() {

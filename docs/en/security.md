@@ -219,8 +219,12 @@ security change. Menu: `8) Security` → `5) Audit`.
 Transports where the hub connects to the node (`xray/reality`,
 `hysteria2/udp`, `direct/*` …) allow connections only to `127.0.0.0/8` and to
 the targets defined in the tunnel; everything else is blocked (Xray routing,
-the relay's allow list, the Hysteria2 ACL). Nobody can use your node to reach
-other addresses through the tunnel.
+the relay's allow list, the Hysteria2 ACL). WireGuard transports only deliver
+tunnel traffic to the targets, and the firewall drops anything the node would
+route onward from the tunnel interface, even when IP forwarding is on (for
+example on a Docker host). Nobody can use your node to reach other addresses
+through the tunnel; the lab scenario S17 checks this for every Forward
+transport from inside the transport itself.
 
 ## Downloads and no telemetry
 

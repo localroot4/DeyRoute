@@ -383,6 +383,17 @@ parallel without breaking each other's builds:
   name, args, result) error` with per-command ids and timeouts (`DEY-N005`),
   `Cancel`, `Ping` (RTT), streamed `LogChunk`s. Offline after 15 s without a
   heartbeat.
+- Heartbeat: CPU, RAM, unit states and the agent's last error (shown in
+  `node list` and the menu's node list). Until the agent listed its units
+  (and after a failed listing) the beat carries `units_unknown`: the hub
+  keeps the last list and runs the per-stream cleanup (leftovers, stray
+  units) on the first beat with a list. The agent pings the systemd
+  watchdog only while its monitor makes progress (90 s stall limit).
+- Join: the token is checked first (per-IP limiter) and consumed only right
+  before `config.yaml` is written, so a join refused for another reason
+  keeps it. Every hub change of `config.yaml` (join, node IP, Local API)
+  edits a copy of the applied configuration and is refused with `DEY-C026`
+  while the file holds an edit that `config apply` has not applied.
 - Join firewall window: while at least one unexpired join token exists the
   hub renders the firewall with `RestrictControl=false` (control port open to
   all, protected by the per-IP 5-failures/hour limit); afterwards back to
@@ -430,7 +441,7 @@ func ParseJoinLink(link string) (JoinLink, error)       // dey://TOKEN@HUB_IP:PO
 func Join(ctx, o JoinOptions) (*JoinResult, error)       // CSR, POST /v1/join with pinned CA, write secrets/config, sysctl, units, start deyroute-node
 func DetectPublicIP(ctx, r exec.Runner) (string, error)  // ip route get 1.1.1.1 → src
 func Uninstall(ctx, o UninstallOptions) error            // stop/disable units, nft table, sysctl revert, paths (keep backups?), binary
-func JoinCommand(installerURL, link string) string       // bash <(curl -fsSL <installer>) join '<link>'
+func JoinCommand(installerURL, link, ver string) string  // bash <(curl -fsSL <installer>) join '<link>' --version X.Y.Z (release builds; QUESTIONS.md C.36)
 ```
 
 ### 7.5 Integration notes from wave 1 (binding for wave 2)

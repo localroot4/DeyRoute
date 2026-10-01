@@ -2019,7 +2019,7 @@ var cliEN = map[Key]string{
 	CLIJoinLong:                  "Join this server to a hub as a node. The link comes from the hub (menu: Nodes ->\nShow join command, or deyroute node join-command); it is valid once, for 15 minutes,\nand pins the hub's CA fingerprint. The node creates its key, gets its certificate,\nwrites its configuration and starts deyroute-node.",
 	CLIJoinExample:               "  deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:...'\n  deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:...' --name de-1",
 	CLIJoinDone:                  "Node %s joined hub %s; it appears on the hub dashboard shortly",
-	CLIJoinIncompatible:          "! The hub runs deyroute %s and this node %s: the hub updates this node automatically.",
+	CLIJoinIncompatible:          "! The hub runs deyroute %[1]s and this node %[2]s: this node runs no commands until both run the same release. Run the installer here again with --version %[1]s",
 	CLINodeShort:                 "Manage nodes: join command, list, rename, remove, test, set-hub",
 	CLINodeJoinCmdShort:          "Print the one-line join command for a new node",
 	CLINodeJoinCmdExample:        "  deyroute node join-command\n  deyroute node join-command --ttl 1h",

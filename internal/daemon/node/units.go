@@ -26,7 +26,6 @@ import (
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/firewall"
 	dlog "github.com/localroot4/deyroute/internal/log"
-	"github.com/localroot4/deyroute/internal/supervise"
 	"github.com/localroot4/deyroute/internal/sysctl"
 	"github.com/localroot4/deyroute/internal/systemd"
 )
@@ -268,10 +267,10 @@ func (a *agent) allowedCommand(b string, argv []string) bool {
 		return false
 	}
 	if p == a.o.SelfBinary {
-		if len(argv) > 1 && argv[1] == supervise.Command {
+		if len(argv) > 1 && argv[1] == exec.PairCommand {
 			// deyroute pair runs each of its command lines: every one must be
 			// a binary of backend b itself.
-			cmds, err := supervise.Split(argv[2:])
+			cmds, err := exec.SplitPair(argv[2:])
 			if err != nil {
 				return false
 			}

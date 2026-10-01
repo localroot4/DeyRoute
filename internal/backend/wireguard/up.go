@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	deyerr "github.com/localroot4/deyroute/internal/errors"
@@ -31,6 +32,13 @@ const (
 	// socket after the unit started (the section 7 probe budget is 15s).
 	DefaultSocketWait = 15 * time.Second
 	socketPoll        = 100 * time.Millisecond
+	// DefaultPortWait bounds how long Up retries the configuration while
+	// the listen port is still in use (EADDRINUSE): right before a rung
+	// starts, the node agent's UDP reachability echo (probe.udp_listen,
+	// 10s) may hold the rung's control port, and a process that just
+	// stopped may not have released it yet.
+	DefaultPortWait = 15 * time.Second
+	portPoll        = 250 * time.Millisecond
 )
 
 // Manager creates and removes tunnel interfaces from a wg.json. The zero
@@ -42,6 +50,8 @@ type Manager struct {
 	Runner Runner
 	// SocketWait overrides DefaultSocketWait.
 	SocketWait time.Duration
+	// PortWait overrides DefaultPortWait.
+	PortWait time.Duration
 
 	openNetlink func() (nlTransport, error)
 	dialUAPI    func(ctx context.Context, path string) (net.Conn, error)
@@ -67,8 +77,9 @@ type nlTransport interface {
 // sends the configuration (keys, peer, Jc/Jmin/Jmax/S1/S2/H1-H4) and then
 // sets address, MTU and link state with `ip`.
 //
-// On the node, route_localnet is enabled on the interface when a target is
-// on 127.0.0.0/8.
+// In both modes a listen port that is still in use (EADDRINUSE) is retried
+// for up to DefaultPortWait. On the node, route_localnet is enabled on the
+// interface when a target is on 127.0.0.0/8.
 func Up(ctx context.Context, cfgPath string, r Runner) error {
 	return (&Manager{Runner: r}).Up(ctx, cfgPath)
 }
@@ -207,10 +218,39 @@ func (m *Manager) configureKernel(ctx context.Context, c *Config) error {
 	if err != nil {
 		return err
 	}
-	if _, err := t.Roundtrip(ctx, encodeSetDevice(fam, 2, d), 2); err != nil {
+	err = m.whilePortInUse(ctx, func() error {
+		_, err := t.Roundtrip(ctx, encodeSetDevice(fam, 2, d), 2)
+		return err
+	})
+	if err != nil {
 		return fmt.Errorf("configure keys and peer (WG_CMD_SET_DEVICE): %w", err)
 	}
 	return nil
+}
+
+// whilePortInUse runs set until it succeeds or fails with anything but
+// EADDRINUSE, retrying for at most PortWait (DefaultPortWait). A failed set
+// applies nothing (kernel) or is replaced completely by the next one
+// (replace_peers in the UAPI request), so retrying is safe.
+func (m *Manager) whilePortInUse(ctx context.Context, set func() error) error {
+	wait := m.PortWait
+	if wait <= 0 {
+		wait = DefaultPortWait
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		err := set()
+		if err == nil || !errors.Is(err, syscall.EADDRINUSE) || time.Now().Add(portPoll).After(deadline) {
+			return err
+		}
+		t := time.NewTimer(portPoll)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return err
+		case <-t.C:
+		}
+	}
 }
 
 // settingsFrom converts the validated config into netlink settings.
@@ -254,12 +294,15 @@ func (m *Manager) upUserspace(ctx context.Context, c *Config) error {
 	if err := m.socketDir(); err != nil {
 		return fail(err)
 	}
-	conn, err := m.waitSocket(ctx, filepath.Join(m.root(), awgSocketDir, c.Interface+".sock"))
-	if err != nil {
-		return fail(err)
-	}
-	err = uapiExchange(ctx, conn, req)
-	_ = conn.Close()
+	sock := filepath.Join(m.root(), awgSocketDir, c.Interface+".sock")
+	err = m.whilePortInUse(ctx, func() error {
+		conn, err := m.waitSocket(ctx, sock)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = conn.Close() }()
+		return uapiExchange(ctx, conn, req)
+	})
 	if err != nil {
 		return fail(err)
 	}

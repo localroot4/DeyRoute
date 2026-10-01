@@ -21,12 +21,14 @@ var shellSafeRe = regexp.MustCompile(`^[A-Za-z0-9._~:/%+,@=-]+$`)
 //	bash <(curl -fsSL <installerURL>) join '<link>'
 //
 // When ver is a real release (not "dev" or empty) " --version <ver>" is
-// appended, so the node installs the hub's release (the hub still pushes
-// updates later). The link is single-quoted for the shell. The installer
-// URL is written as is when it only contains characters the shell takes
-// literally (every normal https URL); otherwise (a mirror with "&", "?",
-// "$", spaces, quotes …) it is single-quoted too, so the owner pastes one
-// command that neither breaks nor runs anything else as root.
+// appended, so the node installs the hub's release instead of the newest
+// one, which a hub on another major.minor could not use (QUESTIONS.md
+// C.36; the hub still pushes its later updates). The link is single-quoted
+// for the shell. The installer URL is written as is when it only contains
+// characters the shell takes literally (every normal https URL); otherwise
+// (a mirror with "&", "?", "$", spaces, quotes …) it is single-quoted too,
+// so the owner pastes one command that neither breaks nor runs anything
+// else as root.
 func JoinCommand(installerURL, link, ver string) string {
 	u := installerURL
 	if !shellSafeRe.MatchString(u) {

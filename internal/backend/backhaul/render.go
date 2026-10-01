@@ -8,7 +8,7 @@ import (
 
 	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
-	"github.com/localroot4/deyroute/internal/supervise"
+	"github.com/localroot4/deyroute/internal/exec"
 )
 
 // tomlWriter builds a flat TOML table with deterministic key order.
@@ -212,8 +212,8 @@ func unit(in backend.RenderInput, file string) backend.UnitSpec {
 // stops both when one of them exits, so systemd restarts the pair.
 func pairUnit(in backend.RenderInput, file, udpFile string) backend.UnitSpec {
 	u := unit(in, file)
-	u.ExecStart = []string{in.Paths.SelfBinary, supervise.Command,
-		in.Paths.Binary, "-c", filepath.Join(in.Paths.ConfigDir, file), supervise.Separator,
+	u.ExecStart = []string{in.Paths.SelfBinary, exec.PairCommand,
+		in.Paths.Binary, "-c", filepath.Join(in.Paths.ConfigDir, file), exec.PairSeparator,
 		in.Paths.Binary, "-c", filepath.Join(in.Paths.ConfigDir, udpFile)}
 	return u
 }

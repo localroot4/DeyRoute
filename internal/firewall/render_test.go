@@ -89,6 +89,14 @@ var goldenSpecs = map[string]Spec{
 	// Unrestricted control port and no backend range: no drop rules, so no
 	// conntrack rule either.
 	"hub_accept_only": {ControlPort: 44433, ListenTCP: []int{443}, ListenUDP: []int{443}},
+	// Node side of a WireGuard tunnel (section 7.7): DNAT on the tunnel
+	// interface to local targets, and the interface is confined (S17).
+	"node_wireguard_nat": {
+		NAT: []backend.NATRule{
+			{Proto: "udp", DportLow: 27015, DportHigh: 27015, ToAddr: "127.0.0.1", ToPort: 27015, Iface: "dey-main"},
+			{Proto: "tcp", DportLow: 443, DportHigh: 443, ToAddr: "127.0.0.1", ToPort: 443, Iface: "dey-main"},
+		},
+	},
 	// Node side of Hysteria2 port hopping (section 7.6): redirect only.
 	"node_port_hopping": {
 		NAT: []backend.NATRule{{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30123}},
@@ -229,6 +237,43 @@ func TestRenderUnknownControlRate(t *testing.T) {
 		require.Error(t, s.Validate(), bad)
 		require.Equal(t, Render(hubSpec()), Render(s), bad)
 	}
+}
+
+// TestRenderConfinesNATInterfaces: an interface that NAT rules match on
+// (the node side of WireGuard) gets a forward drop after the DNATed and
+// established flows, once per interface; NAT rules without an interface
+// (the hub's DNAT) confine nothing, and masquerading keeps its MSS clamps
+// ahead of the confinement.
+func TestRenderConfinesNATInterfaces(t *testing.T) {
+	node := Render(Spec{NAT: []backend.NATRule{
+		{Proto: "tcp", DportLow: 443, ToAddr: "127.0.0.1", ToPort: 443, Iface: "dey-main"},
+		{Proto: "udp", DportLow: 27015, ToAddr: "127.0.0.1", ToPort: 27015, Iface: "dey-main"},
+		{Proto: "tcp", DportLow: 8443, ToAddr: "127.0.0.1", ToPort: 8443, Iface: "deyc-3"},
+	}})
+	fwd := node[strings.Index(node, "chain forward"):]
+	require.Equal(t, 1, strings.Count(fwd, `iifname "dey-main" drop`))
+	for _, i := range []string{`"dey-main"`, `"deyc-3"`} {
+		est := strings.Index(fwd, "iifname "+i+" ct state established,related accept")
+		dnat := strings.Index(fwd, "iifname "+i+" ct status dnat accept")
+		drop := strings.Index(fwd, "iifname "+i+" drop")
+		require.True(t, est >= 0 && est < dnat && dnat < drop, "%s: %s", i, fwd)
+	}
+	require.Less(t, strings.Index(fwd, `"dey-main"`), strings.Index(fwd, `"deyc-3"`))
+
+	hub := Render(Spec{
+		NAT:        []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443}},
+		Masquerade: []string{"dey-main"},
+	})
+	require.NotContains(t, hub, " drop\n\t}\n}")
+	require.NotContains(t, hub, "ct status dnat")
+
+	both := Render(Spec{
+		NAT:        []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "127.0.0.1", ToPort: 443, Iface: "dey-x"}},
+		Masquerade: []string{"dey-main"},
+	})
+	fwd = both[strings.Index(both, "chain forward"):]
+	require.Less(t, strings.Index(fwd, "maxseg"), strings.Index(fwd, `iifname "dey-x" ct state`))
+	require.Equal(t, 1, strings.Count(both, "chain forward"))
 }
 
 // TestRenderNATOrderIndependent: rules that tie on protocol and ports are

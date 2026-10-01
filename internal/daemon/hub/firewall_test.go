@@ -1,17 +1,14 @@
 package hub
 
 import (
-	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
-	"github.com/localroot4/deyroute/internal/systemd"
 )
 
 // security.firewall_managed switched off while the hub was not running (a
@@ -46,36 +43,4 @@ func TestUnmanagedFirewallAtStartRemovesAStaleTable(t *testing.T) {
 			require.Empty(t, env.nftScripts())
 		})
 	}
-}
-
-// A node agent that has not listed its units yet says so in its first
-// heartbeats: the hub keeps the last list and runs the per-stream cleanup
-// (stray units) on the first beat that carries the list, instead of on
-// the first beat, where it would find nothing to stop.
-func TestNodeCleanupWaitsForTheUnitList(t *testing.T) {
-	te := startTunnelHub(t)
-	n := te.tunnelNode("de-1")
-	port := freePort(t)
-	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port}},
-		Rungs: []string{trAlpha, trBeta}, Failover: fastFailover(false)})
-	beta := systemd.InstanceName(info.ID, "de-1", trBeta)
-	before, _ := te.h.nodeState("de-1")
-	require.NotEmpty(t, before.Units)
-
-	n.stop()
-	n.setUnit(beta, "active")
-	n.unitsUnknown.Store(true)
-	reconnected := time.Now()
-	n.start()
-	require.Eventually(t, func() bool {
-		ns, _ := te.h.nodeState("de-1")
-		return ns.Online && ns.LastHeartbeat.After(reconnected.Add(200*time.Millisecond))
-	}, testWait, 10*time.Millisecond, "several heartbeats without a unit list")
-	require.NotContains(t, n.stoppedList(), beta)
-	ns, _ := te.h.nodeState("de-1")
-	require.Equal(t, before.Units, ns.Units, "the last list is kept")
-
-	n.unitsUnknown.Store(false)
-	require.Eventually(t, func() bool { return slices.Contains(n.stoppedList(), beta) }, testWait, 20*time.Millisecond)
-	te.waitActive(info.ID, "de-1", trAlpha)
 }

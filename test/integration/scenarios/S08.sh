@@ -6,7 +6,7 @@ needs_online "a ladder with more than one rung"
 
 RUNS=${S08_RUNS:-10}
 setup_pair client
-serve_http node1 443 1
+vpn_up node1 443 1
 T=$(add_tunnel "$NODE1" 443)
 wait_tunnel_up "$T" 180
 set_failover failback false

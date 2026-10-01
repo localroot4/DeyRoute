@@ -1,9 +1,11 @@
-// Package supervise runs several backend processes as one deyroute-tun@ unit
-// ("deyroute pair"): a Backhaul tunnel with TCP and UDP port maps on a
-// TCP-only transport runs its UDP maps in a second Backhaul process. The
-// processes live and die together: when one exits the others are stopped
-// and the unit fails, so systemd restarts the whole set.
-package supervise
+package exec
+
+// "deyroute pair" runs several backend processes as one deyroute-tun@ unit: a
+// Backhaul tunnel with TCP and UDP port maps on a TCP-only transport runs
+// its UDP maps in a second Backhaul process. The processes live and die
+// together: when one exits the others are stopped and the unit fails, so
+// systemd restarts the whole set. It lives here because only this package
+// may start programs (section 15).
 
 import (
 	"context"
@@ -18,25 +20,25 @@ import (
 	"time"
 )
 
-// Command is the deyroute subcommand that runs a set of processes as one
+// PairCommand is the deyroute subcommand that runs a set of processes as one
 // unit: "deyroute pair <prog> [args] -- <prog> [args]".
-const Command = "pair"
+const PairCommand = "pair"
 
-// Separator separates the command lines of "deyroute pair".
-const Separator = "--"
+// PairSeparator separates the command lines of "deyroute pair".
+const PairSeparator = "--"
 
-// StopTimeout is how long the remaining processes get between SIGTERM and
+// PairStopTimeout is how long the remaining processes get between SIGTERM and
 // SIGKILL.
-const StopTimeout = 5 * time.Second
+const PairStopTimeout = 5 * time.Second
 
-// Split splits the arguments of "deyroute pair" into command lines at every
-// Separator. Every command line needs an absolute, clean program path; at
+// SplitPair splits the arguments of "deyroute pair" into command lines at every
+// PairSeparator. Every command line needs an absolute, clean program path; at
 // least two command lines are required.
-func Split(args []string) ([][]string, error) {
+func SplitPair(args []string) ([][]string, error) {
 	var out [][]string
 	cur := []string{}
 	for _, a := range args {
-		if a == Separator {
+		if a == PairSeparator {
 			out = append(out, cur)
 			cur = []string{}
 			continue
@@ -45,7 +47,7 @@ func Split(args []string) ([][]string, error) {
 	}
 	out = append(out, cur)
 	if len(out) < 2 {
-		return nil, errors.New("pair: at least two command lines separated by " + Separator + " are required")
+		return nil, errors.New("pair: at least two command lines separated by " + PairSeparator + " are required")
 	}
 	for i, argv := range out {
 		if len(argv) == 0 {
@@ -58,12 +60,12 @@ func Split(args []string) ([][]string, error) {
 	return out, nil
 }
 
-// Run starts every command line with stdout and stderr shared, waits until
+// RunPair starts every command line with stdout and stderr shared, waits until
 // one of them exits or ctx ends, then stops the others (SIGTERM, SIGKILL
-// after StopTimeout). It returns nil when ctx ended (the unit is stopping)
+// after PairStopTimeout). It returns nil when ctx ended (the unit is stopping)
 // and an error naming the process that exited otherwise, also for a clean
 // exit: the set is only useful complete.
-func Run(ctx context.Context, cmds [][]string, stdout, stderr io.Writer) error {
+func RunPair(ctx context.Context, cmds [][]string, stdout, stderr io.Writer) error {
 	type exit struct {
 		i   int
 		err error
@@ -74,9 +76,9 @@ func Run(ctx context.Context, cmds [][]string, stdout, stderr io.Writer) error {
 	// Files are shared as they are; other writers are copied to by one
 	// goroutine per process and need a lock.
 	var mu sync.Mutex
-	stdout, stderr = locked(stdout, &mu), locked(stderr, &mu)
+	stdout, stderr = pairLocked(stdout, &mu), pairLocked(stderr, &mu)
 	for i, argv := range cmds {
-		c := osexec.Command(argv[0], argv[1:]...) // #nosec G204 -- the unit's own command lines (validated by Split; nodes check the programs)
+		c := osexec.Command(argv[0], argv[1:]...) // #nosec G204 -- the unit's own command lines (validated by SplitPair; nodes check the programs)
 		c.Stdout, c.Stderr = stdout, stderr
 		if err := c.Start(); err != nil {
 			result = fmt.Errorf("pair: start %s: %w", argv[0], err)
@@ -100,7 +102,7 @@ func Run(ctx context.Context, cmds [][]string, stdout, stderr io.Writer) error {
 	for _, c := range procs {
 		_ = c.Process.Signal(syscall.SIGTERM)
 	}
-	timer := time.NewTimer(StopTimeout)
+	timer := time.NewTimer(PairStopTimeout)
 	defer timer.Stop()
 	for remaining > 0 {
 		select {
@@ -110,26 +112,26 @@ func Run(ctx context.Context, cmds [][]string, stdout, stderr io.Writer) error {
 			for _, c := range procs {
 				_ = c.Process.Kill()
 			}
-			timer.Reset(StopTimeout)
+			timer.Reset(PairStopTimeout)
 		}
 	}
 	return result
 }
 
-type lockedWriter struct {
+type pairWriter struct {
 	mu *sync.Mutex
 	w  io.Writer
 }
 
-func (l lockedWriter) Write(p []byte) (int, error) {
+func (l pairWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.w.Write(p)
 }
 
-func locked(w io.Writer, mu *sync.Mutex) io.Writer {
+func pairLocked(w io.Writer, mu *sync.Mutex) io.Writer {
 	if _, ok := w.(*os.File); ok || w == nil {
 		return w
 	}
-	return lockedWriter{mu: mu, w: w}
+	return pairWriter{mu: mu, w: w}
 }

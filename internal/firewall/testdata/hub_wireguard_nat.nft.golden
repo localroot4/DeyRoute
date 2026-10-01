@@ -48,5 +48,8 @@ table inet deyroute {
 		iifname "dey-games" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu
 		oifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu
 		iifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu
+		iifname "eth0" ct state established,related accept
+		iifname "eth0" ct status dnat accept
+		iifname "eth0" drop
 	}
 }

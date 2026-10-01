@@ -121,7 +121,7 @@ PAUSED|DISABLED), "active_node", "active_node_name", "active_transport",
 `{"id", "name", "public_ip", "online", "control_rtt_ms", "version",
 "compatible", "cpu_percent", "ram_bytes", "last_heartbeat", "country",
 "udp_ok" (bool, absent when not tested), "tags", "cert_fingerprint",
-"tunnels"}`
+"tunnels", "last_error" (the node agent's last error, absent when none)}`
 
 ### Event
 

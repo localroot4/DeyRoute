@@ -122,6 +122,12 @@ What `Up` does:
   require `errno=0`, then the same `ip address`/`ip link` calls (`DEY-B071`).
 * both: on the node, write `1` to
   `/proc/sys/net/ipv4/conf/<iface>/route_localnet` when `route_localnet` is set.
+* both: while the listen port is still in use (`EADDRINUSE` from
+  `WG_CMD_SET_DEVICE`, `errno=-98` from amneziawg-go) the whole configuration
+  is sent again every 250 ms for up to 15 s. Right before a rung starts, the
+  node agent's UDP reachability echo (`probe.udp_listen`, 10 s) may still hold
+  the rung's control port; without the retry the first start of a WireGuard
+  rung failed with `DEY-B070`/`DEY-B071` (found by lab scenario S33).
 
 `Down` runs `ip link del dev <iface>` when the interface exists (a missing
 interface is not an error). Together with the NAT rules living only in
@@ -143,9 +149,15 @@ masquerade/MSS clamp on the interface.
 Node: one DNAT per distinct target, matched **only on the tunnel interface**:
 `iifname "dey-main" … <proto> dport <target port> dnat to <target host>:<target
 port>`. Nothing else: no masquerade, no `ip_forward`, and the hub peer may
-only send from `10.77.n.1/32`. The node therefore reaches exactly the
-configured targets and never routes for the hub (spec 11, scenario S17;
-`TestNodeNotOpenProxy`). The node binds `<ctl>/udp` (purpose `control`).
+only send from `10.77.n.1/32`. Because the NAT rules match on the tunnel
+interface, the firewall package also confines it: its `forward` chain drops
+whatever the node would route onward from `dey-main` (DNATed and established
+flows pass), so a node whose `net.ipv4.ip_forward` is already on (a Docker
+host, another VPN) does not route for the hub either. The node therefore
+reaches exactly the configured targets and never routes for the hub (spec 11,
+scenario S17, which routes 8.8.8.8 into the tunnel from a hub peer that
+allows it; `TestNodeNotOpenProxy`). The node binds `<ctl>/udp` (purpose
+`control`).
 
 ## Keys (`GenerateKeys`, pure Go)
 

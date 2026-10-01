@@ -141,8 +141,9 @@ func Render(s Spec) string {
 			blocks = append(blocks, renderChain("output", hdrOutput, out))
 		}
 	}
+	var fwd []string
 	if len(n.masq) > 0 {
-		var post, fwd []string
+		var post []string
 		for _, m := range n.masq {
 			post = append(post, fmt.Sprintf("oifname %s masquerade", quote(m)))
 		}
@@ -152,6 +153,19 @@ func Render(s Spec) string {
 				fmt.Sprintf("iifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu", quote(m)))
 		}
 		blocks = append(blocks, renderChain("postrouting", hdrPostrouting, post))
+	}
+	// An interface the NAT rules match on (the node side of a WireGuard
+	// tunnel) is confined: what arrives there is only DNATed to the rules'
+	// targets, and anything the host would route onward from it is dropped,
+	// so the node never routes for the hub even when net.ipv4.ip_forward is
+	// on (section 11, scenario S17). DNATed and established flows pass.
+	for _, i := range n.natIfaces() {
+		fwd = append(fwd,
+			"iifname "+quote(i)+" ct state established,related accept",
+			"iifname "+quote(i)+" ct status dnat accept",
+			"iifname "+quote(i)+" drop")
+	}
+	if len(fwd) > 0 {
 		blocks = append(blocks, renderChain("forward", hdrForward, fwd))
 	}
 
@@ -221,6 +235,18 @@ const (
 	// lo (the kernel drops 127.0.0.0/8 from real interfaces).
 	ruleLoopback = `iif "lo" accept`
 )
+
+// natIfaces returns the sorted input interfaces of the NAT rules.
+func (n normalized) natIfaces() []string {
+	var out []string
+	for _, r := range n.nat {
+		if r.iface != "" && !slices.Contains(out, r.iface) {
+			out = append(out, r.iface)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
 
 // natRuleText renders one prerouting/output NAT rule.
 func natRuleText(r natRule) string {
