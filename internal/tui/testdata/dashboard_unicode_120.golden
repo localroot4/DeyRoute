@@ -1,0 +1,13 @@
+ TUNNELS
+  #  NAME            NODE (active)   TRANSPORT          STATE   RTT    UP-TIME    PORTS
+  1  Main 443/2053   de-1 Germany 1  backhaul/wssmux    ● UP    41ms   3d 04:12   443,2053
+  2  Games UDP       nl-1 Netherla…  hysteria2/udp      ◐ DEGR  188ms  00:03:10   27015/udp
+ NODES
+  de-1  Germany 1      1.2.3.4   ● online   ctl 39ms   v1.0.0   cpu 3%  ram 121MB
+  nl-1  Netherlands 1  9.8.7.6   ● online   ctl 44ms   v1.0.0   cpu 1%  ram  98MB
+ LAST EVENTS
+  12:41:03  main   switch   backhaul/tcpmux → backhaul/wssmux (failback, primary healthy 5m)
+  12:35:58  main   down     backhaul/tcpmux probe failed 3x (timeout)
+
+  ! main: TLS certificate of main expires in 12 days
+  ! games: rung wireguard/kernel skipped: UDP blocked

@@ -1,0 +1,66 @@
+# gost/relay-wss hub side
+=== file gost.yaml
+# Rendered by deyroute for tunnel main, node de-1, transport gost/relay-wss.
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+services:
+  - name: relay-wss
+    addr: 0.0.0.0:30001
+    bypass: deny-local
+    handler:
+      type: relay
+      auth:
+        username: dey
+        password: tok-test
+      metadata:
+        bind: true
+    listener:
+      type: wss
+      tls:
+        certFile: /etc/deyroute/backends/gost/main/de-1/relay-wss/tls-cert.pem
+        keyFile: /etc/deyroute/backends/gost/main/de-1/relay-wss/tls-key.pem
+        options:
+          minVersion: VersionTLS13
+      metadata:
+        path: /b7c36e39cff03bb4
+bypasses:
+  - name: deny-local
+    whitelist: false
+    matchers:
+      - 0.0.0.0/8
+      - 169.254.0.0/16
+      - ::/128
+      - fe80::/10
+log:
+  output: stderr
+  level: info
+  format: text
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/gost/v3.2.6/gost",
+    "-C",
+    "/etc/deyroute/backends/gost/main/de-1/relay-wss/gost.yaml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/gost/main/de-1/relay-wss",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": {
+    "MemoryDenyWriteExecute": "gost release binaries are UPX-packed; the UPX loader maps the unpacked code executable at start"
+  },
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:30001 control
+tcp 0.0.0.0:443 user
+tcp 0.0.0.0:2053 user
+udp 0.0.0.0:443 user
+udp 0.0.0.0:27015 user
+=== nat []
+=== masquerade []
+=== ip_forward false

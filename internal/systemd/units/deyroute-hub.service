@@ -1,0 +1,26 @@
+[Unit]
+Description=DEYROUTE hub (control API, failover engine)
+Documentation=https://github.com/localroot4/deyroute
+After=network-online.target nftables.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/deyroute daemon hub
+Restart=always
+RestartSec=2
+WatchdogSec=30
+NotifyAccess=main
+# The hub runs as root (nftables, systemctl) but keeps a reduced surface.
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+LimitNOFILE=1048576
+Environment=GOMEMLIMIT=128MiB
+Environment=GOGC=100
+RuntimeDirectory=deyroute
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,102 @@
+# xray/reality node side
+=== file config.json
+{
+  "_comment": "Rendered by deyroute for tunnel main, node de-1, transport xray/reality (node side). Regenerated on every apply; do not edit.",
+  "log": {
+    "loglevel": "warning",
+    "access": "none"
+  },
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "listen": "0.0.0.0",
+      "port": 30001,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "42179903-4217-4903-8217-990342179903",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "target": "www.example.com:443",
+          "xver": 0,
+          "serverNames": [
+            "www.example.com"
+          ],
+          "privateKey": "QBeZA0IXmQNCF5kDQheZA0IXmQNCF5kDQheZA0IXmUM",
+          "shortIds": [
+            "42179903"
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    },
+    {
+      "tag": "direct-tcp-127.0.0.1:39002",
+      "protocol": "freedom",
+      "settings": {
+        "redirect": "127.0.0.1:39002"
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "ruleTag": "allow-tcp-127.0.0.1:39002",
+        "inboundTag": [
+          "vless-in"
+        ],
+        "ip": [
+          "127.0.0.1"
+        ],
+        "port": "39002",
+        "network": "tcp",
+        "outboundTag": "direct-tcp-127.0.0.1:39002"
+      },
+      {
+        "ruleTag": "deny-all",
+        "network": "tcp,udp",
+        "outboundTag": "block"
+      }
+    ]
+  }
+}
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/xray/v26.3.27/xray",
+    "run",
+    "-c",
+    "/etc/deyroute/backends/xray/main/de-1/reality/config.json"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/xray/main/de-1/reality",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:30001 control
+=== nat
+=== masquerade []
+=== ip_forward false

@@ -1,0 +1,53 @@
+# direct/native hub side
+=== file relay.json
+{
+  "version": 1,
+  "tunnel": "main",
+  "role": "hub",
+  "token": "tok-test",
+  "node": "1.2.3.4:30001",
+  "ports": [
+    {
+      "index": 0,
+      "proto": "tcp",
+      "listen": "0.0.0.0:443"
+    },
+    {
+      "index": 1,
+      "proto": "tcp",
+      "listen": "0.0.0.0:2053"
+    }
+  ],
+  "idle_timeout_s": 300,
+  "dial_timeout_s": 10,
+  "udp_idle_timeout_s": 60,
+  "max_udp_sessions": 4096
+}
+=== unit
+{
+  "ExecStart": [
+    "/usr/local/bin/deyroute",
+    "relay",
+    "--tunnel",
+    "main",
+    "--config",
+    "/etc/deyroute/backends/direct/main/de-1/native/relay.json"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/direct/main/de-1/native",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:443 user
+tcp 0.0.0.0:2053 user
+=== nat
+=== masquerade []
+=== ip_forward false

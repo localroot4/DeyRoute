@@ -1,0 +1,56 @@
+# frp/tcp node side
+=== file frpc.toml
+# Rendered by deyroute for tunnel main, node de-1, transport frp/tcp (node side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+serverAddr = "5.6.7.8"
+serverPort = 30001
+loginFailExit = false
+log.to = "console"
+log.level = "info"
+log.disablePrintColor = true
+auth.method = "token"
+auth.token = "tok-test"
+transport.protocol = "tcp"
+transport.poolCount = 8
+transport.tcpMux = true
+transport.tls.enable = true
+transport.tls.disableCustomTLSFirstByte = true
+transport.tls.trustedCaFile = "/etc/deyroute/backends/frp/main/de-1/tcp/tls-cert.pem"
+transport.tls.serverName = "hub.example.com"
+
+[[proxies]]
+name = "tcp-443"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 443
+remotePort = 443
+
+[[proxies]]
+name = "tcp-2053"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 2053
+remotePort = 2053
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/frp/v0.71.0/frpc",
+    "-c",
+    "/etc/deyroute/backends/frp/main/de-1/tcp/frpc.toml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/frp/main/de-1/tcp",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+=== nat
+=== masquerade []
+=== ip_forward false

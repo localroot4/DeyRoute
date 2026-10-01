@@ -1,0 +1,49 @@
+# direct/haproxy node side
+=== file relay.json
+{
+  "version": 1,
+  "tunnel": "main",
+  "role": "check",
+  "node_ip": "1.2.3.4",
+  "ports": [
+    {
+      "index": 0,
+      "proto": "tcp",
+      "target": "0.0.0.0:443"
+    },
+    {
+      "index": 1,
+      "proto": "tcp",
+      "target": "1.2.3.4:8443"
+    }
+  ],
+  "dial_timeout_s": 3
+}
+=== unit
+{
+  "ExecStart": [
+    "/usr/local/bin/deyroute",
+    "relay",
+    "--tunnel",
+    "main",
+    "--config",
+    "/etc/deyroute/backends/direct/main/de-1/haproxy/relay.json"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/direct/main/de-1/haproxy",
+  "Env": null,
+  "Type": "oneshot",
+  "RemainAfterExit": true,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": [
+    "AF_NETLINK"
+  ],
+  "ReadWritePaths": null
+}
+=== binds
+=== nat
+=== masquerade []
+=== ip_forward false

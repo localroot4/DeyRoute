@@ -1,0 +1,20 @@
+# Managed by deyroute: rendered from /etc/deyroute/config.yaml on every apply; manual edits are overwritten.
+[Service]
+Type=oneshot
+Restart=no
+RemainAfterExit=yes
+WorkingDirectory=/etc/deyroute/backends/wireguard/main/de-1/kernel
+ExecStart=
+ExecStart=/usr/local/bin/deyroute wg up --tunnel main --config /etc/deyroute/backends/wireguard/main/de-1/kernel/wg.json
+ExecStop=
+ExecStop=/usr/local/bin/deyroute wg down --tunnel main
+StandardOutput=append:/var/log/deyroute/tunnels/main.log
+StandardError=append:/var/log/deyroute/tunnels/main.log
+User=root
+Group=root
+CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
+AmbientCapabilities=
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN
+RestrictAddressFamilies=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK

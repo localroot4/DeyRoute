@@ -1,0 +1,46 @@
+# Integration topology (spec section 17): hub, two nodes, a client and a spare
+# hub for backup/restore on new hardware (profile "hub2"). Every server runs
+# systemd as PID 1, so deyroute installs and manages real units and a real
+# nftables table. The "blocker" role (DROP a port or an address the way a
+# filter would) runs nft in the hub's network namespace: see lib.sh block/unblock.
+name: ${DEY_PROJECT:-deyit}
+
+x-server: &server
+  image: ${DEY_IMAGE:-deyroute-it:ubuntu-24.04}
+  privileged: true
+  cgroup: host
+  tmpfs: [/run, /run/lock]
+  volumes:
+    - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    - ${DEY_DIST:?set DEY_DIST to the release directory}:/dist:ro
+  stop_signal: SIGRTMIN+3
+  stop_grace_period: 20s
+
+services:
+  hub:
+    <<: *server
+    hostname: ir-1
+    networks: { deynet: { ipv4_address: 10.77.0.10 } }
+  node1:
+    <<: *server
+    hostname: de-1
+    networks: { deynet: { ipv4_address: 10.77.0.11 } }
+  node2:
+    <<: *server
+    hostname: nl-1
+    networks: { deynet: { ipv4_address: 10.77.0.12 } }
+  hub2:
+    <<: *server
+    hostname: ir-2
+    profiles: [hub2]
+    networks: { deynet: { ipv4_address: 10.77.0.13 } }
+  client:
+    <<: *server
+    hostname: client
+    networks: { deynet: { ipv4_address: 10.77.0.30 } }
+
+networks:
+  deynet:
+    ipam:
+      config:
+        - subnet: 10.77.0.0/24

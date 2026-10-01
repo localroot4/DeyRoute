@@ -1,0 +1,74 @@
+schema_version: 1
+role: hub
+hub:
+  name: ir-1
+  control_port: 44433
+  public_ip: 5.6.7.8
+  domain: ""
+  ui_mode: simple
+  notify:
+    telegram:
+      enabled: false
+      bot_token_file: /etc/deyroute/secrets/telegram.token
+      chat_id: ""
+      events:
+        - down
+        - switch
+        - failback
+        - node_offline
+nodes:
+  - id: de-1
+    name: Germany 1
+    public_ip: 1.2.3.4
+    cert_fingerprint: sha256:...
+    tags:
+      - primary
+  - id: nl-1
+    name: Netherlands 1
+    public_ip: 9.8.7.6
+    cert_fingerprint: sha256:...
+tunnels:
+  - id: main
+    name: Main 443/2053
+    enabled: true
+    nodes:
+      - de-1
+      - nl-1
+    ports:
+      - listen: 443
+        proto: tcp
+        target: 127.0.0.1:443
+        probe: auto
+      - listen: 2053
+        proto: tcp
+        target: 127.0.0.1:2053
+        probe: auto
+    ladder: default
+    failover:
+      policy: transport_then_node
+      probe_interval_s: 5
+      probe_timeout_s: 3
+      fail_threshold: 3
+      recover_threshold: 6
+      failback: true
+      failback_after_s: 300
+      max_switches_per_hour: 6
+      quarantine_s: 600
+    tls:
+      mode: auto
+ladders:
+  default:
+    - backhaul/wssmux
+    - backhaul/tcpmux
+    - rathole/noise
+    - frp/tcp
+    - xray/reality
+    - hysteria2/udp
+    - waterwall/reverse-reality
+    - direct/haproxy
+tuning:
+  sysctl_profile: balanced
+  bbr: true
+security:
+  firewall_managed: true
+  restrict_control_to_nodes: true

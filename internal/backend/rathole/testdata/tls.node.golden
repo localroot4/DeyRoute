@@ -1,0 +1,51 @@
+# rathole/tls node side
+=== file client.toml
+# Rendered by deyroute for tunnel main, node de-1, transport rathole/tls (node side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+[client]
+remote_addr = "5.6.7.8:30001"
+default_token = "tok-test"
+heartbeat_timeout = 40
+retry_interval = 3
+
+[client.transport]
+type = "tls"
+
+[client.transport.tls]
+trusted_root = "/etc/deyroute/backends/rathole/main/de-1/tls/ca.crt"
+hostname = "5.6.7.8"
+
+[client.services.tcp-443]
+type = "tcp"
+local_addr = "127.0.0.1:443"
+
+[client.services.tcp-2053]
+type = "tcp"
+local_addr = "127.0.0.1:2053"
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/rathole/v0.5.0/rathole",
+    "--client",
+    "/etc/deyroute/backends/rathole/main/de-1/tls/client.toml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/rathole/main/de-1/tls",
+  "Env": {
+    "RUST_LOG": "info"
+  },
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": {
+    "MemoryDenyWriteExecute": "release binaries are UPX-packed; the UPX loader maps the unpacked code executable at start"
+  },
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+=== nat
+=== masquerade []
+=== ip_forward false

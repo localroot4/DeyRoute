@@ -1,0 +1,12 @@
+# Managed by deyroute: rendered from /etc/deyroute/config.yaml on every apply; manual edits are overwritten.
+[Service]
+Type=simple_
+WorkingDirectory=/srv/odd_
+ExecStart=
+ExecStart=/var/lib/deyroute/bin/xray/v26.3.27/xray run C:\\
+StandardOutput=append:/var/log/deyroute/tunnels/odd.log
+StandardError=append:/var/log/deyroute/tunnels/odd.log
+# required by this backend
+LockPersonality=false
+# JIT needs W+X pages _
+MemoryDenyWriteExecute=false

@@ -1,0 +1,64 @@
+# direct/haproxy hub side
+=== file haproxy.cfg
+# Rendered by deyroute for tunnel main, node de-1, transport direct/haproxy (hub side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+global
+    maxconn 65536
+
+defaults
+    mode tcp
+    timeout connect 10s
+    timeout client 5m
+    timeout server 5m
+    timeout client-fin 30s
+    timeout server-fin 30s
+    timeout check 5s
+
+frontend tcp-443
+    bind 0.0.0.0:443
+    default_backend tcp-443
+
+backend tcp-443
+    option tcp-check
+    server de-1 1.2.3.4:443 check inter 5s fall 3 rise 2
+
+frontend tcp-2053
+    bind 0.0.0.0:2053
+    default_backend tcp-2053
+
+backend tcp-2053
+    option tcp-check
+    server de-1 1.2.3.4:8443 check inter 5s fall 3 rise 2
+=== unit
+{
+  "ExecStart": [
+    "/usr/sbin/haproxy",
+    "-f",
+    "/etc/deyroute/backends/direct/main/de-1/haproxy/haproxy.cfg",
+    "-db"
+  ],
+  "ExecStartPre": [
+    [
+      "/usr/sbin/haproxy",
+      "-c",
+      "-f",
+      "/etc/deyroute/backends/direct/main/de-1/haproxy/haproxy.cfg"
+    ]
+  ],
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/direct/main/de-1/haproxy",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:443 user
+tcp 0.0.0.0:2053 user
+=== nat
+=== masquerade []
+=== ip_forward false

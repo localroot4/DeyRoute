@@ -1,0 +1,5 @@
+# Scenario helpers are passed to wait_for by name (SC2329; SC2317 in older
+# shellcheck releases), and pass/fail take
+# optional arguments (SC2119).
+source-path=SCRIPTDIR
+disable=SC2119,SC2317,SC2329

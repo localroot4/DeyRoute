@@ -1,0 +1,38 @@
+# One instance per (tunnel, node, transport) and side: %i is
+# "<tunnel>.<node>.<backend>-<transport>" (or "<tunnel>.canary").
+# ExecStart, WorkingDirectory, log path and any per-backend hardening
+# exceptions come from the drop-in written by deyroute:
+#   /etc/systemd/system/deyroute-tun@%i.service.d/10-deyroute.conf
+[Unit]
+Description=DEYROUTE tunnel transport %i
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=deyroute
+Group=deyroute
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+ReadWritePaths=/var/log/deyroute
+LimitNOFILE=1048576
+Restart=always
+RestartSec=2
+StandardOutput=append:/var/log/deyroute/tunnels/%i.log
+StandardError=append:/var/log/deyroute/tunnels/%i.log
+
+[Install]
+WantedBy=multi-user.target

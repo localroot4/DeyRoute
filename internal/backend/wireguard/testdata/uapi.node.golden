@@ -1,0 +1,17 @@
+set=1
+private_key=2022232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40
+listen_port=30001
+jc=5
+jmin=50
+jmax=1000
+s1=40
+s2=77
+h1=1234567
+h2=2345678
+h3=3456789
+h4=4567890
+replace_peers=true
+public_key=07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c
+replace_allowed_ips=true
+allowed_ip=10.77.7.1/32
+

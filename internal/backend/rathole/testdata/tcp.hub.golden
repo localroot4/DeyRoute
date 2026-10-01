@@ -1,0 +1,49 @@
+# rathole/tcp hub side
+=== file server.toml
+# Rendered by deyroute for tunnel main, node de-1, transport rathole/tcp (hub side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+[server]
+bind_addr = "0.0.0.0:30001"
+default_token = "tok-test"
+heartbeat_interval = 20
+
+[server.transport]
+type = "tcp"
+
+[server.services.tcp-443]
+type = "tcp"
+bind_addr = "0.0.0.0:443"
+
+[server.services.tcp-2053]
+type = "tcp"
+bind_addr = "0.0.0.0:2053"
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/rathole/v0.5.0/rathole",
+    "--server",
+    "/etc/deyroute/backends/rathole/main/de-1/tcp/server.toml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/rathole/main/de-1/tcp",
+  "Env": {
+    "RUST_LOG": "info"
+  },
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": {
+    "MemoryDenyWriteExecute": "release binaries are UPX-packed; the UPX loader maps the unpacked code executable at start"
+  },
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:30001 control
+tcp 0.0.0.0:443 user
+tcp 0.0.0.0:2053 user
+=== nat
+=== masquerade []
+=== ip_forward false

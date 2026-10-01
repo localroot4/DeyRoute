@@ -1,0 +1,8 @@
+schema_version: 1
+role: node
+node:
+  id: de-1
+  hub_addr: 5.6.7.8:44433
+  hub_ca_fingerprint: "sha256:..."
+  cert_file: /etc/deyroute/secrets/node.crt
+  key_file: /etc/deyroute/secrets/node.key

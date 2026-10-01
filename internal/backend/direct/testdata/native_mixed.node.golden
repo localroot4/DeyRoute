@@ -1,0 +1,63 @@
+# direct/native node side
+=== file relay.json
+{
+  "version": 1,
+  "tunnel": "main",
+  "role": "node",
+  "token": "tok-test",
+  "bind": "0.0.0.0:30001",
+  "ports": [
+    {
+      "index": 0,
+      "proto": "tcp",
+      "target": "127.0.0.1:443"
+    },
+    {
+      "index": 1,
+      "proto": "tcp",
+      "target": "127.0.0.1:2053"
+    },
+    {
+      "index": 2,
+      "proto": "udp",
+      "target": "127.0.0.1:443"
+    },
+    {
+      "index": 3,
+      "proto": "udp",
+      "target": "10.0.0.5:27015"
+    }
+  ],
+  "idle_timeout_s": 300,
+  "dial_timeout_s": 10,
+  "udp_idle_timeout_s": 60,
+  "max_udp_sessions": 4096
+}
+=== unit
+{
+  "ExecStart": [
+    "/usr/local/bin/deyroute",
+    "relay",
+    "--tunnel",
+    "main",
+    "--config",
+    "/etc/deyroute/backends/direct/main/de-1/native/relay.json"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/direct/main/de-1/native",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:30001 control
+udp 0.0.0.0:30001 control
+=== nat
+=== masquerade []
+=== ip_forward false

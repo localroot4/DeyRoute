@@ -1,0 +1,65 @@
+# awg/userspace hub side
+=== file wg.json
+{
+  "mode": "userspace",
+  "side": "hub",
+  "tunnel": "production-web",
+  "interface": "dey-product_123",
+  "address": "10.77.123.1/30",
+  "mtu": 1420,
+  "private_key": "AAIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH2A=",
+  "peer": {
+    "public_key": "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns=",
+    "endpoint": "1.2.3.4:30001",
+    "allowed_ips": [
+      "10.77.123.2/32"
+    ],
+    "persistent_keepalive": 25
+  },
+  "awg": {
+    "jc": 5,
+    "jmin": 50,
+    "jmax": 1000,
+    "s1": 40,
+    "s2": 77,
+    "h1": 1234567,
+    "h2": 2345678,
+    "h3": 3456789,
+    "h4": 4567890
+  }
+}
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/awg/v1.0.4/amneziawg-go",
+    "-f",
+    "dey-product_123"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/awg/main/de-1/userspace",
+  "Env": {
+    "LOG_LEVEL": "error"
+  },
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": true,
+  "ExtraCaps": [
+    "CAP_NET_ADMIN"
+  ],
+  "DropHardening": null,
+  "AddressFamilies": [
+    "AF_NETLINK"
+  ],
+  "ReadWritePaths": [
+    "-/run/amneziawg"
+  ]
+}
+=== binds
+tcp [::]:443 user
+tcp [::]:2053 user
+=== nat
+{Proto:tcp DportLow:443 DportHigh:443 ToAddr:10.77.123.2 ToPort:443 Iface:}
+{Proto:tcp DportLow:2053 DportHigh:2053 ToAddr:10.77.123.2 ToPort:2053 Iface:}
+=== masquerade [dey-product_123]
+=== ip_forward true

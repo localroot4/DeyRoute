@@ -1,0 +1,64 @@
+schema_version: 1
+role: hub                      # hub | node
+hub:
+  name: ir-1
+  control_port: 44433
+  public_ip: 5.6.7.8          # auto-detected, editable
+  domain: ""                   # optional; enables ACME for tunnel TLS
+  ui_mode: simple              # simple | advanced
+  notify:
+    telegram:
+      enabled: false
+      bot_token_file: /etc/deyroute/secrets/telegram.token
+      chat_id: ""
+      events: [down, switch, failback, node_offline]
+nodes:
+  - id: de-1                   # slug, unique, immutable after join
+    name: "Germany 1"
+    public_ip: 1.2.3.4
+    cert_fingerprint: "sha256:..."
+    tags: [primary]
+  - id: nl-1
+    name: "Netherlands 1"
+    public_ip: 9.8.7.6
+    cert_fingerprint: "sha256:..."
+tunnels:
+  - id: main                   # slug, unique
+    name: "Main 443/2053"
+    enabled: true
+    nodes: [de-1, nl-1]        # ordered: first = primary, rest = backups
+    ports:
+      - listen: 443
+        proto: tcp
+        target: 127.0.0.1:443  # on the node
+      - listen: 2053
+        proto: tcp
+        target: 127.0.0.1:2053
+    ladder: default            # name of a ladder profile (below) or inline list
+    failover:
+      policy: transport_then_node   # transport_only | transport_then_node | node_only
+      probe_interval_s: 5
+      probe_timeout_s: 3
+      fail_threshold: 3
+      recover_threshold: 6
+      failback: true
+      failback_after_s: 300
+      max_switches_per_hour: 6
+    tls:
+      mode: auto               # auto (self-signed+pin) | acme | custom
+ladders:
+  default:
+    - backhaul/wssmux
+    - backhaul/tcpmux
+    - rathole/noise
+    - frp/tcp                  # spec example: frp/wss (QUESTIONS.md C.31)
+    - xray/reality
+    - hysteria2/udp
+    - waterwall/reverse-reality
+    - direct/haproxy
+tuning:
+  sysctl_profile: balanced     # off | balanced | aggressive
+  bbr: true
+security:
+  firewall_managed: true       # deyroute manages table inet deyroute
+  restrict_control_to_nodes: true

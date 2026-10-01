@@ -1,0 +1,47 @@
+# hysteria2/udp hub side
+=== file client.yaml
+# Rendered by deyroute for tunnel main, node de-1, transport hysteria2/udp (hub side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+server: "1.2.3.4:30001"
+auth: "tok-test"
+obfs:
+  type: "salamander"
+  salamander:
+    password: "b2Jmcy10ZXN0LXBhc3N3b3JkLWZpeGVkLXZhbHVlLTAx"
+tls:
+  sni: "5.6.7.8"
+  insecure: true
+  pinSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+bandwidth:
+  up: "100 mbps"
+  down: "100 mbps"
+fastOpen: true
+tcpForwarding:
+  - listen: "127.0.0.1:39001"
+    remote: "127.0.0.1:39002"
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/hysteria2/app%2Fv2.12.3/hysteria",
+    "client",
+    "-c",
+    "/etc/deyroute/backends/hysteria2/main/de-1/udp/client.yaml",
+    "--disable-update-check"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/hysteria2/main/de-1/udp",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 127.0.0.1:39001 user
+=== nat
+=== masquerade []
+=== ip_forward false

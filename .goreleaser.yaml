@@ -1,0 +1,61 @@
+version: 2
+project_name: deyroute
+
+before:
+  hooks:
+    - go mod verify
+    - go test ./...
+    # Signs internal/backend/backends.yaml into dist-extra/backends.yaml.minisig
+    # when MINISIGN_SECRET_KEY is set (CI release job).
+    - sh scripts/sign-manifest.sh
+
+builds:
+  - id: deyroute
+    main: ./cmd/deyroute
+    binary: deyroute
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
+
+archives:
+  - id: deyroute
+    formats: [tar.gz]
+    name_template: "deyroute_{{ .Version }}_linux_{{ .Arch }}"
+    files:
+      - LICENSE*
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+  extra_files:
+    - glob: ./installer/install.sh
+    - glob: ./internal/backend/backends.yaml
+
+# SHA256SUMS is signed with minisign (scripts/minisign, pure Go, the same
+# signer as release-edge.yml); the public key is hard-coded in
+# installer/install.sh and internal/install (self-update). CI provides the
+# secret key text as MINISIGN_SECRET_KEY (and MINISIGN_PASSWORD if it is
+# encrypted); the sign command inherits the environment.
+signs:
+  - id: minisign-checksums
+    artifacts: checksum
+    cmd: go
+    args: ["run", "./scripts/minisign", "sign", "-in", "${artifact}", "-out", "${signature}"]
+    signature: "${artifact}.minisig"
+
+release:
+  extra_files:
+    - glob: ./installer/install.sh
+    - glob: ./internal/backend/backends.yaml
+    - glob: ./dist-extra/backends.yaml.minisig
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]

@@ -1,0 +1,45 @@
+# backhaul/tcpmux node side
+=== file client.toml
+# Rendered by deyroute for tunnel main, node de-1, transport backhaul/tcpmux (node side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+[client]
+remote_addr = "5.6.7.8:30001"
+transport = "tcpmux"
+token = "tok-test"
+connection_pool = 8
+aggressive_pool = false
+keepalive_period = 75
+dial_timeout = 10
+nodelay = true
+retry_interval = 3
+mux_version = 1
+mux_framesize = 32768
+mux_recievebuffer = 4194304
+mux_streambuffer = 65536
+sniffer = false
+web_port = 0
+log_level = "info"
+skip_optz = true
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/backhaul/v0.7.2/backhaul",
+    "-c",
+    "/etc/deyroute/backends/backhaul/main/de-1/tcpmux/client.toml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/backhaul/main/de-1/tcpmux",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+=== nat
+=== masquerade []
+=== ip_forward false

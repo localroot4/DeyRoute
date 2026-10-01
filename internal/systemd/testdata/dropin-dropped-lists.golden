@@ -1,0 +1,11 @@
+# Managed by deyroute: rendered from /etc/deyroute/config.yaml on every apply; manual edits are overwritten.
+[Service]
+Type=simple
+ExecStart=
+ExecStart=/var/lib/deyroute/bin/gost/v3.0.0/gost -C gost.yaml
+AmbientCapabilities=
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
+# spawns helpers that need their own capabilities
+CapabilityBoundingSet=~
+# opens AF_PACKET and AF_NETLINK sockets for interface discovery
+RestrictAddressFamilies=

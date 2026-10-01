@@ -1,0 +1,24 @@
+# Managed by deyroute: rendered from /etc/deyroute/config.yaml on every apply; manual edits are overwritten.
+[Service]
+Type=exec
+WorkingDirectory=/etc/deyroute/backends/x/%%i
+ExecStartPre=
+ExecStartPre=/usr/local/bin/deyroute check --tunnel t1
+ExecStart=
+ExecStart="/opt/my bin/tool" --name "a b" "quote\"d" "it's" 100%% $$HOME back\\slash \; "" "line1\nline2" "tab\there" bell\x07 ok
+Environment="A=1"
+Environment="B=say \"hi\" 50%% $X \\n"
+Environment="LINE=a\nb"
+StandardOutput=append:/var/log/deyroute/tunnels/t1_.log
+StandardError=append:/var/log/deyroute/tunnels/t1_.log
+CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
+RestrictAddressFamilies=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK AF_PACKET
+ReadWritePaths="-/run/deyroute y" /var/lib/x
+# writes /usr/share_second line
+ProtectSystem=false
+# needs io_uring_setup
+SystemCallFilter=

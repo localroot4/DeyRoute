@@ -1,0 +1,7 @@
+/dist/
+/dist-extra/
+*.out
+*.test
+/deyroute
+.idea/
+.vscode/

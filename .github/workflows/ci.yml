@@ -1,0 +1,137 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      distro:
+        description: "integration distro (ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|debian-12|debian-13|all)"
+        default: ubuntu-24.04
+      scenarios:
+        description: "integration scenario ids, e.g. \"S01 S07\" (empty = all)"
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  # Never download toolchains implicitly; setup-go provides the Go version.
+  GOTOOLCHAIN: local
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
+      - uses: golangci/golangci-lint-action@v8
+        with: { version: v2.5.0 }
+      - name: shellcheck scripts
+        run: find installer scripts test -name '*.sh' -print0 | xargs -0 -r shellcheck
+      - name: installer size budget (<= 250 lines)
+        run: test "$(wc -l < installer/install.sh)" -le 250
+      - name: generated docs up to date
+        run: make check-docs
+
+  unit:
+    runs-on: ubuntu-24.04
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: stable }
+      - run: go test -race -count=1 ./...
+      - run: make cover
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  build:
+    runs-on: ubuntu-24.04
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: stable }
+      - run: make build-all
+      - name: static binary check
+        run: |
+          for f in dist/deyroute_linux_*; do
+            file "$f" | grep -q "statically linked" || (echo "$f is not static"; exit 1)
+          done
+      - uses: actions/upload-artifact@v4
+        with: { name: deyroute-binaries, path: dist/deyroute_linux_* }
+
+  smoke:
+    # Phase 0 acceptance: binary runs and the menu opens on Tier 1 distributions.
+    runs-on: ubuntu-24.04
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04", "ubuntu:26.04", "debian:12", "debian:13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: deyroute-binaries, path: dist }
+      - name: run in ${{ matrix.image }}
+        run: |
+          chmod +x dist/deyroute_linux_amd64
+          docker run --rm -v "$PWD/dist:/dist" -v "$PWD/test/smoke:/smoke" "${{ matrix.image }}" sh /smoke/menu.sh /dist/deyroute_linux_amd64
+
+  integration:
+    runs-on: ubuntu-24.04
+    needs: build
+    # Every scenario of spec section 17 in systemd containers (test/integration).
+    # Runs for main and release tags; any branch can run it by hand
+    # (workflow_dispatch, optionally one distro and a scenario list).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'))
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.distro != 'all') && format('["{0}"]', inputs.distro) || '["ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: stable }
+      - name: scenarios
+        env:
+          DISTRO: ${{ matrix.distro }}
+          SCENARIOS: ${{ inputs.scenarios }}
+          DEY_ARTIFACTS: ${{ github.workspace }}/dist/integration
+        run: test/integration/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-${{ matrix.distro }}
+          path: dist/integration/
+          if-no-files-found: ignore
+
+  release:
+    runs-on: ubuntu-24.04
+    needs: [unit, build, smoke, integration]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: stable }
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
