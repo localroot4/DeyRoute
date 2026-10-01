@@ -6,7 +6,8 @@ BIN="$1"
 "$BIN" version
 out=$(printf '0\n' | TERM=dumb COLUMNS=80 LANG=C "$BIN" menu --once 2>&1)
 echo "$out"
-echo "$out" | grep -q "DEYROUTE Tunnel Manager"
+# The product name may be shortened to DEYROUTE on 80 columns (long versions).
+echo "$out" | grep -q "DEYROUTE"
 echo "$out" | grep -q " 1) Dashboard (live)"
 echo "$out" | grep -q "12) Settings"
 echo "$out" | grep -q " 0) Exit"
