@@ -11,7 +11,10 @@ const (
 	BannerNode       Key = "banner.node"
 	BannerMode       Key = "banner.mode"
 	BannerNodes      Key = "banner.nodes"
+	BannerNode1      Key = "banner.node1"
 	BannerTunnelsUp  Key = "banner.tunnels_up"
+	BannerTunnel1Up  Key = "banner.tunnel1_up"
+	BannerShort      Key = "banner.short"
 	BannerNotSetUp   Key = "banner.not_set_up"
 	ModeSimple       Key = "mode.simple"
 	ModeAdvanced     Key = "mode.advanced"
@@ -88,7 +91,10 @@ var en = map[Key]string{
 	BannerNode:      "Node: %s -> hub %s",
 	BannerMode:      "Mode: %s",
 	BannerNodes:     "%d nodes",
-	BannerTunnelsUp: "%d tunnel UP",
+	BannerNode1:     "1 node",
+	BannerTunnelsUp: "%d tunnels UP",
+	BannerTunnel1Up: "1 tunnel UP",
+	BannerShort:     "DEYROUTE",
 	BannerNotSetUp:  "not set up (run: deyroute setup)",
 	ModeSimple:      "Simple",
 	ModeAdvanced:    "Advanced",
@@ -292,6 +298,9 @@ const (
 	TUIPressEnterBack Key = "tui.common.press_enter_back"
 	TUIRetryHint      Key = "tui.common.retry_hint"
 	TUIEnterContinue  Key = "tui.common.enter_continue"
+	TUIConfirmChoice  Key = "tui.common.confirm_choice"
+	TUIMinute1        Key = "tui.common.minute1"
+	TUIMinutes        Key = "tui.common.minutes"
 	TUIRequired       Key = "tui.common.required"
 	TUINone           Key = "tui.common.none"
 	TUIYes            Key = "tui.common.yes"
@@ -490,6 +499,9 @@ const (
 	TUINdTest         Key = "tui.nd.test"
 	TUINdJoinIntro    Key = "tui.nd.join_intro"
 	TUINdJoinExpires  Key = "tui.nd.join_expires"
+	TUINdJoinCopy     Key = "tui.nd.join_copy"
+	TUINdJoinPlainEnd Key = "tui.nd.join_plain_end"
+	TUIMoreLines      Key = "tui.more_lines"
 	TUINdNewName      Key = "tui.nd.new_name"
 	TUINdRenamed      Key = "tui.nd.renamed"
 	TUINdRemoveLost   Key = "tui.nd.remove_lost"
@@ -744,6 +756,9 @@ var tuiEN = map[Key]string{
 	TUIPressEnterBack: "Press Enter or q to go back.",
 	TUIRetryHint:      " 1) Retry   0) Back   (r retries)",
 	TUIEnterContinue:  "Press Enter to continue, or q / Esc to cancel.",
+	TUIConfirmChoice:  " 1) Continue\n 0) Cancel\n\nChoice [1]: ",
+	TUIMinute1:        "1 minute",
+	TUIMinutes:        "%d minutes",
 	TUIRequired:       "A value is required.",
 	TUINone:           "none",
 	TUIYes:            "yes",
@@ -942,6 +957,9 @@ var tuiEN = map[Key]string{
 	TUINdTest:         "Test",
 	TUINdJoinIntro:    "Run this one line on the new node (as root):",
 	TUINdJoinExpires:  "Single use; expires at %s (in %s). Press r for a new command.",
+	TUINdJoinCopy:     "The command was shown on a plain screen so it can be copied whole; deyroute node join-command prints a new one too.",
+	TUINdJoinPlainEnd: "Copy the whole line above, then press Enter to return to the menu.",
+	TUIMoreLines:      "(%d more lines: make the window taller to see them)",
 	TUINdNewName:      "New name for %s",
 	TUINdRenamed:      "Node %s renamed to %s.",
 	TUINdRemoveLost:   "Removing node %s (%s):\n  - stops every tunnel transport on it (tunnels: %s)\n  - revokes its certificate, so it cannot connect again without a new join\n  - removes it from the firewall allow list\nTunnels whose only node it is go DOWN.",
@@ -1016,7 +1034,7 @@ var tuiEN = map[Key]string{
 	TUIFoResumed:       "Failover of %s is running again.",
 	TUIFoResetConfirm:  "Tunnel %s switches to rung 1 on its primary node now (a short interruption).",
 	TUIFoResetDone:     "Tunnel %s is back on rung 1.",
-	TUIFoTestLost:      "Testing the ladder of %s tries every transport for 20 seconds, one after the other.\nThe tunnel is interrupted during the test (about %d minute(s)); users lose their connections.",
+	TUIFoTestLost:      "Testing the ladder of %s tries every transport for 20 seconds, one after the other.\nThe tunnel is interrupted during the test (about %s); users lose their connections.",
 	TUIFoTestSkipped:   "skipped: %s",
 	TUIFoTestNoResults: "No rung was tested.",
 

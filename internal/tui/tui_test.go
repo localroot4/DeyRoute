@@ -44,7 +44,8 @@ func TestASCIIBannerIsASCII(t *testing.T) {
 	for _, r := range b {
 		require.LessOrEqual(t, r, rune(127), "non-ASCII rune in ASCII banner:\n%s", b)
 	}
-	require.Contains(t, b, "DEYROUTE Tunnel Manager")
+	// At 80 columns the product name is shortened; the counts stay.
+	require.Contains(t, b, " DEYROUTE dev - Hub: ir-1 (5.6.7.8) - Mode: Simple - 2 nodes - 1 tunnel UP")
 	require.Contains(t, b, "#")
 	for _, l := range strings.Split(b, "\n") {
 		require.LessOrEqual(t, len(l), 80, "line wider than 80 cols: %q", l)
@@ -58,6 +59,11 @@ func TestUnicodeBannerStatusLine(t *testing.T) {
 	n := Banner(Caps{Unicode: true}, BannerStatus{Role: "node", Name: "de-1", HubAddr: "5.6.7.8:44433", Advanced: true})
 	require.Contains(t, n, "Node: de-1 -> hub 5.6.7.8:44433  ·  Mode: Advanced")
 	require.Contains(t, Banner(Caps{Unicode: true}, BannerStatus{}), "not set up")
+	one := Banner(Caps{Unicode: true}, BannerStatus{Role: "hub", Name: "ir-1", PublicIP: "5.6.7.8", Nodes: 1, TunnelsUp: 3})
+	require.Contains(t, one, "1 node  ·  3 tunnels UP")
+	// Narrower: separators, then the mode go before the counts.
+	narrow := Banner(Caps{Unicode: true, Width: 60}, BannerStatus{Role: "hub", Name: "ir-1", PublicIP: "5.6.7.8", Nodes: 2, TunnelsUp: 1})
+	require.Contains(t, narrow, "\n DEYROUTE dev · Hub: ir-1 (5.6.7.8) · 2 nodes · 1 tunnel UP")
 }
 
 func TestMenuFixedNumbers(t *testing.T) {

@@ -291,8 +291,22 @@ func (c *confirmScreen) update(a *app, msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	if !c.typed {
-		if k.Type == tea.KeyEnter {
-			return c.yes(a)
+		// 1) Continue, 0) Cancel; Enter alone continues. 0 is Back on
+		// every other page, so it must never run the action.
+		switch k.Type {
+		case tea.KeyEnter:
+			in := strings.TrimSpace(c.input)
+			c.input = ""
+			if in == "" || in == "1" {
+				return c.yes(a)
+			}
+			return a.back(i18n.T(i18n.CLIAborted))
+		case tea.KeyRunes:
+			if len(c.input) < 3 {
+				c.input += string(k.Runes)
+			}
+		case tea.KeyBackspace:
+			editLine(&c.input, k)
 		}
 		return nil
 	}
@@ -312,7 +326,7 @@ func (c *confirmScreen) view(a *app) string {
 	if c.typed {
 		b.WriteString(" " + i18n.T(i18n.CLITypeYes) + c.input + "_\n")
 	} else {
-		b.WriteString(" " + i18n.T(i18n.TUIEnterContinue) + "\n")
+		b.WriteString(i18n.T(i18n.TUIConfirmChoice) + c.input + "_\n")
 	}
 	return b.String()
 }
@@ -329,7 +343,8 @@ type taskScreen struct {
 	timeout     time.Duration
 	render      func(a *app, v any) string
 	onOK        func(a *app, v any)
-	next        func(a *app, v any) screen // replaces the task on success (nil = stay)
+	after       func(a *app, v any) tea.Cmd // runs on success (e.g. a plain page)
+	next        func(a *app, v any) screen  // replaces the task on success (nil = stay)
 	refreshable bool
 	// cancellable read-only tasks may be left while they run (leaving
 	// cancels the call). Other running tasks change something on the
@@ -391,6 +406,11 @@ func (t *taskScreen) update(a *app, msg tea.Msg) tea.Cmd {
 			if p.err == nil {
 				if t.onOK != nil {
 					t.onOK(a, p.v)
+				}
+				if t.after != nil {
+					if c := t.after(a, p.v); c != nil {
+						return c
+					}
 				}
 				if t.next != nil {
 					if s := t.next(a, p.v); s != nil {

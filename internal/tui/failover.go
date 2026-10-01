@@ -207,7 +207,11 @@ func testLadder(a *app, t api.TunnelInfo) tea.Cmd {
 	title := i18n.T(i18n.TUIFoTest) + ": " + id
 	rungs := max(1, len(t.Ladder)*max(1, len(t.Nodes)))
 	minutes := (rungs*rungTestSeconds + 59) / 60
-	return a.push(newConfirm(title, i18n.T(i18n.TUIFoTestLost, id, minutes), true, func(a *app) tea.Cmd {
+	about := i18n.T(i18n.TUIMinutes, minutes)
+	if minutes == 1 {
+		about = i18n.T(i18n.TUIMinute1)
+	}
+	return a.push(newConfirm(title, i18n.T(i18n.TUIFoTestLost, id, about), true, func(a *app) tea.Cmd {
 		return a.replace(newTask(title, longTimeout, func(ctx context.Context, l api.Local, progress func(api.Step)) (any, error) {
 			return l.TunnelTestLadder(ctx, id, progress)
 		}, renderRungResults))

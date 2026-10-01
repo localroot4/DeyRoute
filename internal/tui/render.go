@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
@@ -160,6 +161,66 @@ func indent(s string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// fitTail is the number of last page lines (key hint, blank line, footer)
+// that fit always keeps.
+const fitTail = 3
+
+// fit makes a full-screen page fit the window, whose renderer would cut
+// it otherwise: a line wider than the window is word-wrapped and keeps its
+// indentation; a page taller than the window first loses the banner art
+// (the art lines are the first art lines; the status line stays), then the
+// lines just above the last fitTail ones, replaced by a note. The title and
+// the start of an error block (code, Why, Fix) therefore stay visible.
+func (a *app) fit(page string, art int) string {
+	lines := strings.Split(strings.TrimSuffix(page, "\n"), "\n")
+	if w := a.caps.Width; w > 0 {
+		out := make([]string, 0, len(lines))
+		for i, l := range lines {
+			switch {
+			case ansi.StringWidth(l) <= w:
+				out = append(out, l)
+			case i < art:
+				out = append(out, ansi.Truncate(l, w, ""))
+			default:
+				out = append(out, wrapLine(l, w)...)
+			}
+		}
+		lines = out
+	}
+	h := a.height
+	if !a.sized || h <= 0 || len(lines) <= h {
+		return strings.Join(lines, "\n") + "\n"
+	}
+	if art > 0 && art < len(lines) {
+		lines = lines[art:]
+	}
+	if len(lines) > h && h > fitTail+1 {
+		keep := h - fitTail - 1
+		note := " " + i18n.T(i18n.TUIMoreLines, len(lines)-keep-fitTail)
+		if !a.caps.Unicode {
+			note = asciiOnly(note)
+		}
+		tail := lines[len(lines)-fitTail:]
+		lines = append(append(lines[:keep:keep], a.paint(colGray, note)), tail...)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// wrapLine word-wraps l (which may contain colour codes) to width w; the
+// continuation lines get the indentation of the first one.
+func wrapLine(l string, w int) []string {
+	plain := ansi.Strip(l)
+	pad := len(plain) - len(strings.TrimLeft(plain, " "))
+	if pad > w/2 {
+		pad = 0
+	}
+	parts := strings.Split(ansi.Wrap(l, w-pad, ""), "\n")
+	for i := 1; i < len(parts); i++ {
+		parts[i] = strings.Repeat(" ", pad) + strings.TrimLeft(parts[i], " ")
+	}
+	return parts
 }
 
 // uiError is a plain validation message (shown as one red line, no code).

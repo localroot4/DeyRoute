@@ -73,9 +73,12 @@ type Model struct{ a *app }
 // app is the mutable state of the TUI. It is only touched from Update/View
 // (the Bubble Tea goroutine); background work communicates through messages.
 type app struct {
-	opts     Options
-	caps     Caps
-	height   int
+	opts   Options
+	caps   Caps
+	height int
+	// sized is set once the terminal reported its size (fit budgets the
+	// page height only then).
+	sized    bool
 	status   BannerStatus
 	advanced bool
 	stack    []screen
@@ -136,7 +139,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.caps.Width = msg.Width
-		a.height = msg.Height
+		a.height, a.sized = msg.Height, true
 		return m, nil
 	case tea.KeyMsg:
 		return m, a.key(msg)
@@ -163,7 +166,8 @@ func (m Model) View() string {
 	var b strings.Builder
 	st := a.status
 	st.Advanced = a.advanced
-	for _, l := range strings.Split(Banner(a.caps, st), "\n") {
+	banner := strings.Split(Banner(a.caps, st), "\n")
+	for _, l := range banner {
 		b.WriteString(a.paint(colCyan, l) + "\n")
 	}
 	b.WriteString("\n")
@@ -190,7 +194,10 @@ func (m Model) View() string {
 	if !a.caps.Unicode {
 		out = asciiOnly(out)
 	}
-	return out
+	if a.lineMode {
+		return out // a dumb terminal wraps and scrolls by itself
+	}
+	return a.fit(out, len(banner)-1)
 }
 
 // Run starts the full-screen menu and blocks until the operator leaves it.

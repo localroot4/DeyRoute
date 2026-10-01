@@ -58,7 +58,7 @@ func TestStatusHuman(t *testing.T) {
 	e.stub.StatusFn = func(context.Context) (api.Status, error) { return sampleStatus(), nil }
 	out := e.ok("status")
 	for _, want := range []string{
-		"DEYROUTE Tunnel Manager", "Hub: ir-1 (5.6.7.8)", "Mode: Simple", "2 nodes", "2 tunnel UP",
+		"DEYROUTE Tunnel Manager", "Hub: ir-1 (5.6.7.8)", "Mode: Simple", "2 nodes", "2 tunnels UP",
 		"TUNNELS", "NAME", "NODE (active)", "TRANSPORT", "STATE", "RTT", "UP-TIME", "PORTS",
 		"Main 443/2053", "de-1 Germany 1", "backhaul/wssmux", "● UP", "41ms", "3d 04:12", "443,2053",
 		"◐ DEGR", "00:03:10", "27015/udp", "DISABLED", "PAUSED", "SWITCHING", "STARTING", "○ DOWN", "INIT", "WEIRD",

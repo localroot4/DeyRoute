@@ -1,12 +1,16 @@
 package tui
 
 import (
+	"bufio"
 	"context"
+	"errors"
+	"io"
 	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/i18n"
@@ -45,22 +49,65 @@ func nodesMenu(a *app) screen {
 	return m
 }
 
-// joinCommand shows the one-line join command (never wrapped or cut, so it
-// can be copied) and its expiry; r creates a new one.
+// joinCommand shows the one-line join command and its expiry; r creates a
+// new one. The full-screen renderer cuts or wraps a line longer than the
+// window, and the command (about 230 characters) must be copied whole, so
+// it is first shown on a plain screen outside the menu (plainPage), where
+// the terminal wraps it softly.
 func joinCommand() *taskScreen {
 	t := newTask(i18n.T(i18n.TUINdJoin), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 		return l.NodeJoinCommand(ctx, joinTTL)
 	}, func(a *app, v any) string {
 		j, _ := v.(api.JoinCommand)
-		left := j.ExpiresAt.Sub(a.opts.Now()).Round(time.Second)
-		if left < 0 {
-			left = 0
+		out := joinText(a, j)
+		if !a.lineMode {
+			out += "\n" + a.paint(colGray, " "+i18n.T(i18n.TUINdJoinCopy)) + "\n"
 		}
-		return " " + i18n.T(i18n.TUINdJoinIntro) + "\n\n" + j.Command + "\n\n" +
-			a.paint(colGray, " "+i18n.T(i18n.TUINdJoinExpires, j.ExpiresAt.In(a.opts.Location).Format("15:04:05"), left.String())) + "\n"
+		return out
 	})
+	t.after = func(a *app, v any) tea.Cmd {
+		if a.lineMode {
+			return nil // printed as plain lines already
+		}
+		j, _ := v.(api.JoinCommand)
+		return tea.Exec(&plainPage{text: ansi.Strip(joinText(a, j)) + "\n " + i18n.T(i18n.TUINdJoinPlainEnd) + "\n"}, nil)
+	}
 	t.refreshable = true
 	return t
+}
+
+// joinText is the join command with its intro and expiry.
+func joinText(a *app, j api.JoinCommand) string {
+	left := j.ExpiresAt.Sub(a.opts.Now()).Round(time.Second)
+	if left < 0 {
+		left = 0
+	}
+	return " " + i18n.T(i18n.TUINdJoinIntro) + "\n\n" + j.Command + "\n\n" +
+		a.paint(colGray, " "+i18n.T(i18n.TUINdJoinExpires, j.ExpiresAt.In(a.opts.Location).Format("15:04:05"), left.String())) + "\n"
+}
+
+// plainPage prints text on the normal terminal while the menu is suspended
+// (tea.Exec) and waits for Enter.
+type plainPage struct {
+	text string
+	in   io.Reader
+	out  io.Writer
+}
+
+func (p *plainPage) SetStdin(r io.Reader)  { p.in = r }
+func (p *plainPage) SetStdout(w io.Writer) { p.out = w }
+func (p *plainPage) SetStderr(io.Writer)   {}
+
+// Run implements tea.ExecCommand.
+func (p *plainPage) Run() error {
+	if _, err := io.WriteString(p.out, "\n"+p.text); err != nil {
+		return err
+	}
+	_, err := bufio.NewReader(p.in).ReadString('\n')
+	if errors.Is(err, io.EOF) {
+		err = nil
+	}
+	return err
 }
 
 // nodeList is the detailed node list.

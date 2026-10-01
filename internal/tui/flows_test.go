@@ -348,8 +348,13 @@ func TestTunnelActions(t *testing.T) {
 	h.press("esc", "esc")
 	// restart
 	h.choose("4").choose("2")
-	h.must("Restarting tunnel games interrupts")
-	h.press("enter")
+	h.must("Restarting tunnel games interrupts", " 1) Continue\n 0) Cancel\n\nChoice [1]: _")
+	// 0 is Back everywhere: it cancels, it never runs the action.
+	h.choose("0")
+	require.False(t, log.has("restart games"))
+	h.must("Aborted.")
+	h.choose("2")
+	h.choose("1")
 	require.True(t, log.has("restart games"))
 	h.press("esc", "esc")
 	// switch transport shows client IP and the current rung
@@ -610,7 +615,8 @@ func TestNodesScreens(t *testing.T) {
 	h.choose("1")
 	h.must("Run this one line on the new node (as root):",
 		"\nbash <(curl -fsSL https://example.invalid/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:ab'\n",
-		"Single use; expires at 13:00:00 (in 15m0s)")
+		"Single use; expires at 13:00:00 (in 15m0s)",
+		"The command was shown on a plain screen so it can be copied whole")
 	h.press("esc")
 	h.choose("2")
 	h.must("Public IP    1.2.3.4", "Certificate  sha256:aa")
@@ -689,7 +695,7 @@ func TestFailoverScreens(t *testing.T) {
 	require.True(t, log.has("reset main"))
 	h.press("esc", "esc")
 	h.choose("6").choose("1")
-	h.must("tries every transport for 20 seconds", "about 2 minute(s)")
+	h.must("tries every transport for 20 seconds", "about 2 minutes")
 	h.typeLine("yes")
 	h.must("backhaul/wssmux  ✔ 41ms", "- skipped: UDP blocked", "✖ DEY-B001 start failed")
 	h.press("esc", "esc")

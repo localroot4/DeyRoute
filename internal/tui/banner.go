@@ -67,15 +67,42 @@ func Banner(c Caps, st BannerStatus) string {
 	}
 	parts = append(parts, i18n.T(i18n.BannerMode, mode))
 	if st.Role == "hub" {
-		parts = append(parts, i18n.T(i18n.BannerNodes, st.Nodes), i18n.T(i18n.BannerTunnelsUp, st.TunnelsUp))
+		nodes, up := i18n.T(i18n.BannerNodes, st.Nodes), i18n.T(i18n.BannerTunnelsUp, st.TunnelsUp)
+		if st.Nodes == 1 {
+			nodes = i18n.T(i18n.BannerNode1)
+		}
+		if st.TunnelsUp == 1 {
+			up = i18n.T(i18n.BannerTunnel1Up)
+		}
+		parts = append(parts, nodes, up)
 	}
 	line := " " + strings.Join(parts, sep)
 	if c.Width > 0 && displayWidth(line) > c.Width {
-		// Drop trailing parts rather than wrapping.
-		for len(parts) > 1 && displayWidth(" "+strings.Join(parts, sep)) > c.Width {
-			parts = parts[:len(parts)-1]
+		// Shorten rather than wrap: first the product name, then the
+		// separators, then the mode; the counts stay as long as possible.
+		parts[0] = i18n.T(i18n.BannerShort) + " " + version.Display()
+		steps := []func(){
+			func() {},
+			func() { sep = " · " },
+			func() {
+				if len(parts) > 2 {
+					parts = append(parts[:2:2], parts[3:]...)
+				}
+			},
 		}
-		line = " " + strings.Join(parts, sep)
+		for _, step := range steps {
+			step()
+			if !c.Unicode && sep == " · " {
+				sep = " - "
+			}
+			if line = " " + strings.Join(parts, sep); displayWidth(line) <= c.Width {
+				break
+			}
+		}
+		for len(parts) > 1 && displayWidth(line) > c.Width {
+			parts = parts[:len(parts)-1]
+			line = " " + strings.Join(parts, sep)
+		}
 	}
 	return fmt.Sprintf("%s\n%s", art, line)
 }
