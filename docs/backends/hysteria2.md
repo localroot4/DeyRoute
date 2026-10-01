@@ -13,7 +13,7 @@
 
 | Transport id | Carries | Needs UDP between hub and node | Needs tunnel TLS | Stealth | Client IP |
 | --- | --- | --- | --- | --- | --- |
-| `hysteria2/udp` | tcp, udp | **yes** (QUIC) | yes | 3 | masked |
+| `hysteria2/udp` | tcp, udp | **yes** (QUIC) | no (own node certificate, below) | 3 | masked |
 
 The rung is only used after the UDP probe (spec section 10) passed; when UDP
 is blocked it is skipped with `DEY-B007` and a yellow event (S16).
@@ -23,10 +23,16 @@ is blocked it is skipped with `DEY-B007` and a yellow event (S16).
 | Key | Meaning |
 | --- | --- |
 | `obfs_password` | Salamander obfuscation password: 32 random bytes, `base64.RawURLEncoding` (43 characters). It is separate from the tunnel token, which is the auth password. |
+| `node_cert_pem`, `node_key_pem` | The node's own self-signed ECDSA P-256 certificate and key (20 years), written only on the node as `node-cert.pem` / `node-key.pem`. |
+| `node_cert_sha256` | sha256 of that certificate (hex); the hub pins it (`pinSHA256`). |
 
-Other secrets come from the tunnel: `Secrets.Token` (auth), the copies of the
-tunnel certificate and key in the config dir (`tls-cert.pem`, `tls-key.pem`),
-`Secrets.TLSCertSHA256` (pin) and `Secrets.ServerName` (SNI).
+The node is the TLS server here, so it serves a certificate of its own: the
+tunnel's certificate key (internal CA, ACME or the owner's custom key) never
+leaves the hub. Keys created before this change are completed automatically
+on the next render (stored keys are kept, missing ones are added).
+
+Other secrets come from the tunnel: `Secrets.Token` (auth) and
+`Secrets.ServerName` (SNI).
 
 ## How each side is rendered
 
@@ -44,8 +50,8 @@ template is used unchanged (static Go binary).
 ```yaml
 listen: ":30001"
 tls:
-  cert: "<dir>/tls-cert.pem"
-  key: "<dir>/tls-key.pem"
+  cert: "<dir>/node-cert.pem"
+  key: "<dir>/node-key.pem"
   sniGuard: "disable"
 auth:
   type: "password"
@@ -82,7 +88,7 @@ obfs:
 tls:
   sni: "<Secrets.ServerName>"
   insecure: true
-  pinSHA256: "<sha256 of the tunnel leaf certificate, hex>"
+  pinSHA256: "<sha256 of the node certificate, hex>"
 bandwidth:
   up: "100 mbps"                  # advanced.hysteria_up_mbps
   down: "100 mbps"                # advanced.hysteria_down_mbps
@@ -135,8 +141,8 @@ credentials, and the port is still limited to a configured target port.
 | `auth.password` | `auth: {type: password, password: …}` | the server needs the auth `type` |
 | client `auth` (not detailed) | top-level string `auth: "<token>"` | client auth is a plain string in v2 |
 | `obfs.salamander` | `obfs: {type: salamander, salamander: {password: …}}` on both sides | v2 layout |
-| `tls.pinSHA256` | `tls: {insecure: true, pinSHA256: <hex>}` | the pin is checked in `VerifyPeerCertificate`; without `insecure` the normal chain check would also run and fail for the internal CA |
-| TLS with the tunnel cert | plus `sniGuard: "disable"` | the default SNI guard (`dns-san`) rejects an SNI that is not a DNS SAN of the certificate; the client authenticates the server by pin and the server authenticates the client by password |
+| `tls.pinSHA256` | `tls: {insecure: true, pinSHA256: <hex>}` | the pin is checked in `VerifyPeerCertificate`; without `insecure` the normal chain check would also run and fail for the self-signed node certificate |
+| TLS with the node's own cert | plus `sniGuard: "disable"` | the default SNI guard (`dns-san`) rejects an SNI that is not a DNS SAN of the certificate; the client authenticates the server by pin and the server authenticates the client by password |
 | `masquerade` optional | `masquerade: {type: "404"}` | explicit form of the upstream default |
 | `bandwidth: {up, down}` in Mbps | strings `"<n> mbps"` | `StringToBps` format |
 | `tcpForwarding: [{listen: 0.0.0.0:443, remote: 127.0.0.1:443}]` | same keys, one entry per tcp port map; `udpForwarding` per udp port map | — |

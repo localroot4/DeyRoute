@@ -3,7 +3,11 @@ package hysteria2
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -51,13 +56,15 @@ func fixture(t *testing.T) backend.RenderInput {
 		Transport:   transport(t),
 		ControlPort: 30001,
 		Secrets: backend.Secrets{
-			Token:         "tok-test",
-			TLSCertFile:   dir + "/tls-cert.pem",
-			TLSKeyFile:    dir + "/tls-key.pem",
-			CAFile:        dir + "/ca.crt",
-			TLSCertSHA256: pin,
-			ServerName:    "5.6.7.8",
-			Keys:          map[string]string{KeyObfsPassword: "b2Jmcy10ZXN0LXBhc3N3b3JkLWZpeGVkLXZhbHVlLTAx"},
+			Token:      "tok-test",
+			CAFile:     dir + "/ca.crt",
+			ServerName: "5.6.7.8",
+			Keys: map[string]string{
+				KeyObfsPassword:   "b2Jmcy10ZXN0LXBhc3N3b3JkLWZpeGVkLXZhbHVlLTAx",
+				KeyNodeCert:       "-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----\n",
+				KeyNodeKey:        "-----BEGIN PRIVATE KEY-----\nTEST\n-----END PRIVATE KEY-----\n",
+				KeyNodeCertSHA256: pin,
+			},
 		},
 		Paths: backend.Paths{
 			Binary:     "/var/lib/deyroute/bin/hysteria2/app%2Fv2.12.3/hysteria",
@@ -223,8 +230,9 @@ func TestServerConfig(t *testing.T) {
 	var s serverYAML
 	strict(t, r.Files[ServerFile], &s)
 	require.Equal(t, ":30001", s.Listen)
-	require.Equal(t, in.Secrets.TLSCertFile, s.TLS.Cert)
-	require.Equal(t, in.Secrets.TLSKeyFile, s.TLS.Key)
+	// The node serves its own certificate; the tunnel key is not used.
+	require.Equal(t, in.Paths.ConfigDir+"/node-cert.pem", s.TLS.Cert)
+	require.Equal(t, in.Paths.ConfigDir+"/node-key.pem", s.TLS.Key)
 	require.Equal(t, "disable", s.TLS.SNIGuard)
 	require.Equal(t, "password", s.Auth.Type)
 	require.Equal(t, "tok-test", s.Auth.Password)
@@ -449,10 +457,19 @@ func TestServerNotOpenProxy(t *testing.T) {
 func TestGenerateKeys(t *testing.T) {
 	k, err := New().GenerateKeys(transport(t))
 	require.NoError(t, err)
-	require.Len(t, k, 1)
+	require.Len(t, k, 4)
 	raw, err := base64.RawURLEncoding.DecodeString(k[KeyObfsPassword])
 	require.NoError(t, err)
 	require.Len(t, raw, 32)
+	// The node certificate: self-signed, its key matches, the pin is its hash.
+	pair, err := tls.X509KeyPair([]byte(k[KeyNodeCert]), []byte(k[KeyNodeKey]))
+	require.NoError(t, err)
+	sum := sha256.Sum256(pair.Certificate[0])
+	require.Equal(t, hex.EncodeToString(sum[:]), k[KeyNodeCertSHA256])
+	cert, err := x509.ParseCertificate(pair.Certificate[0])
+	require.NoError(t, err)
+	require.NoError(t, cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature), "self-signed")
+	require.True(t, cert.NotAfter.After(time.Now().AddDate(19, 0, 0)))
 	k2, err := New().GenerateKeys(transport(t))
 	require.NoError(t, err)
 	require.NotEqual(t, k, k2)
@@ -480,9 +497,9 @@ func TestValidate(t *testing.T) {
 		{"relative binary", func(in *backend.RenderInput) { in.Paths.Binary = "hysteria" }, deyerr.B006, "binary"},
 		{"relative dir", func(in *backend.RenderInput) { in.Paths.ConfigDir = "x" }, deyerr.B006, "config directory"},
 		{"no token", func(in *backend.RenderInput) { in.Secrets.Token = "" }, deyerr.B006, "token"},
-		{"no cert", func(in *backend.RenderInput) { in.Secrets.TLSKeyFile = "" }, deyerr.B006, "certificate or key"},
-		{"no pin", func(in *backend.RenderInput) { in.Secrets.TLSCertSHA256 = "" }, deyerr.B006, "sha256"},
-		{"bad pin", func(in *backend.RenderInput) { in.Secrets.TLSCertSHA256 = strings.Repeat("z", 64) }, deyerr.B006, "sha256"},
+		{"no cert", func(in *backend.RenderInput) { delete(in.Secrets.Keys, KeyNodeKey) }, deyerr.B006, "certificate or key"},
+		{"no pin", func(in *backend.RenderInput) { delete(in.Secrets.Keys, KeyNodeCertSHA256) }, deyerr.B006, "sha256"},
+		{"bad pin", func(in *backend.RenderInput) { in.Secrets.Keys[KeyNodeCertSHA256] = strings.Repeat("z", 64) }, deyerr.B006, "sha256"},
 		{"no obfs", func(in *backend.RenderInput) { in.Secrets.Keys = nil }, deyerr.B006, "obfs_password"},
 		{"no node ip", func(in *backend.RenderInput) { in.Node.PublicIP = "" }, deyerr.B006, "node public IP"},
 		{"bandwidth", func(in *backend.RenderInput) { in.Tunnel.Advanced = &config.Advanced{HysteriaUpMbps: -1} }, deyerr.B006, "mbps"},
@@ -540,7 +557,7 @@ func TestMetadata(t *testing.T) {
 	require.Equal(t, backend.Forward, tr.Direction)
 	require.Equal(t, 3, tr.Stealth)
 	require.True(t, tr.NeedsUDP)
-	require.True(t, tr.NeedsTLS)
+	require.False(t, tr.NeedsTLS, "the tunnel TLS key never goes to the node")
 	require.True(t, tr.Supports("tcp") && tr.Supports("udp"))
 	_, err := b.Probe(context.Background(), fixture(t))
 	require.ErrorIs(t, err, backend.ErrNoProbe)

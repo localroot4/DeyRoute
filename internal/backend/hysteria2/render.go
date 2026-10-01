@@ -92,10 +92,10 @@ func renderServer(in backend.RenderInput, p planned) backend.Rendered {
 	header(&w, in, backend.SideNode)
 	w.str(0, "listen", ":"+strconv.Itoa(in.ControlPort))
 	w.section(0, "tls")
-	w.str(1, "cert", in.Secrets.TLSCertFile)
-	w.str(1, "key", in.Secrets.TLSKeyFile)
+	w.str(1, "cert", filepath.Join(in.Paths.ConfigDir, NodeCertFile))
+	w.str(1, "key", filepath.Join(in.Paths.ConfigDir, NodeKeyFile))
 	// The client pins the certificate hash and may use the hub IP or domain
-	// as SNI; the SNI guard would reject names outside the tunnel cert.
+	// as SNI; the SNI guard would reject names outside the node cert.
 	w.str(1, "sniGuard", "disable")
 	w.section(0, "auth")
 	w.str(1, "type", "password")
@@ -113,7 +113,11 @@ func renderServer(in backend.RenderInput, p planned) backend.Rendered {
 	w.str(1, "type", "404")
 
 	r := backend.Rendered{
-		Files: map[string][]byte{ServerFile: w.bytes()},
+		Files: map[string][]byte{
+			ServerFile:   w.bytes(),
+			NodeCertFile: []byte(in.Secrets.Keys[KeyNodeCert]),
+			NodeKeyFile:  []byte(in.Secrets.Keys[KeyNodeKey]),
+		},
 		Unit:  unit(in, "server", ServerFile),
 		Binds: []backend.PortUse{{Port: in.ControlPort, Proto: config.ProtoUDP, Addr: "0.0.0.0", Purpose: "control"}},
 	}
@@ -140,11 +144,11 @@ func renderClient(in backend.RenderInput, p planned) backend.Rendered {
 	if in.Secrets.ServerName != "" {
 		w.str(1, "sni", in.Secrets.ServerName)
 	}
-	// The tunnel certificate is issued by the internal CA; the client
-	// accepts exactly the pinned leaf (hysteria checks the hash in
+	// The node serves its own self-signed certificate; the client accepts
+	// exactly that pinned leaf (hysteria checks the hash in
 	// VerifyPeerCertificate when insecure is set).
 	w.boolean(1, "insecure", true)
-	w.str(1, "pinSHA256", strings.ToLower(in.Secrets.TLSCertSHA256))
+	w.str(1, "pinSHA256", strings.ToLower(in.Secrets.Keys[KeyNodeCertSHA256]))
 	w.section(0, "bandwidth")
 	w.str(1, "up", strconv.Itoa(p.upMbps)+" mbps")
 	w.str(1, "down", strconv.Itoa(p.downMbps)+" mbps")

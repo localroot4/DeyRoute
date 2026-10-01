@@ -1,8 +1,10 @@
 // Package hysteria2 renders the apernet/hysteria (Hysteria 2) backend (spec
 // section 7.6): a Forward, QUIC based transport. The node runs the Hysteria
-// server on UDP <ctl> with the tunnel certificate, password authentication
-// and Salamander obfuscation; the hub runs the client whose tcpForwarding and
-// udpForwarding entries bind the tunnel's user ports.
+// server on UDP <ctl> with a self-signed certificate of its own (generated
+// per tunnel, pinned by the hub), password authentication and Salamander
+// obfuscation; the hub runs the client whose tcpForwarding and
+// udpForwarding entries bind the tunnel's user ports. The tunnel's TLS key
+// (internal CA, ACME or the owner's) never leaves the hub.
 //
 // The server ACL only lets the tunnel's own targets through and rejects
 // everything else, so the node never becomes an open proxy (spec section 11,
@@ -15,14 +17,22 @@ package hysteria2
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
@@ -45,6 +55,26 @@ const (
 // GenerateKeys (32 random bytes, base64url without padding). It is separate
 // from the tunnel token used for authentication (spec 7.6).
 const KeyObfsPassword = "obfs_password"
+
+// The node's own TLS identity, produced by GenerateKeys: a self-signed
+// ECDSA P-256 certificate and key (PEM) and the lowercase hex sha256 of the
+// certificate, which the hub pins (pinSHA256). The node files hold only
+// this key, never the tunnel's.
+const (
+	KeyNodeCert       = "node_cert_pem"
+	KeyNodeKey        = "node_key_pem"
+	KeyNodeCertSHA256 = "node_cert_sha256"
+
+	NodeCertFile = "node-cert.pem" // node side
+	NodeKeyFile  = "node-key.pem"  // node side
+)
+
+// nodeCertName is the subject of the node certificate (the client pins the
+// certificate, so the name is never verified).
+const nodeCertName = "deyroute-hysteria2"
+
+// nodeCertYears is the validity of the node certificate.
+const nodeCertYears = 20
 
 // Port hopping range on the node (spec 7.6). Packets to any port of the range
 // are redirected to <ctl> by a DNAT rule on the node.
@@ -71,7 +101,8 @@ func init() { backend.Register(New()) }
 func (*Backend) Name() string { return Name }
 
 // Transports returns hysteria2/udp (spec section 7 comparison table: Forward,
-// tcp+udp, needs UDP between hub and node, stealth 3, tunnel TLS).
+// tcp+udp, needs UDP between hub and node, stealth 3). It does not use the
+// tunnel TLS material: the node serves its own pinned certificate.
 func (*Backend) Transports() []backend.Transport {
 	return []backend.Transport{{
 		Backend:   Name,
@@ -79,7 +110,6 @@ func (*Backend) Transports() []backend.Transport {
 		Direction: backend.Forward,
 		Protos:    []string{config.ProtoTCP, config.ProtoUDP},
 		NeedsUDP:  true,
-		NeedsTLS:  true,
 		Stealth:   3,
 	}}
 }
@@ -92,7 +122,8 @@ func (*Backend) Probe(context.Context, backend.RenderInput) (backend.ProbeResult
 	return backend.ProbeResult{}, backend.ErrNoProbe
 }
 
-// GenerateKeys creates the Salamander obfuscation password in pure Go.
+// GenerateKeys creates the Salamander obfuscation password and the node's
+// self-signed certificate in pure Go.
 func (b *Backend) GenerateKeys(backend.Transport) (map[string]string, error) {
 	r := b.rand
 	if r == nil {
@@ -102,7 +133,52 @@ func (b *Backend) GenerateKeys(backend.Transport) (map[string]string, error) {
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return nil, deyerr.Wrap(deyerr.B009, err, deyerr.Params{"backend": Name})
 	}
-	return map[string]string{KeyObfsPassword: base64.RawURLEncoding.EncodeToString(buf)}, nil
+	cert, key, sum, err := nodeCert(r, time.Now())
+	if err != nil {
+		return nil, deyerr.Wrap(deyerr.B009, err, deyerr.Params{"backend": Name})
+	}
+	return map[string]string{
+		KeyObfsPassword:   base64.RawURLEncoding.EncodeToString(buf),
+		KeyNodeCert:       cert,
+		KeyNodeKey:        key,
+		KeyNodeCertSHA256: sum,
+	}, nil
+}
+
+// nodeCert creates the self-signed node certificate valid from now (an hour
+// of clock skew allowed) for nodeCertYears: PEM certificate, PEM PKCS#8 key
+// and the certificate's sha256.
+func nodeCert(r io.Reader, now time.Time) (certPEM, keyPEM, sum string, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), r)
+	if err != nil {
+		return "", "", "", err
+	}
+	serial, err := rand.Int(r, new(big.Int).Lsh(big.NewInt(1), 127))
+	if err != nil {
+		return "", "", "", err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: nodeCertName},
+		DNSNames:              []string{nodeCertName},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.AddDate(nodeCertYears, 0, 0),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(r, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return "", "", "", err
+	}
+	kder, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", "", "", err
+	}
+	h := sha256.Sum256(der)
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: kder})),
+		hex.EncodeToString(h[:]), nil
 }
 
 // Validate reports impossible combinations for in (DEY-B006, DEY-B010).
@@ -168,15 +244,15 @@ func plan(in backend.RenderInput) (planned, error) {
 	if in.Secrets.Token == "" {
 		return planned{}, fail("the tunnel token is missing")
 	}
-	if in.Secrets.TLSCertFile == "" || in.Secrets.TLSKeyFile == "" {
-		return planned{}, fail("the tunnel TLS certificate or key is missing")
-	}
-	if pin := in.Secrets.TLSCertSHA256; len(pin) != 64 || !isHex(pin) {
-		return planned{}, fail("the tunnel certificate sha256 (pinSHA256) is missing or malformed")
-	}
 	obfs := in.Secrets.Keys[KeyObfsPassword]
 	if len(obfs) < 16 {
 		return planned{}, fail("the obfuscation password is missing (obfs_password); regenerate the tunnel keys")
+	}
+	if !strings.Contains(in.Secrets.Keys[KeyNodeCert], "BEGIN CERTIFICATE") || !strings.Contains(in.Secrets.Keys[KeyNodeKey], "PRIVATE KEY") {
+		return planned{}, fail("the node certificate or key is missing (node_cert_pem, node_key_pem); regenerate the tunnel keys")
+	}
+	if pin := in.Secrets.Keys[KeyNodeCertSHA256]; len(pin) != 64 || !isHex(pin) {
+		return planned{}, fail("the node certificate sha256 (pinSHA256) is missing or malformed")
 	}
 	if net.ParseIP(strings.TrimSpace(in.Node.PublicIP)) == nil && !validDomain(in.Node.PublicIP) {
 		return planned{}, fail("the node public IP is unknown (the hub dials it)")
