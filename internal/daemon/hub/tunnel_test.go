@@ -873,12 +873,14 @@ func TestPortCheckSuggestAndDiagProbe(t *testing.T) {
 	require.Len(t, reps, 1)
 	require.True(t, reps[0].OK)
 	require.Equal(t, "auto", reps[0].Kind)
-	reps, err = te.client.DiagProbe(ctx, info.ID, true)
-	require.NoError(t, err)
-	require.Len(t, reps, 2)
+	// The UDP map reports the node's unit state from its heartbeat, which
+	// can still predate the start of the unit for one interval.
+	require.Eventually(t, func() bool {
+		reps, err = te.client.DiagProbe(ctx, info.ID, true)
+		return err == nil && len(reps) == 2 && reps[1].OK
+	}, testWait, 20*time.Millisecond, "the udp unit probe did not pass")
 	require.Equal(t, "udp", reps[1].Proto)
 	require.Equal(t, "unit", reps[1].Kind)
-	require.True(t, reps[1].OK)
 	_, err = te.client.DiagProbe(ctx, "nope", true)
 	require.Equal(t, deyerr.C021, codeOf(err))
 }

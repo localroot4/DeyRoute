@@ -61,7 +61,7 @@ ladders:
     - backhaul/wssmux
     - backhaul/tcpmux
     - rathole/noise
-    - frp/wss
+    - frp/tcp
     - xray/reality
     - hysteria2/udp
     - waterwall/reverse-reality
