@@ -2,8 +2,11 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -70,6 +73,9 @@ func (g *Globals) runTUI(context.Context) error {
 // banner data comes from the local config until Status() answers.
 func (g *Globals) tuiOptions() tui.Options {
 	o := tui.Options{Caps: g.caps(), Service: g.service(), Now: g.Now}
+	if _, err := os.Stat(g.configPath()); errors.Is(err, fs.ErrNotExist) {
+		o.NotSetUp = true
+	}
 	if c := g.localConfig(); c != nil {
 		o.Status.Role = c.Role
 		if c.Hub != nil {

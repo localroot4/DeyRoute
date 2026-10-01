@@ -51,12 +51,12 @@ func RenderMenu(c Caps, items []MenuItem, advanced bool) string {
 			desc = ToASCII(desc)
 		}
 		line := fmt.Sprintf("%2d) %-14s %s", it.Num, title, desc)
-		if c.Width > 1 && len([]rune(line)) > c.Width {
+		if c.Width > 1 && width(line) > c.Width {
 			ell := "…"
 			if !c.Unicode {
-				ell = "~"
+				ell = "..."
 			}
-			line = string([]rune(line)[:c.Width-1]) + ell
+			line = trunc(line, c.Width, ell)
 		}
 		b.WriteString(strings.TrimRight(line, " ") + "\n")
 	}

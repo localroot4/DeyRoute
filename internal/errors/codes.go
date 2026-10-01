@@ -26,6 +26,7 @@ const (
 	I020 Code = "DEY-I020" // public IP not detected {reason}
 	I021 Code = "DEY-I021" // detected IP is private/CGNAT/loopback {ip}
 	I022 Code = "DEY-I022" // uninstall step failed {step}
+	I023 Code = "DEY-I023" // this server is not set up
 )
 
 // Configuration (DEY-C0xx).
@@ -243,6 +244,9 @@ var catalog = map[Code]Info{
 	I022: {I022, "Uninstall step failed: {step}",
 		"part of the removal could not complete; every other step still ran and the deyroute binary was kept",
 		"fix the cause shown below, then run deyroute uninstall again (it is safe to repeat)"},
+	I023: {I023, "This server is not set up yet",
+		"/etc/deyroute/config.yaml does not exist, so no deyroute service runs here",
+		"on the Iran server run: deyroute setup   on a foreign server run the join command your hub shows"},
 
 	// ---------------------------------------------------------------- C
 	C001: {C001, "Unknown key in config: {key}",

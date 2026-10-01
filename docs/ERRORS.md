@@ -34,6 +34,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-I020` | Could not detect the public IP address of this server | {reason} | check the network with: ip route   then enter this server's public IP when setup asks for it |
 | `DEY-I021` | Detected address {ip} is not a public IP | the route to the internet uses a private, CGNAT or loopback source address; nodes abroad cannot connect to it unless the provider forwards it to this server | enter the server's real public IP when setup asks (see the provider panel), or later change hub.public_ip in /etc/deyroute/config.yaml and run: deyroute config apply |
 | `DEY-I022` | Uninstall step failed: {step} | part of the removal could not complete; every other step still ran and the deyroute binary was kept | fix the cause shown below, then run deyroute uninstall again (it is safe to repeat) |
+| `DEY-I023` | This server is not set up yet | /etc/deyroute/config.yaml does not exist, so no deyroute service runs here | on the Iran server run: deyroute setup   on a foreign server run the join command your hub shows |
 
 ## Configuration (DEY-C0xx)
 

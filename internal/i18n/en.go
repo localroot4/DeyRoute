@@ -311,6 +311,9 @@ const (
 	TUIPickTunnel     Key = "tui.common.pick_tunnel"
 	TUIPickNode       Key = "tui.common.pick_node"
 	TUINoTunnels      Key = "tui.common.no_tunnels"
+	TUINotSetUpTitle  Key = "tui.not_set_up.title"
+	TUINotSetUpHub    Key = "tui.not_set_up.hub"
+	TUINotSetUpNode   Key = "tui.not_set_up.node"
 	TUINoNodes        Key = "tui.common.no_nodes"
 	TUIClientIP       Key = "tui.common.client_ip"
 	TUIClientKept     Key = "tui.common.client_preserved"
@@ -760,6 +763,9 @@ var tuiEN = map[Key]string{
 	TUIPickTunnel:     "Choose a tunnel:",
 	TUIPickNode:       "Choose a node:",
 	TUINoTunnels:      "No tunnels yet. Add one with 2) Tunnels -> 1) Add tunnel.",
+	TUINotSetUpTitle:  "This server is not set up yet.",
+	TUINotSetUpHub:    "Iran server (hub):      deyroute setup",
+	TUINotSetUpNode:   "Foreign server (node):  paste the join command from the hub (hub menu: 3) Nodes -> 1) Show join command)",
 	TUINoNodes:        "No nodes yet. Show the join command with 3) Nodes -> 1) Show join command.",
 	TUIClientIP:       "client IP: %s",
 	TUIClientKept:     "preserved",

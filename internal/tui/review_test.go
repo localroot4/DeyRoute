@@ -135,7 +135,7 @@ func TestASCIIClipMeasuresConvertedText(t *testing.T) {
 	for _, l := range strings.Split(out, "\n") {
 		require.LessOrEqual(t, len(l), 80, "too wide: %q", l)
 	}
-	require.Contains(t, out, "a -> b -> c -> d")
+	require.Contains(t, out, "a -> b -> c")
 }
 
 // Regression: log lines and daemon texts reached the terminal unfiltered,

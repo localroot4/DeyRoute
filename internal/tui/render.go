@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -56,7 +57,7 @@ func (a *app) sym() symbols {
 	if a.caps.Unicode {
 		return symbols{"●", "◐", "○", "✔", "✖", "…", "-", "!", "→", "…", ">", "·"}
 	}
-	return symbols{"*", "~", "o", "OK", "x", "...", "-", "!", "->", "~", ">", "-"}
+	return symbols{"*", "~", "o", "OK", "x", "...", "-", "!", "->", "...", ">", "-"}
 }
 
 // asciiOnly makes s printable on a terminal without UTF-8: known symbols
@@ -105,7 +106,10 @@ func pad(s string, w int) string {
 	return s
 }
 
-// trunc cuts plain text s to at most w columns, ending in ell.
+// trunc cuts plain text s to at most w columns, ending in ell. It prefers a
+// word boundary (the cut moves back to the last space when that keeps at
+// least half of the text) and drops trailing separators, so a cut line
+// reads "... / switch transport…" rather than "... / switch transport / d…".
 func trunc(s string, w int, ell string) string {
 	if w <= 0 {
 		return ""
@@ -113,11 +117,27 @@ func trunc(s string, w int, ell string) string {
 	if width(s) <= w {
 		return s
 	}
-	r := []rune(s)
+	full := []rune(s)
+	r := full
 	for len(r) > 0 && width(string(r))+width(ell) > w {
 		r = r[:len(r)-1]
 	}
-	return string(r) + ell
+	if n := len(r); n < len(full) && !unicode.IsSpace(full[n]) {
+		if i := lastSpace(r); i >= n/2 {
+			r = r[:i]
+		}
+	}
+	return strings.TrimRight(string(r), " /·-,;:>→") + ell
+}
+
+// lastSpace is the index of the last whitespace rune in r, or -1.
+func lastSpace(r []rune) int {
+	for i := len(r) - 1; i >= 0; i-- {
+		if unicode.IsSpace(r[i]) {
+			return i
+		}
+	}
+	return -1
 }
 
 // clip cuts a plain line to the terminal width (tables never wrap).

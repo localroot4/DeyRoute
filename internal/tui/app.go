@@ -40,6 +40,9 @@ type Options struct {
 	LocalErr error
 	// Service is named in the DEY-X003 fix line (default "deyroute-hub").
 	Service string
+	// NotSetUp is set when the server has no /etc/deyroute/config.yaml: the
+	// main screen explains how to set it up instead of a daemon error.
+	NotSetUp bool
 
 	// Local operations run by the cli package without the daemon. A nil
 	// function makes the item answer "not available here".
@@ -438,6 +441,9 @@ func (a *app) call(s screen, timeout time.Duration, op localOp) tea.Cmd {
 
 // daemonErr is the error shown when the daemon is unreachable.
 func (a *app) daemonErr() error {
+	if a.opts.NotSetUp {
+		return deyerr.New(deyerr.I023, nil)
+	}
 	if a.opts.LocalErr != nil {
 		return a.opts.LocalErr
 	}
@@ -543,6 +549,8 @@ func (r *rootScreen) update(a *app, msg tea.Msg) tea.Cmd {
 func (r *rootScreen) view(a *app) string {
 	var b strings.Builder
 	switch {
+	case a.opts.Local == nil && a.opts.NotSetUp:
+		b.WriteString(a.notSetUpPanel() + "\n\n")
 	case a.opts.Local == nil:
 		b.WriteString(a.errBlock(a.daemonErr()) + "\n")
 	case r.err != nil:
@@ -585,4 +593,15 @@ func mainScreens(n int) func(a *app) screen {
 		return settingsMenu
 	}
 	return nil
+}
+
+// notSetUpPanel is the first screen of a server that is not set up yet:
+// what to run on the Iran server and on a foreign server.
+func (a *app) notSetUpPanel() string {
+	lines := []string{
+		" " + a.bold(i18n.T(i18n.TUINotSetUpTitle)),
+		"   " + i18n.T(i18n.TUINotSetUpHub),
+		"   " + i18n.T(i18n.TUINotSetUpNode),
+	}
+	return a.clip(strings.Join(lines, "\n"))
 }
