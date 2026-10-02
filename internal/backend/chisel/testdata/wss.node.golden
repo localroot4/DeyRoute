@@ -22,7 +22,7 @@
   "ExecStop": null,
   "WorkingDirectory": "/etc/deyroute/backends/chisel/main/de-1/wss",
   "Env": {
-    "AUTH": "dey:7272b276741958c4c32917de31c25e40"
+    "AUTH": "dey:d91f86705f7c49b626cea1623ab79c84"
   },
   "Type": "",
   "RemainAfterExit": false,
