@@ -1,13 +1,6 @@
 <div align="center">
 
-```text
- ██████╗ ███████╗██╗   ██╗██████╗  ██████╗ ██╗   ██╗████████╗███████╗
- ██╔══██╗██╔════╝╚██╗ ██╔╝██╔══██╗██╔═══██╗██║   ██║╚══██╔══╝██╔════╝
- ██║  ██║█████╗   ╚████╔╝ ██████╔╝██║   ██║██║   ██║   ██║   █████╗
- ██║  ██║██╔══╝    ╚██╔╝  ██╔══██╗██║   ██║██║   ██║   ██║   ██╔══╝
- ██████╔╝███████╗   ██║   ██║  ██║╚██████╔╝╚██████╔╝   ██║   ███████╗
- ╚═════╝ ╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚══════╝
-```
+<img src="docs/assets/logo.svg" alt="DEYROUTE" width="560">
 
 ### A tunnel between your Iran server and your foreign servers that is simple to run, hard to spot, and repairs itself when filtering changes.
 
@@ -30,14 +23,12 @@ DEYROUTE connects two kinds of servers:
 - the **hub**: your server **in Iran**. Your users connect to it, and only to it.
 - the **nodes**: your servers **abroad**. They run your real VPN service (Xray, Marzban, 3x-ui, and so on).
 
-```text
-  Your users                 HUB (Iran)                         NODE (abroad)
-  ┌────────┐   HUB_IP:443   ┌──────────────┐   the tunnel    ┌──────────────────┐
-  │ phone, │ ─────────────▶ │  deyroute hub  │ ═══════════════▶│  deyroute node     │ ──▶ Xray / Marzban
-  │ laptop │                └──────────────┘                 │  your VPN service│     3x-ui ...
-  └────────┘                       ▲                         └──────────────────┘
-                                   └─ a backup node takes over by itself if this one fails
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-en-dark.svg">
+    <img src="docs/assets/how-it-works-en-light.svg" alt="Your users connect to the hub in Iran; the tunnel carries their traffic to the node abroad, where your VPN service runs; a backup node takes over if the node fails." width="500">
+  </picture>
+</p>
 
 Your users only need the hub's address, so the foreign server's address stays out
 of their configs. Their traffic travels through the tunnel exactly as it left
