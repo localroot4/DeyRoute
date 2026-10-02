@@ -673,4 +673,7 @@ func (v *validator) nodeSelf(n *NodeSelf) {
 	}
 	v.absPath("node.cert_file", n.CertFile, true)
 	v.secretPath("node.key_file", n.KeyFile, true)
+	if n.ControlSNI != "" && !ValidDomain(n.ControlSNI) {
+		v.bad("node.control_sni", n.ControlSNI, "a DNS name such as www.example.com (sent in the control channel's ClientHello)")
+	}
 }

@@ -251,6 +251,10 @@ type NodeSelf struct {
 	HubCAFingerprint string `yaml:"hub_ca_fingerprint"`
 	CertFile         string `yaml:"cert_file"`
 	KeyFile          string `yaml:"key_file"`
+	// ControlSNI is the server name the node sends in the ClientHello of
+	// the control channel (a cover name, never used to verify the hub);
+	// empty = tlsutil.DefaultCoverSNI (QUESTIONS.md C.43).
+	ControlSNI string `yaml:"control_sni,omitempty"`
 }
 
 // HubInfo is the subset of hub data a backend renderer needs.

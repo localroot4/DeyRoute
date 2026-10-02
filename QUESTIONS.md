@@ -283,6 +283,18 @@ stated default until the owner decides · **[ANSWERED]** closed.
     second control port (docs/backends/backhaul.md). Such a rung needs the
     UDP probe to pass, like the other UDP rungs.
 
+43. **[DEFAULT] The control channel looks like ordinary HTTPS.** Section 11
+    names ALPN `deyroute/1` for the control channel. On a real hub in Iran the
+    node's stream to the hub was cut right after the TLS handshake (no data
+    in either direction, the node reconnecting every 45 s), while ordinary
+    HTTPS passed: a ClientHello with no server name and an unknown protocol
+    in the clear is what the filter singles out. Nodes therefore offer ALPN
+    `h2` and send a cover server name (`node.control_sni`, default
+    `www.digikala.com`); TLS 1.3 encrypts the certificates, so nothing else
+    of the handshake is visible. The hub accepts `h2` and `deyroute/1` (older
+    nodes), and still verifies every node by its client certificate; nodes
+    still verify the hub only against the pinned CA, never by that name.
+
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
 The spec audit of 2026-10-01 found 100 gaps; the critical and major ones in

@@ -572,7 +572,12 @@ func (a *agent) loadTLS() (*tls.Config, error) {
 		return nil, err
 	}
 	dlog.RegisterSecret(strings.TrimSpace(string(keyPEM)))
-	return tlsutil.ClientTLSConfig(caPEM, certPEM, keyPEM, "")
+	tc, err := tlsutil.ClientTLSConfig(caPEM, certPEM, keyPEM, "")
+	if err != nil {
+		return nil, err
+	}
+	tlsutil.SetCoverSNI(tc, cfg.Node.ControlSNI)
+	return tc, nil
 }
 
 // hubAddress returns the hub control address: the override, else

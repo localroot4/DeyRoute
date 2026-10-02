@@ -235,6 +235,18 @@ All notable changes to DEYROUTE are documented here. The format follows
   (C.39), the Waterwall graph sources (C.40) and the awg runtime directory
   (C.41).
 
+### Fixed (found on real servers)
+
+- The control channel between a node and a hub in Iran was cut right after
+  the TLS handshake (the node reconnected every 45 s and never stayed
+  online). The node's ClientHello now looks like ordinary HTTPS: ALPN `h2`
+  and a cover server name (`node.control_sni`); the hub accepts `h2` and the
+  old `deyroute/1` (QUESTIONS.md C.43).
+- The setup and join wizards ask one question per block: the step, the
+  question, the numbered answers one per line and a line that says exactly
+  what to type and what Enter alone takes; they end with a summary and the
+  next steps. Menu choices show the same hint.
+
 ### Fixed (found by the integration scenarios)
 
 - `backend_crash` was not emitted when systemd restarted a killed backend.

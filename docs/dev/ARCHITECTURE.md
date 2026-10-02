@@ -374,9 +374,12 @@ parallel without breaking each other's builds:
   `systemd.CanaryInstance(tunnel)`.
 
 ### 7.2 Control channel
-- TLS listener with `tlsutil.ServerTLSConfig` (ALPN `deyroute/1`), each accepted
-  conn served by `http2.Server.ServeConn`. Clients use `http2.Transport` with a
-  custom `DialTLSContext` (ALPN `deyroute/1`). `/v1/join` is the only path that
+- TLS listener with `tlsutil.ServerTLSConfig` (ALPN `h2` or `deyroute/1`), each
+  accepted conn served by `http2.Server.ServeConn`. Clients use
+  `http2.Transport` with a custom `DialTLSContext`; their ClientHello carries
+  ALPN `h2` and a cover server name (`node.control_sni`, default
+  `tlsutil.DefaultCoverSNI`) so it looks like ordinary HTTPS (QUESTIONS.md
+  C.43); the hub is verified only against the pinned CA. `/v1/join` is the only path that
   accepts a connection without a client certificate; every other path requires
   a verified client cert whose CN is a known node id.
 - Session: `POST /v1/stream` full duplex NDJSON. Hub side `Session.Call(ctx,
@@ -468,7 +471,7 @@ func JoinCommand(installerURL, link, ver string) string  // bash <(curl -fsSL <i
 - `health.Path` auto mode: `ClosedNoData` is a failure unless
   `PathOptions.AcceptCleanClose` (only when the node-side probe of the
   target showed a non-TLS service that closes immediately).
-- `tlsutil.ServerTLSConfig`/`ClientTLSConfig` enforce ALPN `deyroute/1` via
+- `tlsutil.ServerTLSConfig`/`ClientTLSConfig` enforce ALPN `h2` or `deyroute/1` via
   `VerifyConnection`; serve HTTP/2 with `http2.Server.ServeConn` on the
   accepted `*tls.Conn` (do not rely on "h2"). Nodes use
   `ClientTLSConfig(ca, cert, key, "")` (chain + ServerAuth, no hostname) so a

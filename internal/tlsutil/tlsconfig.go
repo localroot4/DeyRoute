@@ -13,6 +13,20 @@ import (
 // It equals api.ALPN; tlsutil cannot import api (api imports tlsutil).
 const ALPN = "deyroute/1"
 
+// ALPNH2 is the standard HTTP/2 protocol id. Nodes offer only this one: a
+// ClientHello with an unknown protocol in the clear ("deyroute/1") and no
+// server name had its connection cut right after the handshake on real
+// Iranian networks, while ordinary HTTPS passes (QUESTIONS.md C.43). The
+// hub accepts both, so nodes of either kind keep working.
+const ALPNH2 = "h2"
+
+// DefaultCoverSNI is the server name a node sends in the ClientHello of
+// the control channel when node.control_sni is not set: the handshake
+// looks like a visit to an ordinary HTTPS site. The name is never used to
+// verify the hub: the certificate must chain to the pinned internal CA and
+// carry the hub role (ClientTLSConfig with an empty serverName).
+const DefaultCoverSNI = "www.digikala.com"
+
 // ServerTLSConfig builds the hub Control API server config: TLS 1.3 only,
 // ALPN "deyroute/1" required, client certificates verified against caPEM when
 // presented (VerifyClientCertIfGiven: /v1/join has no client certificate,
@@ -47,7 +61,7 @@ func ServerTLSConfig(caPEM, certPEM, keyPEM []byte) (*tls.Config, error) {
 		Certificates:           []tls.Certificate{cert},
 		ClientAuth:             tls.VerifyClientCertIfGiven,
 		ClientCAs:              pool,
-		NextProtos:             []string{ALPN},
+		NextProtos:             []string{ALPNH2, ALPN},
 		SessionTicketsDisabled: true,
 		VerifyConnection:       requireALPN,
 	}, nil
@@ -74,7 +88,7 @@ func ClientTLSConfig(caPEM, certPEM, keyPEM []byte, serverName string) (*tls.Con
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS13,
 		RootCAs:    pool,
-		NextProtos: []string{ALPN},
+		NextProtos: []string{ALPNH2},
 		ServerName: serverName,
 	}
 	if len(certPEM) > 0 || len(keyPEM) > 0 {
@@ -87,7 +101,9 @@ func ClientTLSConfig(caPEM, certPEM, keyPEM []byte, serverName string) (*tls.Con
 	if serverName == "" {
 		// Hostname-free verification: the chain is verified against the
 		// private pool below, so skipping crypto/tls' own check (which needs
-		// a name) does not weaken anything.
+		// a name) does not weaken anything. The ClientHello then carries the
+		// cover name (SetCoverSNI) instead of none.
+		cfg.ServerName = DefaultCoverSNI
 		cfg.InsecureSkipVerify = true // #nosec G402 -- chain verified in VerifyConnection against the pinned CA pool
 		cfg.VerifyConnection = func(cs tls.ConnectionState) error {
 			if _, err := verifyServerChain(cs.PeerCertificates, pool, "", configNow(cfg)); err != nil {
@@ -122,7 +138,8 @@ func JoinClientTLSConfig(fingerprint string) *tls.Config {
 	want := normalizePin(fingerprint)
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS13,
-		NextProtos: []string{ALPN},
+		NextProtos: []string{ALPNH2},
+		ServerName: DefaultCoverSNI,
 		// The system roots must not be trusted; the pinned CA check in
 		// VerifyConnection replaces crypto/tls' verification. VerifyConnection
 		// also runs on resumed sessions, unlike VerifyPeerCertificate.
@@ -341,8 +358,19 @@ func verifyServerChain(certs []*x509.Certificate, roots *x509.CertPool, dnsName 
 // requireALPN aborts a handshake that did not negotiate "deyroute/1" (a peer
 // that does not speak the control protocol, or a future incompatible one).
 func requireALPN(cs tls.ConnectionState) error {
-	if cs.NegotiatedProtocol != ALPN {
-		return fmt.Errorf("tlsutil: peer did not negotiate ALPN %q (got %q)", ALPN, cs.NegotiatedProtocol)
+	if cs.NegotiatedProtocol != ALPN && cs.NegotiatedProtocol != ALPNH2 {
+		return fmt.Errorf("tlsutil: peer did not negotiate ALPN %q or %q (got %q)", ALPNH2, ALPN, cs.NegotiatedProtocol)
 	}
 	return nil
+}
+
+// SetCoverSNI sets the server name of a hostname-free client config
+// (ClientTLSConfig with an empty serverName, JoinClientTLSConfig): only
+// the ClientHello changes, verification stays on the pinned CA. An empty
+// sni keeps DefaultCoverSNI; a config that verifies a name is unchanged.
+func SetCoverSNI(cfg *tls.Config, sni string) {
+	if cfg == nil || !cfg.InsecureSkipVerify || sni == "" {
+		return
+	}
+	cfg.ServerName = sni
 }

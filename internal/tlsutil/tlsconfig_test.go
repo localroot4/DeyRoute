@@ -103,7 +103,7 @@ func TestMTLSHandshake(t *testing.T) {
 	srv, err := ServerTLSConfig(p.ca.CertPEM, p.hubCert, p.hubKey)
 	require.NoError(t, err)
 	require.Equal(t, uint16(tls.VersionTLS13), srv.MinVersion)
-	require.Equal(t, []string{"deyroute/1"}, srv.NextProtos)
+	require.Equal(t, []string{"h2", "deyroute/1"}, srv.NextProtos, "h2 for current nodes, deyroute/1 for older ones")
 	require.Equal(t, tls.VerifyClientCertIfGiven, srv.ClientAuth)
 	require.True(t, srv.SessionTicketsDisabled, "every connection re-verifies the node certificate")
 	require.Len(t, srv.Certificates[0].Certificate, 2, "leaf + CA for pinning")
@@ -118,7 +118,7 @@ func TestMTLSHandshake(t *testing.T) {
 			require.NoError(t, cliErr)
 			require.NoError(t, srvErr)
 			require.Equal(t, uint16(tls.VersionTLS13), state.Version)
-			require.Equal(t, ALPN, state.NegotiatedProtocol)
+			require.Equal(t, ALPNH2, state.NegotiatedProtocol)
 			cn, fp, ok := PeerIdentity(state)
 			require.True(t, ok)
 			require.Equal(t, "de-1", cn)
@@ -269,7 +269,7 @@ func TestALPNAndVersionEnforced(t *testing.T) {
 	_, srvErr, _ := handshake(t, srv, noALPN)
 	require.ErrorContains(t, srvErr, "ALPN")
 
-	otherALPN := &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true, NextProtos: []string{"h2"}} // #nosec G402 -- test client
+	otherALPN := &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true, NextProtos: []string{"spdy/3"}} // #nosec G402 -- test client
 	_, srvErr, cliErr := handshake(t, srv, otherALPN)
 	require.Error(t, srvErr)
 	require.Error(t, cliErr)
@@ -525,4 +525,46 @@ func TestTLSConfigErrors(t *testing.T) {
 	srv, err := ServerTLSConfig(p.otherCA.CertPEM, p.hubCert, p.hubKey)
 	require.NoError(t, err)
 	require.Len(t, srv.Certificates[0].Certificate, 1)
+}
+
+// The node's ClientHello looks like ordinary HTTPS: ALPN h2 and a cover
+// server name, never "deyroute/1" and never an empty name (QUESTIONS.md
+// C.43); the hub is still verified only against the pinned CA. An older
+// node offering deyroute/1 is still accepted.
+func TestClientHelloLooksLikeHTTPS(t *testing.T) {
+	p := newPKI(t)
+	srv, err := ServerTLSConfig(p.ca.CertPEM, p.hubCert, p.hubKey)
+	require.NoError(t, err)
+	var hello *tls.ClientHelloInfo
+	srv.GetConfigForClient = func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
+		hello = chi
+		return nil, nil
+	}
+	cli, err := ClientTLSConfig(p.ca.CertPEM, p.nodeCert, p.nodeKey, "")
+	require.NoError(t, err)
+	cs, srvErr, cliErr := handshake(t, srv, cli)
+	require.NoError(t, srvErr)
+	require.NoError(t, cliErr)
+	require.Equal(t, ALPNH2, cs.NegotiatedProtocol)
+	require.NotNil(t, hello)
+	require.Equal(t, DefaultCoverSNI, hello.ServerName)
+	require.Equal(t, []string{"h2"}, hello.SupportedProtos)
+
+	SetCoverSNI(cli, "www.example.org")
+	_, srvErr, cliErr = handshake(t, srv, cli)
+	require.NoError(t, srvErr)
+	require.NoError(t, cliErr)
+	require.Equal(t, "www.example.org", hello.ServerName)
+
+	join := JoinClientTLSConfig(p.ca.Fingerprint())
+	require.Equal(t, DefaultCoverSNI, join.ServerName)
+	require.Equal(t, []string{"h2"}, join.NextProtos)
+
+	old, err := ClientTLSConfig(p.ca.CertPEM, p.nodeCert, p.nodeKey, "")
+	require.NoError(t, err)
+	old.NextProtos = []string{ALPN}
+	cs, srvErr, cliErr = handshake(t, srv, old)
+	require.NoError(t, srvErr)
+	require.NoError(t, cliErr)
+	require.Equal(t, ALPN, cs.NegotiatedProtocol)
 }
