@@ -37,7 +37,8 @@ deyroute restore /root/deyroute-backup-20260930T120000Z.tar.gz.age
 رمز عبور را می‌پرسد، بکاپ را بررسی می‌کند و متوجه می‌شود که IP عمومی این سرور فرق دارد:
 
 ```text
-This server's public IP is 7.7.7.7, but the backup's hub address is 5.6.7.8. Use this server's address (the hub moved here)? [Y/n]
+This server's public IP is 7.7.7.7, but the backup's hub address is 5.6.7.8. Use this server's address (the hub moved here)?
+   Type y (yes) or n (no) and press Enter. Enter alone = y (yes).
 ```
 
 جواب بله بدهید. بعد فهرست چیزهایی که جایگزین می‌شوند و عوض شدن آدرس Hub نشان داده می‌شود — `yes` تایپ کنید. گواهی Hub با همان CA برای آدرس جدید دوباره صادر می‌شود، سرویس روشن می‌شود و همه تانل‌ها را دوباره می‌سازد. آخر خروجی قدم بعدی را می‌گوید:

@@ -76,10 +76,11 @@ func newJoinCmd(g *Globals) *cobra.Command {
 			}
 			apply := true
 			if g.IsTTY && !yes {
-				var err error
-				if apply, err = g.askYesNo(i18n.T(i18n.CLIAskSysctl), true); err != nil {
+				ans, err := g.askQ(kernelQuestion())
+				if err != nil {
 					return err
 				}
+				apply = ans == answerYes
 			}
 			return g.join(ctx, args[0], name, apply)
 		},
@@ -114,7 +115,7 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 	interactive := g.IsTTY && !f.yes
 	if interactive {
 		// The wizard opens with the DEYROUTE banner (section 6: every page).
-		fmt.Fprintln(g.promptOut(), tui.Banner(g.outCaps(), tui.BannerStatus{})+"\n")
+		fmt.Fprintln(g.promptOut(), tui.Banner(g.outCaps(), tui.BannerStatus{Setup: true}))
 	}
 	role := strings.ToLower(strings.TrimSpace(f.role))
 	switch role {
@@ -122,23 +123,29 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 	default:
 		return deyerr.New(deyerr.C013, deyerr.Params{"field": "--role", "value": f.role, "allowed": "hub, node"})
 	}
+	st := &stepper{}
 	if role == "" {
 		switch {
 		case interactive:
 			g.note(i18n.CLISetupWelcome)
-			ans, err := g.ask(i18n.T(i18n.CLIAskRole), config.RoleHub, func(s string) error {
-				switch strings.ToLower(s) {
-				case "1", config.RoleHub, "2", config.RoleNode:
-					return nil
-				}
-				return usageErr(i18n.T(i18n.CLIWantRole))
-			})
+			// The role decides the other questions: count the hub's (the
+			// common case) and renumber for a node after the answer.
+			st.total = 1 + hubQuestions(f)
+			ans, err := g.askQ(st.next(question{
+				title: i18n.T(i18n.CLIAskRole),
+				help:  []string{i18n.T(i18n.CLIRoleHelp)},
+				opts: []askOpt{
+					{value: config.RoleHub, label: i18n.T(i18n.CLIRoleHubLabel)},
+					{value: config.RoleNode, label: i18n.T(i18n.CLIRoleNodeLabel)},
+				},
+				def: config.RoleHub,
+			}))
 			if err != nil {
 				return err
 			}
-			role = config.RoleHub
-			if a := strings.ToLower(ans); a == "2" || a == config.RoleNode {
-				role = config.RoleNode
+			role = ans
+			if role == config.RoleNode {
+				st.total = 1 + nodeQuestions(f)
 			}
 		case f.yes:
 			role = config.RoleHub
@@ -147,10 +154,49 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 				WithWhy(i18n.T(i18n.CLISetupNoTTYWhy)).WithFix(i18n.T(i18n.CLISetupNoTTYFix))
 		}
 	}
-	if role == config.RoleNode {
-		return g.setupNode(ctx, f, interactive)
+	if interactive && st.total == 0 {
+		// --role given: only the questions of that role.
+		st.total = hubQuestions(f)
+		if role == config.RoleNode {
+			st.total = nodeQuestions(f)
+		}
 	}
-	return g.setupHub(ctx, f, interactive)
+	if role == config.RoleNode {
+		return g.setupNode(ctx, f, interactive, st)
+	}
+	return g.setupHub(ctx, f, interactive, st)
+}
+
+// hubQuestions is the number of questions the hub wizard asks after the
+// role: name (unless --name), public IP, control port (unless
+// --control-port) and the kernel profile.
+func hubQuestions(f setupFlags) int {
+	n := 2
+	if strings.TrimSpace(f.name) == "" {
+		n++
+	}
+	if f.port == 0 {
+		n++
+	}
+	return n
+}
+
+// nodeQuestions is the number of questions of the node wizard: the join
+// link, the name (unless --name) and the kernel profile.
+func nodeQuestions(f setupFlags) int {
+	if strings.TrimSpace(f.name) == "" {
+		return 3
+	}
+	return 2
+}
+
+// kernelQuestion asks whether the balanced kernel profile is applied.
+func kernelQuestion() question {
+	return question{
+		title: i18n.T(i18n.CLIAskKernel),
+		help:  []string{i18n.T(i18n.CLIKernelHelp), i18n.T(i18n.CLIKernelUndo)},
+		def:   answerYes, yesNo: true,
+	}
 }
 
 // defaultName is the host name as a slug ("hub"/"node" when it has none).
@@ -198,7 +244,7 @@ func (g *Globals) checkControlPort(s string) error {
 	return nil
 }
 
-func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool) error {
+func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, st *stepper) error {
 	o := setup.HubOptions{
 		Root: g.Root, Runner: g.Runner, Name: strings.TrimSpace(f.name), ControlPort: f.port,
 		Mirror: strings.TrimSpace(g.Getenv(EnvMirror)), SysctlProfile: config.SysctlBalanced,
@@ -218,24 +264,43 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool) 
 	if interactive {
 		var err error
 		if o.Name == "" {
-			if o.Name, err = g.ask(i18n.T(i18n.CLIAskHubName), g.defaultName(config.RoleHub), checkName); err != nil {
+			if o.Name, err = g.askQ(st.next(question{
+				title: i18n.T(i18n.CLIAskHubName), help: []string{i18n.T(i18n.CLIHubNameHelp)},
+				def: g.defaultName(config.RoleHub), check: checkName,
+			})); err != nil {
 				return err
 			}
 		}
-		if o.PublicIP, err = g.askPublicIP(ctx); err != nil {
+		if o.PublicIP, err = g.askPublicIP(ctx, st); err != nil {
 			return err
 		}
 		if o.ControlPort == 0 {
 			def := setup.SuggestControlPort(config.DefaultControlPort, g.PortBusy)
-			ans, err := g.ask(i18n.T(i18n.CLIAskControlPort), strconv.Itoa(def), g.checkControlPort)
+			ans, err := g.askQ(st.next(question{
+				title: i18n.T(i18n.CLIAskControlPort), help: []string{i18n.T(i18n.CLIControlPortHelp)},
+				def: strconv.Itoa(def), check: g.checkControlPort,
+			}))
 			if err != nil {
 				return err
 			}
 			o.ControlPort, _ = strconv.Atoi(ans)
 		}
-		if o.ApplySysctl, err = g.askYesNo(i18n.T(i18n.CLIAskSysctl), true); err != nil {
+		ans, err := g.askQ(st.next(kernelQuestion()))
+		if err != nil {
 			return err
 		}
+		o.ApplySysctl = ans == answerYes
+		port := o.ControlPort
+		if port == 0 {
+			port = config.DefaultControlPort
+		}
+		g.printSummary(
+			[2]string{i18n.T(i18n.CLISummaryRole), config.RoleHub},
+			[2]string{i18n.T(i18n.CLISummaryName), o.Name},
+			[2]string{i18n.T(i18n.CLISummaryPublicIP), o.PublicIP},
+			[2]string{i18n.T(i18n.CLISummaryControlPort), strconv.Itoa(port)},
+			[2]string{i18n.T(i18n.CLISummaryKernel), kernelLabel(o.ApplySysctl)},
+		)
 	} else if o.Name == "" {
 		o.Name = g.defaultName(config.RoleHub)
 	}
@@ -267,25 +332,34 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool) 
 		return g.emitJSON(doc)
 	}
 	g.println()
-	g.say(i18n.CLISetupHubDone, o.Name, res.PublicIP, res.ControlPort)
+	g.println(g.styleOut(styleGreen, g.text(g.sym().ok+" "+i18n.T(i18n.CLISetupHubDone, o.Name, res.PublicIP, res.ControlPort))))
 	if res.PrivateIP {
 		g.say(i18n.CLISetupPrivateIP, res.PublicIP)
 	}
 	for _, w := range res.SysctlWarnings {
 		g.println(g.text("  " + g.sym().warn + " " + clean(w)))
 	}
+	g.println()
+	g.println(g.styleOut(styleBold, g.text(i18n.T(i18n.CLINextTitle))))
 	if jerr != nil {
 		g.printf("%s", g.text(deyerr.As(jerr).Format(g.unicode())))
 		g.say(i18n.CLIJoinCmdLater)
 		return nil
 	}
-	g.printJoinCommand(jc)
+	left := jc.ExpiresAt.Sub(g.Now()).Round(time.Minute)
+	g.println("   " + g.text(i18n.T(i18n.CLINextJoin, localTime(jc.ExpiresAt, "15:04"), shortDuration(left))))
+	g.println()
+	g.println(jc.Command)
+	g.println()
+	g.println("   " + g.text(i18n.T(i18n.CLINextTunnel)))
+	g.println("      " + g.text(i18n.T(i18n.CLINextTunnelMenu)))
+	g.println("      " + g.text(i18n.T(i18n.CLINextTunnelCLI)))
 	return nil
 }
 
 // askPublicIP asks for the public IP with the detected one as default
 // (question 3 of the hub wizard); a private detection is explained.
-func (g *Globals) askPublicIP(ctx context.Context) (string, error) {
+func (g *Globals) askPublicIP(ctx context.Context, st *stepper) (string, error) {
 	dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	ip, private, err := g.DetectIP(dctx)
 	cancel()
@@ -297,16 +371,47 @@ func (g *Globals) askPublicIP(ctx context.Context) (string, error) {
 		g.note(i18n.CLIDetectedPrivate, ip)
 		ip = ""
 	}
-	return g.ask(i18n.T(i18n.CLIAskPublicIP), ip, func(s string) error {
-		a, err := netip.ParseAddr(strings.TrimSpace(s))
-		if err != nil {
-			return deyerr.New(deyerr.C013, deyerr.Params{"field": "hub.public_ip", "value": s, "allowed": i18n.T(i18n.CLIWantIP)})
-		}
-		if !setup.IsPublicIP(a) {
-			g.note(i18n.CLIDetectedPrivate, a.String())
-		}
-		return nil
-	})
+	help := []string{i18n.T(i18n.CLIPublicIPHelp)}
+	if ip != "" {
+		help = append(help, i18n.T(i18n.CLIPublicIPDetected, ip))
+	}
+	return g.askQ(st.next(question{
+		title: i18n.T(i18n.CLIAskPublicIP), help: help, def: ip,
+		check: func(s string) error {
+			a, err := netip.ParseAddr(strings.TrimSpace(s))
+			if err != nil {
+				return deyerr.New(deyerr.C013, deyerr.Params{"field": "hub.public_ip", "value": s, "allowed": i18n.T(i18n.CLIWantIP)})
+			}
+			if !setup.IsPublicIP(a) {
+				g.note(i18n.CLIDetectedPrivate, a.String())
+			}
+			return nil
+		},
+	}))
+}
+
+// printSummary prints the answers of a wizard as an aligned table before
+// the work starts.
+func (g *Globals) printSummary(rows ...[2]string) {
+	w := g.promptOut()
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, g.style(styleBold, g.text(i18n.T(i18n.CLISummaryTitle))))
+	kw := 0
+	for _, r := range rows {
+		kw = max(kw, width(r[0]))
+	}
+	for _, r := range rows {
+		fmt.Fprintln(w, "   "+g.text(pad(r[0], kw+3)+clean(r[1])))
+	}
+	fmt.Fprintln(w)
+}
+
+// kernelLabel describes the kernel profile answer in the summary.
+func kernelLabel(apply bool) string {
+	if apply {
+		return i18n.T(i18n.CLIKernelBalanced)
+	}
+	return i18n.T(i18n.CLIKernelUnchanged)
 }
 
 // joinCommand asks the new daemon for a join command (ttl 0 = default).
@@ -330,28 +435,45 @@ func (g *Globals) printJoinCommand(jc api.JoinCommand) {
 	g.println()
 }
 
-func (g *Globals) setupNode(ctx context.Context, f setupFlags, interactive bool) error {
+func (g *Globals) setupNode(ctx context.Context, f setupFlags, interactive bool, st *stepper) error {
 	if !interactive {
 		return usageErr(i18n.T(i18n.CLISetupNodeNeedsLink))
 	}
-	link, err := g.ask(i18n.T(i18n.CLIAskJoinLink), "", func(s string) error {
-		_, err := api.ParseJoinLink(s)
-		return err
-	})
+	link, err := g.askQ(st.next(question{
+		title: i18n.T(i18n.CLIAskJoinLink), help: []string{i18n.T(i18n.CLIJoinLinkHelp)},
+		check: func(s string) error {
+			_, err := api.ParseJoinLink(s)
+			return err
+		},
+	}))
 	if err != nil {
 		return err
 	}
 	name := strings.TrimSpace(f.name)
 	if name == "" {
-		if name, err = g.ask(i18n.T(i18n.CLIAskNodeName), g.defaultName(config.RoleNode), checkName); err != nil {
+		if name, err = g.askQ(st.next(question{
+			title: i18n.T(i18n.CLIAskNodeName), help: []string{i18n.T(i18n.CLINodeNameHelp)},
+			def: g.defaultName(config.RoleNode), check: checkName,
+		})); err != nil {
 			return err
 		}
 	}
-	apply, err := g.askYesNo(i18n.T(i18n.CLIAskSysctl), true)
+	ans, err := g.askQ(st.next(kernelQuestion()))
 	if err != nil {
 		return err
 	}
-	return g.join(ctx, link, name, apply)
+	// Only the hub address: the link carries the join token.
+	hub := ""
+	if jl, err := api.ParseJoinLink(link); err == nil {
+		hub = jl.Addr()
+	}
+	g.printSummary(
+		[2]string{i18n.T(i18n.CLISummaryRole), config.RoleNode},
+		[2]string{i18n.T(i18n.CLISummaryName), name},
+		[2]string{i18n.T(i18n.CLISummaryHub), hub},
+		[2]string{i18n.T(i18n.CLISummaryKernel), kernelLabel(ans == answerYes)},
+	)
+	return g.join(ctx, link, name, ans == answerYes)
 }
 
 // join joins this server to a hub (setup.Join) and prints the result.
@@ -387,10 +509,13 @@ func (g *Globals) join(ctx context.Context, link, name string, applySysctl bool)
 		g.println(g.text("  " + g.sym().warn + " " + clean(w)))
 	}
 	g.println()
-	g.say(i18n.CLIJoinDone, res.NodeID, hubName)
+	g.println(g.styleOut(styleGreen, g.text(g.sym().ok+" "+i18n.T(i18n.CLIJoinDone, res.NodeID, hubName))))
 	if !res.Compatible && res.HubVersion != "" {
 		g.say(i18n.CLIJoinIncompatible, res.HubVersion, version.Version)
 	}
+	g.println()
+	g.println(g.styleOut(styleBold, g.text(i18n.T(i18n.CLINodeNextTitle, hubName))))
+	g.println("   " + g.text(i18n.T(i18n.CLINodeNextHub, res.NodeID)))
 	return nil
 }
 

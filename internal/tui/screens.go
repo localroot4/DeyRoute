@@ -224,6 +224,21 @@ func (fl field) defNumber() int {
 	return 0
 }
 
+// numberChoices is "1 or 2", "1, 2 or 3", or "a number from 1 to n".
+func numberChoices(n int) string {
+	switch {
+	case n <= 1:
+		return "1"
+	case n <= 3:
+		nums := make([]string, n)
+		for i := range nums {
+			nums[i] = strconv.Itoa(i + 1)
+		}
+		return strings.Join(nums[:n-1], ", ") + " " + i18n.T(i18n.TUIOr) + " " + nums[n-1]
+	}
+	return i18n.T(i18n.TUINumberRange, n)
+}
+
 // formScreen asks its fields one after the other. Enter on an empty line
 // takes the default; Esc cancels; "?" on an empty line shows the help.
 // submit decides where to go next.
@@ -332,15 +347,19 @@ func (f *formScreen) view(a *app) string {
 			for i, o := range fl.opts {
 				b.WriteString(a.clip(numLine(i+1, o.label)) + "\n")
 			}
-			prompt := i18n.T(i18n.PromptChoice)
+			// The last line before the prompt says what to type and what
+			// Enter alone takes (section 6).
+			prompt, hint := i18n.T(i18n.PromptChoice), i18n.T(i18n.TUIHintChoose, numberChoices(len(fl.opts)))
 			if n := fl.defNumber(); n > 0 {
-				prompt = i18n.T(i18n.TUIChoiceDefault, n)
+				prompt, hint = i18n.T(i18n.TUIChoiceDefault, n), i18n.T(i18n.TUIHintChooseDefault, numberChoices(len(fl.opts)), n)
 			}
+			b.WriteString(a.paint(colGray, " "+hint) + "\n")
 			b.WriteString(prompt + in + "_\n")
 		} else {
 			def := ""
 			if fl.def != "" && !fl.masked {
 				def = " [" + fl.def + "]"
+				b.WriteString(a.paint(colGray, " "+i18n.T(i18n.TUIHintKeep, fl.def)) + "\n")
 			}
 			b.WriteString(" " + fl.label + def + ": " + in + "_\n")
 		}

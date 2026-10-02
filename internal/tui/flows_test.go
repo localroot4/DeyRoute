@@ -306,7 +306,7 @@ func TestAddTunnelAdvanced(t *testing.T) {
 	h.typeLine("3") // tls
 	// Fixed answers are numbered (section 6: numbers and Enter only); the
 	// backup node shows the fixed backup warning.
-	h.must("Backup only works if the same service runs on both nodes.", " Backup node:\n 1) none\n 2) nl-1  Netherlands 1  ● online\nChoice [1]: _")
+	h.must("Backup only works if the same service runs on both nodes.", " Backup node:\n 1) none\n 2) nl-1  Netherlands 1  ● online\n Type 1 or 2 and press Enter. Enter alone = 1.\nChoice [1]: _")
 	h.typeLine("nl-9") // not an answer of the list
 	h.must("Invalid choice: nl-9")
 	h.press("ctrl+u")
@@ -316,7 +316,7 @@ func TestAddTunnelAdvanced(t *testing.T) {
 	h.must("Invalid choice: bogus")
 	h.press("ctrl+u")
 	h.typeLine("3") // node_only
-	h.must(" 1) auto - a certificate of the internal CA\n 2) acme - a Let's Encrypt certificate for the hub's domain\nChoice [1]: _",
+	h.must(" 1) auto - a certificate of the internal CA\n 2) acme - a Let's Encrypt certificate for the hub's domain\n Type 1 or 2 and press Enter. Enter alone = 1.\nChoice [1]: _",
 		"custom (your own certificate files) is set after the tunnel exists")
 	h.mustNot("3) custom")
 	h.typeLine("")  // tls auto
@@ -416,9 +416,9 @@ func TestTunnelActions(t *testing.T) {
 	h.typeLine("Main")
 	// Fixed answers are numbered with the current value marked (section 6).
 	h.must(" Failover policy:\n 1) transport_then_node - next transport on the same node, then the next node (current)\n",
-		" 3) node_only - the same transport on the next node\nChoice [1]: _")
+		" 3) node_only - the same transport on the next node\n Type 1, 2 or 3 and press Enter. Enter alone = 1.\nChoice [1]: _")
 	h.typeLine("2") // transport_only
-	h.must(" Failover policy: transport_only\n", " Ladder profile:\n 1) default (built-in) (current)\n 2) fast\nChoice [1]: _")
+	h.must(" Failover policy: transport_only\n", " Ladder profile:\n 1) default (built-in) (current)\n 2) fast\n Type 1 or 2 and press Enter. Enter alone = 1.\nChoice [1]: _")
 	h.typeLine("")
 	h.must(" TLS mode:\n 1) auto - a certificate of the internal CA (current)\n", " 3) custom - your own certificate and key files\n")
 	h.typeLine("")

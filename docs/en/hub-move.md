@@ -42,7 +42,8 @@ It asks for the passphrase, checks the backup, and notices that this server
 has another public IP:
 
 ```text
-This server's public IP is 7.7.7.7, but the backup's hub address is 5.6.7.8. Use this server's address (the hub moved here)? [Y/n]
+This server's public IP is 7.7.7.7, but the backup's hub address is 5.6.7.8. Use this server's address (the hub moved here)?
+   Type y (yes) or n (no) and press Enter. Enter alone = y (yes).
 ```
 
 Answer yes. The confirmation lists what will be replaced and that the hub

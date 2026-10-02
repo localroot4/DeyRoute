@@ -112,8 +112,10 @@ deyroute uninstall
 Menu: `12) Settings` → `3) Uninstall`. It asks:
 
 ```text
-Keep the backups in /var/lib/deyroute/backups? [Y/n]
-Also uninstall deyroute from every online node? [y/N]     (hub only)
+Keep the backups in /var/lib/deyroute/backups?
+   Type y (yes) or n (no) and press Enter. Enter alone = y (yes).
+Also uninstall deyroute from every online node?     (hub only)
+   Type y (yes) or n (no) and press Enter. Enter alone = n (no).
 ```
 
 and then lists exactly what goes away, and you type `yes`:

@@ -185,7 +185,7 @@ func TestWizardTLSModes(t *testing.T) {
 	h.must("Advanced options.")
 	// name, target, probe kind, backup, policy
 	h.typeLine("").typeLine("").typeLine("").typeLine("").typeLine("")
-	h.must(" TLS mode:\n 1) auto - a certificate of the internal CA\n 2) acme - a Let's Encrypt certificate for the hub's domain\nChoice [1]: _",
+	h.must(" TLS mode:\n 1) auto - a certificate of the internal CA\n 2) acme - a Let's Encrypt certificate for the hub's domain\n Type 1 or 2 and press Enter. Enter alone = 1.\nChoice [1]: _",
 		"custom (your own certificate files) is set after the tunnel exists: 2) Tunnels → 2) Edit tunnel.")
 	h.typeLine("custom")
 	h.must("Invalid choice: custom")

@@ -16,6 +16,7 @@ const (
 	BannerTunnel1Up  Key = "banner.tunnel1_up"
 	BannerShort      Key = "banner.short"
 	BannerNotSetUp   Key = "banner.not_set_up"
+	BannerSetup      Key = "banner.setup"
 	ModeSimple       Key = "mode.simple"
 	ModeAdvanced     Key = "mode.advanced"
 	FooterKeys       Key = "footer.keys"
@@ -101,6 +102,7 @@ var en = map[Key]string{
 	BannerTunnel1Up: "1 tunnel UP",
 	BannerShort:     "DEYROUTE",
 	BannerNotSetUp:  "not set up (run: deyroute setup)",
+	BannerSetup:     "first-time setup",
 	ModeSimple:      "Simple",
 	ModeAdvanced:    "Advanced",
 	FooterKeys:      "number + Enter select · q/Esc back · r refresh · ? help",
@@ -1393,13 +1395,8 @@ const (
 	CLIWantDomainOrClear         Key = "cli.want_domain_or_clear"
 	CLIWantIP                    Key = "cli.want_ip"
 	CLIWantName                  Key = "cli.want_name"
-	CLIWantRole                  Key = "cli.want_role"
 	CLINotSetUpFix               Key = "cli.not_set_up_fix"
-	CLIAsk                       Key = "cli.ask"
-	CLIAskDefault                Key = "cli.ask_default"
 	CLIInvalidAnswer             Key = "cli.invalid_answer"
-	CLIYesNoDefYes               Key = "cli.yes_no_def_yes"
-	CLIYesNoDefNo                Key = "cli.yes_no_def_no"
 	CLIColBackend                Key = "cli.col_backend"
 	CLIColCPU                    Key = "cli.col_cpu"
 	CLIColCode                   Key = "cli.col_code"
@@ -1504,9 +1501,50 @@ const (
 	CLIAskHubName                Key = "cli.ask_hub_name"
 	CLIAskPublicIP               Key = "cli.ask_public_ip"
 	CLIAskControlPort            Key = "cli.ask_control_port"
-	CLIAskSysctl                 Key = "cli.ask_sysctl"
 	CLIAskJoinLink               Key = "cli.ask_join_link"
 	CLIAskNodeName               Key = "cli.ask_node_name"
+	CLIStepOf                    Key = "cli.step_of"
+	CLIAnswerRequired            Key = "cli.answer_required"
+	CLIAnswerYesNo               Key = "cli.answer_yes_no"
+	CLIAnswerNumber              Key = "cli.answer_number"
+	CLIDefYes                    Key = "cli.def_yes"
+	CLIDefNo                     Key = "cli.def_no"
+	CLIHintYesNo                 Key = "cli.hint_yes_no"
+	CLIHintYesNoRequired         Key = "cli.hint_yes_no_required"
+	CLIHintChoose                Key = "cli.hint_choose"
+	CLIHintChooseRequired        Key = "cli.hint_choose_required"
+	CLIHintRequired              Key = "cli.hint_required"
+	CLIHintText                  Key = "cli.hint_text"
+	CLIOr                        Key = "cli.or"
+	CLINumberRange               Key = "cli.number_range"
+	CLIRoleHubLabel              Key = "cli.role_hub_label"
+	CLIRoleNodeLabel             Key = "cli.role_node_label"
+	CLIRoleHelp                  Key = "cli.role_help"
+	CLIHubNameHelp               Key = "cli.hub_name_help"
+	CLIPublicIPHelp              Key = "cli.public_ip_help"
+	CLIPublicIPDetected          Key = "cli.public_ip_detected"
+	CLIControlPortHelp           Key = "cli.control_port_help"
+	CLIAskKernel                 Key = "cli.ask_kernel"
+	CLIKernelHelp                Key = "cli.kernel_help"
+	CLIKernelUndo                Key = "cli.kernel_undo"
+	CLIJoinLinkHelp              Key = "cli.join_link_help"
+	CLINodeNameHelp              Key = "cli.node_name_help"
+	CLISummaryTitle              Key = "cli.summary_title"
+	CLISummaryRole               Key = "cli.summary_role"
+	CLISummaryName               Key = "cli.summary_name"
+	CLISummaryPublicIP           Key = "cli.summary_public_ip"
+	CLISummaryControlPort        Key = "cli.summary_control_port"
+	CLISummaryKernel             Key = "cli.summary_kernel"
+	CLISummaryHub                Key = "cli.summary_hub"
+	CLIKernelBalanced            Key = "cli.kernel_balanced"
+	CLIKernelUnchanged           Key = "cli.kernel_unchanged"
+	CLINextTitle                 Key = "cli.next_title"
+	CLINextJoin                  Key = "cli.next_join"
+	CLINextTunnel                Key = "cli.next_tunnel"
+	CLINextTunnelMenu            Key = "cli.next_tunnel_menu"
+	CLINextTunnelCLI             Key = "cli.next_tunnel_cli"
+	CLINodeNextTitle             Key = "cli.node_next_title"
+	CLINodeNextHub               Key = "cli.node_next_hub"
 	CLIDetectedPrivate           Key = "cli.detected_private"
 	CLISetupHubStart             Key = "cli.setup_hub_start"
 	CLISetupHubDone              Key = "cli.setup_hub_done"
@@ -1899,13 +1937,8 @@ var cliEN = map[Key]string{
 	CLIWantDomainOrClear:         "give a domain (e.g. vpn.example.com) or --clear",
 	CLIWantIP:                    "an IPv4 or IPv6 address, e.g. 5.6.7.8",
 	CLIWantName:                  "a name of 1 to %d printable characters",
-	CLIWantRole:                  "answer hub (1) or node (2)",
 	CLINotSetUpFix:               "this server is not set up yet: run deyroute setup (or join a hub: deyroute join 'dey://...')",
-	CLIAsk:                       "%s: ",
-	CLIAskDefault:                "%s [%s]: ",
-	CLIInvalidAnswer:             "  Not accepted: %s",
-	CLIYesNoDefYes:               "[Y/n]",
-	CLIYesNoDefNo:                "[y/N]",
+	CLIInvalidAnswer:             "Not accepted: %s",
 	CLIColBackend:                "BACKEND",
 	CLIColCPU:                    "CPU",
 	CLIColCode:                   "CODE",
@@ -2005,14 +2038,55 @@ var cliEN = map[Key]string{
 	CLIWatchFooter:               "Updated %s · refreshes every %ds · Ctrl-C quits",
 	CLISetupLong:                 "Set this server up. A hub (the Iran server users connect to) takes at most five\nquestions: role, name, public IP, control port and the kernel profile; keys, the\nfirewall table and the service are automatic. It ends with the join command for\nyour nodes. A node asks for the join link printed by the hub.\n\nWithout a terminal pass the answers as flags: --role hub --name ir-1 --yes.",
 	CLISetupExample:              "  deyroute setup\n  deyroute setup --role hub --name ir-1 --yes\n  deyroute setup --role hub --name ir-1 --control-port 44500",
-	CLISetupWelcome:              "DEYROUTE setup: a few questions; Enter accepts the value in brackets.",
-	CLIAskRole:                   "Role of this server: 1) hub (Iran, users connect here)  2) node (abroad, runs your VPN service)",
+	CLISetupWelcome:              "First-time setup: a few questions. Each one says what to type; Enter alone takes the suggested answer.",
+	CLIAskRole:                   "Role of this server",
 	CLIAskHubName:                "Name of this hub",
 	CLIAskPublicIP:               "Public IP of this server",
 	CLIAskControlPort:            "Control port for the nodes",
-	CLIAskSysctl:                 "Apply the balanced kernel profile (BBR, larger buffers; undo with: deyroute optimize revert)?",
 	CLIAskJoinLink:               "Join link from the hub (on the hub: deyroute node join-command)",
 	CLIAskNodeName:               "Name of this node",
+	CLIStepOf:                    "Step %d of %d",
+	CLIAnswerRequired:            "an answer is required (there is no default)",
+	CLIAnswerYesNo:               "type y (yes) or n (no)",
+	CLIAnswerNumber:              "type a number from 1 to %d",
+	CLIDefYes:                    "y (yes)",
+	CLIDefNo:                     "n (no)",
+	CLIHintYesNo:                 "Type y (yes) or n (no) and press Enter. Enter alone = %s.",
+	CLIHintYesNoRequired:         "Type y (yes) or n (no) and press Enter.",
+	CLIHintChoose:                "Type %s and press Enter. Enter alone = %s.",
+	CLIHintChooseRequired:        "Type %s and press Enter.",
+	CLIHintRequired:              "Type the answer and press Enter (there is no default).",
+	CLIHintText:                  "Press Enter to use %s, or type another value and press Enter.",
+	CLIOr:                        "or",
+	CLINumberRange:               "a number from 1 to %d",
+	CLIRoleHubLabel:              "the server in Iran: your users connect to it",
+	CLIRoleNodeLabel:             "the server abroad: runs your VPN service (Xray, Marzban node ...)",
+	CLIRoleHelp:                  "Set up the hub first; each node then joins it with the command the hub prints.",
+	CLIHubNameHelp:               "Shown in the menu, the logs and the messages. Letters, digits and -, e.g. ir-1.",
+	CLIPublicIPHelp:              "The address your users and your nodes connect to.",
+	CLIPublicIPDetected:          "Detected automatically: %s",
+	CLIControlPortHelp:           "Your nodes connect to the hub on this TCP port (mutual TLS). Allow it in your provider's firewall too.",
+	CLIAskKernel:                 "Kernel network profile",
+	CLIKernelHelp:                "Apply the balanced profile: BBR congestion control and larger network buffers (recommended).",
+	CLIKernelUndo:                "You can undo it any time with: deyroute optimize revert",
+	CLIJoinLinkHelp:              "On the hub run: deyroute node join-command. Copy the link that starts with dey:// (valid for 15 minutes) and paste it here.",
+	CLINodeNameHelp:              "How the hub shows this node, e.g. de-1. Letters, digits and -.",
+	CLISummaryTitle:              "Summary",
+	CLISummaryRole:               "Role",
+	CLISummaryName:               "Name",
+	CLISummaryPublicIP:           "Public IP",
+	CLISummaryControlPort:        "Control port",
+	CLISummaryKernel:             "Kernel profile",
+	CLISummaryHub:                "Hub",
+	CLIKernelBalanced:            "balanced (BBR, larger buffers)",
+	CLIKernelUnchanged:           "unchanged",
+	CLINextTitle:                 "Next: add a node (the server abroad that runs your VPN service)",
+	CLINextJoin:                  "1. Run this command on the node (one node per command, valid until %s, %s):",
+	CLINextTunnel:                "2. When the node is online (deyroute node list), create a tunnel on this hub:",
+	CLINextTunnelMenu:            "in the menu: run deyroute, then 2) Tunnels → 1) Add tunnel",
+	CLINextTunnelCLI:             "or directly: deyroute tunnel add --node <node id> --ports 443",
+	CLINodeNextTitle:             "Next, on the hub (%s):",
+	CLINodeNextHub:               "deyroute tunnel add --node %s --ports <port of your VPN service>",
 	CLIDetectedPrivate:           "! %s is not a public IP address (private, CGNAT or loopback): type the address users connect to.",
 	CLISetupHubStart:             "Setting up hub %s ...",
 	CLISetupHubDone:              "Hub %s is ready: %s, control port %d.",
@@ -2425,10 +2499,15 @@ func init() {
 const (
 	// page titles ("Tunnels - Edit tunnel", "Edit tunnel: main") and the
 	// footer of a text field
-	TUITitleSub      Key = "tui.title.sub"
-	TUITitleOf       Key = "tui.title.of"
-	FooterTyping     Key = "footer.typing"
-	TUIChoiceDefault Key = "tui.common.choice_default"
+	TUITitleSub          Key = "tui.title.sub"
+	TUITitleOf           Key = "tui.title.of"
+	FooterTyping         Key = "footer.typing"
+	TUIChoiceDefault     Key = "tui.common.choice_default"
+	TUIHintChoose        Key = "tui.common.hint_choose"
+	TUIHintChooseDefault Key = "tui.common.hint_choose_default"
+	TUIHintKeep          Key = "tui.common.hint_keep"
+	TUIOr                Key = "tui.common.or"
+	TUINumberRange       Key = "tui.common.number_range"
 
 	// LAST EVENTS: the short word of every event type
 	TUIEvFailback        Key = "tui.dash.ev_failback"
@@ -2536,10 +2615,15 @@ const (
 
 // tui polish — English texts (merged into en by init).
 var tuiPolishEN = map[Key]string{
-	TUITitleSub:      "%s - %s",
-	TUITitleOf:       "%s: %s",
-	FooterTyping:     "type the answer + Enter · Esc cancel · ? on an empty line: help",
-	TUIChoiceDefault: "Choice [%d]: ",
+	TUITitleSub:          "%s - %s",
+	TUITitleOf:           "%s: %s",
+	FooterTyping:         "type the answer + Enter · Esc cancel · ? on an empty line: help",
+	TUIChoiceDefault:     "Choice [%d]: ",
+	TUIHintChoose:        "Type %s and press Enter.",
+	TUIHintChooseDefault: "Type %s and press Enter. Enter alone = %d.",
+	TUIHintKeep:          "Enter alone keeps %s; or type a new value.",
+	TUIOr:                "or",
+	TUINumberRange:       "a number from 1 to %d",
 
 	TUIEvFailback:        "failback",
 	TUIEvFailbackFailed:  "no failback",

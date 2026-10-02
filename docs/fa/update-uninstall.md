@@ -82,8 +82,10 @@ deyroute uninstall
 در منو: `12) Settings` ← `3) Uninstall`. این سؤال‌ها را می‌پرسد:
 
 ```text
-Keep the backups in /var/lib/deyroute/backups? [Y/n]
-Also uninstall deyroute from every online node? [y/N]     (فقط روی Hub)
+Keep the backups in /var/lib/deyroute/backups?
+   Type y (yes) or n (no) and press Enter. Enter alone = y (yes).
+Also uninstall deyroute from every online node?     (فقط روی Hub)
+   Type y (yes) or n (no) and press Enter. Enter alone = n (no).
 ```
 
 بعد دقیقاً می‌گوید چه چیزهایی پاک می‌شوند و شما `yes` تایپ می‌کنید:

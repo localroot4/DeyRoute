@@ -75,36 +75,6 @@ func (g *Globals) context() context.Context {
 	return g.ctx
 }
 
-// ask prints "question [def]: " and returns the answer, def when empty.
-// check validates an answer (nil = any); an invalid answer is explained and
-// the question repeated.
-func (g *Globals) ask(question, def string, check func(string) error) (string, error) {
-	w := g.promptOut()
-	for i := 0; i < maxAsk; i++ {
-		if def != "" {
-			fmt.Fprint(w, g.text(i18n.T(i18n.CLIAskDefault, question, def)))
-		} else {
-			fmt.Fprint(w, g.text(i18n.T(i18n.CLIAsk, question)))
-		}
-		ans, err := g.readLine()
-		if err != nil {
-			return "", err
-		}
-		if ans == "" {
-			ans = def
-		}
-		if check == nil {
-			return ans, nil
-		}
-		cerr := check(ans)
-		if cerr == nil {
-			return ans, nil
-		}
-		fmt.Fprintln(w, g.text(i18n.T(i18n.CLIInvalidAnswer, answerProblem(cerr))))
-	}
-	return "", errAborted
-}
-
 // answerProblem is the one-line reason an answer was refused.
 func answerProblem(err error) string {
 	var e *deyerr.Error
@@ -114,30 +84,14 @@ func answerProblem(err error) string {
 	return err.Error()
 }
 
-// askYesNo asks a [Y/n] or [y/N] question.
-func (g *Globals) askYesNo(question string, def bool) (bool, error) {
-	w := g.promptOut()
-	hint := i18n.T(i18n.CLIYesNoDefYes)
-	if !def {
-		hint = i18n.T(i18n.CLIYesNoDefNo)
+// askYesNo asks a y/n question; Enter alone takes def.
+func (g *Globals) askYesNo(title string, def bool) (bool, error) {
+	d := answerNo
+	if def {
+		d = answerYes
 	}
-	for i := 0; i < maxAsk; i++ {
-		fmt.Fprint(w, g.text(question+" "+hint+" "))
-		ans, err := g.readLine()
-		if err != nil {
-			return false, err
-		}
-		switch strings.ToLower(ans) {
-		case "":
-			return def, nil
-		case "y", "yes":
-			return true, nil
-		case "n", "no":
-			return false, nil
-		}
-		fmt.Fprintln(w, g.text(i18n.T(i18n.TUIAnswerYN)))
-	}
-	return false, errAborted
+	a, err := g.askQ(question{title: title, def: d, yesNo: true})
+	return a == answerYes, err
 }
 
 // confirm guards a destructive action (spec sections 6 and 14): lost

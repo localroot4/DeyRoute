@@ -39,15 +39,44 @@
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)
 ```
 
-نصاب برنامه را دانلود و بررسی می‌کند و بعد ویزارد راه‌اندازی را باز می‌کند. ویزارد حداکثر پنج سؤال می‌پرسد و Enter یعنی قبول مقدار داخل کروشه:
+نصاب برنامه را دانلود و بررسی می‌کند و بعد ویزارد راه‌اندازی را باز می‌کند. ویزارد حداکثر پنج سؤال می‌پرسد. هر سؤال یک بلوک جداست: خط اول شمارهٔ مرحله و خود سؤال، بعد هر گزینه در یک خط، یک توضیح کوتاه، و خط آخر که دقیقاً می‌گوید چه تایپ کنید و Enter خالی چه چیزی را انتخاب می‌کند:
 
 ```text
-DEYROUTE setup: a few questions; Enter accepts the value in brackets.
-Role of this server: 1) hub (Iran, users connect here)  2) node (abroad, runs your VPN service) [hub]: 1
-Name of this hub [myhost]: ir-1
-Public IP of this server [5.6.7.8]:
-Control port for the nodes [44433]:
-Apply the balanced kernel profile (BBR, larger buffers; undo with: deyroute optimize revert)? [Y/n]
+Step 1 of 5 · Role of this server
+   Set up the hub first; each node then joins it with the command the hub prints.
+   1) hub    the server in Iran: your users connect to it
+   2) node   the server abroad: runs your VPN service (Xray, Marzban node ...)
+   Type 1 or 2 and press Enter. Enter alone = 1 (hub).
+ › 1
+
+Step 2 of 5 · Name of this hub
+   Shown in the menu, the logs and the messages. Letters, digits and -, e.g. ir-1.
+   Press Enter to use myhost, or type another value and press Enter.
+ › ir-1
+
+Step 3 of 5 · Public IP of this server
+   The address your users and your nodes connect to.
+   Detected automatically: 5.6.7.8
+   Press Enter to use 5.6.7.8, or type another value and press Enter.
+ ›
+
+Step 4 of 5 · Control port for the nodes
+   Your nodes connect to the hub on this TCP port (mutual TLS). Allow it in your provider's firewall too.
+   Press Enter to use 44433, or type another value and press Enter.
+ ›
+
+Step 5 of 5 · Kernel network profile
+   Apply the balanced profile: BBR congestion control and larger network buffers (recommended).
+   You can undo it any time with: deyroute optimize revert
+   Type y (yes) or n (no) and press Enter. Enter alone = y (yes).
+ ›
+
+Summary
+   Role             hub
+   Name             ir-1
+   Public IP        5.6.7.8
+   Control port     44433
+   Kernel profile   balanced (BBR, larger buffers)
 ```
 
 - **Public IP**: خودکار پیدا می‌شود. اگر آدرس پیداشده خصوصی یا CGNAT باشد، ویزارد می‌گوید؛ آدرسی را که کاربران به آن وصل می‌شوند (از پنل سرور) تایپ کنید.
@@ -65,10 +94,16 @@ Apply the balanced kernel profile (BBR, larger buffers; undo with: deyroute opti
   ✔ Write /etc/deyroute/config.yaml
   ✔ Install and start service
 
-Hub ir-1 is ready: 5.6.7.8, control port 44433.
-Run this command on the new node (one node per command, valid until 12:15, 15m):
+✔ Hub ir-1 is ready: 5.6.7.8, control port 44433.
+
+Next: add a node (the server abroad that runs your VPN service)
+   1. Run this command on the node (one node per command, valid until 12:15, 15m):
 
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://…@5.6.7.8:44433#sha256:…' --version 1.0.0
+
+   2. When the node is online (deyroute node list), create a tunnel on this hub:
+      in the menu: run deyroute, then 2) Tunnels → 1) Add tunnel
+      or directly: deyroute tunnel add --node <node id> --ports 443
 ```
 
 این Join command فقط **یک بار** و برای یک Node کار می‌کند. برای هر Node بعدی یک Join command تازه بسازید: `deyroute node join-command`. ادامه کار: [Join کردن Node](join.md).

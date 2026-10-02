@@ -84,7 +84,7 @@ progress screen ends with `backup nl-1 ready (warm)`.
 deyroute tunnel add --node de-1 --ports 443,2053 --name main
 ```
 
-On a terminal it first shows a summary and asks `Create the tunnel? [Y/n]`;
+On a terminal it first shows a summary and asks `Create the tunnel?` (y or n; Enter alone = yes);
 `--yes` creates at once. Then it prints the same steps as the menu.
 
 | Flag | Meaning |

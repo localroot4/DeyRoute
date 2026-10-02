@@ -17,6 +17,9 @@ type BannerStatus struct {
 	Advanced  bool
 	Nodes     int
 	TunnelsUp int
+	// Setup marks the banner of the setup wizard ("first-time setup"
+	// instead of "not set up").
+	Setup bool
 }
 
 // ASCIIBanner converts the Unicode art to plain '#' characters for terminals
@@ -59,7 +62,11 @@ func Banner(c Caps, st BannerStatus) string {
 	case "node":
 		parts = append(parts, i18n.T(i18n.BannerNode, st.Name, st.HubAddr))
 	default:
-		parts = append(parts, i18n.T(i18n.BannerNotSetUp))
+		if st.Setup {
+			parts = append(parts, i18n.T(i18n.BannerSetup))
+		} else {
+			parts = append(parts, i18n.T(i18n.BannerNotSetUp))
+		}
 	}
 	mode := i18n.T(i18n.ModeSimple)
 	if st.Advanced {

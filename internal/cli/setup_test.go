@@ -54,7 +54,7 @@ func TestSetupWizardHub(t *testing.T) {
 	e.tty("", "", "not-an-ip", "5.6.7.9", "5000", "", "")
 	out := e.ok("setup")
 	require.Contains(t, out, "DEYROUTE Tunnel Manager", "the wizard opens with the banner")
-	require.Contains(t, out, "not set up")
+	require.Contains(t, out, "first-time setup")
 	require.Equal(t, "ir-server", o.Name)
 	require.Equal(t, "5.6.7.9", o.PublicIP)
 	require.Equal(t, 44434, o.ControlPort)
@@ -64,10 +64,23 @@ func TestSetupWizardHub(t *testing.T) {
 	require.False(t, o.StartService)
 	require.Equal(t, e.root, o.Root)
 	for _, want := range []string{
-		"Role of this server", "[hub]", "Name of this hub [ir-server]", "Public IP of this server [5.6.7.8]",
-		"Not accepted: DEY-C013", "Control port for the nodes [44434]", "Not accepted: DEY-P012 Port 5000/tcp is already in use", "[Y/n]",
-		"Setting up hub ir-server", "✔ " + setup.StepTitle(setup.StepCA), "Hub ir-server is ready: 5.6.7.9, control port 44434.",
-		"! BBR missing", "Run this command on the new node (one node per command, valid until", "\nbash <(curl -fsSL https://x/install.sh) join 'dey://T@5.6.7.8:44433#sha256:ab'\n",
+		// Every question is a block: step, title, one answer per line and
+		// a last line that says what to type and what Enter alone takes.
+		"Step 1 of 5 · Role of this server\n",
+		"   1) hub    the server in Iran: your users connect to it\n",
+		"   2) node   the server abroad: runs your VPN service",
+		"   Type 1 or 2 and press Enter. Enter alone = 1 (hub).\n",
+		"Step 2 of 5 · Name of this hub\n", "   Press Enter to use ir-server, or type another value and press Enter.\n",
+		"Step 3 of 5 · Public IP of this server\n", "   Detected automatically: 5.6.7.8\n",
+		"Not accepted: DEY-C013",
+		"Step 4 of 5 · Control port for the nodes\n", "Press Enter to use 44434,",
+		"Not accepted: DEY-P012 Port 5000/tcp is already in use",
+		"Step 5 of 5 · Kernel network profile\n", "   Type y (yes) or n (no) and press Enter. Enter alone = y (yes).\n",
+		"Summary\n   Role             hub\n   Name             ir-server\n   Public IP        5.6.7.9\n   Control port     44434\n",
+		"Setting up hub ir-server", "✔ " + setup.StepTitle(setup.StepCA), "✔ Hub ir-server is ready: 5.6.7.9, control port 44434.",
+		"! BBR missing", "Next: add a node", "1. Run this command on the node (one node per command, valid until",
+		"\nbash <(curl -fsSL https://x/install.sh) join 'dey://T@5.6.7.8:44433#sha256:ab'\n",
+		"2. When the node is online", "2) Tunnels → 1) Add tunnel", "deyroute tunnel add --node <node id> --ports 443",
 	} {
 		require.Contains(t, out, want)
 	}
@@ -233,7 +246,8 @@ func TestSetupDefaultDetector(t *testing.T) {
 	e.fake.On("ip -4 route get 1.1.1.1", exec.OK("1.1.1.1 via 5.6.7.1 dev eth0 src 5.6.7.8 uid 0\n    cache\n"))
 	e.tty("", "", "", "", "")
 	out := e.ok("setup")
-	require.Contains(t, out, "Public IP of this server [5.6.7.8]")
+	require.Contains(t, out, "Detected automatically: 5.6.7.8")
+	require.Contains(t, out, "Press Enter to use 5.6.7.8,")
 	require.Equal(t, "5.6.7.8", o.PublicIP)
 	require.NotZero(t, o.ControlPort)
 }
