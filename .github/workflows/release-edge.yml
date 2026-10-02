@@ -29,7 +29,7 @@ concurrency:
 
 env:
   GOTOOLCHAIN: local
-  BASE_VERSION: 0.2.0
+  BASE_VERSION: 0.3.0
 
 jobs:
   edge:
