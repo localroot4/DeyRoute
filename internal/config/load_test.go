@@ -102,6 +102,40 @@ func TestLoadOK(t *testing.T) {
 	require.Equal(t, "ir-1", c.Hub.Name)
 }
 
+// advanced.backhaul_web_port was accepted by an earlier build and is refused
+// now (DEY-C013): the hub's load clears and names it, every other load
+// still refuses it.
+func TestLoadDropObsolete(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	doc := miniHub + "    advanced:\n      backhaul_web_port: 9000\n"
+	require.NoError(t, os.WriteFile(path, []byte(doc), 0o600))
+	_, err := LoadWith(path, ValidateOptions{})
+	requireCodes(t, err, deyerr.C013)
+	_, err = Parse([]byte(doc))
+	requireCodes(t, err, deyerr.C013)
+
+	c, dropped, err := LoadDropObsolete(path, ValidateOptions{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"tunnels[main].advanced.backhaul_web_port"}, dropped)
+	require.Nil(t, c.Tunnels[0].Advanced, "the emptied advanced section is removed")
+
+	// The other advanced keys stay.
+	doc = miniHub + "    advanced:\n      connection_pool: 16\n      backhaul_web_port: 9000\n"
+	require.NoError(t, os.WriteFile(path, []byte(doc), 0o600))
+	c, dropped, err = LoadDropObsolete(path, ValidateOptions{})
+	require.NoError(t, err)
+	require.Len(t, dropped, 1)
+	require.Equal(t, &Advanced{ConnectionPool: 16}, c.Tunnels[0].Advanced)
+
+	// Nothing to drop; other errors are still returned.
+	require.NoError(t, os.WriteFile(path, []byte(miniHub), 0o600))
+	_, dropped, err = LoadDropObsolete(path, ValidateOptions{})
+	require.NoError(t, err)
+	require.Empty(t, dropped)
+	_, _, err = LoadDropObsolete(filepath.Join(t.TempDir(), "nope.yaml"), ValidateOptions{})
+	requireCodes(t, err, deyerr.C014)
+}
+
 const miniHub = `schema_version: 1
 role: hub
 hub:

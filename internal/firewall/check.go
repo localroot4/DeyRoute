@@ -10,7 +10,10 @@ import (
 	"github.com/localroot4/deyroute/internal/exec"
 )
 
-// Commands the detection runs (section 10 order).
+// Commands the detection runs (section 10 order). iptables -w waits for the
+// xtables lock (bounded by queryTimeout): iptables-legacy takes it even to
+// list, so a concurrent check, docker or fail2ban would otherwise make the
+// listing fail and the iptables stage be skipped.
 var (
 	cmdNFTTables       = []string{"nft", "list", "tables"}
 	cmdNFTRuleset      = []string{"nft", "list", "ruleset"}
@@ -20,8 +23,8 @@ var (
 	cmdFirewalldPorts  = []string{"firewall-cmd", "--list-ports"}
 	cmdFirewalldSvcs   = []string{"firewall-cmd", "--list-services"}
 	cmdFirewalldAll    = []string{"firewall-cmd", "--list-all"}
-	cmdIPTablesInput   = []string{"iptables", "-S", "INPUT"}
-	cmdIPTablesRuleset = []string{"iptables", "-S"}
+	cmdIPTablesInput   = []string{"iptables", "-w", "-S", "INPUT"}
+	cmdIPTablesRuleset = []string{"iptables", "-w", "-S"}
 )
 
 // run executes argv with a timeout and reports stdout and success. Missing

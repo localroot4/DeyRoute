@@ -88,7 +88,7 @@ func fakeRunner() *exec.Fake {
 	f.On("nft list table inet deyroute", exec.OK("table inet deyroute {\n\tchain input {\n\t}\n}\n"))
 	f.On("ufw status", exec.OK("Status: active\n"))
 	f.On("firewall-cmd --state", exec.Fail(252, "not running"))
-	f.On("iptables -S INPUT", exec.OK("-P INPUT ACCEPT\n"))
+	f.On("iptables -w -S INPUT", exec.OK("-P INPUT ACCEPT\n"))
 	f.On("ss -Hlntup", exec.OK(`tcp LISTEN 0 4096 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=1234,fd=6)) token=`+collectorSecret+"\n"))
 	return f
 }

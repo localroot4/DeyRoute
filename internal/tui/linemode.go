@@ -230,14 +230,15 @@ var lineKeyNames = map[string]tea.KeyType{
 // Enter, "q" (or "esc") goes back, a single letter such as r or ? is that
 // key alone, anything else is typed and followed by Enter. In a text field
 // every line is the whole answer: what a rejected answer left in the field
-// is cleared first, and "?" alone shows the help.
+// is cleared first, and "?" alone shows the help (on a masked field it is
+// the answer, like any other secret).
 func lineKeys(a *app, line string) []tea.KeyMsg {
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
 	typing := a.helpKey == "" && a.top().base().typing
 	trimmed := strings.TrimSpace(line)
 	clear := tea.KeyMsg{Type: tea.KeyCtrlU}
 	switch {
-	case typing && trimmed == "?":
+	case typing && trimmed == "?" && !secretField(a.top()):
 		return []tea.KeyMsg{clear, {Type: tea.KeyRunes, Runes: []rune("?")}}
 	case typing && trimmed == "":
 		return []tea.KeyMsg{clear, enter}
@@ -255,4 +256,10 @@ func lineKeys(a *app, line string) []tea.KeyMsg {
 		return []tea.KeyMsg{{Type: tea.KeyRunes, Runes: []rune(trimmed)}, enter}
 	}
 	return []tea.KeyMsg{clear, {Type: tea.KeyRunes, Runes: []rune(line)}, enter}
+}
+
+// secretField reports a masked question, where "?" is part of the answer.
+func secretField(s screen) bool {
+	f, ok := s.(*formScreen)
+	return ok && f.secret()
 }

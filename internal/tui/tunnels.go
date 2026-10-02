@@ -393,8 +393,8 @@ func transportMap(ctx context.Context, l api.Local) (map[string]api.TransportInf
 
 // clientIPNote is "client IP: preserved|masked" for a transport (section
 // 10). A transport that can keep the client IP keeps it only with the
-// tunnel's advanced.proxy_protocol (proxy); without a tunnel (ladder
-// screens) proxy is false and the note says how to keep it.
+// tunnel's advanced.proxy_protocol (proxy); without a tunnel (the Add
+// tunnel wizard) proxy is false and the note says how to keep it.
 func clientIPNote(tr map[string]api.TransportInfo, id string, proxy bool) string {
 	x, ok := tr[id]
 	if !ok {

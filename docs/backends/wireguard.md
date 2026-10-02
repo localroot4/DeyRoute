@@ -122,9 +122,11 @@ What `Up` does:
   require `errno=0`, then the same `ip address`/`ip link` calls (`DEY-B071`).
 * both: on the node, write `1` to
   `/proc/sys/net/ipv4/conf/<iface>/route_localnet` when `route_localnet` is set.
-* both: while the listen port is still in use (`EADDRINUSE` from
-  `WG_CMD_SET_DEVICE`, `errno=-98` from amneziawg-go) the whole configuration
-  is sent again every 250 ms for up to 15 s. Right before a rung starts, the
+* both: while the listen port is still in use, the step that binds it is
+  repeated every 250 ms for up to 15 s: in kernel mode `ip link set ... up`
+  (`RTNETLINK answers: Address already in use`; `WG_CMD_SET_DEVICE` on the
+  down interface only stores the port), in awg mode the whole UAPI request
+  (`errno=-98` from amneziawg-go). Right before a rung starts, the
   node agent's UDP reachability echo (`probe.udp_listen`) held the rung's
   control port for 10 s, and the first start of a WireGuard rung failed with
   `DEY-B070`/`DEY-B071` (found by lab scenario S33). The hub now closes the

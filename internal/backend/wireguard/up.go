@@ -78,8 +78,9 @@ type nlTransport interface {
 // sets address, MTU and link state with `ip`.
 //
 // In both modes a listen port that is still in use (EADDRINUSE) is retried
-// for up to DefaultPortWait. On the node, route_localnet is enabled on the
-// interface when a target is on 127.0.0.0/8.
+// for up to DefaultPortWait: the kernel binds it at `ip link set up`,
+// amneziawg-go at the UAPI set. On the node, route_localnet is enabled on
+// the interface when a target is on 127.0.0.0/8.
 func Up(ctx context.Context, cfgPath string, r Runner) error {
 	return (&Manager{Runner: r}).Up(ctx, cfgPath)
 }
@@ -230,8 +231,9 @@ func (m *Manager) configureKernel(ctx context.Context, c *Config) error {
 
 // whilePortInUse runs set until it succeeds or fails with anything but
 // EADDRINUSE, retrying for at most PortWait (DefaultPortWait). A failed set
-// applies nothing (kernel) or is replaced completely by the next one
-// (replace_peers in the UAPI request), so retrying is safe.
+// applies nothing (kernel), leaves the link down (`ip link set up`) or is
+// replaced completely by the next one (replace_peers in the UAPI request),
+// so retrying is safe.
 func (m *Manager) whilePortInUse(ctx context.Context, set func() error) error {
 	wait := m.PortWait
 	if wait <= 0 {
@@ -353,7 +355,21 @@ func (m *Manager) finish(ctx context.Context, c *Config) error {
 	if err := m.ip(ctx, "address", "replace", c.Address, "dev", c.Interface); err != nil {
 		return err
 	}
-	if err := m.ip(ctx, "link", "set", "dev", c.Interface, "mtu", strconv.Itoa(c.MTU), "up"); err != nil {
+	// The kernel binds the listen port only here (WG_CMD_SET_DEVICE on a
+	// down interface just stores it), so a port in use fails the link up.
+	args := []string{"link", "set", "dev", c.Interface, "mtu", strconv.Itoa(c.MTU), "up"}
+	err := m.whilePortInUse(ctx, func() error {
+		_, stderr, err := m.Runner.Run(ctx, "ip", args, nil)
+		if err == nil {
+			return nil
+		}
+		e := ipErr(args, stderr, err)
+		if strings.Contains(string(stderr), "Address already in use") {
+			return fmt.Errorf("%w (%w)", e, syscall.EADDRINUSE)
+		}
+		return e
+	})
+	if err != nil {
 		return err
 	}
 	if c.RouteLocalnet {

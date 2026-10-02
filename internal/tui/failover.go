@@ -84,7 +84,7 @@ func pickPolicy(t api.TunnelInfo) *listScreen {
 func editLadder(a *app, t api.TunnelInfo) tea.Cmd {
 	id := t.ID
 	title := i18n.T(i18n.TUILadTitle, id)
-	return a.push(newLadderEditor(title, t.Ladder, func(a *app, rungs []string) tea.Cmd {
+	return a.push(newLadderEditor(title, t.Ladder, t.ProxyProtocol, func(a *app, rungs []string) tea.Cmd {
 		if slices.Equal(rungs, t.Ladder) {
 			return a.back(i18n.T(i18n.TUINothingChanged))
 		}

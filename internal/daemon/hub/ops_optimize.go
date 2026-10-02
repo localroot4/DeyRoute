@@ -81,6 +81,11 @@ func (l *local) OptimizeApply(ctx context.Context, profile string) (api.Optimize
 			"field": "tuning.sysctl_profile", "value": profile, "allowed": strings.Join(sysctl.Profiles, ", "),
 		}))
 	}
+	// The kernel changes before config.yaml: an edit that is not applied
+	// must stop the call before it.
+	if err := h.checkApplied(h.Config()); err != nil {
+		return api.OptimizeStatus{}, withLog(err)
+	}
 	if _, err := h.autoBackup(); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
@@ -121,6 +126,9 @@ func (l *local) OptimizeApply(ctx context.Context, profile string) (api.Optimize
 // node reverts too.
 func (l *local) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) {
 	h := l.h
+	if err := h.checkApplied(h.Config()); err != nil {
+		return api.OptimizeStatus{}, withLog(err)
+	}
 	if _, err := h.autoBackup(); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
@@ -163,7 +171,7 @@ func (h *Hub) optimizeNodes(ctx context.Context, profile string, bbr bool, fwd m
 	var warnings []string
 	for _, n := range h.Config().Nodes {
 		if !h.Online(n.ID) {
-			warnings = append(warnings, "node "+n.ID+" is offline: run deyroute optimize apply --profile "+profile+" again when it is back")
+			warnings = append(warnings, "node "+n.ID+": offline; run deyroute optimize apply --profile "+profile+" again when it is back")
 			continue
 		}
 		var res api.SysctlResult

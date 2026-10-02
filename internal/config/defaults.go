@@ -142,6 +142,9 @@ func NewTunnel(id, name string, nodes []string, ports []PortMap) Tunnel {
 //
 // An explicit empty inline ladder ("ladder: []") is kept, so Validate reports
 // it as DEY-C009 instead of silently replacing it with the default ladder.
+// An empty ladders: section (the last custom profile deleted) gets the
+// "default" profile like a missing one: Save drops an empty section, and the
+// saved file must load back as the same configuration.
 //
 // ApplyDefaults is idempotent; a nil config is left alone.
 func (c *Config) ApplyDefaults() {
@@ -154,7 +157,7 @@ func (c *Config) ApplyDefaults() {
 	if c.Hub != nil {
 		c.Hub.applyDefaults()
 	}
-	if c.Role == RoleHub && c.Ladders == nil {
+	if c.Role == RoleHub && len(c.Ladders) == 0 {
 		c.Ladders = map[string][]string{DefaultLadderName: cloneStrings(DefaultLadder)}
 	}
 	for i := range c.Tunnels {

@@ -108,6 +108,12 @@ func TestApplyDefaults(t *testing.T) {
 	c2 := &Config{Role: RoleHub, Ladders: map[string][]string{"fast": {"direct/native"}}}
 	c2.ApplyDefaults()
 	require.Equal(t, map[string][]string{"fast": {"direct/native"}}, c2.Ladders)
+
+	// An empty section (the last custom profile deleted) is treated like a
+	// missing one, so it survives a save and load unchanged.
+	c3 := &Config{Role: RoleHub, Ladders: map[string][]string{}}
+	c3.ApplyDefaults()
+	require.Equal(t, map[string][]string{DefaultLadderName: DefaultLadder}, c3.Ladders)
 }
 
 func TestDefaultTarget(t *testing.T) {

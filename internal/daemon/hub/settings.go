@@ -218,14 +218,16 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 	if _, err := h.autoBackup(); err != nil {
 		return withLog(err)
 	}
+	var commit func() error
 	if acme.token != "" && acme.tokenSrc != config.DefaultCloudflareTokenFile {
-		// The token is copied before config.yaml points at it.
-		if err := tlsutil.WriteSecret(h.path(config.DefaultCloudflareTokenFile), []byte(acme.token+"\n")); err != nil {
-			return withLog(err)
+		// The token is copied before config.yaml points at it, once the
+		// change was accepted: a refused change keeps the stored token.
+		commit = func() error {
+			return tlsutil.WriteSecret(h.path(config.DefaultCloudflareTokenFile), []byte(acme.token+"\n"))
 		}
 	}
 	rerender, decoysChanged, prevTokenFile := false, false, ""
-	_, err = h.mutate(func(c *config.Config) error {
+	_, err = h.mutateCommit(func(c *config.Config) error {
 		if mode != "" {
 			c.Hub.UIMode = mode
 		}
@@ -266,7 +268,7 @@ func (l *local) SettingsSet(ctx context.Context, req api.SettingsRequest) error 
 			}
 		}
 		return nil
-	})
+	}, commit)
 	if err != nil {
 		return withLog(err)
 	}

@@ -31,6 +31,7 @@ type fakeRunner struct {
 	calls  []string
 	exists map[string]bool
 	failOn string // command prefix that fails
+	busy   int    // `ip link set` calls that fail with "Address already in use" first
 }
 
 func (f *fakeRunner) Run(_ context.Context, name string, args []string, _ []byte) ([]byte, []byte, error) {
@@ -40,6 +41,10 @@ func (f *fakeRunner) Run(_ context.Context, name string, args []string, _ []byte
 	f.calls = append(f.calls, cmd)
 	if f.failOn != "" && strings.HasPrefix(cmd, f.failOn) {
 		return nil, []byte("RTNETLINK answers: Operation not supported"), errExit
+	}
+	if f.busy > 0 && strings.HasPrefix(cmd, "ip link set") {
+		f.busy--
+		return nil, []byte("RTNETLINK answers: Address already in use"), errExit
 	}
 	if f.exists == nil {
 		f.exists = map[string]bool{}
@@ -62,7 +67,6 @@ type fakeNetlink struct {
 	family  uint16
 	reqs    [][]byte
 	setErr  syscall.Errno
-	busy    int // SET_DEVICE calls that fail with EADDRINUSE first
 	noFam   bool
 	closed  bool
 	failGet error
@@ -80,10 +84,6 @@ func (f *fakeNetlink) Roundtrip(_ context.Context, req []byte, seq uint32) ([]nl
 		payload := append([]byte{1, 2, 0, 0}, nlU16(ctrlAttrID, f.family)...)
 		payload = append(payload, nlString(ctrlAttrName, wgGenlName)...)
 		return []nlMessage{{typ: genlIDCtrl, seq: 1, data: payload}}, nil
-	}
-	if f.busy > 0 {
-		f.busy--
-		return nil, syscall.EADDRINUSE
 	}
 	if f.setErr != 0 {
 		return nil, f.setErr
@@ -304,26 +304,30 @@ func TestUpUserspace(t *testing.T) {
 // starts (the node's UDP reachability echo holds it for 10s) is retried
 // until it is free, within PortWait; other errors are not retried.
 func TestUpListenPortInUse(t *testing.T) {
-	// Kernel: SET_DEVICE fails twice with EADDRINUSE, then succeeds.
+	// Kernel: like the real kernel, SET_DEVICE on the down interface only
+	// stores the port and succeeds; the port is bound at link up, which
+	// fails twice with "Address already in use", then succeeds.
 	cfg := writeConfig(t, false, backend.SideHub, nil)
-	nl := &fakeNetlink{family: 1, busy: 2}
-	f := &fakeRunner{}
+	const linkUp = "ip link set dev dey-main mtu 1420 up"
+	nl := &fakeNetlink{family: 1}
+	f := &fakeRunner{busy: 2}
 	m := &Manager{Runner: f, openNetlink: func() (nlTransport, error) { return nl, nil }}
 	require.NoError(t, m.Up(context.Background(), cfg))
-	require.Len(t, nl.reqs, 4, "family lookup + three SET_DEVICE")
-	require.Equal(t, nl.reqs[1], nl.reqs[3], "the retry sends the same request")
+	require.Len(t, nl.reqs, 2, "family lookup + one SET_DEVICE")
+	require.Equal(t, 3, countCalls(f.calls, linkUp))
 	require.True(t, f.exists["dey-main"])
 
 	// Kernel: still taken after PortWait.
-	nl = &fakeNetlink{family: 1, busy: 1000}
-	f = &fakeRunner{}
+	nl = &fakeNetlink{family: 1}
+	f = &fakeRunner{busy: 1000}
 	m = &Manager{Runner: f, PortWait: 600 * time.Millisecond, openNetlink: func() (nlTransport, error) { return nl, nil }}
 	start := time.Now()
 	err := m.Up(context.Background(), cfg)
 	require.True(t, deyerr.HasCode(err, deyerr.B070), "%v", err)
-	require.Contains(t, err.Error(), "address already in use")
+	require.Contains(t, err.Error(), "Address already in use")
+	require.True(t, errors.Is(err, syscall.EADDRINUSE), "%v", err)
 	require.Less(t, time.Since(start), 5*time.Second)
-	require.Greater(t, len(nl.reqs), 2)
+	require.Greater(t, countCalls(f.calls, linkUp), 1)
 	require.False(t, f.exists["dey-main"], "half-built interface removed")
 
 	// Kernel: another error is not retried.
@@ -331,6 +335,12 @@ func TestUpListenPortInUse(t *testing.T) {
 	m = &Manager{Runner: &fakeRunner{}, openNetlink: func() (nlTransport, error) { return nl, nil }}
 	require.Error(t, m.Up(context.Background(), cfg))
 	require.Len(t, nl.reqs, 2)
+	f = &fakeRunner{failOn: "ip link set"}
+	m = &Manager{Runner: f, openNetlink: func() (nlTransport, error) { return &fakeNetlink{family: 1}, nil }}
+	err = m.Up(context.Background(), cfg)
+	require.True(t, deyerr.HasCode(err, deyerr.B070), "%v", err)
+	require.False(t, errors.Is(err, syscall.EADDRINUSE), "%v", err)
+	require.Equal(t, 1, countCalls(f.calls, linkUp))
 
 	// Userspace: amneziawg-go answers errno=-98 twice, then 0; every
 	// attempt is a new UAPI connection with the whole request.
@@ -403,6 +413,17 @@ func TestUpListenPortInUse(t *testing.T) {
 	require.True(t, deyerr.HasCode(err, deyerr.B071), "%v", err)
 	require.Contains(t, err.Error(), "listen port is in use")
 	require.True(t, errors.Is(err, syscall.EADDRINUSE), "%v", err)
+}
+
+// countCalls counts the recorded commands equal to cmd.
+func countCalls(calls []string, cmd string) int {
+	n := 0
+	for _, c := range calls {
+		if c == cmd {
+			n++
+		}
+	}
+	return n
 }
 
 // TestUpUserspaceUnixSocket exercises the real dialer with a unix socket.

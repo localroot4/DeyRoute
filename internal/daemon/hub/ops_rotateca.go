@@ -53,6 +53,11 @@ func (l *local) SecurityRotateCA(ctx context.Context, progress func(api.Step)) (
 	defer h.rotateMu.Unlock()
 	rep := &steps{progress: progress}
 	res := api.RotateCAResult{Reissued: []string{}, Offline: []string{}}
+	// Every new node certificate is saved to config.yaml: an edit that is
+	// not applied must stop the rotation before a CA is created.
+	if err := h.checkApplied(h.Config()); err != nil {
+		return res, withLog(err)
+	}
 	if _, err := h.autoBackup(); err != nil {
 		return res, withLog(err)
 	}

@@ -59,6 +59,16 @@ func clean(s string) string {
 	}, s)
 }
 
+// cleanLines applies clean to every line of a multi-line text (CRLF too),
+// so its line breaks survive.
+func cleanLines(s string) string {
+	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(s, "\r\n", "\n"), "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = clean(l)
+	}
+	return strings.Join(lines, "\n")
+}
+
 // jsonDoc returns the fields of v (a struct or map) with "schema": 1 added,
 // the stable envelope of every --json document (docs/cli-json.md).
 func jsonDoc(v any) (map[string]any, error) {

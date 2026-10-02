@@ -113,7 +113,10 @@ stated default until the owner decides · **[ANSWERED]** closed.
     validation (`DEY-C013`): the pinned Backhaul v0.7.2 serves its stats page
     on every interface and has no bind-address key, so "stats only on
     127.0.0.1" (§7.1) cannot be honoured; earlier it silently skipped every
-    Backhaul rung instead.
+    Backhaul rung instead. A config.yaml from such an earlier build still
+    starts the hub (the key is ignored with a warning in hub.log and dropped
+    at the next change); `config validate`, `edit`, `apply` and `restore`
+    refuse it.
 15. **[DEFAULT] Exec allow-list.** Section 15 allows only `systemctl, nft, ss,
     ip, xray x25519, rathole --genkey`, but section 10 requires detecting and
     (after confirmation) running `ufw` / `firewall-cmd` / `iptables`, and the

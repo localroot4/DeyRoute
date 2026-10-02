@@ -209,6 +209,63 @@ func TestMutationsWaitForUnappliedEdits(t *testing.T) {
 	require.Equal(t, "Second", n2.Name)
 }
 
+// Deleting the last custom ladder profile (no "default" entry) leaves no
+// unapplied edit behind: the next change is not refused with DEY-C026.
+func TestLadderDeleteLastProfileStaysApplied(t *testing.T) {
+	env := startHub(t, func(c *config.Config) { c.Ladders = map[string][]string{"fast": {"direct/native"}} })
+	ctx := ctxT(t)
+	env.joinNode("de-1")
+	require.NoError(t, env.client.LadderDelete(ctx, "fast"))
+	require.NoError(t, env.client.NodeRename(ctx, "de-1", "Germany"))
+	require.Equal(t, map[string][]string{config.DefaultLadderName: config.DefaultLadder}, env.h.Config().Ladders)
+	disk, err := config.LoadWith(filepath.Join(env.root, config.DefaultPath), testValidate)
+	require.NoError(t, err)
+	require.Equal(t, env.h.Config(), disk)
+}
+
+// advanced.backhaul_web_port, accepted by an earlier build and refused
+// since (DEY-C013), does not stop the hub after an update: the key is
+// ignored with a warning in hub.log, changes (a join) are not blocked by it
+// (DEY-C026) and write config.yaml without it, and config apply still
+// refuses it as a new edit.
+func TestObsoleteKeyDoesNotStopTheHub(t *testing.T) {
+	env, o := prepareEnv(t, func(c *config.Config) {
+		c.Nodes = []config.Node{{ID: "de-1", Name: "de-1", PublicIP: "1.2.3.4"}}
+		tn := config.NewTunnel("main", "Main", []string{"de-1"}, []config.PortMap{{Listen: 443, Proto: config.ProtoTCP, Target: "127.0.0.1:443"}})
+		tn.Enabled = false
+		tn.Advanced = &config.Advanced{ConnectionPool: 16}
+		c.Tunnels = []config.Tunnel{tn}
+	})
+	o.Logger = nil // real hub.log
+	path := filepath.Join(env.root, config.DefaultPath)
+	withWebPort := func() []byte {
+		c, err := config.LoadWith(path, testValidate)
+		require.NoError(t, err)
+		c.Tunnels[0].Advanced.BackhaulWebPort = 9000
+		data, err := config.Marshal(c)
+		require.NoError(t, err)
+		return data
+	}
+	require.NoError(t, os.WriteFile(path, withWebPort(), 0o600))
+
+	env.startEnv(o)
+	require.Equal(t, &config.Advanced{ConnectionPool: 16}, env.h.Config().Tunnels[0].Advanced)
+	logData, err := os.ReadFile(filepath.Join(env.root, LogFile))
+	require.NoError(t, err)
+	require.Contains(t, string(logData), "tunnels[main].advanced.backhaul_web_port")
+
+	env.joinNode("nl-1")
+	saved, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(saved), "backhaul_web_port")
+	require.Contains(t, string(saved), "connection_pool: 16")
+
+	require.NoError(t, os.WriteFile(path, withWebPort(), 0o600))
+	_, err = env.client.ConfigApply(ctxT(t), nil)
+	require.Equal(t, deyerr.C013, codeOf(err))
+	require.Equal(t, &config.Advanced{ConnectionPool: 16}, env.h.Config().Tunnels[0].Advanced)
+}
+
 func TestAuthenticateRefusesUnknownNodes(t *testing.T) {
 	env := startHub(t, nil)
 	n := env.joinNode("de-1")

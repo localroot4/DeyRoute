@@ -218,7 +218,9 @@ All notable changes to DEYROUTE are documented here. The format follows
   pinned binaries on systemd 255); only rathole keeps the exception.
 - `advanced.backhaul_web_port` is refused by validation (`DEY-C013`) instead
   of silently skipping every Backhaul rung: the pinned Backhaul cannot keep
-  its stats page on 127.0.0.1.
+  its stats page on 127.0.0.1. A config.yaml that already has it still
+  starts the hub: the key is ignored with a warning in hub.log and the next
+  change writes the file without it.
 - The menu says "client IP: preserved" for direct/haproxy only with the
   tunnel's `advanced.proxy_protocol` (`proxy_protocol` in TunnelInfo).
 - `port remove`, `tunnel backup remove` and `security firewall disable` ask

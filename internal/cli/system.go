@@ -385,7 +385,7 @@ func newFirewallCmd(g *Globals, action string) *cobra.Command {
 			}
 			g.say(i18n.CLIFirewallMode, mode, orDash(strings.Join(fi.Detected, ", ")))
 			if strings.TrimSpace(fi.Ruleset) != "" {
-				g.println(g.text(clean(strings.TrimRight(fi.Ruleset, "\n"))))
+				g.println(g.text(cleanLines(fi.Ruleset)))
 			}
 			if len(fi.Suggested) > 0 {
 				g.say(i18n.CLIFirewallSuggested)
@@ -632,7 +632,7 @@ func newUpdateCmd(g *Globals) *cobra.Command {
 			}
 			if !g.JSON && info.Changelog != "" && target == info.Latest {
 				g.say(i18n.CLIChangelog, info.Latest)
-				g.println(g.text(clean(strings.TrimRight(info.Changelog, "\n"))))
+				g.println(g.text(cleanLines(info.Changelog)))
 			}
 			if err := g.confirm(i18n.T(i18n.CLIUpdateLost, orDash(info.Current), target), yes); err != nil {
 				return err
@@ -668,7 +668,7 @@ func (g *Globals) printUpdateInfo(info api.UpdateInfo) error {
 	}
 	g.say(i18n.CLIUpdateAvailable, orDash(info.Current), info.Latest)
 	if info.Changelog != "" {
-		g.println(g.text(clean(strings.TrimRight(info.Changelog, "\n"))))
+		g.println(g.text(cleanLines(info.Changelog)))
 	}
 	return nil
 }

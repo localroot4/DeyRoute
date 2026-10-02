@@ -13,6 +13,7 @@ import (
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
+	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 )
 
@@ -149,6 +150,32 @@ func TestSecurityRotateCA(t *testing.T) {
 	require.Equal(t, []string{"de-1"}, res.Reissued)
 	require.NoFileExists(t, filepath.Join(dir, FilePrevCACert))
 	env.waitOnline("de-1", true)
+}
+
+// An edit of config.yaml that is not applied stops the rotation before a
+// CA is created (DEY-C026): the new node certificates could not be saved
+// and the nodes would be locked out.
+func TestRotateCAWaitsForUnappliedEdit(t *testing.T) {
+	env := startHub(t, nil)
+	n := env.joinNode("de-1")
+	rot := rotateOn(t, n)
+	n.start()
+	env.waitOnline("de-1", true)
+	oldCA := env.h.currentCA()
+	path := filepath.Join(env.root, config.DefaultPath)
+	c, err := config.LoadWith(path, testValidate)
+	require.NoError(t, err)
+	c.Hub.Name = "edited"
+	require.NoError(t, config.SaveWith(path, c, testValidate))
+
+	var log stepLog
+	_, err = env.client.SecurityRotateCA(ctxT(t), log.add)
+	require.Equal(t, deyerr.C026, codeOf(err))
+	require.Empty(t, log.finished())
+	require.Empty(t, rot.installed())
+	require.Equal(t, oldCA.Fingerprint(), env.h.currentCA().Fingerprint())
+	require.NoFileExists(t, filepath.Join(env.root, config.SecretsDir, FilePrevCACert))
+	require.True(t, env.h.Online("de-1"))
 }
 
 func TestRotateCALoadsPreviousCA(t *testing.T) {

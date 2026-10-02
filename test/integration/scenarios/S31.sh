@@ -44,8 +44,10 @@ sys.exit(0 if s.recvfrom(65535)[0] == b\"echo:ping\" else 1)
 wait_for 30 "UDP 27015 echo through the companion" udp_roundtrip
 
 # The pair lives and dies together: killing the companion restarts the unit.
+# Only the supervisor's child is killed: its own command line names
+# server-udp.toml too, and killing it would restart the unit by itself.
 pid=$(main_pid hub "$unit")
-sh_on hub "pkill -f 'server-udp.toml'" || fail "no companion process on the hub"
+sh_on hub "pkill -P $pid -f 'server-udp\.toml'" || fail "no companion process on the hub"
 changed() { p=$(main_pid hub "$unit"); [ -n "$p" ] && [ "$p" != 0 ] && [ "$p" != "$pid" ]; }
 wait_for 60 "unit $unit restarted after the companion exited" changed
 wait_for 60 "UDP 27015 echo after the restart" udp_roundtrip

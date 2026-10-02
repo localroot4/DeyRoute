@@ -240,7 +240,8 @@ func numberChoices(n int) string {
 }
 
 // formScreen asks its fields one after the other. Enter on an empty line
-// takes the default; Esc cancels; "?" on an empty line shows the help.
+// takes the default; Esc cancels; "?" on an empty line shows the help
+// (except in a masked field).
 // submit decides where to go next.
 type formScreen struct {
 	screenBase
@@ -262,7 +263,12 @@ func newForm(title string, intro string, fields []field, submit func(a *app, val
 
 func (f *formScreen) start(a *app) tea.Cmd { return f.advance(a) }
 
-func (f *formScreen) inputEmpty() bool { return f.input == "" }
+// inputEmpty is false on a masked field: a secret is typed verbatim, so a
+// passphrase may start with "?".
+func (f *formScreen) inputEmpty() bool { return !f.secret() && f.input == "" }
+
+// secret reports whether the current question is masked.
+func (f *formScreen) secret() bool { return f.idx < len(f.fields) && f.fields[f.idx].masked }
 
 // advance skips fields that do not apply; after the last field it submits.
 func (f *formScreen) advance(a *app) tea.Cmd {

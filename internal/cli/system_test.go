@@ -212,7 +212,7 @@ func TestSecurityCommands(t *testing.T) {
 	out = e.ok("security", "firewall", "show")
 	require.Equal(t, "show", fwAction)
 	require.Contains(t, out, "Firewall: managed by deyroute · detected: nftables, ufw")
-	require.Contains(t, out, "table inet deyroute {")
+	require.Contains(t, out, "table inet deyroute {\n}\n", "the ruleset keeps its lines")
 	require.Contains(t, e.ok("security", "firewall", "apply"), "applied")
 	require.Equal(t, "apply", fwAction)
 	fwAction = ""
@@ -331,11 +331,13 @@ func TestTLSDomainAndACME(t *testing.T) {
 
 func TestUpdateCommands(t *testing.T) {
 	e := newEnv(t)
-	info := api.UpdateInfo{Current: "1.0.0", Latest: "1.1.0", Available: true, Changelog: "- faster failover\n"}
+	info := api.UpdateInfo{Current: "1.0.0", Latest: "1.1.0", Available: true, Changelog: "## [1.1.0] - 2026-10-01\r\n\n### Fixed\n\n- faster failover\n"}
 	e.stub.UpdateCheckFn = func(context.Context) (api.UpdateInfo, error) { return info, nil }
 	out := e.ok("update", "--check")
 	require.Contains(t, out, "deyroute 1.0.0 is installed; 1.1.0 is available.")
-	require.Contains(t, out, "- faster failover")
+	// The CHANGELOG section keeps its line breaks.
+	require.Contains(t, out, "## [1.1.0] - 2026-10-01\n\n### Fixed\n\n- faster failover\n")
+	require.NotContains(t, out, "?")
 	doc := e.json("update", "--check")
 	require.Equal(t, true, doc["available"])
 
@@ -351,6 +353,7 @@ func TestUpdateCommands(t *testing.T) {
 	out = e.ok("update")
 	require.Equal(t, "1.1.0", applied)
 	require.Contains(t, out, "Changes in 1.1.0:")
+	require.Contains(t, out, "### Fixed\n\n- faster failover\n")
 	require.Contains(t, out, "✔ restart")
 	require.Contains(t, out, "Updated deyroute 1.0.0 -> 1.1.0.")
 	e.g.IsTTY = false

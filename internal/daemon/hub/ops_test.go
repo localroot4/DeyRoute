@@ -90,7 +90,7 @@ func TestOptimizeApplyRevert(t *testing.T) {
 	require.Equal(t, "cubic", readProc(t, env.root, "net.ipv4.tcp_congestion_control"), "BBR is skipped")
 	joined := strings.Join(st.Warnings, "\n")
 	require.Contains(t, joined, "tcp_bbr is not available")
-	require.Contains(t, joined, "node nl-1 is offline")
+	require.Contains(t, joined, "node nl-1: offline")
 	require.Contains(t, joined, "node de-1: skip net.ipv4.tcp_congestion_control = bbr")
 	require.FileExists(t, filepath.Join(env.root, config.SysctlConfPath))
 	require.Equal(t, config.SysctlBalanced, env.h.Config().Tuning.SysctlProfile)
@@ -134,6 +134,25 @@ func TestOptimizeApplyRevert(t *testing.T) {
 	joined = strings.Join(st.Warnings, "\n")
 	require.Contains(t, joined, "node de-1: DEY-X033")
 	require.Contains(t, joined, "aggressive is meant for servers with 4 GB RAM or more; this one has 976 MB")
+
+	// An edit of config.yaml that is not applied stops apply and revert
+	// before the hub kernel changes (DEY-C026).
+	path := filepath.Join(env.root, config.DefaultPath)
+	c, err := config.LoadWith(path, testValidate)
+	require.NoError(t, err)
+	c.Hub.Name = "edited"
+	require.NoError(t, config.SaveWith(path, c, testValidate))
+	conf, err := os.ReadFile(filepath.Join(env.root, config.SysctlConfPath))
+	require.NoError(t, err)
+	_, err = env.client.OptimizeApply(ctx, config.SysctlBalanced)
+	require.Equal(t, deyerr.C026, codeOf(err))
+	_, err = env.client.OptimizeRevert(ctx)
+	require.Equal(t, deyerr.C026, codeOf(err))
+	after, err := os.ReadFile(filepath.Join(env.root, config.SysctlConfPath))
+	require.NoError(t, err)
+	require.Equal(t, string(conf), string(after))
+	require.Equal(t, "65535", readProc(t, env.root, "net.core.somaxconn"))
+	require.Equal(t, config.SysctlAggressive, env.h.Config().Tuning.SysctlProfile)
 }
 
 // withIPForward creates the ip_forward switch a NAT transport sets.

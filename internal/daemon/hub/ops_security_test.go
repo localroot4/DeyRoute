@@ -444,12 +444,21 @@ func TestACMESettings(t *testing.T) {
 	require.Equal(t, deyerr.S009, codeOf(err))
 	require.NotContains(t, deyerr.As(err).Error(), token, "the file content is never quoted")
 	require.NoError(t, os.WriteFile(src, []byte(token+"\n"), 0o600))
+	// A refused change (config.yaml holds an edit that was not applied)
+	// stores no token.
+	cfgPath := filepath.Join(te.root, config.DefaultPath)
+	applied, err := os.ReadFile(cfgPath) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(cfgPath, append(append([]byte(nil), applied...), "bogus_key: 1\n"...), 0o600))
+	require.Equal(t, deyerr.C026, codeOf(set(api.SettingsRequest{CloudflareTokenFile: str("/root/cloudflare.token")})))
+	stored := filepath.Join(te.root, config.DefaultCloudflareTokenFile)
+	require.NoFileExists(t, stored)
+	require.NoError(t, os.WriteFile(cfgPath, applied, 0o600))
 	require.NoError(t, set(api.SettingsRequest{CloudflareTokenFile: str("/root/cloudflare.token")}))
 	require.NoError(t, os.Remove(src), "the owner's file may be deleted afterwards")
 
 	cfg := te.h.Config()
 	require.Equal(t, &config.ACME{Email: "owner@example.com", CloudflareTokenFile: config.DefaultCloudflareTokenFile}, cfg.Hub.ACME)
-	stored := filepath.Join(te.root, config.DefaultCloudflareTokenFile)
 	fi, err := os.Stat(stored)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
@@ -464,6 +473,16 @@ func TestACMESettings(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, api.ACMEDNS01, st.Hub.ACMEChallenge)
 	require.Equal(t, "owner@example.com", st.Hub.ACMEEmail)
+
+	// A refused change keeps the stored token: a new one is not copied.
+	require.NoError(t, os.WriteFile(cfgPath, append(append([]byte(nil), yaml...), "bogus_key: 1\n"...), 0o600))
+	require.NoError(t, os.WriteFile(src, []byte("cfTok_zyxwvutsrqponmlkjihgfedcba9876543210\n"), 0o600))
+	require.Equal(t, deyerr.C026, codeOf(set(api.SettingsRequest{CloudflareTokenFile: str("/root/cloudflare.token")})))
+	data, err = os.ReadFile(stored) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.Equal(t, token, strings.TrimSpace(string(data)))
+	require.NoError(t, os.WriteFile(cfgPath, yaml, 0o600))
+	require.NoError(t, os.Remove(src))
 
 	// The next request uses DNS-01 with the stored token and the e-mail.
 	list, err := te.client.SecurityTLSRenew(ctx, "main")

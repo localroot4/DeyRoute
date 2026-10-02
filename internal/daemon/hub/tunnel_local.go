@@ -368,15 +368,17 @@ const maxExtFirewallChecks = 16
 // firewalld, iptables, another nftables table) is reported as a yellow
 // step with DEY-P013 and the command that opens it. The tunnel is added
 // anyway: the owner decides, and deyroute port check <port> --open or the
-// menu runs the command after confirmation. Nothing is checked when no
-// one watches the progress, and nothing is reported when no port is
-// blocked.
+// menu runs the command after confirmation. A rule deyroute has no safe
+// command for (an nftables table or chain name that is not a plain
+// identifier) is reported to be opened by hand, without --open. Nothing is
+// checked when no one watches the progress, and nothing is reported when
+// no port is blocked.
 func (h *Hub) extFirewallStep(ctx context.Context, rep *steps, maps []config.PortMap) {
 	if rep == nil || rep.progress == nil || len(maps) == 0 {
 		return
 	}
 	seen := map[config.ListenKey]bool{}
-	var blocked, cmds []string
+	var blocked, cmds, manual []string
 	var first error
 	checked, skipped := 0, 0
 	for _, m := range maps {
@@ -400,9 +402,19 @@ func (h *Hub) extFirewallStep(ctx context.Context, rep *steps, maps []config.Por
 		}
 		spec := strconv.Itoa(m.Listen) + "/" + proto
 		blocked = append(blocked, spec+" ("+string(v.By)+")")
-		cmds = append(cmds, v.Command())
+		c := v.Command()
+		if c != "" {
+			cmds = append(cmds, c)
+		} else {
+			manual = append(manual, spec+": "+v.Detail)
+			c = "deyroute has no safe command for the rule that blocks it; open the port by hand with the firewall's own tool"
+		}
 		if first == nil {
-			first = deyerr.New(deyerr.P013, deyerr.Params{"firewall": string(v.By), "port": spec, "command": v.Command()})
+			e := deyerr.New(deyerr.P013, deyerr.Params{"firewall": string(v.By), "port": spec, "command": c})
+			if v.Detail != "" {
+				e = e.WithDetail(v.Detail)
+			}
+			first = e
 		}
 	}
 	detail := ""
@@ -412,8 +424,13 @@ func (h *Hub) extFirewallStep(ctx context.Context, rep *steps, maps []config.Por
 	if first == nil {
 		return // only a blocked port is worth a step
 	}
-	d := "blocked: " + strings.Join(blocked, ", ") + "; to open: " + strings.Join(cmds, "; ") +
-		" (or deyroute port check <port> --open)"
+	d := "blocked: " + strings.Join(blocked, ", ")
+	if len(cmds) > 0 {
+		d += "; to open: " + strings.Join(cmds, "; ") + " (or deyroute port check <port> --open)"
+	}
+	if len(manual) > 0 {
+		d += "; open by hand: " + strings.Join(manual, "; ")
+	}
 	if detail != "" {
 		d += "; " + detail
 	}

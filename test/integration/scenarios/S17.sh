@@ -207,14 +207,16 @@ PY
 # wg up with a copy of the hub's wg.json) and a route into the tunnel: the
 # node must not route it (the firewall confines the tunnel interface even
 # though the lab containers have ip_forward=1). The hub's own wg.json is
-# applied again afterwards.
+# applied again afterwards. The arrived counter must grow during this probe:
+# an earlier WireGuard probe already raised it.
 probe_wg() {
-  local tr=$1 cfg iface node_addr
+  local tr=$1 cfg iface node_addr a0
   cfg=$(hub_dir "$tr")/wg.json
   iface=$(on hub cat "$cfg" | jq -r .interface)
   node_addr=$(on hub cat "$cfg" | jq -r '.peer.allowed_ips[0]' | cut -d/ -f1)
   sh_on hub "curl -fsS -o /dev/null --max-time 10 http://$node_addr:443/" ||
     fail "$tr: the hub does not reach the target through $iface"
+  a0=$(watched arrived)
   on hub cat "$cfg" | jq '.peer.allowed_ips += ["8.8.8.8/32"]' | on hub sh -c 'umask 077 && cat > /tmp/it-s17-wg.json'
   on hub deyroute wg up --config /tmp/it-s17-wg.json >/dev/null || fail "$tr: cannot widen the hub peer"
   log "$tr: hub peer widened to 8.8.8.8/32, routing 8.8.8.8 into $iface"
@@ -230,7 +232,7 @@ except OSError as e:
 PY
   sh_on hub "ip route del 8.8.8.8/32 dev $iface"
   on hub deyroute wg up --config "$cfg" >/dev/null || fail "$tr: cannot restore the hub peer"
-  [ "$(watched arrived)" -gt 0 ] || fail "$tr: what the hub routed into $iface never reached the node"
+  [ "$(watched arrived)" -gt "$a0" ] || fail "$tr: what the hub routed into $iface never reached the node"
 }
 
 rungs=$(tunnel_json "$T" | jq -r '[.rungs[] | select(.node == env.NODE1 and (.skipped | not or . == "")) | .transport] | unique | .[]')

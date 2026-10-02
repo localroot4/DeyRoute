@@ -152,7 +152,9 @@ func New(o Options) (_ *Hub, err error) {
 		}
 	}()
 
-	cfg, err := config.LoadWith(h.cfgPath, h.valOpts)
+	// A key an earlier build accepted and this one refuses must not stop
+	// the hub after an update: it is ignored with a warning.
+	cfg, dropped, err := config.LoadDropObsolete(h.cfgPath, h.valOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +165,10 @@ func New(o Options) (_ *Hub, err error) {
 
 	if err := h.openLogs(); err != nil {
 		return nil, err
+	}
+	for _, field := range dropped {
+		h.log.Warn("config.yaml key is no longer supported and was ignored; remove it",
+			slog.String("field", field), dlog.Code(deyerr.C013))
 	}
 	if err := h.openState(); err != nil {
 		return nil, err
@@ -547,9 +553,10 @@ func (h *Hub) mutateCommit(fn func(c *config.Config) error, commit func() error)
 // for `deyroute config apply`: writing cur over it would silently discard
 // it, and changing the edited file instead would take it over without the
 // checks of config apply (immutable ids, section 4). An edit that does not
-// even load is reported in the detail.
+// even load is reported in the detail. A key New ignored (LoadDropObsolete)
+// is ignored here too, so it does not block every change.
 func (h *Hub) checkApplied(cur *config.Config) error {
-	disk, err := config.LoadWith(h.cfgPath, h.valOpts)
+	disk, _, err := config.LoadDropObsolete(h.cfgPath, h.valOpts)
 	if err == nil {
 		if same, merr := sameConfig(disk, cur); merr == nil && same {
 			return nil

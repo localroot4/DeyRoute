@@ -482,3 +482,104 @@ func TestClientIPNoteFollowsProxyProtocol(t *testing.T) {
 	require.Equal(t, "client IP: masked", clientIPNote(tr, "backhaul/wssmux", true))
 	require.Empty(t, clientIPNote(tr, "unknown/x", true))
 }
+
+// Regression: after the primary was changed to the earlier backup node, the
+// backup question still took that node on Enter alone although it was no
+// longer listed, so TunnelAdd named nl-1 as its own backup (DEY-C002).
+func TestWizardBackupIsNeverThePrimary(t *testing.T) {
+	log := &callLog{}
+	stub := fullStub(log, "advanced")
+	var got api.TunnelAddRequest
+	var mu sync.Mutex
+	stub.TunnelAddFn = func(_ context.Context, req api.TunnelAddRequest, _ func(api.Step)) (api.TunnelInfo, error) {
+		mu.Lock()
+		got = req
+		mu.Unlock()
+		return api.TunnelInfo{ID: "web", State: state.StateUp}, nil
+	}
+	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
+	h.choose("2").choose("1").choose("1").typeLine("443") // de-1
+	h.choose("11")                                        // save the default ladder
+	// name, target, probe kind, backup 2) nl-1, policy, TLS, thresholds
+	h.typeLine("").typeLine("").typeLine("").typeLine("2").typeLine("").typeLine("").typeLine("")
+	h.must("3. Confirm", "Backup      nl-1")
+	h.choose("0")  // back to the ports
+	h.press("esc") // back to the node
+	h.choose("2")  // nl-1, the former backup
+	h.press("ctrl+u").typeLine("443")
+	h.must("3. Confirm", "Backup      none")
+	h.choose("2").choose("11") // advanced options again
+	h.typeLine("").typeLine("").typeLine("")
+	h.must(" Backup node:\n 1) none\n 2) de-1  Germany 1  ● online\n Type 1 or 2 and press Enter. Enter alone = 1.\nChoice [1]: _")
+	h.typeLine("").typeLine("").typeLine("").typeLine("")
+	h.must("3. Confirm", "Backup      none")
+	h.press("enter")
+	mu.Lock()
+	require.Equal(t, "nl-1", got.Node)
+	require.Empty(t, got.Backups)
+	mu.Unlock()
+	// A backup that is not listed (here the primary) is never the default.
+	w := &wizard{nodes: sampleNodes(), node: sampleNodes()[1], backup: "nl-1"}
+	for _, fl := range w.advForm(NewModel(Options{}).a).fields {
+		if fl.key == "backup" {
+			require.Empty(t, fl.def)
+		}
+	}
+}
+
+// Regression: "?" as the first character of a masked passphrase opened the
+// help, so a backup whose passphrase starts with "?" could not be restored.
+func TestMaskedFieldTypesQuestionMark(t *testing.T) {
+	var mu sync.Mutex
+	var gotPass string
+	h := newHarness(t, Options{Caps: Caps{Unicode: true},
+		RestoreCheck: func(_ context.Context, _, pass string) (RestorePlan, error) {
+			mu.Lock()
+			gotPass = pass
+			mu.Unlock()
+			return RestorePlan{Lost: "Restoring replaces this server's /etc/deyroute."}, nil
+		},
+		Restore: func(context.Context, string, string, string) (string, error) { return "", nil },
+	})
+	h.choose("10").choose("2")
+	h.press("?") // an empty unmasked field still shows the help
+	h.must("Press q or Esc to go back.")
+	h.press("esc")
+	h.typeLine("/tmp/b1.tar.gz.age")
+	h.press("?", "a", "b")
+	h.mustNot("Press q or Esc to go back.")
+	h.must("Passphrase (empty if the backup is not encrypted): ***_")
+	h.press("enter")
+	h.must("Type yes")
+	mu.Lock()
+	require.Equal(t, "?ab", gotPass)
+	mu.Unlock()
+	// Line mode: "?" alone in a masked field is the answer, not the help.
+	a := NewModel(Options{}).a
+	a.push(newForm("t", "", []field{{key: "p", label: "p", masked: true}}, func(*app, map[string]string) tea.Cmd { return nil }))
+	var keys []string
+	for _, k := range lineKeys(a, "?") {
+		keys = append(keys, k.String())
+	}
+	require.Equal(t, []string{"ctrl+u", "?", "enter"}, keys)
+}
+
+// Regression: Failover → Ladder order showed the client-IP-preserving
+// transports of a tunnel with advanced.proxy_protocol as masked.
+func TestLadderEditorFollowsProxyProtocol(t *testing.T) {
+	log := &callLog{}
+	stub := fullStub(log, "advanced")
+	stub.TunnelListFn = func(context.Context) ([]api.TunnelInfo, error) {
+		ts := sampleTunnels()
+		ts[0].ProxyProtocol = true
+		return ts, nil
+	}
+	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
+	h.choose("5").choose("2").choose("1")
+	h.must("Ladder of main", "backhaul/wssmux  client IP: masked")
+	h.choose("4") // add a transport
+	h.must("Add a transport:", "direct/haproxy  client IP: preserved\n")
+	h.choose("1")
+	h.must("direct/haproxy   client IP: preserved\n")
+	h.mustNot("preserved with advanced.proxy_protocol")
+}

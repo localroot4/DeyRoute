@@ -37,11 +37,28 @@ func Load(path string) (*Config, error) { return LoadWith(path, ValidateOptions{
 // whenever an error is returned. Line numbers of a migrated (older) file
 // refer to the converted document.
 func LoadWith(path string, opts ValidateOptions) (*Config, error) {
+	c, _, err := loadFile(path, opts, false)
+	return c, err
+}
+
+// LoadDropObsolete is LoadWith for the config.yaml the hub runs from (its
+// start and the DEY-C026 check before a change): a key an earlier build
+// accepted and this one refuses is cleared before validation instead of
+// failing the load, and the dotted paths of the cleared keys are returned
+// so the daemon can warn about them. An update or a restart must not leave
+// the hub unable to start; the next change writes config.yaml without the
+// key. Owner edits (config validate, edit and apply, restore) keep refusing
+// it through LoadWith and ParseWith.
+func LoadDropObsolete(path string, opts ValidateOptions) (*Config, []string, error) {
+	return loadFile(path, opts, true)
+}
+
+func loadFile(path string, opts ValidateOptions, dropObsolete bool) (*Config, []string, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- the config path is chosen by the owner/daemon
 	if err != nil {
-		return nil, c014(path, err, 0)
+		return nil, nil, c014(path, err, 0)
 	}
-	return parse(data, path, opts)
+	return parse(data, path, opts, dropObsolete)
 }
 
 // Parse is Load for in-memory data (strict decode, migration, defaults and
@@ -50,7 +67,8 @@ func Parse(data []byte) (*Config, error) { return ParseWith(data, ValidateOption
 
 // ParseWith is Parse with explicit validation options.
 func ParseWith(data []byte, opts ValidateOptions) (*Config, error) {
-	return parse(data, inputName, opts)
+	c, _, err := parse(data, inputName, opts, false)
+	return c, err
 }
 
 // Decode strictly decodes data and migrates it to the current schema without
@@ -72,17 +90,41 @@ func SchemaVersionOf(data []byte) (int, error) {
 	return schemaVersion(root)
 }
 
-func parse(data []byte, path string, opts ValidateOptions) (*Config, error) {
+func parse(data []byte, path string, opts ValidateOptions, dropObsolete bool) (*Config, []string, error) {
 	c, root, err := decode(data, path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	var dropped []string
+	if dropObsolete {
+		dropped = clearObsolete(c)
 	}
 	applyPresenceDefaults(root, c)
 	c.ApplyDefaults()
 	if err := c.Validate(opts); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return c, nil
+	return c, dropped, nil
+}
+
+// clearObsolete clears the keys an earlier build accepted and validation
+// now refuses, and returns their dotted paths. advanced.backhaul_web_port:
+// the pinned Backhaul cannot keep its stats page on 127.0.0.1 (see
+// validator.advanced); an advanced section left empty is removed.
+func clearObsolete(c *Config) []string {
+	var dropped []string
+	for i := range c.Tunnels {
+		t := &c.Tunnels[i]
+		if t.Advanced == nil || t.Advanced.BackhaulWebPort == 0 {
+			continue
+		}
+		t.Advanced.BackhaulWebPort = 0
+		if *t.Advanced == (Advanced{}) {
+			t.Advanced = nil
+		}
+		dropped = append(dropped, itemPath("tunnels", t.ID, i)+".advanced.backhaul_web_port")
+	}
+	return dropped
 }
 
 // decode parses data into a Config: syntax check, schema_version check,

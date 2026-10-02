@@ -59,8 +59,8 @@ func bareFake() *exec.Fake {
 	return exec.NewFake().
 		On("nft list tables").
 		On("nft list ruleset").
-		On("iptables -S INPUT", exec.OK("-P INPUT ACCEPT\n")).
-		On("iptables -S", exec.OK(iptablesAcceptAll)).
+		On("iptables -w -S INPUT", exec.OK("-P INPUT ACCEPT\n")).
+		On("iptables -w -S", exec.OK(iptablesAcceptAll)).
 		On("ufw status", exec.Fail(127, "ufw: not found")).
 		On("ufw status verbose", exec.Fail(127, "ufw: not found")).
 		On("firewall-cmd --state", exec.Fail(252, "not running"))
@@ -76,15 +76,15 @@ func TestDetect(t *testing.T) {
 	require.Equal(t, []Kind{NFTables}, Detect(ctx, bareFake()))
 
 	// Raw iptables with rules.
-	f := bareFake().On("iptables -S INPUT", exec.OK(fixture(t, "iptables_S.txt")))
+	f := bareFake().On("iptables -w -S INPUT", exec.OK(fixture(t, "iptables_S.txt")))
 	require.Equal(t, []Kind{NFTables, IPTables}, Detect(ctx, f))
 
 	// ufw active: its iptables rules are not reported separately.
 	f = bareFake().
 		On("ufw status", exec.OK(ufwPlain)).
-		On("iptables -S INPUT", exec.OK("-P INPUT DROP\n-A INPUT -j ufw-before-input\n"))
+		On("iptables -w -S INPUT", exec.OK("-P INPUT DROP\n-A INPUT -j ufw-before-input\n"))
 	require.Equal(t, []Kind{NFTables, UFW}, Detect(ctx, f))
-	require.False(t, f.Called("iptables -S INPUT"))
+	require.False(t, f.Called("iptables -w -S INPUT"))
 
 	// ufw inactive.
 	f = bareFake().On("ufw status", exec.OK("Status: inactive\n"))
@@ -97,7 +97,7 @@ func TestDetect(t *testing.T) {
 	// Order of the commands follows section 10.
 	f = bareFake()
 	Detect(ctx, f)
-	require.Equal(t, []string{"nft list tables", "ufw status", "firewall-cmd --state", "iptables -S INPUT"}, f.Lines())
+	require.Equal(t, []string{"nft list tables", "ufw status", "firewall-cmd --state", "iptables -w -S INPUT"}, f.Lines())
 }
 
 func TestCheckNothingBlocks(t *testing.T) {
@@ -130,7 +130,7 @@ func TestCheckUFW(t *testing.T) {
 	require.Equal(t, []string{"ufw allow 9000/tcp"}, v.Commands)
 	require.Equal(t, "ufw allow 9000/tcp", v.Command())
 	require.Equal(t, "policy drop", v.Detail)
-	require.False(t, f.Called("iptables -S"), "iptables belongs to ufw")
+	require.False(t, f.Called("iptables -w -S"), "iptables belongs to ufw")
 
 	e := deyerr.As(v.Err(9000, "tcp"))
 	require.Equal(t, deyerr.P013, e.Code)
@@ -179,7 +179,7 @@ func TestCheckFirewalld(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, v.Blocked, "%d/%s", ok.port, ok.proto)
 	}
-	require.False(t, f.Called("iptables -S"))
+	require.False(t, f.Called("iptables -w -S"))
 
 	// Open runs both commands in order.
 	f.On("firewall-cmd --permanent --add-port=80/tcp", exec.OK("success\n")).On("firewall-cmd --reload", exec.OK("success\n"))
@@ -265,7 +265,7 @@ func TestCheckFirewalld(t *testing.T) {
 func TestCheckIPTables(t *testing.T) {
 	ctx := context.Background()
 	f := bareFake().
-		On("iptables -S", exec.OK(fixture(t, "iptables_S.txt"))).
+		On("iptables -w -S", exec.OK(fixture(t, "iptables_S.txt"))).
 		On("nft list ruleset", exec.OK(fixture(t, "nft_iptables.txt")))
 
 	v, err := Check(ctx, f, 8443, "tcp")
@@ -284,6 +284,26 @@ func TestCheckIPTables(t *testing.T) {
 	v, err = Check(ctx, f, 443, "tcp")
 	require.NoError(t, err)
 	require.False(t, v.Blocked)
+}
+
+// iptables-legacy takes the xtables lock even to list rules: while another
+// port check (doctor runs them in parallel), docker or fail2ban holds it, a
+// listing without -w exits 4 and the blocking iptables would be skipped.
+func TestCheckIPTablesWaitsForLock(t *testing.T) {
+	ctx := context.Background()
+	locked := exec.Fail(4, "Another app is currently holding the xtables lock. Perhaps you want to use the -w option?")
+	f := bareFake().
+		On("iptables -S INPUT", locked).
+		On("iptables -S", locked).
+		On("iptables -w -S INPUT", exec.OK("-P INPUT DROP\n")).
+		On("iptables -w -S", exec.OK("-P INPUT DROP\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n"))
+
+	require.Equal(t, []Kind{NFTables, IPTables}, Detect(ctx, f))
+	v, err := Check(ctx, f, 9000, "tcp")
+	require.NoError(t, err)
+	require.True(t, v.Blocked)
+	require.Equal(t, IPTables, v.By)
+	require.Equal(t, []string{"iptables -I INPUT -p tcp --dport 9000 -j ACCEPT"}, v.Commands)
 }
 
 func TestCheckNFTables(t *testing.T) {
@@ -327,7 +347,7 @@ func TestCheckNFTables(t *testing.T) {
 
 	// With iptables handled, its ip filter table is not evaluated twice.
 	f3 := bareFake().
-		On("iptables -S", exec.OK(iptablesAcceptAll)).
+		On("iptables -w -S", exec.OK(iptablesAcceptAll)).
 		On("nft list ruleset", exec.OK(fixture(t, "nft_iptables.txt")))
 	v, err = Check(ctx, f3, 9999, "tcp")
 	require.NoError(t, err)

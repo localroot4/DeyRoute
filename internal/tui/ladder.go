@@ -14,11 +14,13 @@ import (
 
 // ladderEditor orders the rungs of a ladder (Failover -> Ladder order and
 // the Advanced Add tunnel wizard). It shows the section 8 guidance table and
-// the client-IP property of every transport (section 10).
+// the client-IP property of every transport (section 10); proxy is the
+// tunnel's advanced.proxy_protocol.
 type ladderEditor struct {
 	screenBase
 	rungs  []string
 	sel    int
+	proxy  bool
 	tr     map[string]api.TransportInfo
 	err    error
 	ch     chooser
@@ -26,11 +28,12 @@ type ladderEditor struct {
 	onSave func(a *app, rungs []string) tea.Cmd
 }
 
-func newLadderEditor(title string, rungs []string, onSave func(a *app, rungs []string) tea.Cmd) *ladderEditor {
+func newLadderEditor(title string, rungs []string, proxy bool, onSave func(a *app, rungs []string) tea.Cmd) *ladderEditor {
 	return &ladderEditor{
 		screenBase: screenBase{title: title, help: i18n.TUIHelpLadder},
 		rungs:      append([]string(nil), rungs...),
 		sel:        -1,
+		proxy:      proxy,
 		onSave:     onSave,
 	}
 }
@@ -167,7 +170,7 @@ func (le *ladderEditor) addPicker(a *app) tea.Cmd {
 	}
 	l := &listScreen{screenBase: screenBase{title: le.title}, intro: i18n.T(i18n.TUILadAdd)}
 	for _, id := range ids {
-		l.fixed = append(l.fixed, choice{label: strings.TrimRight(pad(id, w+2)+clientIPNote(le.tr, id, false), " "), value: id})
+		l.fixed = append(l.fixed, choice{label: strings.TrimRight(pad(id, w+2)+clientIPNote(le.tr, id, le.proxy), " "), value: id})
 	}
 	l.pick = func(a *app, c choice) tea.Cmd {
 		le.rungs = append(le.rungs, c.value.(string))
@@ -241,7 +244,7 @@ func (le *ladderEditor) view(a *app) string {
 		if i == le.sel {
 			mark = a.sym().sel + " "
 		}
-		line := mark + numLine(i+1, strings.TrimRight(pad(r, w+2)+clientIPNote(le.tr, r, false), " "))
+		line := mark + numLine(i+1, strings.TrimRight(pad(r, w+2)+clientIPNote(le.tr, r, le.proxy), " "))
 		if i == le.sel {
 			line = a.bold(line)
 		}

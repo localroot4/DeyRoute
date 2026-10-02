@@ -193,4 +193,32 @@ func TestTunnelAddReportsExternalFirewallBlocks(t *testing.T) {
 	_, err = te.client.PortAdd(ctxT(t), info.ID, []api.PortSpec{{Listen: p2}}, log2.add)
 	require.NoError(t, err)
 	require.Contains(t, log2.finished(), "external_firewall:warn")
+
+	// An nftables table deyroute has no safe command for: no empty command
+	// and no --open hint (that would fail with DEY-P033); open it by hand.
+	te.runner.On("ufw status", exec.OK("Status: inactive\n"))
+	te.runner.On("ufw status verbose", exec.OK("Status: inactive\n"))
+	te.runner.On("nft list ruleset", exec.OK("table inet 9lives {\n\tchain input {\n\t\ttype filter hook input priority filter; policy drop;\n\t}\n}\n"))
+	p3 := freePort(t)
+	var log3 stepLog
+	_, err = te.client.PortAdd(ctxT(t), info.ID, []api.PortSpec{{Listen: p3}}, log3.add)
+	require.NoError(t, err)
+	require.Contains(t, log3.finished(), "external_firewall:warn")
+	warn = api.Step{}
+	log3.mu.Lock()
+	for _, s := range log3.steps {
+		if s.ID == stepExtFirewall {
+			warn = s
+		}
+	}
+	log3.mu.Unlock()
+	require.NotNil(t, warn.Error)
+	require.Equal(t, string(deyerr.P013), warn.Error.Code)
+	require.Contains(t, warn.Detail, strconv.Itoa(p3)+"/tcp (nftables)")
+	require.Contains(t, warn.Detail, "open by hand: "+strconv.Itoa(p3)+"/tcp: inet 9lives chain input")
+	require.NotContains(t, warn.Detail, "to open:")
+	require.NotContains(t, warn.Detail, "--open")
+	require.NotEqual(t, "allow it: ", warn.Error.Fix)
+	require.Contains(t, warn.Error.Fix, "by hand")
+	require.Contains(t, warn.Error.Detail, "inet 9lives chain input")
 }

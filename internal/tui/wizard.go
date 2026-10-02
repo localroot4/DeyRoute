@@ -263,6 +263,9 @@ func (w *wizard) keyNode(a *app, k tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	w.node = w.nodes[n-1]
+	if w.backup == w.node.ID {
+		w.backup = "" // the primary is never its own backup (DEY-C002)
+	}
 	w.setStep(wzPorts)
 	return nil
 }
@@ -661,7 +664,8 @@ func (w *wizard) openAdvanced(a *app) tea.Cmd {
 	if len(rungs) == 0 {
 		rungs = def
 	}
-	return a.push(newLadderEditor(subTitle(i18n.TUITunAdd, i18n.TUIFoLadder), rungs, func(a *app, r []string) tea.Cmd {
+	// The wizard cannot set advanced.proxy_protocol (proxy false).
+	return a.push(newLadderEditor(subTitle(i18n.TUITunAdd, i18n.TUIFoLadder), rungs, false, func(a *app, r []string) tea.Cmd {
 		w.rungs = r
 		return a.replace(w.advForm(a))
 	}))
@@ -686,6 +690,12 @@ func (w *wizard) advForm(a *app) *formScreen {
 	for i, label := range a.nodeLabels(others) {
 		backups = append(backups, fieldOpt{value: others[i].ID, label: label})
 	}
+	// Enter alone takes the default unchecked, so a backup that is no longer
+	// listed (the new primary, an offline node) is not offered as one.
+	bdef := ""
+	if slices.ContainsFunc(others, func(n api.NodeInfo) bool { return n.ID == w.backup }) {
+		bdef = w.backup
+	}
 	fields := []field{{key: "name", label: i18n.T(i18n.TUIWizName), def: w.name, optional: true}}
 	for i, c := range w.checks {
 		def := c.spec.Target
@@ -701,7 +711,7 @@ func (w *wizard) advForm(a *app) *formScreen {
 		}
 	}
 	fields = append(fields,
-		field{key: "backup", label: i18n.T(i18n.TUIWizBackupQ), hint: i18n.T(i18n.TUIBkWarning), def: w.backup, optional: true,
+		field{key: "backup", label: i18n.T(i18n.TUIWizBackupQ), hint: i18n.T(i18n.TUIBkWarning), def: bdef, optional: true,
 			opts: backups},
 		field{key: "policy", label: i18n.T(i18n.TUIEditPolicy), def: orDefault(w.policy, config.PolicyTransportThenNode),
 			opts: policyOpts("")},
