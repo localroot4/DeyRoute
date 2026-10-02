@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"log/slog"
+	"net"
 	"os"
 	"runtime"
 	"strings"
@@ -21,8 +22,8 @@ import (
 )
 
 // JoinFunc performs POST /v1/join against the hub with the pinned CA
-// (api.Join).
-type JoinFunc func(ctx context.Context, hubAddr, fingerprint string, req api.JoinRequest) (api.JoinResponse, error)
+// (api.JoinVia). dial opens the raw connection to the hub; nil = plain TCP.
+type JoinFunc func(ctx context.Context, hubAddr, fingerprint string, req api.JoinRequest, dial func(ctx context.Context) (net.Conn, error)) (api.JoinResponse, error)
 
 // JoinOptions configure Join (`deyroute join 'dey://…' [--name N]`).
 type JoinOptions struct {
@@ -54,9 +55,12 @@ type JoinOptions struct {
 	// Logger receives one line per step (discarded when nil).
 	Logger *slog.Logger
 
-	// JoinFunc replaces api.Join (tests, proxies); nil = api.Join, which
-	// dials the hub over its own pinned HTTP/2 transport.
+	// JoinFunc replaces api.JoinVia (tests, proxies); nil = api.JoinVia,
+	// which dials the hub over its own pinned HTTP/2 transport.
 	JoinFunc JoinFunc
+	// Dial opens the raw connection to the hub for the join (a CDN front);
+	// nil = plain TCP. It is passed to JoinFunc.
+	Dial func(ctx context.Context) (net.Conn, error)
 	// Hostname returns the host name (os.Hostname when nil).
 	Hostname func() (string, error)
 	// LookupGroup returns the gid of a group (LookupGroupID when nil).
@@ -122,7 +126,7 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 	}
 	joinFn := o.JoinFunc
 	if joinFn == nil {
-		joinFn = api.Join
+		joinFn = api.JoinVia
 	}
 
 	// parse_link
@@ -179,7 +183,7 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 		OS:       e.osPrettyName(),
 		Hostname: host,
 	}
-	resp, err := joinFn(ctx, link.Addr(), link.Fingerprint, req)
+	resp, err := joinFn(ctx, link.Addr(), link.Fingerprint, req, o.Dial)
 	if err != nil {
 		return nil, passthrough(StepJoin, err)
 	}

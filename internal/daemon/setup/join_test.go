@@ -100,7 +100,7 @@ func (h *testHub) Join(_ context.Context, req api.JoinRequest, ip string) (api.J
 	}, nil
 }
 
-func (h *testHub) Authenticate(string, string, string) error {
+func (h *testHub) Authenticate(context.Context, string, string, string) error {
 	return deyerr.New(deyerr.N013, deyerr.Params{"path": "/"})
 }
 func (h *testHub) Session(s *api.Session) { <-s.Done() }
@@ -375,7 +375,7 @@ func TestJoinBadLinkAndJoinFunc(t *testing.T) {
 	// A plain error from a custom JoinFunc becomes DEY-I014 {join}.
 	link := api.FormatJoinLink(api.JoinLink{Token: goodToken, Host: "5.6.7.8", Port: 44433, Fingerprint: "sha256:" + stringOf('a', 64)})
 	o := joinOpts(root, link, nil)
-	o.JoinFunc = func(context.Context, string, string, api.JoinRequest) (api.JoinResponse, error) {
+	o.JoinFunc = func(context.Context, string, string, api.JoinRequest, func(context.Context) (net.Conn, error)) (api.JoinResponse, error) {
 		return api.JoinResponse{}, errors.New("proxy refused")
 	}
 	_, err = Join(ctxT(t), o)
@@ -503,6 +503,32 @@ func TestJoinCreatesBackendUserBeforeJoining(t *testing.T) {
 	st, _ = steps2.get(StepKeys)
 	require.Equal(t, api.StepWarn, st.Status)
 	require.Equal(t, "DEY-X032", st.Error.Code)
+}
+
+// JoinOptions.Dial reaches the JoinFunc; without it the func gets nil.
+func TestJoinPassesDial(t *testing.T) {
+	link := api.FormatJoinLink(api.JoinLink{Token: goodToken, Host: "5.6.7.8", Port: 44433, Fingerprint: "sha256:" + stringOf('a', 64)})
+	var got func(context.Context) (net.Conn, error)
+	capture := func(_ context.Context, _, _ string, _ api.JoinRequest, dial func(context.Context) (net.Conn, error)) (api.JoinResponse, error) {
+		got = dial
+		return api.JoinResponse{}, errors.New("stop here")
+	}
+
+	o := joinOpts(t.TempDir(), link, nil)
+	o.JoinFunc = capture
+	_, err := Join(ctxT(t), o)
+	require.Error(t, err)
+	require.Nil(t, got)
+
+	o = joinOpts(t.TempDir(), link, nil)
+	o.JoinFunc = capture
+	called := false
+	o.Dial = func(context.Context) (net.Conn, error) { called = true; return nil, errors.New("unused") }
+	_, err = Join(ctxT(t), o)
+	require.Error(t, err)
+	require.NotNil(t, got)
+	_, _ = got(context.Background())
+	require.True(t, called)
 }
 
 func TestRequestedNodeIDAndHostname(t *testing.T) {

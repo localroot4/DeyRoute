@@ -70,18 +70,22 @@ type fakeHub struct {
 	joinErr error
 	authErr error
 	joinIP  string
-	uploads map[string]string
-	upErr   error
-	asset   func(arch string) (AssetInfo, error)
+	// peers seen by Join and Authenticate (from the request context)
+	joinPeer Peer
+	authPeer Peer
+	uploads  map[string]string
+	upErr    error
+	asset    func(arch string) (AssetInfo, error)
 }
 
 func newFakeHub(p *testPKI) *fakeHub {
 	return &fakeHub{pki: p, sessions: make(chan *Session, 16), uploads: map[string]string{}}
 }
 
-func (f *fakeHub) Join(_ context.Context, req JoinRequest, ip string) (JoinResponse, error) {
+func (f *fakeHub) Join(ctx context.Context, req JoinRequest, ip string) (JoinResponse, error) {
 	f.mu.Lock()
 	f.joinIP = ip
+	f.joinPeer = PeerFrom(ctx)
 	err := f.joinErr
 	f.mu.Unlock()
 	if err != nil {
@@ -97,9 +101,10 @@ func (f *fakeHub) Join(_ context.Context, req JoinRequest, ip string) (JoinRespo
 	return JoinResponse{NodeID: req.NodeID, CertPEM: string(cert), CAPEM: string(f.pki.ca.CertPEM), HubName: "ir-1", PublicIP: ip}, nil
 }
 
-func (f *fakeHub) Authenticate(nodeID, _, _ string) error {
+func (f *fakeHub) Authenticate(ctx context.Context, nodeID, _, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.authPeer = PeerFrom(ctx)
 	if f.authErr != nil {
 		return f.authErr
 	}
@@ -280,7 +285,7 @@ func TestJoinResponseCAMustMatchPin(t *testing.T) {
 // rawClient performs a request with cfg (nil client certificate allowed).
 func rawRequest(t *testing.T, cfg *tls.Config, method, url string, body io.Reader) (*http.Response, func()) {
 	t.Helper()
-	tr := newTransport(cfg, &dialErrBox{})
+	tr := newTransport(cfg, &dialErrBox{}, nil)
 	req, err := http.NewRequest(method, url, body)
 	require.NoError(t, err)
 	resp, err := tr.RoundTrip(req)
@@ -447,7 +452,7 @@ func TestCommandRoundTrip(t *testing.T) {
 }
 
 func TestDecodeResultWithoutCode(t *testing.T) {
-	s := newSession("de-1", "1.2.3.4", "", Hello{}, nil, nil, 0)
+	s := newSession("de-1", Peer{IP: "1.2.3.4", Trusted: true}, "", Hello{}, nil, nil, 0)
 	e := requireCode(t, s.decodeResult("unit.start", &Result{ID: "c1", Error: &ErrorDTO{Message: "exit status 1"}}, nil), deyerr.N011)
 	require.Equal(t, "exit status 1", e.Detail)
 	require.Contains(t, e.Message(), "de-1")
@@ -688,7 +693,7 @@ func TestDuplicateSessionReplaced(t *testing.T) {
 	cfg, _ := p.nodeConfig(t, "de-1")
 
 	// First stream, opened by hand so it does not reconnect.
-	tr := newTransport(cfg, &dialErrBox{})
+	tr := newTransport(cfg, &dialErrBox{}, nil)
 	defer tr.CloseIdleConnections()
 	pr, pw := io.Pipe()
 	defer pr.Close()

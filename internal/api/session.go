@@ -30,6 +30,11 @@ type Session struct {
 	NodeID string
 	// RemoteIP is the node's current public IP as seen by the hub.
 	RemoteIP string
+	// Via names the transport the stream arrived through ("" = direct TCP).
+	Via string
+	// Trusted reports whether RemoteIP is the node's real address (always
+	// true for direct TCP).
+	Trusted bool
 	// CertFingerprint is the fingerprint of the node's client certificate.
 	CertFingerprint string
 	// Hello is the node's first message (NodeID set from the certificate).
@@ -62,7 +67,7 @@ type pendingCall struct {
 	notify  chan struct{} // capacity 1
 }
 
-func newSession(nodeID, remoteIP, fingerprint string, hello Hello, logger *slog.Logger, clock func() time.Time, callTimeout time.Duration) *Session {
+func newSession(nodeID string, peer Peer, fingerprint string, hello Hello, logger *slog.Logger, clock func() time.Time, callTimeout time.Duration) *Session {
 	if logger == nil {
 		logger = dlog.Discard()
 	}
@@ -75,7 +80,9 @@ func newSession(nodeID, remoteIP, fingerprint string, hello Hello, logger *slog.
 	hello.NodeID = nodeID
 	return &Session{
 		NodeID:          nodeID,
-		RemoteIP:        remoteIP,
+		RemoteIP:        peer.IP,
+		Via:             peer.Via,
+		Trusted:         peer.Trusted,
 		CertFingerprint: fingerprint,
 		Hello:           hello,
 		logger:          logger.With(dlog.Node(nodeID)),

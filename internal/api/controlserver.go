@@ -47,8 +47,9 @@ type ControlHandler interface {
 	// Authenticate runs for every other request after mTLS verification:
 	// nodeID is the certificate CN (tlsutil.PeerIdentity). It must refuse
 	// unknown nodes and certificates whose fingerprint differs from the
-	// node's cert_fingerprint (a removed or re-joined node).
-	Authenticate(nodeID, certFingerprint, remoteIP string) error
+	// node's cert_fingerprint (a removed or re-joined node). ctx carries
+	// the connection's Peer (PeerFrom), as it does for Join.
+	Authenticate(ctx context.Context, nodeID, certFingerprint, remoteIP string) error
 	// Session is called in its own goroutine when a node stream opens (after
 	// the node's hello). It should return when s.Done() is closed; the
 	// stream ends when it returns. A newer stream of the same node closes
@@ -88,8 +89,14 @@ type ControlServer struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
-	conns    map[net.Conn]struct{}
+	// conns tracks accepted connections by pointer to a small record, so any
+	// net.Conn implementation works (a non-comparable conn type must not
+	// panic as a map key).
+	conns map[*trackedConn]struct{}
 }
+
+// trackedConn is the identity of one accepted connection in ControlServer.conns.
+type trackedConn struct{ net.Conn }
 
 // Session returns the current stream of nodeID, if connected.
 func (s *ControlServer) Session(nodeID string) (*Session, bool) {
@@ -132,7 +139,7 @@ func (s *ControlServer) Serve(ctx context.Context, ln net.Listener) error {
 		s.sessions = map[string]*Session{}
 	}
 	if s.conns == nil {
-		s.conns = map[net.Conn]struct{}{}
+		s.conns = map[*trackedConn]struct{}{}
 	}
 	s.mu.Unlock()
 
@@ -256,11 +263,12 @@ func (s *ControlServer) serveConn(ctx context.Context, conn net.Conn, h2 *http2.
 		_ = conn.Close()
 		return
 	}
-	s.conns[conn] = struct{}{}
+	tracked := &trackedConn{conn}
+	s.conns[tracked] = struct{}{}
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
-		delete(s.conns, conn)
+		delete(s.conns, tracked)
 		s.mu.Unlock()
 		_ = conn.Close()
 	}()
@@ -278,7 +286,17 @@ func (s *ControlServer) serveConn(ctx context.Context, conn net.Conn, h2 *http2.
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
-	h2.ServeConn(tconn, &http2.ServeConnOpts{Context: ctx, BaseConfig: base, Handler: h})
+	h2.ServeConn(tconn, &http2.ServeConnOpts{Context: ContextWithPeer(ctx, peerOf(conn)), BaseConfig: base, Handler: h})
+}
+
+// requestPeer returns the connection's Peer from the request context; a
+// request that did not come through serveConn falls back to its RemoteAddr.
+func requestPeer(r *http.Request) Peer {
+	p := PeerFrom(r.Context())
+	if p.IP == "" {
+		p.IP = remoteIP(r)
+	}
+	return p
 }
 
 // route dispatches one request. Only POST /v1/join is served without a
@@ -288,7 +306,8 @@ func (s *ControlServer) route(w http.ResponseWriter, r *http.Request) {
 		s.handleJoin(w, r)
 		return
 	}
-	ip := remoteIP(r)
+	peer := requestPeer(r)
+	ip := peer.IP
 	nodeID, fp, err := s.authenticate(r, ip)
 	if err != nil {
 		s.logger().Info("control: request refused", slog.String("path", r.URL.Path),
@@ -304,7 +323,7 @@ func (s *ControlServer) route(w http.ResponseWriter, r *http.Request) {
 		if !allowMethod(w, r, http.MethodPost) {
 			return
 		}
-		s.handleStream(w, r, nodeID, fp, ip)
+		s.handleStream(w, r, nodeID, fp, peer)
 	case strings.HasPrefix(r.URL.Path, PathUploadPrefix):
 		if !allowMethod(w, r, http.MethodPost) {
 			return
@@ -349,14 +368,14 @@ func (s *ControlServer) authenticate(r *http.Request, ip string) (nodeID, fp str
 	if !ok {
 		return "", "", deyerr.New(deyerr.N013, deyerr.Params{"path": r.URL.Path})
 	}
-	if err := s.Handler.Authenticate(cn, fp, ip); err != nil {
+	if err := s.Handler.Authenticate(r.Context(), cn, fp, ip); err != nil {
 		return "", "", err
 	}
 	return cn, fp, nil
 }
 
 func (s *ControlServer) handleJoin(w http.ResponseWriter, r *http.Request) {
-	ip := remoteIP(r)
+	ip := requestPeer(r).IP
 	// Unauthenticated peers must not hold a stream open with a slow body.
 	rc := http.NewResponseController(w)
 	_ = rc.SetReadDeadline(time.Now().Add(s.handshakeTimeout()))
@@ -466,7 +485,8 @@ func (s *ControlServer) handleAsset(w http.ResponseWriter, r *http.Request) {
 
 // handleStream serves POST /v1/stream: NodeMessage lines in, HubMessage
 // lines out, until the session ends.
-func (s *ControlServer) handleStream(w http.ResponseWriter, r *http.Request, nodeID, fp, ip string) {
+func (s *ControlServer) handleStream(w http.ResponseWriter, r *http.Request, nodeID, fp string, peer Peer) {
+	ip := peer.IP
 	log := s.logger().With(dlog.Node(nodeID))
 	rc := http.NewResponseController(w)
 	w.Header().Set("Content-Type", ContentTypeNDJSON)
@@ -493,7 +513,7 @@ func (s *ControlServer) handleStream(w http.ResponseWriter, r *http.Request, nod
 		log.Warn("control: hello node id differs from the certificate; using the certificate",
 			slog.String("hello_node", first.Hello.NodeID))
 	}
-	sess := newSession(nodeID, ip, fp, *first.Hello, s.Logger, s.clock(), s.CallTimeout)
+	sess := newSession(nodeID, peer, fp, *first.Hello, s.Logger, s.clock(), s.CallTimeout)
 	sess.setAbort(func() {
 		// Break a blocked write and the body read of this stream only.
 		_ = rc.SetWriteDeadline(time.Now().Add(-time.Second))
@@ -508,7 +528,7 @@ func (s *ControlServer) handleStream(w http.ResponseWriter, r *http.Request, nod
 		log.Info("control: new stream replaces the previous one")
 		old.Close()
 	}
-	log.Info("control: node connected", slog.String("remote_ip", ip), slog.String("version", first.Hello.Version))
+	log.Info("control: node connected", slog.String("remote_ip", ip), slog.String("via", peer.Via), slog.String("version", first.Hello.Version))
 
 	readerDone := make(chan struct{})
 	go func() {

@@ -32,8 +32,8 @@ func (c controlHandler) Join(ctx context.Context, req api.JoinRequest, remoteIP 
 }
 
 // Authenticate implements api.ControlHandler.
-func (c controlHandler) Authenticate(nodeID, certFingerprint, remoteIP string) error {
-	return c.h.authenticate(nodeID, certFingerprint, remoteIP)
+func (c controlHandler) Authenticate(ctx context.Context, nodeID, certFingerprint, remoteIP string) error {
+	return c.h.authenticate(ctx, nodeID, certFingerprint, remoteIP)
 }
 
 // Session implements api.ControlHandler.
@@ -146,7 +146,7 @@ func (h *Hub) join(_ context.Context, req api.JoinRequest, remoteIP string) (api
 // (otherwise DEY-N008: unknown, removed or re-joined node). A node that
 // connects from a new public IP is updated in config.yaml, @nodes follows
 // and node_ip_changed is emitted (section 11, S27).
-func (h *Hub) authenticate(nodeID, certFingerprint, remoteIP string) error {
+func (h *Hub) authenticate(_ context.Context, nodeID, certFingerprint, remoteIP string) error {
 	n, ok := h.Config().NodeByID(nodeID)
 	if !ok {
 		return deyerr.New(deyerr.N008, deyerr.Params{"node": nodeID})
