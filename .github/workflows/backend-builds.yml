@@ -9,7 +9,7 @@ name: backend-builds
 on:
   workflow_dispatch:
   push:
-    branches: [main, "dev"]
+    branches: [main, dev]
     paths:
       - scripts/build-backends.sh
       - internal/backend/backends.yaml
