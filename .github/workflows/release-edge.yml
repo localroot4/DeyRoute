@@ -80,7 +80,7 @@ jobs:
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
               -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -o "$d/deyroute" ./cmd/deyroute
-            cp README.md CHANGELOG.md "$d/"
+            cp README.md README.en.md CHANGELOG.md "$d/"
             tar -C dist -czf "dist/deyroute_${VERSION}_linux_${arch}.tar.gz" "deyroute_${VERSION}_linux_${arch}"
             rm -rf "$d"
           done

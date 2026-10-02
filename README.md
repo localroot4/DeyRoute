@@ -2,125 +2,159 @@
 
 <img src="docs/assets/logo.svg" alt="DEYROUTE" width="560">
 
-### A tunnel between your Iran server and your foreign servers that is simple to run, hard to spot, and repairs itself when filtering changes.
+<div dir="rtl">
 
-**English** · [فارسی](README.fa.md)
+### تانلی بین سرور ایران و سرورهای خارج: راه‌اندازی ساده، شناسایی سخت، و ترمیم خودکار وقتی فیلترینگ عوض می‌شود.
 
-[Quick start](#quick-start-5-minutes) ·
-[Everyday use](#everyday-use) ·
-[How it survives filtering](#how-it-survives-filtering) ·
-[Troubleshooting](#something-is-wrong) ·
-[Full guides](docs/en/index.md)
+**فارسی** · [English](README.en.md)
+
+[شروع سریع](#شروع-سریع-۵-دقیقه) ·
+[کار روزمره](#کار-روزمره) ·
+[مقابله با فیلترینگ](#مقابله-با-فیلترینگ) ·
+[عیب‌یابی](#مشکلی-پیش-آمده) ·
+[راهنماهای کامل](docs/fa/index.md)
+
+</div>
 
 </div>
 
 ---
 
-## What is DEYROUTE?
+<div dir="rtl">
 
-DEYROUTE connects two kinds of servers:
+## DEYROUTE چیست؟
 
-- the **hub**: your server **in Iran**. Your users connect to it, and only to it.
-- the **nodes**: your servers **abroad**. They run your real VPN service (Xray, Marzban, 3x-ui, and so on).
+DEYROUTE دو نوع سرور را به هم وصل می‌کند:
+
+- **هاب (Hub):** سرور شما **در ایران**. کاربرانتان فقط به همین وصل می‌شوند.
+- **نود (Node):** سرور یا سرورهای شما **در خارج**. سرویس واقعی VPN شما (Xray، Marzban، 3x-ui و مانند آن) روی آن‌هاست.
+
+</div>
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-en-dark.svg">
-    <img src="docs/assets/how-it-works-en-light.svg" alt="Your users connect to the hub in Iran; the tunnel carries their traffic to the node abroad, where your VPN service runs; a backup node takes over if the node fails." width="500">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-fa-dark.svg">
+    <img src="docs/assets/how-it-works-fa-light.svg" alt="کاربران به هاب در ایران وصل می‌شوند؛ تانل ترافیکشان را به نود در خارج می‌برد که سرویس VPN شما روی آن است؛ اگر نود از کار بیفتد، نود پشتیبان جایش را می‌گیرد." width="500">
   </picture>
 </p>
 
-Your users only need the hub's address, so the foreign server's address stays out
-of their configs. Their traffic travels through the tunnel exactly as it left
-their device: DEYROUTE does not open, change, or re-encrypt it.
+<div dir="rtl">
 
-## Why people like it
+کاربران فقط به آدرس هاب نیاز دارند، پس آدرس سرور خارج در تنظیمات آن‌ها نمی‌آید. ترافیک آن‌ها دقیقاً به همان شکلی که از دستگاهشان
+بیرون آمده، از تانل عبور می‌کند: DEYROUTE آن را باز نمی‌کند، تغییر نمی‌دهد و دوباره رمزگذاری نمی‌کند.
+
+## چرا DEYROUTE؟
 
 | | |
 | --- | --- |
-| **Three steps, copy and paste** | Install on the hub, paste one command on the node, create the tunnel. Every question has a suggested answer: press <kbd>Enter</kbd> to take it. |
-| **Hard to identify** | Eight tunnel methods from six different programs, some made to look like ordinary HTTPS to a real website. When one is recognised and blocked, the next one starts. |
-| **It fixes itself** | The hub checks every tunnel every 5 seconds. A blocked method is replaced automatically (goal: under 35 seconds; about 20 in our lab tests), with nobody awake. When the first method has been healthy again for a few minutes, the tunnel goes back to it. |
-| **Backup nodes** | Add a second foreign server that runs the same VPN service (same users and settings), and the tunnel moves to it if the first one goes down. |
-| **Your service stays as it is** | Same port, same certificate, same UUID. In your client configs only the server address changes, to the hub's IP. |
-| **Errors you can read** | Every problem says what happened, why, and what to do, with a fixed code such as `DEY-P012`. |
-| **Private by design** | One signed program, no telemetry, no secrets in logs, and exactly one firewall table that DEYROUTE owns. |
+| **سه قدم، فقط کپی و پیست** | روی هاب نصب کنید، یک دستور را روی نود بچسبانید، تانل را بسازید. هر سؤال یک جواب پیشنهادی دارد: برای قبولش فقط <kbd>Enter</kbd> بزنید. |
+| **شناسایی‌اش سخت است** | هشت روش تانل از شش برنامهٔ مختلف، که بعضی‌شان طوری ساخته شده‌اند که شبیه HTTPS معمولی به یک سایت واقعی باشند. وقتی یکی شناسایی و بسته شود، بعدی شروع می‌شود. |
+| **خودش را درست می‌کند** | هاب هر تانل را هر ۵ ثانیه آزمایش می‌کند. روش بسته‌شده خودکار عوض می‌شود (هدف: کمتر از ۳۵ ثانیه؛ در آزمایش‌های آزمایشگاهی ما حدود ۲۰ ثانیه)، حتی وقتی هیچ‌کس بیدار نیست. وقتی روش اول دوباره چند دقیقه سالم بماند، تانل به آن برمی‌گردد. |
+| **نود پشتیبان** | یک سرور خارج دیگر اضافه کنید که همان سرویس VPN را اجرا می‌کند (با همان کاربران و تنظیمات)؛ اگر اولی از کار بیفتد، تانل خودش به آن می‌رود. |
+| **سرویس شما همان‌طور می‌ماند** | همان پورت، همان گواهی، همان UUID. در تنظیمات کلاینت فقط آدرس سرور عوض می‌شود، به IP هاب. |
+| **خطاهایی که می‌شود خواند** | هر مشکل می‌گوید چه شد، چرا شد و چه کنید، با یک کد ثابت مثل `DEY-P012`. |
+| **طراحی‌شده برای حریم خصوصی** | یک برنامهٔ امضاشده، بدون ارسال هیچ آماری، بدون ثبت اطلاعات حساس در لاگ‌ها، و دقیقاً یک جدول فایروال که فقط DEYROUTE آن را مدیریت می‌کند. |
 
-## Quick start (5 minutes)
+## شروع سریع (۵ دقیقه)
 
-**You need:**
+**چه چیزهایی لازم است:**
 
-- **Two servers** with Ubuntu 22.04 / 24.04 / 26.04 or Debian 12 / 13 (amd64 or arm64): the **hub** in Iran, and the **node** abroad, which already runs your VPN service (3x-ui, Marzban, Xray ...). Check that the service works from a phone first.
-- **`root`** on both (`ssh root@SERVER_IP`, or `sudo -i` after logging in as another user), and `curl` (`apt-get install -y curl`). No Python, no Docker. Each command below goes on the server named in its heading.
-- **GitHub reachable from the hub.** Iranian datacenters often block it; if step 1 cannot download, see [installing without GitHub](docs/en/install.md#when-github-is-not-reachable-from-the-hub).
-- **Open ports in your provider's firewall panel** (and in `ufw`, if you use it), or the steps below fail without a message. Hub: `44433/tcp` (nodes join here), your tunnel port such as `443` (your users), and `30000-31999` TCP and UDP from the node's IP. Node: `30000-31999` TCP and UDP from the hub's IP.
+- **دو سرور** با Ubuntu 22.04 / 24.04 / 26.04 یا Debian 12 / 13 (معماری amd64 یا arm64): **هاب** در ایران، و **نود** در خارج که سرویس VPN شما (3x-ui، Marzban، Xray و ...) از قبل روی آن کار می‌کند. اول مطمئن شوید این سرویس با گوشی کار می‌کند.
+- **دسترسی `root`** روی هر دو (`ssh root@SERVER_IP`، یا بعد از ورود با کاربر دیگر `sudo -i`) و `curl` (`apt-get install -y curl`). نه Python لازم است، نه Docker. هر دستور زیر روی سروری است که در عنوان همان بخش آمده.
+- **دسترسی هاب به GitHub.** دیتاسنترهای ایران اغلب آن را می‌بندند؛ اگر مرحلهٔ ۱ دانلود نکرد، [نصب بدون GitHub](docs/fa/install.md#وقتی-سرور-ایران-به-github-دسترسی-ندارد) را ببینید.
+- **پورت‌های باز در پنل فایروال ارائه‌دهندهٔ سرور** (و در `ufw`، اگر استفاده می‌کنید)، وگرنه مرحله‌های بعد بی‌هیچ پیامی شکست می‌خورند. هاب: `44433/tcp` (نودها اینجا join می‌شوند)، پورت تانل مثل `443` (کاربران شما)، و `30000-31999` برای TCP و UDP از IP نود. نود: `30000-31999` برای TCP و UDP از IP هاب.
 
-### 1. On the hub (Iran server)
+### ۱. روی هاب (سرور ایران)
+
+</div>
 
 ```bash
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)
 ```
 
-A short wizard asks at most five questions, one per screen. Type `1` for the role (hub),
-give the server a name such as `ir-1`, and press <kbd>Enter</kbd> for the rest.
-At the end it prints a **join command**. Copy that whole line.
+<div dir="rtl">
 
-### 2. On the node (foreign server)
+یک ویزارد کوتاه حداکثر پنج سؤال می‌پرسد، هر سؤال در یک صفحه. برای نقش، `1` (هاب) را بزنید،
+یک اسم مثل `ir-1` بدهید و برای بقیه فقط <kbd>Enter</kbd> بزنید. در پایان یک **دستور join**
+چاپ می‌شود. آن را کامل و یک‌جا کپی کنید.
 
-Paste the whole join command and add `--name de-1` at its very end: that is the node's
-**id**, the short name later commands use. The command works once and expires in 15 minutes:
+### ۲. روی نود (سرور خارج)
+
+دستور join را کامل بچسبانید و در انتهای آن `--name de-1` را اضافه کنید: این **شناسهٔ** نود است،
+همان اسم کوتاهی که دستورهای بعدی به کار می‌برند. دستور فقط یک‌بار کار می‌کند و ۱۵ دقیقه اعتبار دارد:
+
+</div>
 
 ```bash
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://…' --name de-1
 ```
 
-The command the hub prints may already end with `--version …`; keep that part and put
-`--name de-1` after it.
+<div dir="rtl">
 
-About 30 seconds later, go back to the **hub**. The node must be listed as `online`:
+دستوری که هاب چاپ می‌کند ممکن است از قبل با `--version …` تمام شود؛ آن بخش را نگه دارید و
+`--name de-1` را بعد از آن بگذارید.
+
+حدود ۳۰ ثانیه بعد به **هاب** برگردید. نود باید با وضعیت `online` در فهرست دیده شود:
+
+</div>
 
 ```bash
 deyroute node list
 ```
 
-Not listed? The usual cause is `44433/tcp` closed in the hub's provider firewall. Open it, then run `deyroute node join-command` on the hub for a new command.
+<div dir="rtl">
 
-### 3. On the hub: create the tunnel
+دیده نشد؟ معمولاً علت این است که `44433/tcp` در فایروال ارائه‌دهندهٔ سرورِ هاب بسته است. آن را باز کنید و روی هاب با `deyroute node join-command` دستور جدید بگیرید.
 
-Use the node id from `deyroute node list` and the port your VPN service listens on
-(it must be free on the hub; `deyroute port suggest` lists free ones). `main` is
-the tunnel's id, used by the commands below:
+### ۳. روی هاب: تانل را بسازید
+
+شناسهٔ نود را از `deyroute node list` بردارید و پورتی را بنویسید که سرویس VPN شما روی آن گوش می‌دهد
+(باید روی هاب آزاد باشد؛ `deyroute port suggest` پورت‌های آزاد را نشان می‌دهد). `main` شناسهٔ تانل است
+و دستورهای زیر آن را به کار می‌برند:
+
+</div>
 
 ```bash
 deyroute tunnel add --node de-1 --ports 443 --name main
 ```
 
-You will see the steps go by, ending with a line like:
+<div dir="rtl">
+
+مرحله‌ها را می‌بینید که رد می‌شوند و آخرش خطی مثل این می‌آید:
+
+</div>
 
 ```text
 ✔ Tunnel main is UP via backhaul/wssmux (41ms)
 ```
 
-### 4. Check it, then change the address in your clients
+<div dir="rtl">
+
+### ۴. بررسی کنید، بعد آدرس را در کلاینت‌ها عوض کنید
+
+</div>
 
 ```bash
 deyroute status
 deyroute port check 443
 ```
 
-In your client app (or panel) replace the node's address with the **hub's IP**. Keep
-everything else (port, UUID or password, SNI, path) exactly as it was. Then test from a
-phone **inside Iran**: `deyroute port check` only proves the port is open from the
-internet, it cannot see filtering in Iran.
+<div dir="rtl">
 
-**Recommended next step:** add a second foreign server the same way (it must run
-the same VPN service), then make it the backup:
-`deyroute tunnel backup add main --node nl-1`.
+در برنامهٔ کلاینت (یا پنل) آدرس نود را با **IP هاب** عوض کنید. همهٔ چیزهای دیگر (پورت،
+UUID یا رمز، SNI، مسیر) را دقیقاً مثل قبل نگه دارید. بعد با یک گوشی **داخل ایران** امتحان کنید:
+`deyroute port check` فقط نشان می‌دهد پورت از اینترنت باز است و فیلترینگ داخل ایران را نمی‌بیند.
 
-## Everyday use
+**پیشنهاد ما برای قدم بعد:** یک سرور خارج دیگر هم به همین روش اضافه کنید (باید همان
+سرویس VPN روی آن اجرا شود) و آن را نود پشتیبان کنید:
+`deyroute tunnel backup add main --node nl-1`
 
-Type `deyroute` (or just `dey`) to open the menu. Press a number, then
-<kbd>Enter</kbd>. <kbd>q</kbd> goes back and <kbd>?</kbd> explains the screen you are on.
+## کار روزمره
+
+با زدن `deyroute` (یا فقط `dey`) منو باز می‌شود. یک شماره بزنید و <kbd>Enter</kbd> را بزنید.
+با <kbd>q</kbd> یک صفحه به عقب برمی‌گردید و <kbd>?</kbd> صفحه‌ای را که در آن هستید توضیح می‌دهد.
+
+</div>
 
 ```text
  1) Dashboard       4) Ports           7) Optimize         10) Backup & Restore
@@ -128,125 +162,135 @@ Type `deyroute` (or just `dey`) to open the menu. Press a number, then
  3) Nodes           6) Diagnostics     9) Notifications    12) Settings
 ```
 
-Everything in the menu is also a command, handy for scripts (add `--json`):
+<div dir="rtl">
 
-| I want to… | Run |
+هر کاری که در منو می‌شود با یک دستور هم می‌شود؛ برای اسکریپت‌ها هم مناسب است (با `--json`):
+
+| می‌خواهم… | این را بزنم |
 | --- | --- |
-| see everything at a glance | `deyroute status` |
-| add a foreign server | `deyroute node join-command` (on the hub), then paste the command on the new server |
-| create a tunnel | `deyroute tunnel add --node de-1 --ports 443,2053` |
-| add or remove a port | `deyroute port add main 8443` / `deyroute port remove main 8443` |
-| check that a port really works | `deyroute port check 443` |
-| watch the logs | `deyroute logs main -f` |
-| switch method or node by hand | `deyroute tunnel switch main --transport backhaul/tcpmux` |
-| add a backup node | `deyroute tunnel backup add main --node nl-1` |
-| test every method and compare latency (**interrupts the tunnel**, 20 s per method) | `deyroute tunnel test-ladder main` |
-| get Telegram alerts | menu `9) Notifications` |
-| collect a report for support | `deyroute doctor` (secrets are removed) |
+| همه‌چیز را یک‌جا ببینم | `deyroute status` |
+| یک سرور خارج اضافه کنم | `deyroute node join-command` (روی هاب)، بعد دستور را روی سرور جدید بچسبانم |
+| تانل بسازم | `deyroute tunnel add --node de-1 --ports 443,2053` |
+| پورت اضافه یا حذف کنم | `deyroute port add main 8443` / `deyroute port remove main 8443` |
+| ببینم پورت واقعاً کار می‌کند | `deyroute port check 443` |
+| لاگ را زنده ببینم | `deyroute logs main -f` |
+| روش یا نود را دستی عوض کنم | `deyroute tunnel switch main --transport backhaul/tcpmux` |
+| نود پشتیبان اضافه کنم | `deyroute tunnel backup add main --node nl-1` |
+| همهٔ روش‌ها را آزمایش و تأخیرشان را مقایسه کنم (**تانل را قطع می‌کند**؛ هر روش ۲۰ ثانیه) | `deyroute tunnel test-ladder main` |
+| هشدار در تلگرام بگیرم | منوی `9) Notifications` |
+| گزارش برای پشتیبانی بگیرم | `deyroute doctor` (اطلاعات حساس حذف می‌شوند) |
 
-New to it? Stay in **Simple mode**: it hides everything advanced, and the tunnel wizard asks
-at most three questions (node, ports, confirm). Switch in `12) Settings → 1) UI mode` when you want more.
+تازه‌کارید؟ در **حالت Simple** بمانید: همهٔ بخش‌های پیشرفته را پنهان می‌کند و ویزارد ساخت تانل
+حداکثر سه سؤال می‌پرسد (نود، پورت‌ها، تأیید). هر وقت بیشتر خواستید، از منوی `12) Settings` گزینهٔ `1) UI mode` را عوض کنید.
 
-## How it survives filtering
+## مقابله با فیلترینگ
 
-Filtering keeps changing, so one method is never enough. Every tunnel gets a
-**ladder** of methods from different programs. One rung carries the traffic; the
-others are installed, configured and waiting.
+فیلترینگ مدام عوض می‌شود، پس یک روش هیچ‌وقت کافی نیست. به هر تانل یک **نردبان** از
+روش‌های مختلف می‌رسد که هر کدام از یک برنامهٔ جدا هستند. هر بار یک پله ترافیک را حمل می‌کند و بقیه نصب و تنظیم شده‌اند و آمادهٔ کارند.
 
-| Rung | Method | Why it is there |
+| پله | روش | کاربرد |
 | :-: | --- | --- |
-| 1 | `backhaul/wssmux` | TLS and WebSocket in few connections: looks like normal HTTPS |
-| 2 | `backhaul/tcpmux` | no TLS layer, least overhead, for when the tunnel's TLS is what gets noticed |
-| 3 | `rathole/noise` | a different program and protocol with Noise encryption |
-| 4 | `frp/tcp` | a third program with a different traffic pattern |
-| 5 | `xray/reality` | looks like a real TLS 1.3 visit to a harmless website |
-| 6 | `hysteria2/udp` | QUIC: fastest on lossy links, when UDP is open |
-| 7 | `waterwall/reverse-reality` | a reverse connection that also looks like a real website (least tested method) |
-| 8 | `direct/native` | no disguise; only so the service does not go down |
+| ۱ | `backhaul/wssmux` | TLS و WebSocket با اتصال‌های کم؛ شبیه HTTPS معمولی |
+| ۲ | `backhaul/tcpmux` | بدون لایهٔ TLS و با کمترین سربار؛ برای وقتی که خودِ TLS تانل دیده می‌شود |
+| ۳ | `rathole/noise` | برنامه و پروتکل دیگر با رمزنگاری Noise |
+| ۴ | `frp/tcp` | برنامهٔ سوم با الگوی ترافیک متفاوت |
+| ۵ | `xray/reality` | شبیه بازدید واقعی TLS 1.3 از یک سایت بی‌خطر |
+| ۶ | `hysteria2/udp` | QUIC؛ روی اینترنت ناپایدار از همه سریع‌تر است، به شرط باز بودن UDP |
+| ۷ | `waterwall/reverse-reality` | اتصال معکوس که آن هم شبیه یک سایت واقعی است (کمتر از همه آزمایش شده) |
+| ۸ | `direct/native` | بدون پنهان‌کاری؛ فقط برای اینکه سرویس از کار نیفتد |
 
-When the hub confirms that the active rung is blocked, it starts the next one;
-users usually do not notice. When rung 1 has been healthy again for a few minutes,
-the tunnel goes back to it. The built-in ladder cannot be edited, but you can build
-your own: `deyroute ladder create NAME --rungs a,b,c`, then
-`deyroute tunnel edit main --ladder NAME`. Details: [the filtering FAQ](docs/en/faq-filtering.md).
+وقتی هاب تأیید کند که پلهٔ فعال بسته شده، پلهٔ بعدی را راه می‌اندازد؛ کاربران معمولاً
+متوجه نمی‌شوند. وقتی پلهٔ اول چند دقیقه دوباره سالم بماند، تانل به آن برمی‌گردد. نردبان پیش‌فرض قابل ویرایش
+نیست، ولی می‌توانید نردبان خودتان را بسازید: `deyroute ladder create NAME --rungs a,b,c` و بعد
+`deyroute tunnel edit main --ladder NAME`. جزئیات: [پرسش‌های فیلترینگ](docs/fa/faq-filtering.md).
 
-**Good habits that make you harder to spot**
+**عادت‌های خوبی که شناسایی شما را سخت‌تر می‌کند**
 
-- Give users only the hub's address. Never publish the foreign server's IP.
-- Keep your service's own TLS settings (Reality, WebSocket, and so on). DEYROUTE does not replace them, it carries them.
-- Optional: choose three decoy sites for the Reality rungs (real HTTPS sites with TLS 1.3, open from your hub and not blocked in Iran). Run `deyroute config edit` and under `hub:` set `decoy_snis: [site1.com, site2.com, site3.com]`.
-- Keep a backup node in another provider or country.
-- No tool can promise to be invisible. DEYROUTE's job is to make recognising and blocking you expensive, and to recover quickly when it happens.
+- فقط آدرس هاب را به کاربران بدهید. IP سرور خارج را هرگز منتشر نکنید.
+- تنظیمات TLS خود سرویستان (Reality، WebSocket و غیره) را نگه دارید. DEYROUTE جایگزینشان نمی‌شود، آن‌ها را حمل می‌کند.
+- اختیاری: برای پله‌های Reality سه سایت فریب (decoy) انتخاب کنید (سایت‌های واقعی HTTPS با TLS 1.3 که از هاب باز می‌شوند و در ایران بسته نیستند). `deyroute config edit` را بزنید و زیر `hub:` مقدار `decoy_snis: [site1.com, site2.com, site3.com]` را بنویسید.
+- یک نود پشتیبان در ارائه‌دهندهٔ سرور یا کشور دیگر نگه دارید.
+- هیچ ابزاری نمی‌تواند نامرئی بودن را تضمین کند. کار DEYROUTE این است که شناسایی و مسدود کردنتان را گران کند و اگر اتفاق افتاد، سریع دوباره سرپا شود.
 
-## Keeping it safe
+## امنیت
 
-- The **control channel** always goes from the foreign servers **out** to the hub, over mutual TLS 1.3 with a private CA. The hub never logs in to a node, and SSH is not used.
-- The join command works **once** and expires in 15 minutes.
-- DEYROUTE creates and manages exactly one firewall table (`inet deyroute`) and never touches your other rules.
-- Every release is signed; the installer verifies the signature and checksums before installing.
-- No telemetry. Secrets are stored with mode `0600` and never written to logs.
+- **کانال کنترل** همیشه از سرورهای خارج **به سمت هاب** برقرار می‌شود، با TLS 1.3 دو طرفه (mTLS) و یک CA خصوصی. هاب هیچ‌وقت وارد نود نمی‌شود و از SSH هم استفاده نمی‌شود.
+- دستور join فقط **یک‌بار** کار می‌کند و ۱۵ دقیقه بعد منقضی می‌شود.
+- DEYROUTE فقط یک جدول فایروال (`inet deyroute`) می‌سازد و خودش مدیریتش می‌کند؛ به بقیهٔ قانون‌های فایروال شما دست نمی‌زند.
+- هر نسخه امضا می‌شود؛ نصب‌کننده قبل از نصب امضا و چک‌سام را بررسی می‌کند.
+- بدون ارسال هیچ آماری. اطلاعات حساس (کلیدها و توکن‌ها) با سطح دسترسی `0600` ذخیره می‌شوند و هرگز در لاگ نوشته نمی‌شوند.
 
-More: [security guide](docs/en/security.md).
+بیشتر: [راهنمای امنیت](docs/fa/security.md).
 
-## Update, back up, move, remove
+## آپدیت، بکاپ، جابه‌جایی، حذف
 
-```bash
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)   # same line = repair or upgrade
-deyroute update                      # update deyroute itself; tunnels keep running
-deyroute update backends             # update the tunnel programs (Backhaul, Xray, ...)
-deyroute backup                      # encrypted backup of the hub (asks for a passphrase)
-deyroute restore FILE                # on the new server, after install.sh --no-setup
-deyroute hub announce-move NEW_IP:44433  # on the old hub: tell every online node
-deyroute node set-hub NEW_IP:44433   # or on each node, by hand
-deyroute uninstall                   # remove everything and restore the system
-```
-
-Run these on the hub unless a comment says otherwise.
-
-Guides: [update and uninstall](docs/en/update-uninstall.md) ·
-[backup and restore](docs/en/backup.md) · [moving the hub](docs/en/hub-move.md).
-
-## Something is wrong?
-
-Start with `deyroute doctor`. It checks the system, ports, certificates, units and
-logs, and explains each finding in plain words.
-
-| Symptom | Try |
-| --- | --- |
-| a node is `offline` | on the hub: `deyroute node test <id>`, then open `44433/tcp` in the hub's provider firewall |
-| the tunnel is `UP` but the client cannot connect | on the hub: `deyroute port check <port>` (it prints the command that opens a closed port). Also check that your VPN service runs on the node |
-| the tunnel keeps switching methods | `deyroute logs <tunnel>`; then, when a short interruption is acceptable, `deyroute tunnel test-ladder <tunnel>` |
-| an error with a code | read its three lines (what / why / fix); all codes are in [docs/ERRORS.md](docs/ERRORS.md) |
-
-More: [troubleshooting](docs/en/troubleshooting.md).
-
-## Good to know
-
-- **Hub and node are the same program.** The role is chosen in the wizard.
-- **Your TLS is never touched.** The tunnel carries raw bytes, so your client keeps its SNI, path, UUID and fingerprint.
-- **Honest limits.** The node must reach the hub's control port (`44433/tcp`); a few methods (Reality, Hysteria2, direct) also connect from the hub to the node. If the route between the two countries is cut completely, the tunnel stays down until it returns: DEYROUTE cannot work around that today, so please open an issue. Your VPN panel sees the hub's address, not your users' real IPs, so per-IP limits there will not work.
-- **Early builds.** Releases are currently `edge` builds. They pass automated lab tests (systemd, nftables and the real backends in containers) but have had little real-world testing; see what is still pending in the [acceptance evidence](docs/en/acceptance.md). Running the install line again upgrades in place and keeps your configuration.
-
-## Documentation
-
-| Guide | |
-| --- | --- |
-| [Install](docs/en/install.md) | requirements, offline install, mirrors, what the installer verifies |
-| [Join a node](docs/en/join.md) | the join command, expiry, IP changes |
-| [First tunnel](docs/en/first-tunnel.md) | the menu and the CLI, port syntax, health probes |
-| [Backup node](docs/en/backup-node.md) | failover, failback, timings |
-| [Filtering FAQ](docs/en/faq-filtering.md) | the ladder, skipped methods, decoy sites |
-| [Troubleshooting](docs/en/troubleshooting.md) | doctor, logs, common codes |
-| [Security](docs/en/security.md) | control channel, tokens, firewall, rotation |
-| Reference | [error codes](docs/ERRORS.md) · [`--json` output](docs/cli-json.md) · [backends](docs/backends/) |
-| Project | [architecture](docs/dev/ARCHITECTURE.md) · [releasing](docs/dev/RELEASING.md) · [decisions and open questions](QUESTIONS.md) · [changelog](CHANGELOG.md) |
-
-## Build from source
+</div>
 
 ```bash
-make build        # static binary in ./dist (CGO_ENABLED=0)
-make test lint    # unit tests and linters
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)   # همین خط = تعمیر یا ارتقا
+deyroute update                      # آپدیت خود برنامه؛ تانل‌ها قطع نمی‌شوند
+deyroute update backends             # آپدیت برنامه‌های تانل
+deyroute backup                      # بکاپ رمزنگاری‌شدهٔ هاب (رمز می‌پرسد)
+deyroute restore FILE                # روی سرور جدید، بعد از نصب با گزینهٔ no-setup
+deyroute hub announce-move NEW_IP:44433  # روی هاب قدیمی: همهٔ نودهای آنلاین را باخبر می‌کند
+deyroute node set-hub NEW_IP:44433   # یا روی هر نود، دستی
+deyroute uninstall                   # حذف کامل و برگرداندن سیستم
 ```
 
-Integration scenarios run in systemd containers: `test/integration/run.sh`
-(see the header of the script). Issues and pull requests are welcome.
+<div dir="rtl">
+
+مگر اینکه توضیح دیگری آمده باشد، این دستورها را روی هاب بزنید.
+
+راهنماها: [آپدیت و حذف](docs/fa/update-uninstall.md) ·
+[بکاپ و ریستور](docs/fa/backup.md) · [جابه‌جایی هاب](docs/fa/hub-move.md).
+
+## مشکلی پیش آمده؟
+
+اول `deyroute doctor` را بزنید. سیستم، پورت‌ها، گواهی‌ها، سرویس‌ها و لاگ‌ها را بررسی
+می‌کند و هر مشکل را به زبان ساده توضیح می‌دهد.
+
+| نشانه | این را امتحان کنید |
+| --- | --- |
+| نود `offline` است | روی هاب: `deyroute node test <id>`، بعد `44433/tcp` را در فایروال ارائه‌دهندهٔ سرورِ هاب باز کنید |
+| تانل `UP` است ولی کلاینت وصل نمی‌شود | روی هاب: `deyroute port check <port>` (دستور باز کردن پورت بسته را چاپ می‌کند). همچنین مطمئن شوید سرویس VPN روی نود کار می‌کند |
+| تانل مدام روش عوض می‌کند | `deyroute logs <tunnel>`؛ بعد، اگر قطع کوتاه اشکالی ندارد، `deyroute tunnel test-ladder <tunnel>` |
+| خطا با یک کد | سه خط آن را بخوانید (چه شد / چرا / راه‌حل)؛ همهٔ کدها در [docs/ERRORS.md](docs/ERRORS.md) است |
+
+بیشتر: [عیب‌یابی](docs/fa/troubleshooting.md).
+
+## خوب است بدانید
+
+- **هاب و نود یک برنامه‌اند.** نقش در ویزارد انتخاب می‌شود.
+- **به TLS شما دست زده نمی‌شود.** تانل بایت‌های خام را حمل می‌کند، پس کلاینت شما SNI، مسیر، UUID و اثرانگشتش را نگه می‌دارد.
+- **محدودیت‌های صادقانه.** نود باید به پورت کنترل هاب (`44433/tcp`) برسد؛ چند روش (Reality، Hysteria2، direct) از هاب به نود هم وصل می‌شوند. اگر مسیر بین دو کشور کاملاً قطع شود، تانل تا برگشتن مسیر پایین می‌ماند: DEYROUTE امروز راهی برای دور زدن آن ندارد، پس لطفاً یک Issue باز کنید. پنل VPN شما آدرس هاب را می‌بیند، نه IP واقعی کاربران؛ پس محدودیت بر پایهٔ IP در پنل کار نمی‌کند.
+- **نسخه‌های اولیه.** نسخه‌ها فعلاً از نوع `edge` هستند. آزمایش‌های خودکار آزمایشگاهی را پاس می‌کنند (systemd، nftables و بک‌اندهای واقعی در کانتینر) ولی آزمایش واقعی کمی دیده‌اند؛ کارهای باقی‌مانده را در [شواهد پذیرش](docs/en/acceptance.md) (به انگلیسی) ببینید. اگر دستور نصب را دوباره اجرا کنید، برنامه روی همان نصب ارتقا پیدا می‌کند و تنظیمات شما حفظ می‌شود.
+
+## مستندات
+
+| راهنما | |
+| --- | --- |
+| [نصب](docs/fa/install.md) | پیش‌نیازها، نصب آفلاین، Mirror، آنچه نصب‌کننده بررسی می‌کند |
+| [افزودن نود](docs/fa/join.md) | دستور join، انقضا، تغییر IP |
+| [اولین تانل](docs/fa/first-tunnel.md) | منو و CLI، نحوهٔ نوشتن پورت، پروب سلامت |
+| [نود پشتیبان](docs/fa/backup-node.md) | failover، failback و زمان‌بندی‌ها |
+| [پرسش‌های فیلترینگ](docs/fa/faq-filtering.md) | نردبان، روش‌های کنار گذاشته‌شده، سایت‌های فریب |
+| [عیب‌یابی](docs/fa/troubleshooting.md) | doctor، لاگ، کدهای رایج |
+| [امنیت](docs/fa/security.md) | کانال کنترل، توکن‌ها، فایروال، تعویض توکن‌ها و کلیدها |
+| مرجع (به انگلیسی) | [کدهای خطا](docs/ERRORS.md) · [خروجی `--json`](docs/cli-json.md) · [بک‌اندها](docs/backends/) |
+| پروژه (به انگلیسی) | [معماری](docs/dev/ARCHITECTURE.md) · [انتشار نسخه](docs/dev/RELEASING.md) · [تصمیم‌ها و پرسش‌های باز](QUESTIONS.md) · [تاریخچهٔ تغییرات](CHANGELOG.md) |
+
+## ساخت از روی سورس
+
+</div>
+
+```bash
+make build        # ساخت باینری ایستا
+make test lint    # اجرای تست‌های واحد و بررسی کد
+```
+
+<div dir="rtl">
+
+تست‌های یکپارچگی در کانتینرهای systemd اجرا می‌شوند: `test/integration/run.sh`
+(توضیحات ابتدای اسکریپت را ببینید). از Issue و Pull Request شما استقبال می‌کنیم.
+
+</div>
