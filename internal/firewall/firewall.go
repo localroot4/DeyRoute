@@ -28,6 +28,13 @@
 // reach these ports over 127.0.0.1 (the canary unit's loopback port of
 // section 9, local probes and diagnostics).
 //
+// Front mode: the CDN front port (Spec.FrontPort) is reached by the CDN
+// edges, not by the nodes. By default it is accepted only from the
+// Cloudflare ranges (the interval sets @cf4/@cf6, filled from
+// internal/cfnets) and dropped for every other source, so scanners cannot
+// reach the origin directly; Spec.FrontOpen accepts it from everyone (a lab,
+// another CDN).
+//
 // NAT (section 7.7 WireGuard/AmneziaWG on the hub, section 7.6 Hysteria2
 // port hopping on the node): a DNAT rule forwards a listen port to a
 // tunnel peer (10.77.n.2:<port>) and masquerade rewrites the source on the
@@ -93,6 +100,13 @@ const (
 	SetNodes6 = "nodes6"
 )
 
+// Names of the interval sets holding the Cloudflare edge ranges (rendered
+// only for a front port that is not open to everyone).
+const (
+	SetCF4 = "cf4"
+	SetCF6 = "cf6"
+)
+
 // Protocols of listen ports and NAT rules.
 const (
 	ProtoTCP = "tcp"
@@ -129,6 +143,16 @@ type Spec struct {
 	// reconnect with its certificate (section 11, QUESTIONS.md C.23). mTLS
 	// and the join limiter protect the port. "" = drop everyone else.
 	UnknownControlRate string
+	// FrontPort is the hub's CDN front listener port (front mode, 0 = none).
+	// It is reachable from the Internet side only, never through @nodes: the
+	// traffic comes from the CDN edges, not from the nodes.
+	FrontPort int
+	// FrontOpen opens FrontPort to everyone ("tcp dport P accept"); false
+	// (the default) accepts it only from the Cloudflare ranges embedded in
+	// internal/cfnets, declared as the interval sets @cf4/@cf6, and drops
+	// everything else to that port. No connection-rate limit is applied to
+	// the front port in either mode (see inputRules).
+	FrontOpen bool
 }
 
 // rateRe is an nft `limit rate` argument deyroute renders: packets per unit
@@ -149,6 +173,12 @@ func validIface(name string) bool {
 
 func validPort(p int) bool { return p >= 1 && p <= 65535 }
 
+// inCtlRange reports whether p lies in the valid backend control range
+// low-high.
+func inCtlRange(p, low, high int) bool {
+	return validPort(low) && validPort(high) && low <= high && p >= low && p <= high
+}
+
 // Validate reports every field Render would have to drop, as DEY-P019
 // wrapping the joined problems; nil when the Spec renders completely.
 func (s Spec) Validate() error {
@@ -163,6 +193,16 @@ func (s Spec) Validate() error {
 	if s.CtlLow != 0 || s.CtlHigh != 0 {
 		if !validPort(s.CtlLow) || !validPort(s.CtlHigh) || s.CtlLow > s.CtlHigh {
 			add("backend control range %d-%d invalid", s.CtlLow, s.CtlHigh)
+		}
+	}
+	if s.FrontPort != 0 {
+		switch {
+		case !validPort(s.FrontPort):
+			add("front port %d out of range", s.FrontPort)
+		case s.FrontPort == s.ControlPort:
+			add("front port %d is the control port", s.FrontPort)
+		case inCtlRange(s.FrontPort, s.CtlLow, s.CtlHigh):
+			add("front port %d is inside the backend control range %d-%d", s.FrontPort, s.CtlLow, s.CtlHigh)
 		}
 	}
 	for _, list := range [][]string{s.NodeIPs4, s.NodeIPs6} {

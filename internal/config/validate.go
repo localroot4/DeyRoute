@@ -209,6 +209,7 @@ func (c *Config) Validate(opt ValidateOptions) error {
 		return deyerr.New(deyerr.C016, deyerr.Params{"role": ""})
 	}
 	v := &validator{c: c, opt: opt, listen: map[ListenKey]string{}}
+	v.reserved = append(append([]int(nil), opt.ReservedPorts...), c.Hub.ReservedPorts()...)
 	if c.SchemaVersion != currentSchema {
 		v.add(deyerr.New(deyerr.C019, deyerr.Params{"version": c.SchemaVersion}))
 	}
@@ -235,6 +236,8 @@ type validator struct {
 	opt    ValidateOptions
 	errs   []error
 	listen map[ListenKey]string // listen/proto → first tunnel id
+	// reserved is opt.ReservedPorts plus the front port of an enabled front.
+	reserved []int
 }
 
 // add records a DEY error with every string parameter made printable.
@@ -368,6 +371,7 @@ func (v *validator) hub(h *Hub) {
 			v.bad("hub.mirror", h.Mirror, "an http(s) URL such as https://mirror.example.com/deyroute")
 		}
 	}
+	v.front(h)
 	tg := h.Notify.Telegram
 	v.secretPath("hub.notify.telegram.bot_token_file", tg.BotTokenFile, true)
 	if tg.ChatID != "" && !chatIDRe.MatchString(tg.ChatID) {
@@ -405,7 +409,12 @@ func (v *validator) nodes() {
 		}
 		seen[n.ID] = true
 		v.name(p+".name", n.Name, false)
-		if !validPublicIP(n.PublicIP) {
+		if n.Route != "" && n.Route != RouteFront {
+			v.bad(p+".route", n.Route, RouteFront+" (or empty for a direct node)")
+		}
+		// A front node's address is unknown to the hub (it sees the CDN),
+		// so public_ip may stay empty; a recorded one must still be valid.
+		if (n.Route != RouteFront || n.PublicIP != "") && !validPublicIP(n.PublicIP) {
 			v.bad(p+".public_ip", n.PublicIP, "the public IPv4 or IPv6 address of the node")
 		}
 		// Recorded by the hub at join (tlsutil.Fingerprint). Empty (not
@@ -551,7 +560,10 @@ func (v *validator) ports(p string, t *Tunnel) {
 			v.bad(pp+".listen", pm.Listen, "1-65535")
 		} else {
 			key := ListenKey{Port: pm.Listen, Proto: pm.Proto}
-			if reserved, why := ReservedListen(pm.Listen, v.controlPort(), v.opt.ReservedPorts); reserved {
+			if reserved, why := ReservedListen(pm.Listen, v.controlPort(), v.reserved); reserved {
+				if v.c.Hub.FrontPort() == pm.Listen {
+					why = fmt.Sprintf("port %d is the hub front port (hub.front.port)", pm.Listen)
+				}
 				v.add(deyerr.New(deyerr.C011, deyerr.Params{"port": key.String(), "reason": why}))
 			} else if protoOK {
 				if other, dup := v.listen[key]; dup {
@@ -676,4 +688,5 @@ func (v *validator) nodeSelf(n *NodeSelf) {
 	if n.ControlSNI != "" && !ValidDomain(n.ControlSNI) {
 		v.bad("node.control_sni", n.ControlSNI, "a DNS name such as www.example.com (sent in the control channel's ClientHello)")
 	}
+	v.nodeFront(n)
 }

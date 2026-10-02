@@ -201,6 +201,9 @@ func fullConfig() *Config {
 	c.Tunnels[0].Ladder = LadderRef{Inline: []string{"direct/native"}}
 	c.Tunnels[0].Advanced = &Advanced{ConnectionPool: 4}
 	c.Node = validNode().Node
+	cfOnly := false
+	c.Hub.Front = HubFront{Enabled: true, Domain: "front.example.com", Port: 8443, CFOnly: &cfOnly, TrustedProxies: []string{"203.0.113.0/24"}}
+	c.Node.Front = NodeFront{SecretFile: "front.secret", Scheme: "wss"}
 	return c
 }
 

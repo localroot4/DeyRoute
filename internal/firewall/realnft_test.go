@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/localroot4/deyroute/internal/cfnets"
 	"github.com/localroot4/deyroute/internal/exec"
 )
 
@@ -71,6 +72,31 @@ func TestRealNFT(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, v.Blocked, v.Detail)
 	require.NoError(t, Remove(ctx, r))
+
+	// The front port's interval sets are accepted by the real nft and listed
+	// back in a form the parser reads: every Cloudflare range, both families.
+	for _, name := range []string{"hub_front_cf", "hub_front_cf_ipv6"} {
+		spec := goldenSpecs[name]
+		require.NoError(t, Apply(ctx, r, spec), name)
+		out, err := Show(ctx, r)
+		require.NoError(t, err)
+		require.Contains(t, out, "flags interval", name)
+		var dey *nftTable
+		for _, tb := range parseNFTRuleset(out) {
+			if tb.ref() == TableRef {
+				dey = tb
+			}
+		}
+		require.NotNil(t, dey, name)
+		require.Len(t, dey.sets[SetCF4], len(cfnets.V4()), name)
+		require.Equal(t, spec.IPv6, len(dey.sets[SetCF6]) == len(cfnets.V6()), name)
+		b, u, detail := dey.ruleset(spec.FrontPort, ProtoTCP).blocks("input")
+		require.True(t, b && !u, "%s %s", name, detail)
+		v, err := Check(ctx, r, spec.FrontPort, ProtoTCP)
+		require.NoError(t, err)
+		require.False(t, v.Blocked, v.Detail)
+		require.NoError(t, Remove(ctx, r))
+	}
 
 	// A foreign policy-drop table as nft lists it (comments after verdicts,
 	// a named verdict map): commented accepts are open, the map's drop

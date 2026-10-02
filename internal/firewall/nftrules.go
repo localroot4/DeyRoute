@@ -583,6 +583,21 @@ func (p *nftParser) portCompare(op string, vals []string) tri {
 	return maybe
 }
 
+// anySource reports whether one of the values of an `ip saddr` match is the
+// any-address range, literally or as an element of a named set (interval
+// sets list their ranges as CIDR elements).
+func (p *nftParser) anySource(vals []string) bool {
+	for _, v := range vals {
+		if isAnyAddr(v) {
+			return true
+		}
+		if name, ok := strings.CutPrefix(v, "@"); ok && slices.ContainsFunc(p.sets[name], isAnyAddr) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *nftParser) ip() {
 	field := p.at(p.i)
 	p.i++
@@ -593,9 +608,13 @@ func (p *nftParser) ip() {
 		case op == "vmap":
 			// Only an any-address key applies to every client.
 			p.vmap(vals, func(k string) tri { return boolTri(isAnyAddr(k)) })
-		case op == "==" && len(vals) == 1 && isAnyAddr(vals[0]):
+		case op == "==" && p.anySource(vals):
 		case op == "==":
-			p.and(no) // restricted to some sources
+			// Restricted to some sources: a literal range, a named set of
+			// ranges such as the interval set @cf4 of the front port, or an
+			// unknown set. (IPv6 sources never match: the model packet is
+			// IPv4.)
+			p.and(no)
 		default:
 			p.and(maybe)
 		}

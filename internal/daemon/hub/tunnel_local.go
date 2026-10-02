@@ -163,7 +163,7 @@ func (h *Hub) checkNewPorts(ctx context.Context, cfg *config.Config, tunnel stri
 	}
 	for _, pm := range maps {
 		key := config.ListenKey{Port: pm.Listen, Proto: pm.Proto}
-		if reserved, why := ports.Reserved(pm.Listen, cfg.Hub.ControlPort); reserved {
+		if reserved, why := ports.Reserved(pm.Listen, cfg.Hub.ControlPort, cfg.Hub.ReservedPorts()...); reserved {
 			return deyerr.New(deyerr.P011, deyerr.Params{"port": key.String(), "reason": why})
 		}
 		if seen[key] {

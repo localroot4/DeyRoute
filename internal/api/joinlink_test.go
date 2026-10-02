@@ -59,6 +59,7 @@ func TestJoinLinkInvalid(t *testing.T) {
 		"dey://" + testToken + "@2001:db8::1:443#" + testFP,
 		"dey://" + testToken + "@bad_host!:443#" + testFP,
 		"dey://" + testToken + "@-bad.example:443#" + testFP,
+		"dey://" + testToken + "@1.2.3.4:44433?tls=1&x=2#" + testFP,
 	}
 	for _, s := range bad {
 		_, err := ParseJoinLink(s)
@@ -76,6 +77,14 @@ func TestRedactJoinLink(t *testing.T) {
 	require.Equal(t, "***", redactJoinLink("nothing"))
 	require.Equal(t, "dey://***", redactJoinLink("dey://tokenonly"))
 	require.Equal(t, "dey://***@1.2.3.4:1#x", redactJoinLink("dey://secret@1.2.3.4:1#x"))
+	require.Equal(t, "dey://***@h.example:443/***#x", redactJoinLink("dey://secret@h.example:443/frontsecret#x"))
+	require.Equal(t, "dey://***@h.example:443/***#x", redactJoinLink("dey://secret@h.example:443/front@secret/more#x"))
+	require.Equal(t, "dey://***@h.example:443?***#x", redactJoinLink("dey://secret@h.example:443?tls=1#x"))
+	require.Equal(t, "dey://***@h.example:443/***", redactJoinLink("dey://secret@h.example:443/front?tls=1"))
+	require.Equal(t, "dey://***@h:1#sha256:ab/***", redactJoinLink("dey://tok@h:1#sha256:ab/frontsecret"))
+	require.Equal(t, "dey://***@h:1#sha256:ab?***", redactJoinLink("dey://tok@h:1#sha256:ab?x=frontsecret"))
+	require.Equal(t, "dey://***", redactJoinLink("dey://sec/ret@h.example:443"))
+	require.Equal(t, "dey://***", redactJoinLink("dey://sec?ret@h.example:443"))
 	long := redactJoinLink("dey://" + strings.Repeat("a", 400))
 	require.Equal(t, "dey://***", long)
 }

@@ -144,6 +144,9 @@ type Hub struct {
 	Mirror      string   `yaml:"mirror,omitempty"`       // release base override (DEYROUTE_MIRROR wins)
 	UpdateCheck bool     `yaml:"update_check,omitempty"` // daily release check, default off (section 5)
 	ACME        *ACME    `yaml:"acme,omitempty"`
+
+	// Front is the CDN front listener (front mode); absent = off.
+	Front HubFront `yaml:"front,omitempty"`
 }
 
 // ACME holds optional ACME settings (section 10, tls.mode=acme).
@@ -175,6 +178,9 @@ type Node struct {
 	PublicIP        string   `yaml:"public_ip"`
 	CertFingerprint string   `yaml:"cert_fingerprint"`
 	Tags            []string `yaml:"tags,omitempty"`
+	// Route is how the node reaches the hub: "" = direct, "front" = through
+	// the CDN front (public_ip may then be empty, the hub cannot see it).
+	Route string `yaml:"route,omitempty"`
 }
 
 // PortMap maps listen on the hub to target on the node.
@@ -255,6 +261,9 @@ type NodeSelf struct {
 	// the control channel (a cover name, never used to verify the hub);
 	// empty = tlsutil.DefaultCoverSNI (QUESTIONS.md C.43).
 	ControlSNI string `yaml:"control_sni,omitempty"`
+	// Front holds the front dial settings; the node is in front mode iff
+	// front.secret_file is set (hub_addr is then "<front domain>:<port>").
+	Front NodeFront `yaml:"front,omitempty"`
 }
 
 // HubInfo is the subset of hub data a backend renderer needs.
