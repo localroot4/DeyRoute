@@ -49,6 +49,19 @@
 // DetectPublicIP and asks. The hub certificate is then re-issued by the
 // restored CA, so nodes keep trusting the hub; they learn the new address
 // from `deyroute hub announce-move` or `deyroute node set-hub` (SetHubAddr).
+// set-hub also takes a front target, wss://DOMAIN:PORT/SECRET, which
+// switches the node into front mode (ParseHubTarget); a plain host:port
+// clears front mode.
+//
+// # Front join
+//
+// A join link with a /SECRET path (dey://TOKEN@DOMAIN:PORT/SECRET#sha256:FP)
+// joins through the CDN front: Join writes secrets/front.secret (0600) and
+// registers the secret with the log redactor before the one-shot POST,
+// sends the POST through front.DialControl (DialFront maps failures to
+// DEY-N016/N017 and keeps the retry hints), and records node.front next to
+// node.hub_addr = DOMAIN:PORT in config.yaml. A front failure never spends
+// the token and removes the secret file again.
 //
 // # Step titles
 //

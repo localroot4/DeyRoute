@@ -41,6 +41,11 @@ func NodePayload(tunnel string, s Side) api.BackendRenderArgs {
 //     is off or a join window is open (joinWindow: an unexpired join token
 //     exists), then the port is open to everyone;
 //   - the backend control range 30000-31999 from @nodes only;
+//   - the CDN front port when front mode is enabled (hub.front): reachable
+//     from the CDN ranges only, or from everyone with hub.front.cf_only
+//     false. Nodes that joined through the front (route front) are never put
+//     into @nodes: their traffic arrives from the CDN, and an address the hub
+//     cannot vouch for must not open the control or backend ports;
 //   - every listen port of every enabled tunnel (tcp/udp);
 //   - NAT and masquerade only from activeHub, the hub sides of the ACTIVE
 //     candidates (warm rungs never have NAT rules);
@@ -57,12 +62,21 @@ func FirewallSpec(cfg *config.Config, activeHub []Side, joinWindow bool, unknown
 	if cfg.Hub != nil {
 		s.ControlPort = cfg.Hub.ControlPort
 		s.IPv6 = strings.TrimSpace(cfg.Hub.PublicIP6) != ""
+		// The hub overrides FrontPort with the port the listener is really
+		// bound to (like ControlPort); this is what the configuration asks for.
+		if p := cfg.Hub.FrontPort(); p != 0 {
+			s.FrontPort = p
+			s.FrontOpen = !cfg.Hub.Front.CFOnlyOrDefault()
+		}
 	}
 	s.RestrictControl = restrict && !joinWindow
 	if s.RestrictControl {
 		s.UnknownControlRate = unknownRate
 	}
 	for _, n := range cfg.Nodes {
+		if n.Route == config.RouteFront {
+			continue
+		}
 		a, err := netip.ParseAddr(strings.TrimSpace(n.PublicIP))
 		if err != nil {
 			continue

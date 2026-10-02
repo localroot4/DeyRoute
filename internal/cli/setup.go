@@ -497,11 +497,15 @@ func (g *Globals) join(ctx context.Context, link, name string, applySysctl bool)
 	if hubName == "" {
 		hubName = res.HubAddr
 	}
+	if res.Front {
+		// The hub is shown as DOMAIN:PORT; the path secret is never printed.
+		hubName += " (" + i18n.T(i18n.CLIViaFront) + ")"
+	}
 	if g.JSON {
 		return g.emitJSON(map[string]any{
 			"role": config.RoleNode, "node": res.NodeID, "hub_name": res.HubName, "hub_addr": res.HubAddr,
 			"hub_version": res.HubVersion, "public_ip": res.PublicIP, "ca_fingerprint": res.CAFingerprint,
-			"compatible": res.Compatible, "config_path": res.ConfigPath, "sysctl_profile": res.SysctlProfile,
+			"front": res.Front, "compatible": res.Compatible, "config_path": res.ConfigPath, "sysctl_profile": res.SysctlProfile,
 			"sysctl_warnings": nonNil(res.SysctlWarnings), "service_started": res.ServiceStarted, "steps": p.steps,
 		})
 	}

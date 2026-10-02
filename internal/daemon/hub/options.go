@@ -81,6 +81,9 @@ type Options struct {
 	// ControlListen is the Control API listen address; "" =
 	// ":<hub.control_port>". Tests use "127.0.0.1:0".
 	ControlListen string
+	// FrontListen is the CDN front listen address; "" = ":<hub.front.port>".
+	// Tests use "127.0.0.1:0" (Hub.FrontAddr then reports the real port).
+	FrontListen string
 	// SocketPath is the Local API socket; "" = Root/run/deyroute/daemon.sock.
 	SocketPath string
 	// SelfBinary is the deyroute binary served to nodes of the hub's own
@@ -129,8 +132,11 @@ type Options struct {
 	FirewallDebounce time.Duration
 	SnapshotInterval time.Duration
 	NodePersistEvery time.Duration
-	UploadGrace      time.Duration
-	FollowPoll       time.Duration
+	// RouteStable is how long a front node must stay connected directly
+	// before nodes[].route goes back to direct (30 s).
+	RouteStable time.Duration
+	UploadGrace time.Duration
+	FollowPoll  time.Duration
 
 	// Tunnel controller timings (tunnel_ctl.go): TunnelUpWait (60 s) is how
 	// long TunnelAdd waits for the new tunnel to come up, RecheckInterval
@@ -267,6 +273,7 @@ func (o Options) withDefaults() Options {
 	setDur(&o.FirewallDebounce, DefaultFirewallDebounce)
 	setDur(&o.SnapshotInterval, DefaultSnapshotInterval)
 	setDur(&o.NodePersistEvery, DefaultNodePersistEvery)
+	setDur(&o.RouteStable, DefaultRouteStable)
 	setDur(&o.UploadGrace, DefaultUploadGrace)
 	setDur(&o.FollowPoll, DefaultFollowPoll)
 	return o

@@ -1493,6 +1493,12 @@ const (
 	CLIStatusExample             Key = "cli.status_example"
 	CLIStatusNoTunnels           Key = "cli.status_no_tunnels"
 	CLIStatusNoNodes             Key = "cli.status_no_nodes"
+	CLIStatusFront               Key = "cli.status_front"
+	CLIStatusFrontUp             Key = "cli.status_front_up"
+	CLIStatusFrontDown           Key = "cli.status_front_down"
+	CLIStatusFrontCF             Key = "cli.status_front_cf"
+	CLIStatusFrontAll            Key = "cli.status_front_all"
+	CLIStatusViaFront            Key = "cli.status_via_front"
 	CLIWatchFooter               Key = "cli.watch_footer"
 	CLISetupLong                 Key = "cli.setup_long"
 	CLISetupExample              Key = "cli.setup_example"
@@ -1585,11 +1591,14 @@ const (
 	CLINodeSetHubExample         Key = "cli.node_set_hub_example"
 	CLINodeSetHubDone            Key = "cli.node_set_hub_done"
 	CLINodeSetHubOffline         Key = "cli.node_set_hub_offline"
+	CLINodeSetHubLong            Key = "cli.node_set_hub_long"
+	CLIViaFront                  Key = "cli.via_front"
 	CLIHubShort                  Key = "cli.hub_short"
 	CLIHubAnnounceShort          Key = "cli.hub_announce_short"
 	CLIHubAnnounceLong           Key = "cli.hub_announce_long"
 	CLIHubAnnounceExample        Key = "cli.hub_announce_example"
 	CLIHubAnnounced              Key = "cli.hub_announced"
+	CLIHubAnnounceFront          Key = "cli.hub_announce_front"
 	CLIHubAnnounceOffline        Key = "cli.hub_announce_offline"
 	CLITunnelShort               Key = "cli.tunnel_short"
 	CLITunnelAddShort            Key = "cli.tunnel_add_short"
@@ -2035,6 +2044,12 @@ var cliEN = map[Key]string{
 	CLIStatusExample:             "  deyroute status\n  deyroute status --watch\n  deyroute status --json | jq '.tunnels[] | {id, state}'",
 	CLIStatusNoTunnels:           "No tunnels yet. Add one: deyroute tunnel add --node <id> --ports 443",
 	CLIStatusNoNodes:             "No nodes yet. Show the join command: deyroute node join-command",
+	CLIStatusFront:               "Front: %s:%d (%s, %s, tls %s)",
+	CLIStatusFrontUp:             "listening",
+	CLIStatusFrontDown:           "NOT listening, DEY-X053: see deyroute logs hub",
+	CLIStatusFrontCF:             "Cloudflare only",
+	CLIStatusFrontAll:            "open to all",
+	CLIStatusViaFront:            "via front",
 	CLIWatchFooter:               "Updated %s · refreshes every %ds · Ctrl-C quits",
 	CLISetupLong:                 "Set this server up. A hub (the Iran server users connect to) takes at most five\nquestions: role, name, public IP, control port and the kernel profile; keys, the\nfirewall table and the service are automatic. It ends with the join command for\nyour nodes. A node asks for the join link printed by the hub.\n\nWithout a terminal pass the answers as flags: --role hub --name ir-1 --yes.",
 	CLISetupExample:              "  deyroute setup\n  deyroute setup --role hub --name ir-1 --yes\n  deyroute setup --role hub --name ir-1 --control-port 44500",
@@ -2097,8 +2112,8 @@ var cliEN = map[Key]string{
 	CLISetupNoTTYWhy:             "no terminal is available for the interactive setup",
 	CLISetupNoTTYFix:             "run: deyroute setup --role hub --name NAME --yes   (on a node: deyroute join 'dey://...')",
 	CLISetupNodeNeedsLink:        "a node joins with the link from the hub: deyroute join 'dey://TOKEN@HUB_IP:PORT#FP' [--name N]",
-	CLIJoinLong:                  "Join this server to a hub as a node. The link comes from the hub (menu: Nodes ->\nShow join command, or deyroute node join-command); it is valid once, for 15 minutes,\nand pins the hub's CA fingerprint. The node creates its key, gets its certificate,\nwrites its configuration and starts deyroute-node.",
-	CLIJoinExample:               "  deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:...'\n  deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:...' --name de-1",
+	CLIJoinLong:                  "Join this server to a hub as a node. The link comes from the hub (menu: Nodes ->\nShow join command, or deyroute node join-command); it is valid once, for 15 minutes,\nand pins the hub's CA fingerprint. The node creates its key, gets its certificate,\nwrites its configuration and starts deyroute-node.\nA hub behind the CDN front gives a link with a /SECRET path (dey://TOKEN@DOMAIN:PORT/SECRET#sha256:...):\nthe node then joins and stays connected through the front. Keep the link private.",
+	CLIJoinExample:               "  deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:...'\n  deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:...' --name de-1\n  deyroute join 'dey://TOKEN@front.example.com:2053/SECRET#sha256:...'",
 	CLIJoinDone:                  "Node %s joined hub %s; it appears on the hub dashboard shortly",
 	CLIJoinIncompatible:          "! The hub runs deyroute %[1]s and this node %[2]s: this node runs no commands until both run the same release. Run the installer here again with --version %[1]s",
 	CLINodeShort:                 "Manage nodes: join command, list, rename, remove, test, set-hub",
@@ -2123,8 +2138,10 @@ var cliEN = map[Key]string{
 	CLINodeTestUDPOK:             "  UDP          ok (%s)",
 	CLINodeTestUDPBlocked:        "  UDP          blocked (transports that need UDP are skipped for this node)",
 	CLINodeTestSysinfo:           "  system:",
-	CLINodeSetHubShort:           "On a node: point it to a hub that moved to a new address",
-	CLINodeSetHubExample:         "  deyroute node set-hub 5.6.7.9:44433",
+	CLINodeSetHubShort:           "On a node: point it to a hub that moved, or switch between a direct and a front connection",
+	CLINodeSetHubLong:            "Point this node to its hub. Run it on the node itself.\n\n  ip:port                  connect to the hub directly. This CLEARS front mode: the node leaves the CDN front.\n  wss://DOMAIN:PORT/SECRET  connect through the hub's CDN front (ws:// for a plain-HTTP port).\n                           DOMAIN:PORT/SECRET is the host and path of the front join link.\n\nA hub that moves never changes a node that is in front mode; only this command does.",
+	CLINodeSetHubExample:         "  deyroute node set-hub 5.6.7.9:44433\n  deyroute node set-hub 'wss://front.example.com:2053/SECRET'",
+	CLIViaFront:                  "via front",
 	CLINodeSetHubDone:            "This node now connects to hub %s.",
 	CLINodeSetHubOffline:         "Hub address %s saved; the node agent is not running: systemctl start %s",
 	CLIHubShort:                  "Hub operations",
@@ -2132,6 +2149,7 @@ var cliEN = map[Key]string{
 	CLIHubAnnounceLong:           "Run on the old hub after restoring its backup on a new server: every online node\nreceives the new address and reconnects there. Offline nodes need\ndeyroute node set-hub <ip:port> on the node itself.",
 	CLIHubAnnounceExample:        "  deyroute hub announce-move 5.6.7.9:44433",
 	CLIHubAnnounced:              "New hub address %s sent to: %s",
+	CLIHubAnnounceFront:          "front: unchanged (%s): these nodes reach the hub through the CDN front, not this address",
 	CLIHubAnnounceOffline:        "! Offline, not told: %s. Run on each of them: deyroute node set-hub %s",
 	CLITunnelShort:               "Manage tunnels: add, list, show, edit, enable/disable, switch, failover",
 	CLITunnelAddShort:            "Create a tunnel to a node (default ladder, ports checked and opened)",

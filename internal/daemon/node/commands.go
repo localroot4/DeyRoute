@@ -145,7 +145,7 @@ func (a *agent) dispatch(ctx context.Context, cmd api.Command, stream func([]str
 		if err := a.decodeArgs(cmd, &args); err != nil {
 			return nil, err
 		}
-		return nil, a.setHub(ctx, args.Addr, a.o.ReconnectDelay)
+		return nil, a.setHub(ctx, args.Addr, a.o.ReconnectDelay, true)
 	case api.CmdUninstall:
 		a.scheduleUninstall()
 		return nil, nil

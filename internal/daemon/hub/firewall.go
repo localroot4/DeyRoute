@@ -142,6 +142,11 @@ func (h *Hub) applyFirewall(ctx context.Context) error {
 		// hub.control_port that takes effect only at the next restart.
 		spec.ControlPort = h.ctlPort
 	}
+	// Likewise the front: the port its listener is really bound to (none
+	// while it is disabled or could not start), opened to the CDN ranges or,
+	// with hub.front.cf_only false, to everyone.
+	spec.FrontPort = h.frontBoundPort()
+	spec.FrontOpen = spec.FrontPort != 0 && cfg.Hub != nil && !cfg.Hub.Front.CFOnlyOrDefault()
 	managed := firewallManaged(cfg)
 	h.fwMu.Lock()
 	first := !h.fw.done

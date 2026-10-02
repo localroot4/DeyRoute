@@ -676,6 +676,9 @@ func announceForm(a *app) screen {
 					off := a.sym().warn + " " + i18n.T(i18n.TUIBuAnnounceOffline, strings.Join(r.Offline, ", "), addr)
 					out += a.paint(colYellow, indent(off)) + "\n"
 				}
+				if len(r.Front) > 0 {
+					out += indent(i18n.T(i18n.CLIHubAnnounceFront, strings.Join(r.Front, ", "))) + "\n"
+				}
 				return out
 			}))
 		}))

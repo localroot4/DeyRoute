@@ -522,7 +522,11 @@ func renderNodeSelf(a *app, n api.NodeSelf) string {
 	if !n.Connected {
 		conn = a.paint(colRed, s.down+" "+i18n.T(i18n.TUIDashDisconnected))
 	}
-	line := "  " + n.ID + "  " + i18n.T(i18n.TUIDashHub, n.HubAddr) + "  " + conn
+	hub := n.HubAddr
+	if n.Front {
+		hub += " (" + i18n.T(i18n.CLIViaFront) + ")"
+	}
+	line := "  " + n.ID + "  " + i18n.T(i18n.TUIDashHub, hub) + "  " + conn
 	if !n.LastContact.IsZero() {
 		line += "  " + i18n.T(i18n.TUIDashLastContact, n.LastContact.In(a.opts.Location).Format("15:04:05"))
 	}

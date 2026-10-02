@@ -38,6 +38,9 @@ func (l *local) ConfigApply(ctx context.Context, progress func(api.Step)) (api.A
 	if err != nil {
 		return api.ApplyResult{}, withLog(err)
 	}
+	// The front follows hub.front at once (enable, disable, a new port), and
+	// a front that could not start (DEY-X053) is tried again here.
+	h.reloadFront(h.Config())
 	if cfg := h.Config(); h.ctlPort != 0 && cfg.Hub.ControlPort != h.ctlPort {
 		res.Warnings = append(res.Warnings, h.announcePort(ctx, cfg))
 	}
@@ -127,6 +130,9 @@ func (h *Hub) announcePort(ctx context.Context, cfg *config.Config) string {
 	}
 	if len(res.Offline) > 0 {
 		msg += "; offline nodes, run on each: deyroute node set-hub " + addr + " (" + strings.Join(res.Offline, ", ") + ")"
+	}
+	if len(res.Front) > 0 {
+		msg += "; front: unchanged (" + strings.Join(res.Front, ", ") + "): they reach the hub through the CDN front, not this address"
 	}
 	return msg
 }

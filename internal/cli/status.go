@@ -98,6 +98,9 @@ func (g *Globals) watchStatus(ctx context.Context, l api.Local) error {
 func (g *Globals) dashboard(st api.Status) string {
 	var b strings.Builder
 	b.WriteString(g.statusLine(st) + "\n")
+	if line := frontLine(st); line != "" {
+		b.WriteString(" " + line + "\n")
+	}
 	if st.NodeSelf != nil {
 		b.WriteString(" " + i18n.T(i18n.TUIDashNode) + "\n")
 		b.WriteString(g.nodeSelfLines(*st.NodeSelf))
@@ -128,6 +131,25 @@ func (g *Globals) dashboard(st api.Status) string {
 	return g.text(b.String())
 }
 
+// frontLine is the short front line of the hub dashboard ("" when front mode
+// is off): the domain and port the nodes dial, whether the listener runs and
+// who may reach it. The path secret is never part of the status.
+func frontLine(st api.Status) string {
+	if st.Hub == nil || st.Hub.Front == nil || !st.Hub.Front.Enabled {
+		return ""
+	}
+	f := st.Hub.Front
+	up := i18n.T(i18n.CLIStatusFrontUp)
+	if !f.Listening {
+		up = i18n.T(i18n.CLIStatusFrontDown)
+	}
+	who := i18n.T(i18n.CLIStatusFrontAll)
+	if f.CFOnly {
+		who = i18n.T(i18n.CLIStatusFrontCF)
+	}
+	return i18n.T(i18n.CLIStatusFront, f.Domain, f.Port, up, who, f.TLS)
+}
+
 // statusLine is the line under the banner: "DEYROUTE Tunnel Manager  v1.0.0
 // · Hub: ir-1 (5.6.7.8) · Mode: Simple · 2 nodes · 1 tunnel UP".
 func (g *Globals) statusLine(st api.Status) string {
@@ -142,7 +164,7 @@ func (g *Globals) statusLine(st api.Status) string {
 		}
 		parts = append(parts, i18n.T(i18n.BannerMode, mode), i18n.T(i18n.BannerNodes, len(st.Nodes)))
 	case st.NodeSelf != nil:
-		parts = append(parts, i18n.T(i18n.BannerNode, st.NodeSelf.ID, st.NodeSelf.HubAddr))
+		parts = append(parts, i18n.T(i18n.BannerNode, st.NodeSelf.ID, hubLabel(*st.NodeSelf)))
 	}
 	up := 0
 	for _, t := range st.Tunnels {
@@ -267,7 +289,7 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 	for _, n := range ns {
 		idW = max(idW, width(n.ID))
 		nameW = max(nameW, width(n.Name))
-		ipW = max(ipW, width(n.PublicIP))
+		ipW = max(ipW, width(nodeAddr(n)))
 	}
 	var b strings.Builder
 	for _, n := range ns {
@@ -275,7 +297,7 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 		if !n.Online {
 			st = s.down + " " + i18n.T(i18n.TUIOffline)
 		}
-		line := "  " + pad(n.ID, idW+2) + pad(n.Name, nameW+2) + pad(n.PublicIP, ipW+3) + pad(st, 11)
+		line := "  " + pad(n.ID, idW+2) + pad(n.Name, nameW+2) + pad(nodeAddr(n), ipW+3) + pad(st, 11)
 		if !g.narrow() {
 			ctl := orDash("")
 			if n.Online && n.ControlRTTms > 0 {
@@ -294,6 +316,15 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
+}
+
+// nodeAddr is the address column of a node: its public IP, or "via front"
+// for a front node whose address the CDN hides.
+func nodeAddr(n api.NodeInfo) string {
+	if n.PublicIP == "" && n.Route != "" {
+		return i18n.T(i18n.CLIStatusViaFront)
+	}
+	return n.PublicIP
 }
 
 // eventWord is the short event type of LAST EVENTS ("switch", "node
@@ -367,6 +398,15 @@ func (g *Globals) warningLines(st api.Status) string {
 	return b.String()
 }
 
+// hubLabel is the hub as shown on a node: its address (the front domain and
+// port in front mode) with a "via front" marker when the node uses the front.
+func hubLabel(n api.NodeSelf) string {
+	if n.Front {
+		return n.HubAddr + " (" + i18n.T(i18n.CLIViaFront) + ")"
+	}
+	return n.HubAddr
+}
+
 // nodeSelfLines renders the NODE section on a node server.
 func (g *Globals) nodeSelfLines(n api.NodeSelf) string {
 	s := g.sym()
@@ -374,7 +414,7 @@ func (g *Globals) nodeSelfLines(n api.NodeSelf) string {
 	if !n.Connected {
 		conn = s.down + " " + i18n.T(i18n.TUIDashDisconnected)
 	}
-	line := "  " + n.ID + "  " + i18n.T(i18n.TUIDashHub, n.HubAddr) + "  " + conn
+	line := "  " + n.ID + "  " + i18n.T(i18n.TUIDashHub, hubLabel(n)) + "  " + conn
 	if !n.LastContact.IsZero() {
 		line += "  " + i18n.T(i18n.TUIDashLastContact, localTime(n.LastContact, "15:04:05"))
 	}

@@ -58,9 +58,14 @@ type JoinOptions struct {
 	// JoinFunc replaces api.JoinVia (tests, proxies); nil = api.JoinVia,
 	// which dials the hub over its own pinned HTTP/2 transport.
 	JoinFunc JoinFunc
-	// Dial opens the raw connection to the hub for the join (a CDN front);
-	// nil = plain TCP. It is passed to JoinFunc.
+	// Dial opens the raw connection to the hub for the join; nil = plain TCP
+	// for a direct link and the front dial (FrontDial) for a front link. It
+	// is passed to JoinFunc.
 	Dial func(ctx context.Context) (net.Conn, error)
+	// FrontDial opens the control connection through the front for a link
+	// with a /SECRET path; nil = front.DialControl (tests point it at a fake
+	// CDN with its own root pool). Ignored when Dial is set.
+	FrontDial FrontDialFunc
 	// Hostname returns the host name (os.Hostname when nil).
 	Hostname func() (string, error)
 	// LookupGroup returns the gid of a group (LookupGroupID when nil).
@@ -91,6 +96,9 @@ type JoinResult struct {
 	SysctlProfile  string
 	SysctlWarnings []string
 	ServiceStarted bool
+	// Front is true when the node joined through the hub's CDN front (HubAddr
+	// is then the front domain and port).
+	Front bool
 }
 
 // Join joins this server to a hub as a node (spec sections 3 and 11):
@@ -99,10 +107,21 @@ type JoinResult struct {
 // returned unchanged; the answer is verified: CA = pin (N002), certificate
 // chains to it and matches our key (N002/N020)), secrets (node.key,
 // node.crt, ca.crt, 0600), sysctl, config (config.NewNode) and service.
-// DEY-I013 when this server is already set up. The token is single use, so
-// every local check (sysctl profile, directories, the backend user) runs
-// before it is sent: an invalid SysctlProfile is DEY-I014 {config} (C013)
-// and nothing reaches the hub.
+// DEY-I013 when this server is already set up.
+//
+// A front link (dey://TOKEN@DOMAIN:PORT/SECRET#sha256:FP) joins through the
+// CDN front: the path secret is written to secrets/front.secret (0600) and
+// registered with the log redactor before anything else touches the
+// network, the one-shot POST goes over the front (front.DialControl, the
+// pinned-CA TLS runs inside the WebSocket) and the config gets node.front
+// next to node.hub_addr = DOMAIN:PORT. A front that cannot be reached or
+// refuses the node (DEY-N016, DEY-N017) never reaches the hub, so the token
+// is not spent and the same command can be run again; the secret file is
+// removed again when the join fails.
+//
+// The token is single use, so every local check (sysctl profile,
+// directories, the backend user) runs before it is sent: an invalid
+// SysctlProfile is DEY-I014 {config} (C013) and nothing reaches the hub.
 func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 	e := newEnv(envOptions{
 		Root: o.Root, Runner: o.Runner, Now: o.Now, LookupGroup: o.LookupGroup, LookupUser: o.LookupUser, Chown: o.Chown,
@@ -136,6 +155,21 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 		return nil, passthrough(StepParseLink, err)
 	}
 	deylog.RegisterSecret(link.Token)
+	dial := o.Dial
+	var frontScheme string
+	if link.Front() {
+		// The path secret is as secret as the token: registered before any
+		// line can mention it.
+		deylog.RegisterSecret(link.Secret)
+		t, err := frontTarget(link, o.FrontDial)
+		if err != nil {
+			return nil, passthrough(StepParseLink, err)
+		}
+		frontScheme = storedFrontScheme(link.Addr(), linkScheme(link))
+		if dial == nil {
+			dial = DialFront(t.target, t.dial)
+		}
+	}
 	e.rep.ok(StepParseLink, link.Addr())
 
 	// The join token is single use: everything that can fail locally is
@@ -169,6 +203,20 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 	if err != nil {
 		return nil, fail(StepKeys, err)
 	}
+	joined := false // config.yaml written: the front secret file stays
+	if link.Front() {
+		// Before the one-shot POST: if the join succeeds the node must
+		// already hold what it needs to reach the hub again. Removed when
+		// the join fails, so a retry starts clean.
+		if err := writeFrontSecret(e.root, config.DefaultFrontSecretFile, link.Secret); err != nil {
+			return nil, fail(StepKeys, err)
+		}
+		defer func() {
+			if !joined {
+				_ = os.Remove(e.secret(config.DefaultFrontSecretFile))
+			}
+		}()
+	}
 	e.rep.okOrWarn(StepKeys, "ed25519", userWarn)
 
 	// join
@@ -183,7 +231,7 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 		OS:       e.osPrettyName(),
 		Hostname: host,
 	}
-	resp, err := joinFn(ctx, link.Addr(), link.Fingerprint, req, o.Dial)
+	resp, err := joinFn(ctx, link.Addr(), link.Fingerprint, req, dial)
 	if err != nil {
 		return nil, passthrough(StepJoin, err)
 	}
@@ -215,6 +263,7 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 		HubVersion:    resp.HubVersion,
 		PublicIP:      resp.PublicIP,
 		CAFingerprint: link.Fingerprint,
+		Front:         link.Front(),
 		ConfigPath:    e.configPath(),
 		Compatible:    resp.HubVersion != "" && version.Compatible(resp.HubVersion, version.Version),
 		SysctlProfile: config.SysctlOff,
@@ -223,6 +272,9 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 	// sysctl
 	e.rep.start(StepSysctl)
 	cfg := config.NewNode(resp.NodeID, link.Addr(), link.Fingerprint)
+	if link.Front() {
+		cfg.Node.Front = config.NodeFront{SecretFile: config.DefaultFrontSecretFile, Scheme: frontScheme}
+	}
 	if !o.ApplySysctl {
 		e.rep.skip(StepSysctl, config.SysctlOff)
 	} else {
@@ -246,6 +298,7 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 	if err := config.SaveWith(res.ConfigPath, cfg, validateOptions()); err != nil {
 		return nil, fail(StepConfig, err)
 	}
+	joined = true
 	e.rep.ok(StepConfig, res.ConfigPath)
 
 	// service

@@ -25,6 +25,7 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/firewall"
+	"github.com/localroot4/deyroute/internal/front"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/notify"
@@ -72,6 +73,9 @@ type Hub struct {
 	ctlPort int
 	ctl     *api.ControlServer
 	local   *local
+	// front is the CDN front listener (front.go); its connections join the
+	// direct control listener in one ControlServer.
+	front frontRuntime
 
 	nodesMu sync.Mutex
 	nodes   map[string]*nodeRuntime
@@ -196,6 +200,11 @@ func New(o Options) (_ *Hub, err error) {
 		}).WithDetail(err.Error()).WithLog(LogFile)
 	}
 	h.ln, h.ctlPort = ln, cfg.Hub.ControlPort
+	h.front.feed = newFrontFeed()
+	if cfg.Hub.Front.Enabled {
+		// A front that cannot start (DEY-X053) never stops the hub.
+		h.reloadFront(cfg)
+	}
 	h.ctl = &api.ControlServer{TLSConfig: h.tlsCfg, Handler: controlHandler{h}, Logger: h.log, Clock: o.Now}
 	h.local = &local{h: h}
 	return h, nil
@@ -398,7 +407,15 @@ func (h *Hub) Serve(ctx context.Context) error {
 	h.startTunnels(ctx)
 	run(func() { h.runTunnels(ctx) })
 	run(func() {
-		if err := h.ctl.Serve(ctx, h.ln); err != nil && ctx.Err() == nil {
+		// One ControlServer serves the direct control port and the front
+		// together, so both paths share the same sessions.
+		direct := directListener{Listener: h.ln, fail: func(err error) {
+			select {
+			case fatal <- err:
+			default:
+			}
+		}}
+		if err := h.ctl.Serve(ctx, front.FanIn(direct, h.front.feed)); err != nil && ctx.Err() == nil {
 			fatal <- err
 		}
 	})
@@ -456,6 +473,9 @@ func (h *Hub) Close() error {
 // release closes the listener, state.db and the log files (once).
 func (h *Hub) release() {
 	h.closeOnce.Do(func() {
+		if h.front.feed != nil {
+			h.closeFront()
+		}
 		if h.ln != nil {
 			_ = h.ln.Close()
 		}

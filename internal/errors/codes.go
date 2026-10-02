@@ -168,6 +168,7 @@ const (
 	S007 Code = "DEY-S007" // no previous binary for rollback
 	S008 Code = "DEY-S008" // backup passphrase required
 	S009 Code = "DEY-S009" // secret file unreadable or damaged {path} {reason}
+	S010 Code = "DEY-S010" // update or rollback refused while the front is in use {action} {reason}
 )
 
 // Internal (DEY-X0xx).
@@ -610,6 +611,9 @@ var catalog = map[Code]Info{
 	S009: {S009, "Cannot use secret file {path}",
 		"the file is missing, empty, unreadable or damaged: {reason}",
 		"check the file (ls -l {path}); restore it from a backup (deyroute restore FILE) or recreate it through the menu"},
+	S010: {S010, "Cannot {action} while the CDN front is in use",
+		"{reason}: an older deyroute does not know the front settings in config.yaml (the hub's hub.front, a node's node.front and route), so it refuses the file (DEY-C001) and a node that updates to it can no longer start; the nodes abroad cannot be repaired remotely",
+		"run deyroute front disable and move every front node back to a direct hub address (deyroute node set-hub HOST:PORT on each node, or join it again), then repeat the command"},
 
 	// ---------------------------------------------------------------- X
 	X000: {X000, "Unexpected error",

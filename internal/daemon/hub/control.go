@@ -67,8 +67,22 @@ const defaultNodeBase = "node"
 // succeeded, right before config.yaml is written: a join refused for
 // another reason (taken id, bad CSR, a config.yaml edit that is not
 // applied: DEY-C026) leaves it usable for another attempt.
-func (h *Hub) join(_ context.Context, req api.JoinRequest, remoteIP string) (api.JoinResponse, error) {
-	ip := normalizeIP(remoteIP)
+func (h *Hub) join(ctx context.Context, req api.JoinRequest, remoteIP string) (api.JoinResponse, error) {
+	// ip is the address the join limiter counts (Peer.IP). A node that joins
+	// through the front gets route front, and its public_ip is recorded only
+	// when the peer vouches for the client address (a trusted proxy header):
+	// otherwise it is an edge address shared with every customer of the CDN,
+	// and an empty public_ip keeps it out of @nodes.
+	peer := api.PeerFrom(ctx)
+	ip := normalizeIP(firstNonEmpty(peer.IP, remoteIP))
+	viaFront := isFrontPeer(peer)
+	nodeIP, route := ip, ""
+	if viaFront {
+		route = config.RouteFront
+		if !peer.Trusted {
+			nodeIP = ""
+		}
+	}
 	if err := h.joins.Check(req.Token, ip); err != nil {
 		return api.JoinResponse{}, err
 	}
@@ -111,7 +125,7 @@ func (h *Hub) join(_ context.Context, req api.JoinRequest, remoteIP string) (api
 		if name == "" {
 			name = nodeID
 		}
-		return c.AddNode(config.Node{ID: nodeID, Name: name, PublicIP: ip, CertFingerprint: tlsutil.Fingerprint(cert.Raw)})
+		return c.AddNode(config.Node{ID: nodeID, Name: name, PublicIP: nodeIP, Route: route, CertFingerprint: tlsutil.Fingerprint(cert.Raw)})
 	}, func() error {
 		// Spent only now; a concurrent join with the same token, or its
 		// expiry meanwhile, fails here and nothing is written.
@@ -123,21 +137,25 @@ func (h *Hub) join(_ context.Context, req api.JoinRequest, remoteIP string) (api
 	h.recordNodeCert(nodeID, certPEM)
 	h.nodesMu.Lock()
 	nr := h.runtimeLocked(nodeID)
-	nr.st.RemoteIP = ip
+	nr.st.RemoteIP = nodeIP
 	nr.st.AgentVersion, nr.st.Arch, nr.st.OS = req.Version, req.Arch, req.OS
 	nr.st.Compatible = version.Compatible(version.Version, req.Version)
 	h.nodesMu.Unlock()
 	h.requestFirewall()
-	h.log.Info("node joined", dlog.Node(nodeID), slog.String("remote_ip", ip),
+	h.log.Info("node joined", dlog.Node(nodeID), slog.String("remote_ip", nodeIP), slog.String("via", peer.Via),
 		slog.String("version", req.Version), slog.String("arch", req.Arch))
+	hubAddr := net.JoinHostPort(cfg.Hub.PublicIP, strconv.Itoa(cfg.Hub.ControlPort))
+	if viaFront && cfg.Hub.Front.Enabled {
+		hubAddr = frontHubAddr(cfg.Hub.Front)
+	}
 	return api.JoinResponse{
 		NodeID:     nodeID,
 		CertPEM:    string(certPEM),
 		CAPEM:      string(h.trustPEM()),
 		HubName:    cfg.Hub.Name,
 		HubVersion: version.Version,
-		HubAddr:    net.JoinHostPort(cfg.Hub.PublicIP, strconv.Itoa(cfg.Hub.ControlPort)),
-		PublicIP:   ip,
+		HubAddr:    hubAddr,
+		PublicIP:   nodeIP,
 	}, nil
 }
 
@@ -146,7 +164,12 @@ func (h *Hub) join(_ context.Context, req api.JoinRequest, remoteIP string) (api
 // (otherwise DEY-N008: unknown, removed or re-joined node). A node that
 // connects from a new public IP is updated in config.yaml, @nodes follows
 // and node_ip_changed is emitted (section 11, S27).
-func (h *Hub) authenticate(_ context.Context, nodeID, certFingerprint, remoteIP string) error {
+//
+// A request that arrived through the front (api.Peer.Via) with an address the
+// peer cannot vouch for (Peer.Trusted false: an edge address) never touches
+// public_ip and emits no node_ip_changed; with a trusted client address the
+// real IP is recorded (informational: a route front node is never in @nodes).
+func (h *Hub) authenticate(ctx context.Context, nodeID, certFingerprint, remoteIP string) error {
 	n, ok := h.Config().NodeByID(nodeID)
 	if !ok {
 		return deyerr.New(deyerr.N008, deyerr.Params{"node": nodeID})
@@ -160,6 +183,10 @@ func (h *Hub) authenticate(_ context.Context, nodeID, certFingerprint, remoteIP 
 		if n, ok = h.Config().NodeByID(nodeID); !ok {
 			return deyerr.New(deyerr.N008, deyerr.Params{"node": nodeID})
 		}
+	}
+	peer := api.PeerFrom(ctx)
+	if peer.Via != "" && !peer.Trusted {
+		return nil
 	}
 	ip := normalizeIP(remoteIP)
 	if ip != "" && !sameIP(n.PublicIP, ip) {
@@ -193,6 +220,11 @@ func (h *Hub) nodeIPChanged(id, ip string) {
 	}
 	h.setNodeIP(id, ip)
 	h.requestFirewall()
+	if old == "" {
+		// A front node whose address was not known until now.
+		h.log.Info("node public IP recorded", dlog.Node(id), slog.String("new_ip", ip))
+		return
+	}
 	h.log.Warn("node public IP changed", dlog.Node(id), slog.String("old_ip", old), slog.String("new_ip", ip))
 	h.Emit(state.Event{
 		Type: state.EvNodeIPChanged, Level: state.LevelWarn, Node: id,

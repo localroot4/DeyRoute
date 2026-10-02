@@ -183,6 +183,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-S007` | No previous binary to roll back to | /var/lib/deyroute/bin/deyroute.prev does not exist | install a specific version: deyroute update --version V |
 | `DEY-S008` | A backup passphrase is required | backups contain the CA key and tunnel secrets and are encrypted with age by default | enter a passphrase, or run deyroute backup --no-encrypt and keep the file private |
 | `DEY-S009` | Cannot use secret file {path} | the file is missing, empty, unreadable or damaged: {reason} | check the file (ls -l {path}); restore it from a backup (deyroute restore FILE) or recreate it through the menu |
+| `DEY-S010` | Cannot {action} while the CDN front is in use | {reason}: an older deyroute does not know the front settings in config.yaml (the hub's hub.front, a node's node.front and route), so it refuses the file (DEY-C001) and a node that updates to it can no longer start; the nodes abroad cannot be repaired remotely | run deyroute front disable and move every front node back to a direct hub address (deyroute node set-hub HOST:PORT on each node, or join it again), then repeat the command |
 
 ## Internal (DEY-X0xx)
 

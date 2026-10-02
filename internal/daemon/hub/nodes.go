@@ -55,12 +55,20 @@ func (l *local) NodeJoinCommand(ctx context.Context, ttl time.Duration) (api.Joi
 	if err != nil {
 		return api.JoinCommand{}, withLog(err)
 	}
-	link := api.FormatJoinLink(api.JoinLink{
+	jl := api.JoinLink{
 		Token:       token,
 		Host:        cfg.Hub.PublicIP,
 		Port:        cfg.Hub.ControlPort,
 		Fingerprint: h.currentCA().Fingerprint(),
-	})
+	}
+	if host, port, secret, ok := h.frontLink(cfg); ok {
+		// Front mode: the node dials the CDN domain and the join runs through
+		// it. The scheme follows the Cloudflare port (an HTTPS port is wss,
+		// also when the origin leg is plain: Flexible), so no ?tls= override
+		// is ever needed for a configuration that passed validation.
+		jl.Host, jl.Port, jl.Secret = host, port, secret
+	}
+	link := api.FormatJoinLink(jl)
 	mirror := firstNonEmpty(h.o.Getenv(install.MirrorEnv), cfg.Hub.Mirror)
 	cmd := setup.JoinCommand(setup.InstallerURL(mirror), link, version.Version)
 	if err := h.applyFirewall(ctx); err != nil {
@@ -195,7 +203,12 @@ func (l *local) NodeTest(ctx context.Context, id string) (api.NodeTestResult, er
 	if err != nil {
 		return res, withLog(err)
 	}
-	host := firstNonEmpty(n.PublicIP, s.RemoteIP)
+	// A front node's address may be unknown (the CDN hides it): then there
+	// is nothing to probe over UDP.
+	host := firstNonEmpty(n.PublicIP, trustedRemoteIP(s))
+	if host == "" {
+		return res, nil
+	}
 	udpOK, udpRTT, err := h.udpTest(ctx, id, host)
 	if err != nil {
 		return res, withLog(err)
@@ -272,6 +285,11 @@ func (l *local) HubAnnounceMove(ctx context.Context, newAddr string) (api.Announ
 	}
 	res := api.AnnounceResult{Accepted: []string{}, Offline: []string{}}
 	for _, n := range h.Config().Nodes {
+		if n.Route == config.RouteFront {
+			// Never move a front node onto a direct address: that path is cut.
+			res.Front = append(res.Front, n.ID)
+			continue
+		}
 		cctx, cancel := context.WithTimeout(ctx, nodeCallTimeout)
 		err := h.Call(cctx, n.ID, api.CmdSetHub, api.SetHubArgs{Addr: addr}, nil)
 		cancel()
@@ -283,7 +301,7 @@ func (l *local) HubAnnounceMove(ctx context.Context, newAddr string) (api.Announ
 		res.Accepted = append(res.Accepted, n.ID)
 	}
 	h.log.Info("hub move announced", slog.String("addr", addr),
-		slog.Int("accepted", len(res.Accepted)), slog.Int("offline", len(res.Offline)))
+		slog.Int("accepted", len(res.Accepted)), slog.Int("offline", len(res.Offline)), slog.Int("front_unchanged", len(res.Front)))
 	return res, nil
 }
 

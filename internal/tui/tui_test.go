@@ -258,6 +258,11 @@ func TestDashboardNodeRole(t *testing.T) {
 	require.Contains(t, out, "de-1  hub 5.6.7.8:44433  ● connected  last contact 12:45:00  v1.0.0")
 	require.Contains(t, out, "units: deyroute-tun@main.de-1.backhaul-wssmux.service")
 	require.NotContains(t, out, "NODES")
+	require.NotContains(t, out, "via front")
+	// A node behind the front shows the front domain and port plus a marker.
+	st.NodeSelf.HubAddr, st.NodeSelf.Front = "front.example.com:2053", true
+	out = renderStatus(dashApp(Caps{Unicode: true, Width: 120}), st, testNow)
+	require.Contains(t, out, "de-1  hub front.example.com:2053 (via front)  ● connected")
 	empty := renderStatus(dashApp(Caps{Unicode: true}), api.Status{Role: "hub"}, testNow)
 	require.Contains(t, empty, "No tunnels yet")
 	require.Contains(t, empty, "No nodes yet")

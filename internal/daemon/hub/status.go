@@ -85,6 +85,7 @@ func (h *Hub) hubStatus(cfg *config.Config) *api.HubStatus {
 	if !firewallManaged(cfg) {
 		hs.Firewall = FirewallModeSuggestOnly
 	}
+	hs.Front = h.frontStatus(cfg)
 	hs.ACMEChallenge = acmeChallenge(cfg)
 	if a := cfg.Hub.ACME; a != nil {
 		hs.ACMEEmail = a.Email
@@ -117,6 +118,8 @@ func (h *Hub) nodeInfos(cfg *config.Config) []api.NodeInfo {
 			Tags:          append([]string(nil), n.Tags...),
 			Fingerprint:   n.CertFingerprint,
 			Tunnels:       cfg.TunnelsUsingNode(n.ID),
+			Route:         n.Route,
+			Via:           h.nodeVia(n.ID),
 			LastError:     ns.LastError,
 		})
 	}

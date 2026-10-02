@@ -23,27 +23,47 @@ import (
 	"github.com/localroot4/deyroute/internal/version"
 )
 
-// setHub stores a new hub address (set_hub, node set-hub, section 5 hub
-// move) and reconnects after delay.
-func (a *agent) setHub(ctx context.Context, addr string, delay time.Duration) error {
-	if !config.ValidHostPort(addr) {
-		return deyerr.New(deyerr.C013, deyerr.Params{"field": "node.hub_addr", "value": addr,
-			"allowed": "host:port of the hub, e.g. 5.6.7.8:44433"})
+// setHub stores a new hub target (set_hub, node set-hub, section 5 hub move)
+// and reconnects after delay. fromHub is true for the hub's set_hub command
+// (hub announce-move, a changed control port) and false for the owner's
+// local "deyroute node set-hub".
+//
+// The hub only knows its own direct address, which is cut on the paths that
+// need the front: a hub-originated plain host:port must never move a node
+// that is in front mode, so it is ignored with a warning and the node stays
+// on the front (answered with success: a retry would not help). The owner's
+// local command may do either: a plain host:port clears front mode
+// explicitly, a ws[s]://DOMAIN:PORT/SECRET target switches into it. A front
+// target from the hub (it knows the secret) is accepted like the owner's.
+func (a *agent) setHub(ctx context.Context, addr string, delay time.Duration, fromHub bool) error {
+	t, err := setup.ParseHubTarget(addr)
+	if err != nil {
+		return err
+	}
+	if fromHub && !t.Front && a.frontSettings().SecretFile != "" {
+		a.log.Warn("the hub asked this node to connect directly: ignored, the node is in front mode and stays on the front; "+
+			"run 'deyroute node set-hub' on this server to change it", slog.String("hub_asked", t.Addr))
+		return nil
+	}
+	if t.Front {
+		dlog.RegisterSecret(t.Secret)
 	}
 	set := a.o.SetHubAddr
 	if set == nil {
 		set = func(_ context.Context, addr string) error { return setup.SetHubAddr(a.o.Root, addr) }
 	}
 	a.cfgMu.Lock()
-	err := set(ctx, addr)
+	err = set(ctx, addr)
 	a.cfgMu.Unlock()
 	if err != nil {
 		return err
 	}
 	a.mu.Lock()
-	a.hubAddr = addr
+	a.hubAddr = t.Addr
+	a.dialFail = nil
 	a.mu.Unlock()
-	a.log.Info("hub address changed; reconnecting", slog.String("hub", addr))
+	a.frontSettings() // refresh the front block the status and the next dial use
+	a.logHubChange(t)
 	a.requestReconnect(delay)
 	return nil
 }
@@ -141,6 +161,9 @@ func (a *agent) doctorData(ctx context.Context) api.DoctorData {
 		Now:      a.o.Now(),
 		Sections: map[string]string{doctor.SectionStatus: doctor.StatusSection(st)},
 	}
+	if c := a.connectivitySection(); c != "" {
+		f.Sections[ConnectivitySection] = c
+	}
 	for _, err := range tlsutil.CheckSecretPerms(a.path(config.SecretsDir)) {
 		e := deyerr.As(err)
 		if p, ok := e.Params["path"]; ok {
@@ -165,7 +188,9 @@ func (a *agent) status() api.Status {
 		Connected:   a.connected && a.helloSeen,
 		LastContact: a.lastContact,
 		Units:       unitList(a.snap.units),
+		Front:       a.front.SecretFile != "",
 	}
+	dialFail := a.dialFail
 	if a.hubHello != nil {
 		ns.HubVersion = a.hubHello.Version
 		ns.Compatible = a.hubHello.Compatible
@@ -184,7 +209,13 @@ func (a *agent) status() api.Status {
 		Nodes:       []api.NodeInfo{},
 		Events:      []state.Event{},
 	}
-	if !ns.Connected {
+	switch {
+	case ns.Connected:
+	case ns.Front && dialFail != nil:
+		// The front itself is the problem: N016/N017 name it (the reason has
+		// neither the path nor the secret).
+		st.Warnings = append(st.Warnings, dialFail.warning(a.nodeID))
+	default:
 		e := deyerr.New(deyerr.N009, deyerr.Params{"addr": ns.HubAddr})
 		st.Warnings = append(st.Warnings, api.Warning{Code: string(e.Code), Message: e.Message(), Node: a.nodeID})
 	}

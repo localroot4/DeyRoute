@@ -515,6 +515,9 @@ func (a *app) applyStatus(st api.Status) {
 	if st.NodeSelf != nil {
 		a.status.Name = st.NodeSelf.ID
 		a.status.HubAddr = st.NodeSelf.HubAddr
+		if st.NodeSelf.Front {
+			a.status.HubAddr += " (" + i18n.T(i18n.CLIViaFront) + ")"
+		}
 	}
 	a.status.Nodes = len(st.Nodes)
 	up := 0

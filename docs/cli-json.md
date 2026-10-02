@@ -94,12 +94,17 @@ The `Status` DTO itself: `{"schema", "role", "version", "generated_at",
 [Warning]?}`.
 
 - HubStatus: `{"name", "public_ip", "control_port", "domain", "ui_mode",
-  "language", "firewall", "acme_challenge", "acme_email", "telegram"}`
+  "language", "firewall", "acme_challenge", "acme_email", "telegram",
+  "front"?}`
   (`firewall`: `managed` | `suggest-only`; `acme_challenge`: how
   `tls.mode acme` proves the domain, `http-01` | `dns-01` (Cloudflare token
   set) | `none` (HTTP-01 disabled and no token); `telegram`: `{"enabled",
   "chat_id", "token_file", "events"}` from `hub.notify.telegram`, never the
-  token itself).
+  token itself; `front`: the CDN front listener, absent when front mode was
+  never configured: `{"enabled", "domain", "port", "listening" (the
+  listener is bound: false while disabled or after DEY-X053), "cf_only" (the
+  firewall opens the port to Cloudflare ranges only), "tls" (auto|custom|
+  off)}`, never the path secret).
 - NodeSelf: `{"id", "hub_addr", "connected", "last_contact", "hub_version",
   "compatible", "units"}`.
 - Warning: `{"code", "message", "tunnel", "node"}`.
@@ -123,7 +128,11 @@ PAUSED|DISABLED), "active_node", "active_node_name", "active_transport",
 `{"id", "name", "public_ip", "online", "control_rtt_ms", "version",
 "compatible", "cpu_percent", "ram_bytes", "last_heartbeat", "country",
 "udp_ok" (bool, absent when not tested), "tags", "cert_fingerprint",
-"tunnels", "last_error" (the node agent's last error, absent when none)}`
+"tunnels", "route" ("front" for a node that reaches the hub through the CDN
+front, absent when direct; its `public_ip` may then be empty), "via"
+(the transport of its current control stream: "front", absent for direct TCP or
+when offline), "last_error" (the node agent's last error, absent when
+none)}`
 
 ### Event
 
@@ -161,7 +170,9 @@ false when the node agent was down and `node.hub_addr` was written directly.
 
 ### `deyroute hub announce-move <ip:port>`
 
-`{"schema", "addr", "accepted": [node id], "offline": [node id]}`
+`{"schema", "addr", "accepted": [node id], "offline": [node id], "front":
+[node id]?}` (`front`: nodes behind the CDN front, which are never moved onto
+a direct address: "front: unchanged")
 
 ## Tunnels
 

@@ -28,10 +28,12 @@ func (l *nodeLocal) Logs(ctx context.Context, q api.LogQuery, emit func(api.LogL
 	return l.a.localLogs(ctx, q, emit)
 }
 
-// NodeSetHub implements api.Local (deyroute node set-hub): the address is
-// stored and the control stream reconnects at once.
+// NodeSetHub implements api.Local (deyroute node set-hub): the owner's local
+// command. The target is stored and the control stream reconnects at once.
+// A plain host:port switches the node to a direct connection (front mode is
+// cleared); a ws[s]://DOMAIN:PORT/SECRET target switches it into front mode.
 func (l *nodeLocal) NodeSetHub(ctx context.Context, addr string) error {
-	return l.a.setHub(ctx, addr, 0)
+	return l.a.setHub(ctx, addr, 0, false)
 }
 
 // StopAll implements api.Local: every deyroute-tun@ unit on this node stops.

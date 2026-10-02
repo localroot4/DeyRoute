@@ -209,6 +209,8 @@ type fakeNode struct {
 	tls     *tls.Config
 	certPEM []byte
 	keyPEM  []byte
+	// dial opens the raw connection to the hub (a CDN front); nil = TCP.
+	dial func(ctx context.Context) (net.Conn, error)
 
 	mu       sync.Mutex
 	handlers map[string]cmdFunc
@@ -293,6 +295,7 @@ func (n *fakeNode) handle(ctx context.Context, cmd api.Command, stream func([]st
 func (n *fakeNode) client() *api.ControlClient {
 	return &api.ControlClient{
 		HubAddr:   n.addr,
+		Dial:      n.dial,
 		TLSConfig: n.tls,
 		Hello: func() api.Hello {
 			return api.Hello{NodeID: n.id, Version: n.version, Arch: "amd64", OS: "Test OS", Kernel: "6.1"}

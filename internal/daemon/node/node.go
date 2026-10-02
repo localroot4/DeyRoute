@@ -19,6 +19,7 @@ import (
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/render"
+	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/install"
@@ -116,9 +117,14 @@ type Options struct {
 	// VerifyBinary checks the binary self.update downloaded before it is
 	// installed (arch is Options.Arch); nil = VerifyELF.
 	VerifyBinary func(path, arch string) error
-	// SetHubAddr persists a new hub address (set_hub, NodeSetHub); nil =
-	// setup.SetHubAddr (node.hub_addr in Root/etc/deyroute/config.yaml).
+	// SetHubAddr persists a new hub target (set_hub, NodeSetHub): host:port,
+	// or ws[s]://DOMAIN:PORT/SECRET for a front; nil = setup.SetHubAddr
+	// (node.hub_addr and node.front in Root/etc/deyroute/config.yaml).
 	SetHubAddr func(ctx context.Context, addr string) error
+	// FrontDial opens the control connection through the front in front mode;
+	// nil = front.DialControl (tests point it at a fake CDN with its own
+	// root pool).
+	FrontDial setup.FrontDialFunc
 	// Uninstall removes deyroute from this server (uninstall command); nil =
 	// the built-in node uninstall (units, table inet deyroute, sysctl, files,
 	// then the node service itself).
@@ -292,6 +298,8 @@ type agent struct {
 
 	mu            sync.Mutex
 	hubAddr       string
+	front         config.NodeFront // node.front as last read; SecretFile != "" = front mode
+	dialFail      *dialFailure     // the last failed attempt to open the front (nil = none)
 	tlsCfg        *tls.Config
 	connected     bool
 	helloSeen     bool // the hub's hello arrived on the current connection
@@ -319,6 +327,7 @@ func newAgent(o Options, cfg *config.Config, cfgPath string, logger *slog.Logger
 		cfgPath:   cfgPath,
 		nodeID:    cfg.Node.ID,
 		hubAddr:   cfg.Node.HubAddr,
+		front:     cfg.Node.Front,
 		reconnect: make(chan struct{}, 1),
 		listeners: newRegistry(),
 		started:   map[string]bool{},
@@ -347,8 +356,12 @@ func (a *agent) run(ctx context.Context) error {
 	a.ctx = ctx
 	a.loadState()
 	a.cleanDownloads()
-	a.log.Info("node agent starting", dlog.Node(a.nodeID), slog.String("version", version.Version),
-		slog.String("hub", a.hubAddress()))
+	a.registerFrontSecret()
+	start := []any{dlog.Node(a.nodeID), slog.String("version", version.Version), slog.String("hub", a.hubAddress())}
+	if a.frontMode() {
+		start = append(start, slog.String("route", "front"))
+	}
+	a.log.Info("node agent starting", start...)
 
 	var wg sync.WaitGroup
 	localErr := make(chan error, 1)
@@ -511,7 +524,7 @@ func (a *agent) controlLoop(ctx context.Context) {
 // controlClient returns a client for the current credentials. The same
 // shape is used for uploads and asset downloads.
 func (a *agent) controlClient(cfg *tls.Config) *api.ControlClient {
-	return &api.ControlClient{
+	c := &api.ControlClient{
 		AddrFunc:          a.hubAddress,
 		TLSConfig:         cfg,
 		Hello:             a.hello,
@@ -525,6 +538,8 @@ func (a *agent) controlClient(cfg *tls.Config) *api.ControlClient {
 		BackoffMax:        a.o.BackoffMax,
 		HeartbeatInterval: a.o.HeartbeatInterval,
 	}
+	a.applyFront(c)
+	return c
 }
 
 // requestClient is a client for one-off requests (upload, asset) with the
@@ -539,7 +554,9 @@ func (a *agent) requestClient() (*api.ControlClient, error) {
 			return nil, err
 		}
 	}
-	return &api.ControlClient{AddrFunc: a.hubAddress, TLSConfig: cfg, Hello: a.hello, Logger: a.log}, nil
+	c := &api.ControlClient{AddrFunc: a.hubAddress, TLSConfig: cfg, Hello: a.hello, Logger: a.log}
+	a.applyFront(c)
+	return c, nil
 }
 
 // loadTLS builds the control channel TLS config from ca.crt and the node

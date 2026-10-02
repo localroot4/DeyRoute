@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/front"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/systemd"
@@ -34,6 +36,10 @@ type nodeRuntime struct {
 	// (doctor rule R13); skewKnown is false before a heartbeat with a time.
 	skew      time.Duration
 	skewKnown bool
+	// directSince is when a node whose route is front connected directly
+	// (zero otherwise): once that session has lasted Options.RouteStable the
+	// route goes back to direct (the heartbeat checks it).
+	directSince time.Time
 }
 
 // loadNodes fills the registry from state.db at start.
@@ -173,14 +179,30 @@ func (h *Hub) attach(s *api.Session, compatible bool) bool {
 	if s.Hello.CPUs > 0 {
 		nr.st.CPUs = s.Hello.CPUs
 	}
-	nr.st.RemoteIP = s.RemoteIP
+	if s.Via == "" || s.Trusted {
+		// An edge address (a front session without a trusted client IP) is
+		// not where the node is.
+		nr.st.RemoteIP = s.RemoteIP
+	}
+	nr.directSince = time.Time{}
+	if n, ok := h.Config().NodeByID(s.NodeID); ok && s.Via == "" && n.Route == config.RouteFront {
+		nr.directSince = now
+	}
 	nr.persisted = now
 	snap := copyNodeState(nr.st)
 	h.nodesMu.Unlock()
 	h.persistNode(snap)
+	if s.Via == front.ViaFront {
+		// Decided before the tunnels are planned, so the same re-plan sees it.
+		h.routeFront(s.NodeID)
+	}
 
+	where := s.RemoteIP
+	if s.Via != "" && !s.Trusted {
+		where = "via " + s.Via
+	}
 	h.log.Info("node connected", dlog.Node(s.NodeID), slog.String("version", s.Hello.Version),
-		slog.String("remote_ip", s.RemoteIP), slog.Bool("compatible", compatible))
+		slog.String("remote_ip", where), slog.String("via", s.Via), slog.Bool("compatible", compatible))
 	if !compatible {
 		e := deyerr.New(deyerr.N004, deyerr.Params{"node": s.NodeID, "node_version": s.Hello.Version, "hub_version": version.Version})
 		h.log.Warn("node version is incompatible; it will not run commands until it is updated",
@@ -189,7 +211,7 @@ func (h *Hub) attach(s *api.Session, compatible bool) bool {
 	if !wasOnline {
 		h.Emit(state.Event{
 			Type: state.EvNodeOnline, Level: state.LevelInfo, Node: s.NodeID,
-			Message: "node " + s.NodeID + " is online (" + s.Hello.Version + ", " + s.RemoteIP + ")",
+			Message: "node " + s.NodeID + " is online (" + s.Hello.Version + ", " + where + ")",
 		})
 	}
 	// Every new stream (a reconnect too: the node may have rebooted) makes
@@ -249,6 +271,10 @@ func (h *Hub) heartbeat(s *api.Session, hb api.Heartbeat) {
 		nr.synced = true
 	}
 	nr.st.LastError = dlog.Redact(hb.LastError)
+	flipDirect := false
+	if !nr.directSince.IsZero() && s.Via == "" && now.Sub(nr.directSince) >= h.o.RouteStable {
+		nr.directSince, flipDirect = time.Time{}, true
+	}
 	persist := !wasOnline || now.Sub(nr.persisted) >= h.o.NodePersistEvery
 	if persist {
 		nr.persisted = now
@@ -257,6 +283,9 @@ func (h *Hub) heartbeat(s *api.Session, hb api.Heartbeat) {
 	h.nodesMu.Unlock()
 	if persist {
 		h.persistNode(snap)
+	}
+	if flipDirect {
+		h.routeDirect(s.NodeID)
 	}
 	if firstBeat {
 		// Its units are known now: leftovers of deleted tunnels go.
@@ -496,6 +525,17 @@ func (h *Hub) clockSkews() map[string]time.Duration {
 		}
 	}
 	return out
+}
+
+// nodeVia returns the transport of the current control stream of id
+// ("front"; "" for direct TCP or when the node has no stream).
+func (h *Hub) nodeVia(id string) string {
+	h.nodesMu.Lock()
+	defer h.nodesMu.Unlock()
+	if nr := h.nodes[id]; nr != nil && nr.sess != nil {
+		return nr.sess.Via
+	}
+	return ""
 }
 
 // setNodeIP records the node's current public IP in the registry.

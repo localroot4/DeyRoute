@@ -187,6 +187,20 @@ type HubStatus struct {
 	// Telegram is hub.notify.telegram (Notifications menu); the bot token
 	// itself is never sent, only the file it is read from.
 	Telegram TelegramStatus `json:"telegram"`
+	// Front is the CDN front listener (hub.front); absent when front mode
+	// was never configured.
+	Front *FrontStatus `json:"front,omitempty"`
+}
+
+// FrontStatus is the front part of HubStatus. The path secret is never
+// part of it.
+type FrontStatus struct {
+	Enabled   bool   `json:"enabled"`
+	Domain    string `json:"domain,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	Listening bool   `json:"listening"` // the listener is bound (false while disabled or after DEY-X053)
+	CFOnly    bool   `json:"cf_only"`   // the firewall opens the port to Cloudflare ranges only
+	TLS       string `json:"tls"`       // auto|custom|off
 }
 
 // TelegramStatus is the Telegram part of HubStatus.
@@ -213,6 +227,9 @@ type NodeSelf struct {
 	HubVersion  string    `json:"hub_version,omitempty"`
 	Compatible  bool      `json:"compatible"`
 	Units       []string  `json:"units,omitempty"`
+	// Front is true when the node reaches the hub through the CDN front
+	// (HubAddr is then the front domain and port).
+	Front bool `json:"front,omitempty"`
 }
 
 // Warning is a yellow dashboard line.
@@ -312,6 +329,11 @@ type NodeInfo struct {
 	Tags          []string  `json:"tags,omitempty"`
 	Fingerprint   string    `json:"cert_fingerprint"`
 	Tunnels       []string  `json:"tunnels,omitempty"`
+	// Route is how the node reaches the hub: "front" through the CDN front,
+	// absent for a direct node. Via is the transport of its current control
+	// stream ("front", or absent for direct TCP or when it is offline).
+	Route string `json:"route,omitempty"`
+	Via   string `json:"via,omitempty"`
 	// LastError is the last error the node agent reported in its
 	// heartbeat (section 3: "DEY-B003 …", redacted); "" when none.
 	LastError string `json:"last_error,omitempty"`
@@ -338,6 +360,10 @@ type NodeTestResult struct {
 type AnnounceResult struct {
 	Accepted []string `json:"accepted"`
 	Offline  []string `json:"offline"`
+	// Front lists the nodes that connect through the CDN front: they are not
+	// told the new address ("front: unchanged"), because a direct address
+	// would cut them off. Repoint the front domain if the hub moved.
+	Front []string `json:"front,omitempty"`
 }
 
 // PortSpec is one parsed port entry (see ports.ParseInput).

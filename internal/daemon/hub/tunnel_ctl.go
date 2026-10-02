@@ -457,6 +457,10 @@ func (h *Hub) ensureUDP(ctx context.Context, tunnel, node, rung string, notBefor
 	}
 	ns, _ := h.nodeState(node)
 	host := firstNonEmpty(n.PublicIP, ns.RemoteIP)
+	if host == "" {
+		// A front node whose address the CDN hides: nothing to probe.
+		return
+	}
 	tested, udpOK := false, false
 	if port, err := h.allocCtlPort(state.Key(tunnel, node, rung)); err == nil {
 		cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
