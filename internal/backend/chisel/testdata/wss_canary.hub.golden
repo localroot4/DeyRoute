@@ -7,7 +7,7 @@ zsgM/+HvIVFMQZZcAadSXnowrPo0b4JiXA==
 -----END EC PRIVATE KEY-----
 === file users.json
 {
-  "dey:7272b276741958c4c32917de31c25e40": [
+  "dey:d91f86705f7c49b626cea1623ab79c84": [
     "^R:127\\.0\\.0\\.1:39001$"
   ]
 }

@@ -21,7 +21,7 @@ services:
         options:
           minVersion: VersionTLS13
       metadata:
-        path: /b7c36e39cff03bb4
+        path: /369f3c54073c8e3e
 bypasses:
   - name: deny-connect
     whitelist: true
