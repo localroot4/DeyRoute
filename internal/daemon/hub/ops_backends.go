@@ -33,8 +33,10 @@ const backendProbePoll = 100 * time.Millisecond
 // nodes of its tunnels, every rung is rendered again with it (and
 // validated), the active transport of a tunnel restarts when it uses that
 // backend, and its probe must turn green within 60 seconds. Otherwise the
-// previous version is rendered and restarted again, backend_update_rolled_back
-// is emitted and the result carries DEY-S003.
+// previous version is rendered and restarted again, a tunnel the failover
+// engine moved to another candidate meanwhile returns to the one it had
+// before the update, backend_update_rolled_back is emitted and the result
+// carries DEY-S003.
 func (l *local) UpdateBackends(ctx context.Context, name string, progress func(api.Step)) ([]api.BackendUpdate, error) {
 	h := l.h
 	h.ops.updMu.Lock()
@@ -164,6 +166,12 @@ func (h *Hub) updateBackend(ctx context.Context, rep *steps, old, cur backend.Ma
 			h.log.Warn("tunnel update with the previous backend version finished with errors", dlog.Tunnel(a.c.id), dlog.Err(err))
 		}
 	}
+	// 5. A tunnel the failover engine moved off the new version meanwhile
+	// (its probes failed: another rung or node) returns to the candidate it
+	// had before the update, which runs the previous version again.
+	for _, a := range affected {
+		h.returnAfterRollback(ctx, a, name, cur.Version)
+	}
 	reason := "the probe of tunnel " + strings.Join(failed, ", ") + " was not green within " +
 		h.o.BackendProbeWait.String() + " after the restart with " + name + " " + cur.Version
 	e := deyerr.New(deyerr.S003, deyerr.Params{"component": name + " " + cur.Version, "reason": reason})
@@ -174,6 +182,34 @@ func (h *Hub) updateBackend(ctx context.Context, rep *steps, old, cur backend.Ma
 			Reason: reason, Message: "Tunnel " + t + ": " + name + " " + cur.Version + " rolled back to " + old.Version})
 	}
 	return fail(BackendRolledBack, e)
+}
+
+// returnAfterRollback moves a tunnel whose active transport used the
+// rolled-back backend back to the candidate it had before the update when
+// the engine left it during the trial (a manual move: not counted, back to
+// the current candidate if it fails). Failures are logged; the tunnel then
+// stays where the engine put it.
+func (h *Hub) returnAfterRollback(ctx context.Context, a affectedTunnel, name, version string) {
+	if !a.probe {
+		return
+	}
+	eng := a.c.eng()
+	if eng == nil {
+		return
+	}
+	before := a.before.Active
+	if st := eng.State(); st.Active == before && runningState(st.State) {
+		return
+	}
+	// A switch still running is finished first (the engine queues the move).
+	why := name + " " + version + " rolled back: back to " + before.Key()
+	if err := eng.MoveTo(ctx, before, why); err != nil {
+		h.log.Warn("tunnel could not return to its transport after the backend rollback", dlog.Tunnel(a.c.id),
+			slog.String("candidate", before.Key()), dlog.Err(err))
+		return
+	}
+	h.log.Info("tunnel returned to its transport after the backend rollback", dlog.Tunnel(a.c.id),
+		slog.String("candidate", before.Key()))
 }
 
 // waitGreen waits until the active candidate of a restarted tunnel passes

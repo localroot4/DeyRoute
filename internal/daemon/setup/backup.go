@@ -305,6 +305,11 @@ func Restore(ctx context.Context, o RestoreOptions) (*RestoreResult, error) {
 		// A server restored into the other role must not keep running
 		// the old daemon.
 		for _, verb := range []string{"stop", "disable"} {
+			if verb == "disable" {
+				if err := systemd.RemoveWantsLinks(e.root, other); err != nil {
+					e.log.Warn("could not unlink "+other, slog.String("err", err.Error()))
+				}
+			}
 			if _, _, err := e.runner.Run(ctx, "systemctl", []string{verb, other}, nil); err != nil && !notLoaded(err) {
 				e.log.Warn("could not "+verb+" "+other, slog.String("err", err.Error()))
 			}

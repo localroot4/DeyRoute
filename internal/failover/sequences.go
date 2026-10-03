@@ -942,6 +942,13 @@ func (e *Engine) manualSwitchNode(ctx context.Context, id string) error {
 	return e.manualMove(ctx, state.Candidate{Node: id, Transport: tr}, "manual switch to node "+id)
 }
 
+func (e *Engine) moveToCandidate(ctx context.Context, c state.Candidate, why string) error {
+	if !e.valid(c) {
+		return e.invalidTarget(c.Key())
+	}
+	return e.manualMove(ctx, c, why)
+}
+
 func (e *Engine) manualReset(ctx context.Context) error {
 	target, ok := e.home()
 	if !ok {

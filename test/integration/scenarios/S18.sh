@@ -11,7 +11,7 @@ res=$(dey tunnel test-ladder "$T" --yes --json) || { echo "$res" >&2; fail "test
 jq -r '.results[] | "\(.transport) ok=\(.ok) rtt=\(.rtt_ms)ms skipped=\(.skipped) \(.error.code // "")"' <<<"$res" >&2
 jq -e '[.results[] | select(.skipped | not or . == "")] | length > 0' <<<"$res" >/dev/null || fail "no rung was tested"
 bad=$(jq -r '[.results[] | select((.skipped | not or . == "") and (.ok | not)) | .transport] | join(" ")' <<<"$res")
-[ -z "$bad" ] || fail "rungs failed: $bad"
+[ -z "$bad" ] || fail "rungs failed: $bad"$'\n'"$(jq -r '.results[] | select(.ok | not) | .error.detail // empty' <<<"$res")"
 jq -e 'all(.results[] | select(.ok); .rtt_ms > 0)' <<<"$res" >/dev/null || fail "a passing rung has no RTT"
 tunnel_up "$T" || wait_tunnel_up "$T" 60
 pass

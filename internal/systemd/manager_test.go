@@ -233,6 +233,41 @@ func TestVerbs(t *testing.T) {
 	require.Empty(t, f.Calls())
 }
 
+// Disable unlinks the unit from every .wants/.requires/.upholds directory
+// before systemctl disable and keeps the directories (also when empty),
+// other links and anything that is not a symlink.
+func TestDisableKeepsWantsDirectories(t *testing.T) {
+	m, f := newManager(t)
+	f.OnPrefix("systemctl disable ", exec.OK(""))
+	dir := filepath.Join(m.Root, UnitDir)
+	for _, d := range []string{"multi-user.target.wants", "network-online.target.requires", "x.target.upholds", "other.d"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, d), 0o755))
+	}
+	link := func(d, name string) string { return filepath.Join(dir, d, name) }
+	require.NoError(t, os.Symlink("/etc/systemd/system/"+HubUnit, link("multi-user.target.wants", HubUnit)))
+	require.NoError(t, os.Symlink("/etc/systemd/system/"+HubUnit, link("network-online.target.requires", HubUnit)))
+	require.NoError(t, os.Symlink("/etc/systemd/system/"+HubUnit, link("x.target.upholds", HubUnit)))
+	require.NoError(t, os.Symlink("/lib/systemd/system/ssh.service", link("multi-user.target.wants", "ssh.service")))
+	require.NoError(t, os.Symlink("/etc/systemd/system/"+HubUnit, link("other.d", HubUnit)))
+	require.NoError(t, os.WriteFile(link("x.target.upholds", NodeUnit), []byte("not a link"), 0o644))
+
+	require.NoError(t, m.Disable(context.Background(), HubUnit))
+	require.Equal(t, []string{"systemctl disable " + HubUnit}, f.Lines())
+	for _, d := range []string{"multi-user.target.wants", "network-online.target.requires", "x.target.upholds"} {
+		require.DirExists(t, filepath.Join(dir, d))
+		require.NoFileExists(t, link(d, HubUnit))
+	}
+	require.FileExists(t, link("multi-user.target.wants", "ssh.service"))
+	require.FileExists(t, link("other.d", HubUnit), "only dependency directories are touched")
+	require.FileExists(t, link("x.target.upholds", NodeUnit))
+
+	// Idempotent, also without /etc/systemd/system at all.
+	require.NoError(t, RemoveWantsLinks(m.Root, HubUnit))
+	require.NoError(t, RemoveWantsLinks(t.TempDir(), HubUnit))
+	require.True(t, deyerr.HasCode(RemoveWantsLinks(m.Root, "../x.service"), deyerr.X034))
+	require.True(t, deyerr.HasCode(m.Disable(context.Background(), "x y.service"), deyerr.X034))
+}
+
 // deadlineRunner records whether calls carried a deadline.
 type deadlineRunner struct{ deadlines []time.Duration }
 

@@ -239,7 +239,7 @@ rungs=$(tunnel_json "$T" | jq -r '[.rungs[] | select(.node == env.NODE1 and (.sk
 done_list=()
 for tr in $rungs; do
   if [ "$(active_transport "$T")" != "$tr" ]; then
-    dey tunnel switch "$T" --transport "$tr" --json >/dev/null 2>&1 || fail "cannot switch to $tr"
+    out=$(dey tunnel switch "$T" --transport "$tr" --json 2>&1) || fail "cannot switch to $tr: $out"
     is_on() { tunnel_up "$T" && [ "$(active_transport "$T")" = "$tr" ]; }
     wait_for 90 "switch to $tr" is_on
   fi

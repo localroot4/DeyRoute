@@ -68,6 +68,13 @@ func (s *fakeSystem) handle(c exec.Call) (exec.Response, bool) {
 		if !exists(filepath.Join(s.root, "etc/systemd/system", file)) {
 			return exec.Fail(1, "Failed to disable unit: Unit file "+c.Args[1]+" does not exist."), true
 		}
+		// Like systemd (rmdir_parents): every link of the unit goes and a
+		// .wants directory its last link leaves empty is deleted too.
+		wants, _ := filepath.Glob(filepath.Join(s.root, "etc/systemd/system", "*.wants", c.Args[1]))
+		for _, l := range wants {
+			_ = os.Remove(l)
+			_ = os.Remove(filepath.Dir(l)) // fails unless empty
+		}
 		return exec.OK(""), true
 	case line == "systemctl daemon-reload", strings.HasPrefix(line, "systemctl reset-failed "):
 		return exec.OK(""), true
@@ -225,6 +232,32 @@ func TestUninstallOrderAndIdempotence(t *testing.T) {
 	steps2 := &stepLog{}
 	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: sys.runner(), Progress: steps2.add}))
 	require.Equal(t, steps.final(), steps2.final())
+}
+
+// A .wants directory that only holds deyroute's link (it was empty before
+// the install) stays: the link is removed before systemctl disable, which
+// would delete the directory together with its last link (S23).
+func TestUninstallKeepsEmptyWantsDirectory(t *testing.T) {
+	root := t.TempDir()
+	installedTree(t, root)
+	wants := filepath.Join(root, "etc/systemd/system/multi-user.target.wants")
+	require.NoError(t, os.Remove(filepath.Join(wants, "ssh.service")))
+	sys := newFakeSystem(root)
+	f := sys.runner()
+	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f}))
+	require.Contains(t, f.Lines(), "systemctl disable deyroute-hub.service")
+	require.DirExists(t, wants)
+	ents, err := os.ReadDir(wants)
+	require.NoError(t, err)
+	require.Empty(t, ents)
+
+	// The fake really deletes a directory whose last link systemctl removes
+	// (what the test above guards against).
+	require.NoError(t, os.Symlink("/etc/systemd/system/deyroute-hub.service", filepath.Join(wants, "deyroute-hub.service")))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "etc/systemd/system/deyroute-hub.service"), []byte("[Unit]"), 0o600))
+	_, _, err = f.Run(ctxT(t), "systemctl", []string{"disable", "deyroute-hub.service"}, nil)
+	require.NoError(t, err)
+	require.NoDirExists(t, wants)
 }
 
 func TestUninstallKeepBackups(t *testing.T) {

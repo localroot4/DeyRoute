@@ -112,7 +112,8 @@ func Uninstall(ctx context.Context, o UninstallOptions) error {
 }
 
 // stopUnits stops and disables deyroute-hub, deyroute-node and every
-// deyroute-tun@ instance known to systemd or present on disk. It returns
+// deyroute-tun@ instance known to systemd or present on disk (links
+// removed by systemd.RemoveWantsLinks before systemctl disable). It returns
 // every unit it handled (for reset-failed after the files are gone).
 func (e *env) stopUnits(ctx context.Context) ([]string, error) {
 	units := []string{systemd.HubUnit, systemd.NodeUnit}
@@ -136,6 +137,13 @@ func (e *env) stopUnits(ctx context.Context) ([]string, error) {
 	}
 	for _, u := range units {
 		for _, verb := range []string{"stop", "disable"} {
+			if verb == "disable" {
+				// Unlink first: systemctl disable would also delete a
+				// .wants directory that existed (empty) before the install.
+				if err := systemd.RemoveWantsLinks(e.root, u); err != nil {
+					errs = append(errs, err)
+				}
+			}
 			if _, _, err := e.runner.Run(ctx, "systemctl", []string{verb, u}, nil); err != nil && !notLoaded(err) {
 				errs = append(errs, err)
 			}

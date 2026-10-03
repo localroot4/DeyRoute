@@ -70,7 +70,9 @@ The new version is installed next to the old one on the hub and on every
 node, the configurations are rendered again, and an active transport whose
 backend changed restarts. If its probe is not green within 60 seconds, it
 goes back to the previous version automatically (event
-`backend_update_rolled_back`, `DEY-S003`). The result is a table:
+`backend_update_rolled_back`, `DEY-S003`). When failover already moved the
+tunnel to another rung or node meanwhile, the rollback brings it back to the
+rung it used before the update. The result is a table:
 
 ```text
 BACKEND   FROM     TO       RESULT      DETAIL

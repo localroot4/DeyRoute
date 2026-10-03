@@ -377,12 +377,25 @@ s = http.server.ThreadingHTTPServer((\"0.0.0.0\", 8443), http.server.SimpleHTTPR
 c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain(\"/etc/it-mirror.crt\", \"/etc/it-mirror.key\")
 s.socket = c.wrap_socket(s.socket, server_side=True); s.serve_forever()'"
   wait_for 20 "https mirror up" sh_on client "ss -Hltn 'sport = :8443' | grep -q ."
-  local crt s
+  local crt s nodes=()
   crt=$(on client cat /etc/it-mirror.crt)
   for s in hub node1 node2; do
     [ -n "$(cid "$s")" ] || continue
     on "$s" sh -c 'cat > /usr/local/share/ca-certificates/it-mirror.crt && update-ca-certificates >/dev/null 2>&1' <<<"$crt"
+    # A running deyroute daemon loaded the system roots when it first
+    # verified a certificate (once per process): restart it so that it
+    # trusts the new CA, as an owner does after adding one. The tunnel
+    # units are separate services and keep running.
+    if sh_on "$s" "systemctl is-active --quiet deyroute-hub"; then
+      on "$s" systemctl restart deyroute-hub
+      wait_for 60 "hub back after trusting the mirror" sh_on "$s" "deyroute status --json >/dev/null"
+    fi
+    if sh_on "$s" "systemctl is-active --quiet deyroute-node"; then
+      on "$s" systemctl restart deyroute-node
+      nodes+=("$s")
+    fi
   done
+  for s in "${nodes[@]}"; do wait_node_online "$(node_id_of "$s")"; done
 }
 # fake_backend_archive NAME SCRIPT: /srv/mirror/<NAME>.tar.gz on the client with
 # one executable NAME whose body is SCRIPT; prints its sha256.
@@ -409,9 +422,16 @@ PY
 }
 
 # secrets_of SERVICE: every secret value on a server (tokens, keys, passwords),
-# one per line, for the "no secret in any log" checks (S26).
+# one per line, for the "no secret in any log" checks (S26). Every text file
+# under /etc/deyroute/secrets counts except certificates (*.crt) and the
+# certificate fingerprint tls/<tunnel>/tls.p12.cert-sha256 (public: doctor
+# prints certificate fingerprints). Binary files (tls.p12, encrypted with
+# p12.pass, which is collected) are skipped file by file: fed to one grep
+# they turned the whole stream into "binary file matches" and dropped the
+# lines of every file after them.
 secrets_of() {
-  sh_on "$1" "find /etc/deyroute/secrets -type f ! -name '*.crt' -print0 2>/dev/null | xargs -0 -r cat" |
+  sh_on "$1" "find /etc/deyroute/secrets -type f ! -name '*.crt' ! -name 'tls.p12.cert-sha256' -print0 2>/dev/null |
+    xargs -0 -r grep -I -h ''" |
     grep -v -e '^-----' | tr -s ' \t:="{},' '\n' | awk 'length($0) >= 16' | sort -u
 }
 # join_token LINK: the token part of dey://TOKEN@HOST:PORT#fp.
