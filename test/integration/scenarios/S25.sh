@@ -45,10 +45,23 @@ print(ok, err)
 PY
 )
 read -r ok err <<<"$res"
-mem() { on "$1" systemctl show -p MemoryPeak --value "$unit" 2>/dev/null | grep -E '^[0-9]+$' || on "$1" systemctl show -p MemoryCurrent --value "$unit"; }
+# mem S: peak resident memory (VmHWM) of the backend's processes on S, in
+# bytes. The unit's MemoryPeak is only logged: it also counts the kernel's
+# socket buffers and page cache, which grow with the 500 transfers and not
+# with the backend.
+mem() {
+  sh_on "$1" "cg=\$(systemctl show -p ControlGroup --value '$unit'); t=0
+for p in \$([ -n \"\$cg\" ] && cat /sys/fs/cgroup\$cg/cgroup.procs 2>/dev/null || systemctl show -p MainPID --value '$unit'); do
+  k=\$(awk '/^VmHWM:/ {print \$2}' /proc/\$p/status 2>/dev/null); t=\$((t + \${k:-0}))
+done
+echo \$((t * 1024))"
+}
+cgpeak() { on "$1" systemctl show -p MemoryPeak --value "$unit" 2>/dev/null; }
 mh=$(mem hub) mn=$(mem node1)
-log "ok=$ok err=$err, backend memory: hub $((mh / 1048576)) MB, node $((mn / 1048576)) MB"
+log "ok=$ok err=$err, backend peak RSS: hub $((mh / 1048576)) MB, node $((mn / 1048576)) MB" \
+  "(unit MemoryPeak with socket buffers: hub $(cgpeak hub), node $(cgpeak node1))"
 { [ "$err" = 0 ] && [ "$ok" = 500 ]; } || fail "$err of 500 connections failed"
+[ "$mh" -gt 0 ] && [ "$mn" -gt 0 ] || fail "cannot read the backend memory (hub $mh, node $mn)"
 [ "$mh" -le $((150 * 1048576)) ] || fail "hub backend used $((mh / 1048576)) MB"
 [ "$mn" -le $((150 * 1048576)) ] || fail "node backend used $((mn / 1048576)) MB"
 pass

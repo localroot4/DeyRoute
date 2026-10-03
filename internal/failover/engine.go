@@ -484,7 +484,14 @@ func (e *Engine) nodeBroken(node string) bool {
 	return !online && offlineFor > NodeBrokenAfter
 }
 
-func ms(d time.Duration) int { return int(d / time.Millisecond) }
+// ms converts to whole milliseconds. A measured RTT below 1ms (a LAN) is 1:
+// 0 means "not measured" to every reader of RTTms.
+func ms(d time.Duration) int {
+	if d > 0 && d < time.Millisecond {
+		return 1
+	}
+	return int(d / time.Millisecond)
+}
 
 // ---- sleeping inside sequences
 
