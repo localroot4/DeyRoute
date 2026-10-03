@@ -247,3 +247,12 @@ func TestManualEvent(t *testing.T) {
 	require.Equal(t, state.EvTunnelUp, manualEvent(a, a), "the same candidate started again")
 	require.Equal(t, state.EvTunnelUp, manualEvent(state.Candidate{}, a))
 }
+
+// A sub-millisecond RTT (hub and node on one LAN) is reported as 1ms, never
+// as 0 (which reads as "not measured").
+func TestMsRoundsMeasuredRTTUp(t *testing.T) {
+	require.Equal(t, 0, ms(0))
+	require.Equal(t, 1, ms(300*time.Microsecond))
+	require.Equal(t, 1, ms(time.Millisecond))
+	require.Equal(t, 42, ms(42*time.Millisecond+900*time.Microsecond))
+}
