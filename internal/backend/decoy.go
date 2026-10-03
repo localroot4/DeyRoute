@@ -13,9 +13,9 @@ import "strings"
 // candidates in order and passes the first reachable one as
 // RenderInput.Decoy (DEY-B042 when none answers).
 var DefaultDecoySNIs = []string{
-	"www.microsoft.com", // placeholder, owner must replace (QUESTIONS.md B)
-	"dl.google.com",     // placeholder, owner must replace (QUESTIONS.md B)
-	"www.speedtest.net", // placeholder, owner must replace (QUESTIONS.md B)
+	"dl.google.com",
+	"www.speedtest.net",
+	"www.samsung.com",
 }
 
 // DecoyCandidates returns the decoy SNIs the hub should test, in order:
