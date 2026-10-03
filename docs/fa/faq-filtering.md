@@ -65,7 +65,7 @@ deyroute ladder set stealth --rungs xray/reality,backhaul/wssmux,direct/native
 
 `xray/reality` و `waterwall/reverse-reality` تانل را شبیه یک اتصال TLS 1.3 به یک سایت واقعی و بی‌خطر (سایت فریب یا decoy) نشان می‌دهند. قبل از استفاده از این پله‌ها، Hub بررسی می‌کند کدام decoy با TLS 1.3 و HTTP/2 جواب می‌دهد و اولین سایتی را که جواب بدهد انتخاب می‌کند. اگر هیچ‌کدام جواب ندهد، خطای `DEY-B042` می‌گیرید.
 
-فهرست داخلی `dl.google.com`، `www.speedtest.net` و `www.samsung.com` است و هر کدام با هر دو پله تست شده است. فقط وقتی فهرست خودتان را لازم دارید که هیچ‌کدام از دیتاسنتر Hub کار نکند. آن‌وقت سایت‌های TLS 1.3 با HTTP/2 را که آن‌جا در دسترس‌اند و در ایران فیلتر نیستند زیر `hub:` در `config.yaml` بنویسید (`www.microsoft.com` با `xray/reality` کار نمی‌کند):
+فهرست داخلی `dl.google.com`، `www.speedtest.net` و `www.samsung.com` است و هر کدام با هر دو پله تست شده است. فقط وقتی فهرست خودتان را لازم دارید که هیچ‌کدام از دیتاسنتر Hub کار نکند. آن‌وقت سایت‌های TLS 1.3 با HTTP/2 را که آن‌جا در دسترس‌اند و در ایران فیلتر نیستند زیر `hub:` در `config.yaml` بنویسید (از `www.microsoft.com` استفاده نکنید: `xray/reality` با آن در تست نردبان رد شد):
 
 ```bash
 deyroute config edit

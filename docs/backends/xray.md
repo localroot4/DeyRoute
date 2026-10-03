@@ -144,9 +144,10 @@ exact targets. `TestNodeNotOpenProxy` evaluates the rendered rules.
   ("Listening on non-443 ports may get your IP blocked"); the node listens on
   the allocated control port by design (30000-31999).
 - Choosing Apple/iCloud as decoy triggers another upstream warning.
-- `www.microsoft.com` does not work as the decoy: the rung never comes up
-  with it, although the site offers TLS 1.3, X25519 and HTTP/2. It is not in
-  the built-in list (`internal/backend/decoy.go`).
+- With `www.microsoft.com` as the decoy the rung failed the ladder test
+  (`test-ladder`) on every lab run, although the site offers TLS 1.3, X25519
+  and HTTP/2; with `dl.google.com` it passes. It is no longer in the built-in
+  list (`internal/backend/decoy.go`).
 - Decoy: `RenderInput.Decoy` (the reachable decoy the hub selected), else the
   first `hub.decoy_snis` entry, else the first built-in decoy
   (`backend.DecoyFor`); an IP or a malformed name fails `Validate` with

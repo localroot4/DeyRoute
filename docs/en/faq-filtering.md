@@ -95,8 +95,8 @@ The built-in list is `dl.google.com`, `www.speedtest.net` and
 `www.samsung.com`; each one is tested with both rungs. You only need your
 own list when none of them works from your hub's datacenter. Then set TLS 1.3
 sites with HTTP/2 that are reachable there and not blocked in Iran, under
-`hub:` in `config.yaml` (`www.microsoft.com` does not work with
-`xray/reality`):
+`hub:` in `config.yaml` (avoid `www.microsoft.com`: `xray/reality` failed the ladder
+test with it):
 
 ```bash
 deyroute config edit

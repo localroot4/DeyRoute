@@ -51,12 +51,10 @@ jq -e 'all(.results[] | select(.ok); .rtt_ms > 0)' <<<"$res" >/dev/null || fail 
 
 # The hub takes the first built-in decoy that answers (the ladder above ran
 # with it). A hub that cannot reach it falls back to the next ones, so they
-# must carry the Reality rungs too (www.microsoft.com, for one, does not
-# carry xray/reality).
+# must carry the Reality rungs too.
 mapfile -t decoys < <(sed -n '/^var DefaultDecoySNIs/,/^}/s/^[[:space:]]*"\([^"]*\)".*/\1/p' \
   "$IT_DIR/../../internal/backend/decoy.go")
 [ "${#decoys[@]}" -ge 2 ] || fail "cannot read the built-in decoys"
-decoys+=(www.yahoo.com addons.mozilla.org www.microsoft.com) # trial: spare candidates
 failed=()
 for d in "${decoys[@]:1}"; do
   if ! set_decoys "$d"; then

@@ -8,7 +8,8 @@ import "strings"
 //
 // Each one is a TLS 1.3 site with HTTP/2 that carries both Reality rungs
 // (test/integration S18 brings them up with every entry). www.microsoft.com
-// is not one: xray/reality never comes up with it as the target. The owner
+// was the first entry once: with it, xray/reality failed the ladder test on
+// every lab run, with dl.google.com it passes. The owner
 // can set other sites in hub.decoy_snis (QUESTIONS.md, section B). Before a
 // Reality rung is activated the hub tests the candidates in order and passes
 // the first that answers as RenderInput.Decoy (DEY-B042 when none answers).

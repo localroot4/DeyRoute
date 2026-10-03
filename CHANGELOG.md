@@ -45,8 +45,8 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ### Fixed — Reality decoys
 
-- `xray/reality` never came up with the first built-in decoy,
-  `www.microsoft.com`. The built-in decoys are now `dl.google.com`,
+- With the first built-in decoy, `www.microsoft.com`, `xray/reality` failed
+  the ladder test on every lab run. The built-in decoys are now `dl.google.com`,
   `www.speedtest.net` and `www.samsung.com`, each tested with both Reality
   rungs; a hub that used the old list moves to the new one by itself.
 - The hub's decoy check also wants HTTP/2 now (REALITY needs it of its
