@@ -333,6 +333,19 @@ func TestCheckNFTables(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, v.Blocked)
 
+	// The accounting table is ours too: its counting rules are never judged
+	// as a foreign firewall (not blocked, not uncertain), next to any table.
+	stats := RenderStats(StatsSpec{Tunnels: []StatsTunnel{{ID: "main", TCP: []int{443, 30500}, UDP: []int{443}, NAT: true}}})
+	for _, port := range []int{443, 30500} {
+		v, err = Check(ctx, bareFake().On("nft list ruleset", exec.OK(stats)), port, "tcp")
+		require.NoError(t, err)
+		require.False(t, v.Blocked, v.Detail)
+		require.False(t, v.Uncertain, v.Detail)
+	}
+	v, err = Check(ctx, bareFake().On("nft list ruleset", exec.OK(fixture(t, "nft_native.txt")+stats)), 9000, "tcp")
+	require.NoError(t, err)
+	require.Equal(t, "inet filter", v.Table)
+
 	// ip6 tables are ignored (IPv4 check).
 	v, err = Check(ctx, f, 443, "tcp")
 	require.NoError(t, err)

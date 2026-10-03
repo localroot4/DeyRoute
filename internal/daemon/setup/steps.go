@@ -63,7 +63,7 @@ var defaultTitles = map[string]string{
 	StepSecrets:        "Save certificates",
 	StepStopUnits:      "Stop and disable services",
 	StepUnitFiles:      "Remove unit files",
-	StepFirewallRemove: "Remove firewall table inet deyroute",
+	StepFirewallRemove: "Remove firewall tables inet deyroute and inet deyroute_stats",
 	StepSysctlRevert:   "Restore kernel settings",
 	StepFiles:          "Remove files",
 	StepAccount:        "Remove the deyroute system user",

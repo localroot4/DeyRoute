@@ -124,6 +124,11 @@ the server sends it (the node's service, e.g. `127.0.0.1:443`).
 - `connection_pool` = `advanced.connection_pool` when set (1–1024), otherwise
   `max(8, number of port entries)` (spec 7.1: "based on the number of ports,
   default 8").
+- Backend tier (`tuning.backend_tier` for the hub, `nodes[].backend_tier` for
+  a node; set by `deyroute optimize auto --backends`): each side uses its own
+  tier. `mux_recievebuffer` is 2/4/8 MiB and the server's `channel_size`
+  1024/2048/4096 for small/medium/large. Without a tier the values above are
+  rendered unchanged (medium is the same).
 - `ports` entries: on the default listen address the spec's short form
   `"<listen>=<target>"` (Backhaul then listens on `:<listen>`, every address);
   a specific listen address (`::` for dual stack, `127.0.0.1` for the canary)

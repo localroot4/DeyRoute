@@ -187,6 +187,8 @@ func (h *Hub) tunnelInfo(cfg *config.Config, t *config.Tunnel) api.TunnelInfo {
 	if n, ok := cfg.NodeByID(ti.ActiveNode); ok {
 		ti.ActiveNodeName = n.Name
 	}
+	// From memory only: Status never reads state.db for traffic.
+	ti.Traffic = h.traffic.tunnelNow(t.ID, h.now())
 	if ti.ActiveTransport != "" {
 		ti.ClientIP = ClientIPMasked
 		if _, tr, err := backend.Lookup(ti.ActiveTransport); err == nil && tr.ClientIPPreserved &&

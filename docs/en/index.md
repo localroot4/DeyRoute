@@ -72,6 +72,8 @@ Optional, but recommended: join a second node and make it a backup:
 | [Backup & restore](backup.md) | backups, passphrase, `DEYROUTE_BACKUP_PASSPHRASE`, automatic backups, what a backup holds |
 | [Update & uninstall](update-uninstall.md) | updating deyroute and the backends, rollback, uninstall |
 | [Security](security.md) | control channel, join tokens, firewall table, secrets, rotation, TLS, audit, no telemetry |
+| [Traffic and load](monitoring.md) | what is counted, download/upload directions, the TRAFFIC block, the Traffic screen, `deyroute stats`, history, monthly quota, not in backups |
+| [Automatic tuning](tuning.md) | `optimize auto`: what is measured, every change and why it is safe, conntrack, containers, check, undo |
 | [Benchmarks](benchmarks.md) | how resource use and failover times are measured; lab results recorded, real-server results pending |
 
 Reference: [error codes](../ERRORS.md) · [`--json` output](../cli-json.md) ·

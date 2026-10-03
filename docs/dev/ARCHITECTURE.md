@@ -28,8 +28,17 @@ wins and the conflict goes to `QUESTIONS.md`.
   directory (`Root string`, default `/`) or explicit paths so tests run in
   `t.TempDir()`; every package that runs programs takes an `exec.Runner`
   interface so tests use a fake. Time-dependent logic takes a `Clock`.
-- UI strings live only in `internal/i18n/en.go` (TUI and CLI human output).
-  Library packages return data and DEY errors, not prose for the UI.
+- UI strings live only in `internal/i18n` (TUI and CLI human output): `en.go`
+  and one `en_<feature>.go` per feature, whose map is merged into `en` by its
+  `init()`. `TestEveryKeyHasEnglish` reads every `en*.go` file, so a feature
+  never has to edit a shared file to add its strings. Library packages return
+  data and DEY errors, not prose for the UI.
+- **Screenshots**: the README and the guides show the program's screens as
+  SVG pictures in `docs/assets/screens`, drawn by `TestScreens` (packages
+  `tui` and `cli`) from the demo deployment in `internal/termsvg/demo`. Any
+  change to a screen, to an English string it shows or to the demo data
+  needs `make screens`; `make check-docs` and `go test ./...` fail with
+  "stale; run make screens" otherwise.
 - Logging: `log/slog` via `internal/log`; fields `ts, level, component,
   tunnel, node, transport, code, msg, err`. Never log secrets; call
   `log.RegisterSecret(value)` for every token/key/password you load.
@@ -49,13 +58,14 @@ wins and the conflict goes to `QUESTIONS.md`.
 | `internal/i18n` | every UI string | tui, cli |
 | `internal/version` | build info, compatibility (major.minor) | all |
 | `internal/config` | schema types, strict load, validation, migrations, atomic save, ladder resolution | daemon, cli, backends |
-| `internal/state` | bbolt store: nodes, tunnels, probes, events ring, metrics, ctl-port allocations | daemon, failover |
+| `internal/state` | bbolt store: nodes, tunnels, probes, events ring, metrics, ctl-port allocations, traffic time series (§8) | daemon, failover |
 | `internal/log` | slog JSON setup, rotation 20MB×5 gzip, redaction | all daemons |
 | `internal/exec` | allow-listed command runner | systemd, firewall, ports, backends keygen |
 | `internal/systemd` | unit templates, drop-in rendering, systemctl wrapper, sd_notify | daemon |
-| `internal/firewall` | detection (nft/ufw/firewalld/iptables), `inet deyroute` rendering/apply/remove, suggestions | daemon, cli |
+| `internal/firewall` | detection (nft/ufw/firewalld/iptables), `inet deyroute` rendering/apply/remove, the verdict-free traffic accounting table `inet deyroute_stats` (§8), suggestions | daemon, cli |
 | `internal/ports` | port-input parser, bind check, owning process lookup, free-port suggestions | daemon, cli, tui |
-| `internal/sysctl` | profiles, apply with backup, revert, BBR detection | daemon, setup |
+| `internal/sysctl` | profiles (incl. `auto`: a plan computed from host facts), apply with backup, compare-and-restore revert, BBR detection, drift check | daemon, setup |
+| `internal/sysinfo` | host facts by file I/O and rtnetlink only (no exec): RAM, CPUs (cgroup-aware), kernel, container type, conntrack, default-route NIC, qdisc, CPU/RSS sampler shared by hub and node | daemon, sysctl, doctor |
 | `internal/tlsutil` | internal CA (Ed25519), hub/node/tunnel certs, CSR, fingerprints, PKCS#12 encoder, custom-cert validation, ACME (lego) | api, daemon |
 | `internal/health` | probes (path auto/tcp/tls/http), UDP echo client+server, TCP echo, worker pool (8), RTT history/median | daemon, failover |
 | `internal/notify` | Telegram notifier with per-(tunnel,type) rate limit, alias → event mapping | daemon |
@@ -69,6 +79,7 @@ wins and the conflict goes to `QUESTIONS.md`.
 | `internal/doctor` | collection helpers, the 15 rules, redacted tar.gz | cli, daemon |
 | `internal/cli` | cobra commands (thin) | main |
 | `internal/tui` | Bubble Tea models/views (no logic) | cli |
+| `internal/termsvg` | terminal text with ANSI colours → SVG window picture (byte-stable); `demo`: the made-up deployment of the screenshots | tui, cli tests |
 
 ## 3. Contracts already in the tree (do not change signatures without the owner)
 
@@ -480,3 +491,89 @@ func JoinCommand(installerURL, link, ver string) string  // bash <(curl -fsSL <i
   pass `func(id, proto) bool { _, tr, err := backend.Lookup(id); return err == nil && tr.Supports(proto) }`.
 - Structs built in code must use `config.NewTunnel`/`DefaultFailover` to get
   boolean defaults (`enabled`, `failback`).
+
+## 8. Traffic monitoring and automatic tuning
+
+The shared contracts land first (Local API DTOs and methods, Control API
+fields, config keys, DEY codes, event types, hub options); the hub answers
+the new methods with `DEY-X008` until each feature is in. The rung
+benchmark and "prefer the fastest rung" are deferred (QUESTIONS.md).
+
+### 8.1 Counting bytes: `table inet deyroute_stats` (hub)
+
+- A second nft table, separate from `inet deyroute`, so `firewall.Apply`
+  (which replaces `inet deyroute` on every node, IP, join or token change)
+  never resets the counters, and so it also works with
+  `security.firewall_managed: false`. It has no accept or drop: every chain
+  has `policy accept` and no verdict, so it can never block traffic.
+- One named counter pair `tun_<id>_in` / `tun_<id>_out` per enabled tunnel,
+  reached through maps keyed by `meta l4proto . th dport` (an input-hook
+  chain, "in" = upload from users) and `meta l4proto . th sport` (an
+  output-hook chain, "out" = download to users) of the tunnel listen ports.
+  No conntrack: `ct` is matched only in a forward-hook chain for NAT (DNAT)
+  rungs, where conntrack already exists. `lo` is excluded (probes).
+- Rebuilt only when the set of listen ports changes, seeded from the last
+  reading; read with one `nft list counters table inet deyroute_stats` every
+  `Options.TrafficInterval` (10 s). The table exists only while
+  `monitoring.enabled` (default true); `monitoring.enabled: false` and
+  uninstall remove it. Without nft or nf_tables the report says
+  `available: false` with `DEY-X061`, never "0 B".
+- Elapsed time and rates use the monotonic clock; a sample whose elapsed
+  time is not positive or far from the interval, or a wall-clock jump of more
+  than 2 s against the monotonic delta, is a gap without a rate. Floats are
+  sanitized (NaN/Inf become 0). A counter that goes down is a reset.
+
+### 8.2 Storage: bucket `traffic` in state.db
+
+- Series `t:<tunnel>` (bytes in/out, max connections), `n:<node>` and `hub`
+  (CPU, RAM); keys are big-endian uint32 UTC seconds of the bucket start.
+- Tiers: 1 minute (24 h), 30 minutes (at least 32 days) and the quota period
+  (`monitoring.quota_reset_day`, hub-local). Pruning is relative to the
+  newest stored key and by count, never to the wall clock.
+- One bbolt transaction per flush (`Options.TrafficFlush`, 60 s) writes the
+  points, the counter baseline and the flush cursor together; folding the
+  same samples twice cannot count them twice.
+- At most 64 tunnel and 64 node series; above 80 % of a 50 MiB size budget
+  the 1-minute tier keeps 6 h and a one-time warning (`DEY-X063`) is emitted.
+- Status and the 1 h view read only memory (a 10 s ring of 1 h per series and
+  running totals); bbolt is read for 24 h / 7 d / 30 d.
+- `Options.Location` (default `time.Local`) is the hub-local zone of
+  "today" and of the quota period; tests pass a fixed zone.
+
+### 8.3 Quota
+
+`tunnels[].advanced.monthly_quota_gib` counts in+out user-side bytes per
+quota period. At 80 % (warn) and 100 % (error) the hub emits
+`traffic_quota` once per period; Telegram forwards it when the owner selects
+the alias `quota`.
+
+### 8.4 Automatic tuning (`deyroute optimize auto`)
+
+- `sysctl` profile `auto` = the spec's balanced list plus values computed by
+  a pure function from host facts (`internal/sysinfo`): raise-only limit
+  keys, buffers by RAM (and BDP when measured), conntrack sizing, reserved
+  ports as a set union, fq/BBR when available. The plan keeps `Desired`
+  (every key auto owns, always written to 99-deyroute.conf) and `Changes`
+  (the diff shown to the owner); raise-only keys whose live value is
+  already higher are not owned. Limit keys are never restored below
+  `max(original, current usage × 1.25)`.
+- Containers: every kernel item is a skip with `DEY-X064`.
+- Service drop-ins: `deyroute-tun@` gets `OOMScoreAdjust=300` (a runaway
+  backend dies first; failover recovers it); hub, node and sshd keep their
+  defaults. Backend tiers (`tuning.backend_tier`, `nodes[].backend_tier`)
+  are sticky config values the renderer reads; changing them restarts the
+  active rung and needs `--backends`.
+- Flow: `OptimizeAutoPlan` → the owner confirms the list once (or `--yes`)
+  → `OptimizeAutoApply(hash)`, refused with `DEY-X065` when the plan changed.
+  Nodes plan with `tune.plan` (never `sysctl.apply` with a "dry run" flag:
+  an older agent would apply) and apply with `sysctl.apply`; both only for
+  agents whose `Hello.Features` has `tune-auto`. `tuning.nodes_auto` is the
+  owner's consent for nodes; convergence compares `Hello.TuneHash` with
+  `SysctlArgs.InputsHash()` (a hash of the hub's inputs, not of the diff).
+- `optimize check` and a report-only job every `Options.TuneCheckInterval`
+  (6 h) compare 99-deyroute.conf with the live values and find later
+  sysctl.d overrides (`DEY-X067`, event `tune_drift`).
+- Rollback: an older binary refuses the new config keys (strict decoding),
+  so `update --rollback` and `update --version` below
+  `hub.FirstTrafficVersion` are refused with `DEY-S011` while
+  `config.NewerKeysInUse()` lists any.

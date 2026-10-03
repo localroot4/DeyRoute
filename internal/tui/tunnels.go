@@ -479,7 +479,16 @@ func showTunnel(id string) *taskScreen {
 		if err != nil {
 			tr = nil // the property column is optional
 		}
-		return tunnelDetail{d: d, tr: tr}, nil
+		out := tunnelDetail{d: d, tr: tr}
+		if d.Traffic != nil {
+			// The sparkline and the 30-day totals are optional too.
+			q := TrafficBlockQuery()
+			q.Targets = []string{api.TrafficTarget(api.TrafficKindTunnel, id)}
+			if rep, err := l.Traffic(ctx, q); err == nil {
+				out.traffic = &rep
+			}
+		}
+		return out, nil
 	}, renderDetail)
 	t.refreshable = true
 	return t
@@ -488,6 +497,46 @@ func showTunnel(id string) *taskScreen {
 type tunnelDetail struct {
 	d  api.TunnelDetail
 	tr map[string]api.TransportInfo
+	// traffic is the tunnel's last hour (nil: monitoring off, or the call
+	// failed).
+	traffic *api.TrafficReport
+}
+
+// addTrafficRows adds the traffic of a tunnel to its detail: the current
+// rates and today's volume, the sparkline of the last hour and the 30-day
+// totals with the quota; "—" and the reason when the hub cannot count
+// bytes (never "0 B").
+func addTrafficRows(a *app, t *kvTable, d api.TunnelDetail, rep *api.TrafficReport) {
+	tn := d.Traffic
+	label := i18n.T(i18n.TUITrafficDetTraffic)
+	s, found := seriesOf(rep, api.TrafficKindTunnel, d.ID)
+	if !tn.Available || (found && !bytesAvailable(*rep, s)) {
+		row := none()
+		reason := s.Reason
+		if reason == nil && rep != nil {
+			reason = rep.Reason
+		}
+		if reason != nil {
+			row = i18n.T(i18n.TUITrafficDetNone, none(), reason.Code, clean(reason.Message))
+		}
+		t.add(label, trafficText(a.caps, row))
+		return
+	}
+	t.add(label, trafficText(a.caps, i18n.T(i18n.TUITrafficDetNow,
+		FormatRate(float64(tn.RateOutBitS)), FormatRate(float64(tn.RateInBitS)), FormatBytes(tn.TodayOut), FormatBytes(tn.TodayIn))))
+	if !found {
+		return
+	}
+	if len(s.Points) > 0 {
+		t.add(i18n.T(i18n.TUITrafficDetHour), TrafficSpark(a.caps, *rep, s, TrafficSparkPoints))
+	}
+	if tot := s.Totals; tot != nil {
+		row := i18n.T(i18n.TUITrafficDet30, FormatBytes(tot.Days30Out), FormatBytes(tot.Days30In))
+		if tot.QuotaBytes > 0 {
+			row += " " + i18n.T(i18n.TUITrafficQuota, quotaPercent(*tot), FormatBytes(tot.QuotaBytes))
+		}
+		t.add(i18n.T(i18n.TUITrafficDetDays), trafficText(a.caps, row))
+	}
 }
 
 func renderDetail(a *app, v any) string {
@@ -528,6 +577,9 @@ func renderDetail(a *app, v any) string {
 	t.add(i18n.T(i18n.TUIDetNodes), strings.Join(ns, ", "))
 	if d.ClientIP != "" {
 		t.add(i18n.T(i18n.TUIDetClientIP), d.ClientIP)
+	}
+	if d.Traffic != nil {
+		addTrafficRows(a, &t, d, td.traffic)
 	}
 	if a.advanced {
 		t.add(i18n.T(i18n.TUIDetPolicy), d.Policy)

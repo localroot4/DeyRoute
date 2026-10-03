@@ -17,6 +17,8 @@ import (
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/ports"
+	"github.com/localroot4/deyroute/internal/sysctl"
+	"github.com/localroot4/deyroute/internal/sysinfo"
 	"github.com/localroot4/deyroute/internal/tui"
 	"github.com/localroot4/deyroute/internal/version"
 )
@@ -106,7 +108,7 @@ func (g *Globals) repair(ctx context.Context) error {
 }
 
 // setup is the wizard of spec section 5: at most five questions for a hub
-// (role, name, public IP, control port, sysctl profile), everything else
+// (role, name, public IP, control port, automatic tuning), everything else
 // automatic; a node asks for the join link and joins.
 func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 	if g.configured() {
@@ -169,7 +171,7 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 
 // hubQuestions is the number of questions the hub wizard asks after the
 // role: name (unless --name), public IP, control port (unless
-// --control-port) and the kernel profile.
+// --control-port) and automatic tuning.
 func hubQuestions(f setupFlags) int {
 	n := 2
 	if strings.TrimSpace(f.name) == "" {
@@ -190,13 +192,71 @@ func nodeQuestions(f setupFlags) int {
 	return 2
 }
 
-// kernelQuestion asks whether the balanced kernel profile is applied.
+// kernelQuestion asks a node whether the balanced kernel profile is
+// applied at join. A hub that uses automatic tuning tunes the node the same
+// way once it is online (the join answer does not carry the hub's tuning).
 func kernelQuestion() question {
 	return question{
 		title: i18n.T(i18n.CLIAskKernel),
-		help:  []string{i18n.T(i18n.CLIKernelHelp), i18n.T(i18n.CLIKernelUndo)},
+		help:  []string{i18n.T(i18n.CLIKernelHelp), i18n.T(i18n.CLIKernelNodeAuto), i18n.T(i18n.CLIKernelUndo)},
 		def:   answerYes, yesNo: true,
 	}
+}
+
+// tunePreview computes the automatic tuning plan of this server in-process
+// (the daemon does not run yet): the measured facts, the live values below
+// Root and the ports the hub reserves (the backend control range and the
+// control port). It changes nothing.
+func (g *Globals) tunePreview(controlPort int) (sysinfo.Facts, sysctl.Plan) {
+	f := g.HostFacts()
+	reserved := []string{fmt.Sprintf("%d-%d", config.CtlRangeLow, config.CtlRangeHigh)}
+	if controlPort > 0 {
+		reserved = append(reserved, strconv.Itoa(controlPort))
+	}
+	return f, sysctl.AutoPlan(f, sysctl.AutoInputs{
+		BBR: config.DefaultTuning().BBR, Conntrack: true, Reserved: reserved, Live: sysctl.Manager{Root: g.Root}.Live,
+	})
+}
+
+// autoTuneQuestion is the hub wizard's last question: whether this server
+// is tuned automatically, with the plan listed first (what was measured,
+// every key with its current and new value, what is left out and how to
+// undo it).
+func autoTuneQuestion(f sysinfo.Facts, p sysctl.Plan) question {
+	tf := api.TuneFacts(f)
+	help := []string{i18n.T(i18n.CLITuneAutoHelp)}
+	if facts := tui.TuneFactsText(&tf); facts != "" {
+		help = append(help, i18n.T(i18n.CLITunePreviewFacts, facts))
+	}
+	switch {
+	case f.Virt != sysinfo.VirtNone:
+		help = append(help, i18n.T(i18n.CLITunePreviewInCont, f.Virt))
+	case len(p.Changes) == 0:
+		help = append(help, i18n.T(i18n.CLITunePreviewNone))
+	default:
+		later := 0
+		kw, fw := 0, 0
+		for _, c := range p.Changes {
+			if c.Effect != api.TuneEffectNow {
+				later++
+			}
+			kw, fw = max(kw, width(c.Key)), max(fw, width(orDash(c.From)))
+		}
+		help = append(help, i18n.T(i18n.CLITunePreviewCount, len(p.Changes), later))
+		for _, c := range p.Changes {
+			line := "  " + pad(clean(c.Key), kw) + "  " + pad(orDash(clean(c.From)), fw) + "  → " + clean(c.To)
+			if c.Effect != api.TuneEffectNow {
+				line += "  (" + tui.TuneEffectText(c.Effect) + ")"
+			}
+			help = append(help, line)
+		}
+		if len(p.Skips) > 0 {
+			sk := p.Skips[0].API()
+			help = append(help, i18n.T(i18n.CLITunePreviewSkips, len(p.Skips), sk.Key, sk.Reason))
+		}
+	}
+	help = append(help, i18n.T(i18n.CLITunePreviewMore))
+	return question{title: i18n.T(i18n.CLIAskTuneAuto), help: help, def: answerYes, yesNo: true}
 }
 
 // defaultName is the host name as a slug ("hub"/"node" when it has none).
@@ -247,7 +307,7 @@ func (g *Globals) checkControlPort(s string) error {
 func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, st *stepper) error {
 	o := setup.HubOptions{
 		Root: g.Root, Runner: g.Runner, Name: strings.TrimSpace(f.name), ControlPort: f.port,
-		Mirror: strings.TrimSpace(g.Getenv(EnvMirror)), SysctlProfile: config.SysctlBalanced,
+		Mirror: strings.TrimSpace(g.Getenv(EnvMirror)), SysctlProfile: config.SysctlAuto,
 		ApplySysctl: f.yes, StartService: !g.NoService, SocketPath: g.Socket, Now: g.Now, Logger: g.logger(),
 		LookupUser: g.LookupUser, LookupGroup: g.LookupGroup, Chown: g.Chown,
 	}
@@ -285,21 +345,22 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 			}
 			o.ControlPort, _ = strconv.Atoi(ans)
 		}
-		ans, err := g.askQ(st.next(kernelQuestion()))
-		if err != nil {
-			return err
-		}
-		o.ApplySysctl = ans == answerYes
 		port := o.ControlPort
 		if port == 0 {
 			port = config.DefaultControlPort
 		}
+		facts, plan := g.tunePreview(port)
+		ans, err := g.askQ(st.next(autoTuneQuestion(facts, plan)))
+		if err != nil {
+			return err
+		}
+		o.ApplySysctl = ans == answerYes
 		g.printSummary(
 			[2]string{i18n.T(i18n.CLISummaryRole), config.RoleHub},
 			[2]string{i18n.T(i18n.CLISummaryName), o.Name},
 			[2]string{i18n.T(i18n.CLISummaryPublicIP), o.PublicIP},
 			[2]string{i18n.T(i18n.CLISummaryControlPort), strconv.Itoa(port)},
-			[2]string{i18n.T(i18n.CLISummaryKernel), kernelLabel(o.ApplySysctl)},
+			[2]string{i18n.T(i18n.CLISummaryKernel), autoLabel(o.ApplySysctl, len(plan.Changes))},
 		)
 	} else if o.Name == "" {
 		o.Name = g.defaultName(config.RoleHub)
@@ -410,6 +471,14 @@ func (g *Globals) printSummary(rows ...[2]string) {
 func kernelLabel(apply bool) string {
 	if apply {
 		return i18n.T(i18n.CLIKernelBalanced)
+	}
+	return i18n.T(i18n.CLIKernelUnchanged)
+}
+
+// autoLabel describes the automatic tuning answer in the summary.
+func autoLabel(apply bool, changes int) string {
+	if apply {
+		return i18n.T(i18n.CLIKernelAuto, changes)
 	}
 	return i18n.T(i18n.CLIKernelUnchanged)
 }

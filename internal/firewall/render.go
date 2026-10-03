@@ -41,10 +41,12 @@ type normalized struct {
 	frontPort int
 	frontOpen bool
 	cf4, cf6  []netip.Prefix
+	// clampMSS is the MSS of SYNs arriving from a tunnel interface.
+	clampMSS int
 }
 
 func normalize(s Spec) normalized {
-	n := normalized{restrict: s.RestrictControl}
+	n := normalized{restrict: s.RestrictControl, clampMSS: s.clampMSS()}
 	if validRate(s.UnknownControlRate) {
 		n.unknownRate = s.UnknownControlRate
 	}
@@ -187,18 +189,23 @@ func Render(s Spec) string {
 			blocks = append(blocks, renderChain("output", hdrOutput, out))
 		}
 	}
-	var fwd []string
 	if len(n.masq) > 0 {
 		var post []string
 		for _, m := range n.masq {
 			post = append(post, fmt.Sprintf("oifname %s masquerade", quote(m)))
 		}
-		for _, m := range n.masq {
-			fwd = append(fwd,
-				fmt.Sprintf("oifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu", quote(m)),
-				fmt.Sprintf("iifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu", quote(m)))
-		}
 		blocks = append(blocks, renderChain("postrouting", hdrPostrouting, post))
+	}
+	// MSS clamps on every tunnel interface (masqueraded on the hub,
+	// NAT-matched on the node), before the confinement: SYNs towards the
+	// tunnel get the route MTU, SYNs from the tunnel get ClampMSS (the
+	// route MTU of that direction is the outgoing interface's). The kernel
+	// only ever lowers an MSS, and a clamp is not a verdict.
+	var fwd []string
+	for _, i := range n.clampIfaces() {
+		fwd = append(fwd,
+			fmt.Sprintf("oifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu", quote(i)),
+			fmt.Sprintf("iifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set %d", quote(i), n.clampMSS))
 	}
 	// An interface the NAT rules match on (the node side of a WireGuard
 	// tunnel) is confined: what arrives there is only DNATed to the rules'
@@ -308,6 +315,19 @@ func (n normalized) natIfaces() []string {
 	for _, r := range n.nat {
 		if r.iface != "" && !slices.Contains(out, r.iface) {
 			out = append(out, r.iface)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// clampIfaces returns the sorted tunnel interfaces whose TCP MSS is
+// clamped: the masqueraded ones and the NAT rules' input interfaces.
+func (n normalized) clampIfaces() []string {
+	out := slices.Clone(n.masq)
+	for _, i := range n.natIfaces() {
+		if !slices.Contains(out, i) {
+			out = append(out, i)
 		}
 	}
 	slices.Sort(out)

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -13,6 +15,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
+	"github.com/localroot4/deyroute/internal/tui"
 	"github.com/localroot4/deyroute/internal/version"
 )
 
@@ -22,18 +25,22 @@ func newOptimizeCmd(g *Globals) *cobra.Command {
 	cmd := newGroup("optimize", i18n.CLIOptimizeShort)
 	var profile string
 	apply := &cobra.Command{
-		Use:     "apply --profile balanced|aggressive|off",
+		Use:     "apply --profile auto|balanced|aggressive|off",
 		Short:   i18n.T(i18n.CLIOptimizeApplyShort),
-		Long:    i18n.T(i18n.CLIOptimizeApplyLong),
+		Long:    i18n.T(i18n.CLIOptimizeApplyLong) + "\n" + i18n.T(i18n.CLIOptimizeApplyAutoAlias),
 		Example: i18n.T(i18n.CLIOptimizeApplyExample),
 		Args:    noArgs(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			switch profile {
 			case config.SysctlBalanced, config.SysctlAggressive, config.SysctlOff:
+			case config.SysctlAuto:
+				// The confirmation is the command itself (section 12:
+				// "apply --profile" never asks).
+				return g.optimizeAuto(cmd.Context(), autoFlags{yes: true})
 			case "":
 				return usageErr(i18n.T(i18n.CLIWantFlag, "--profile"))
 			default:
-				return deyerr.New(deyerr.C013, deyerr.Params{"field": "--profile", "value": profile, "allowed": "balanced, aggressive, off"})
+				return deyerr.New(deyerr.C013, deyerr.Params{"field": "--profile", "value": profile, "allowed": "auto, balanced, aggressive, off"})
 			}
 			var st api.OptimizeStatus
 			err := g.call(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
@@ -64,8 +71,340 @@ func newOptimizeCmd(g *Globals) *cobra.Command {
 			return g.printOptimize(st, i18n.CLIOptimizeReverted)
 		},
 	}
-	cmd.AddCommand(apply, revert)
+	status := &cobra.Command{
+		Use:     "status",
+		Short:   i18n.T(i18n.CLIOptimizeStatusShort),
+		Example: i18n.T(i18n.CLIOptimizeStatusExample),
+		Args:    noArgs(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var st api.OptimizeStatus
+			err := g.call(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
+				st, err = l.OptimizeStatus(ctx)
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			return g.printOptimize(st, i18n.CLIOptimizeStatusLine)
+		},
+	}
+	cmd.AddCommand(newOptimizeAutoCmd(g), newOptimizeCheckCmd(g), status, apply, revert)
 	return cmd
+}
+
+// autoFlags are the flags of `deyroute optimize auto`.
+type autoFlags struct{ dryRun, backends, yes bool }
+
+func newOptimizeAutoCmd(g *Globals) *cobra.Command {
+	var f autoFlags
+	cmd := &cobra.Command{
+		Use:     "auto [--dry-run] [--backends] [--yes]",
+		Short:   i18n.T(i18n.CLIOptimizeAutoShort),
+		Long:    i18n.T(i18n.CLIOptimizeAutoLong),
+		Example: i18n.T(i18n.CLIOptimizeAutoExample),
+		Args:    noArgs(),
+		RunE:    func(cmd *cobra.Command, _ []string) error { return g.optimizeAuto(cmd.Context(), f) },
+	}
+	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, i18n.T(i18n.CLIFlagDryRun))
+	cmd.Flags().BoolVar(&f.backends, "backends", false, i18n.T(i18n.CLIFlagBackends))
+	cmd.Flags().BoolVar(&f.yes, "yes", false, i18n.T(i18n.CLIFlagYes))
+	return cmd
+}
+
+// optimizeAuto is `deyroute optimize auto`: the plan of every server is
+// listed, confirmed once (or --yes) and applied with the hash that was
+// shown, so a plan that changed in between is refused (DEY-X065) instead of
+// applied unseen. --dry-run stops after the list. A plan without a change
+// and without an offline node applies nothing.
+func (g *Globals) optimizeAuto(ctx context.Context, f autoFlags) error {
+	l, err := g.local()
+	if err != nil {
+		return err
+	}
+	cctx, cancel := longCtx(ctx)
+	defer cancel()
+	plan, err := l.OptimizeAutoPlan(cctx, api.AutoOptions{Backends: f.backends})
+	if err != nil {
+		return err
+	}
+	changes, pending := tunePlanCounts(plan)
+	if g.JSON && (f.dryRun || changes == 0 && len(pending) == 0) {
+		return g.emitJSON(plan)
+	}
+	// The plan is what the owner confirms: on stdout, or with --json on
+	// stderr next to the confirmation (stdout then holds only the result).
+	w := g.Out
+	if g.JSON {
+		w = g.Err
+	}
+	if !g.JSON || !f.yes {
+		g.printTunePlan(w, plan)
+	}
+	switch {
+	case f.dryRun:
+		g.say(i18n.CLITuneDryRun)
+		return nil
+	case changes == 0 && len(pending) == 0:
+		g.say(i18n.CLITuneNothing)
+		return nil
+	}
+	lost := i18n.T(i18n.CLITuneLost, changes)
+	if len(pending) > 0 {
+		lost += " " + i18n.T(i18n.CLITuneLostPending, strings.Join(pending, ", "))
+	}
+	if tunePlanRestarts(plan) {
+		lost += " " + i18n.T(i18n.CLITuneRestarts)
+	}
+	if err := g.confirm(lost, f.yes); err != nil {
+		return err
+	}
+	p := g.newProgress()
+	res, err := l.OptimizeAutoApply(cctx, api.AutoApply{Hash: plan.Hash, Backends: f.backends}, p.step)
+	if err != nil {
+		return err
+	}
+	if g.JSON {
+		doc, err := jsonDoc(res)
+		if err != nil {
+			return err
+		}
+		doc["steps"] = p.steps
+		return writeJSON(g.Out, doc, true)
+	}
+	s := g.sym()
+	for _, h := range res.Hosts {
+		if h.Error != nil {
+			g.println(g.text("  " + s.warn + " " + tuneHostName(h.Host) + ": " + h.Error.Code + " " + clean(h.Error.Message)))
+		}
+	}
+	for _, w := range res.Warnings {
+		g.println(g.text("  " + s.warn + " " + clean(w)))
+	}
+	g.println(g.styleOut(styleGreen, g.text(s.ok+" "+i18n.T(i18n.CLITuneApplied))))
+	g.say(i18n.CLITuneUndo)
+	return nil
+}
+
+// tunePlanCounts returns the number of changes of a plan and the offline
+// nodes that apply it when they reconnect.
+func tunePlanCounts(r api.TunePlanReport) (changes int, pending []string) {
+	for _, h := range r.Hosts {
+		changes += len(h.Changes)
+		if h.Pending {
+			pending = append(pending, h.Host)
+		}
+	}
+	return changes, pending
+}
+
+// tunePlanRestarts reports whether a change restarts the active transport
+// of tunnels (backend items, only with --backends).
+func tunePlanRestarts(r api.TunePlanReport) bool {
+	for _, h := range r.Hosts {
+		for _, c := range h.Changes {
+			if c.Effect == api.TuneEffectRestartsTunnels {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// tuneHostName names a host of a plan or a check: "hub", "node de-1".
+func tuneHostName(host string) string {
+	if host == "" || host == config.RoleHub {
+		return i18n.T(i18n.CLITuneHostHub)
+	}
+	return i18n.T(i18n.CLITuneHostNode, host)
+}
+
+// printTunePlan prints a plan grouped by host: the measured facts, a table
+// of KEY, NOW, NEW, EFFECT and WHY, the skipped items with their reason
+// (one line per reason) and the offline nodes; then the totals and how to
+// undo it.
+func (g *Globals) printTunePlan(w io.Writer, r api.TunePlanReport) {
+	out := func(s string) { fmt.Fprintln(w, g.text(s)) }
+	out(i18n.T(i18n.CLITunePlanTitle))
+	changes, _ := tunePlanCounts(r)
+	for _, h := range r.Hosts {
+		fmt.Fprintln(w)
+		head := tuneHostName(h.Host)
+		if facts := tui.TuneFactsText(h.Facts); facts != "" {
+			head += " " + g.sym().sep + " " + facts
+		}
+		fmt.Fprintln(w, g.style(styleBold, g.text(head)))
+		switch {
+		case h.Error != nil:
+			out(i18n.T(i18n.CLITuneHostError, h.Error.Code+" "+clean(h.Error.Message)))
+		case h.Pending:
+			out(i18n.T(i18n.CLITuneHostPending))
+		case len(h.Changes) == 0:
+			out(i18n.T(i18n.CLITuneHostNothing))
+		default:
+			rows := make([][]string, 0, len(h.Changes))
+			for _, c := range h.Changes {
+				rows = append(rows, []string{clean(c.Key), orDash(clean(c.From)), orDash(clean(c.To)), tui.TuneEffectText(c.Effect), clean(c.Reason)})
+			}
+			for _, l := range tableLines([]string{i18n.T(i18n.CLIColKey), i18n.T(i18n.CLIColNow), i18n.T(i18n.CLIColNew),
+				i18n.T(i18n.CLIColEffect), i18n.T(i18n.CLIColWhy)}, rows) {
+				out(l)
+			}
+		}
+		for _, sk := range groupSkips(h.Skips) {
+			out(i18n.T(i18n.CLITuneHostSkipped, strings.Join(sk.keys, ", "), sk.reason))
+		}
+	}
+	fmt.Fprintln(w)
+	out(i18n.T(i18n.CLITuneSummary, changes, len(r.Hosts)))
+	for _, warn := range r.Warnings {
+		out("  " + g.sym().warn + " " + clean(warn))
+	}
+	out(i18n.T(i18n.CLITuneUndo))
+}
+
+// skipGroup is the skipped items of one host that share a reason.
+type skipGroup struct {
+	reason string
+	keys   []string
+}
+
+// groupSkips merges skipped items by reason, in the order they first
+// appear (in a container every kernel item has the same one).
+func groupSkips(skips []api.TuneSkip) []skipGroup {
+	var out []skipGroup
+	idx := map[string]int{}
+	for _, s := range skips {
+		reason := clean(s.Reason)
+		if s.Code != "" && !strings.Contains(reason, s.Code) {
+			reason = s.Code + " " + reason
+		}
+		i, ok := idx[reason]
+		if !ok {
+			i = len(out)
+			idx[reason] = i
+			out = append(out, skipGroup{reason: reason})
+		}
+		out[i].keys = append(out[i].keys, clean(s.Key))
+	}
+	return out
+}
+
+func newOptimizeCheckCmd(g *Globals) *cobra.Command {
+	return &cobra.Command{
+		Use:     "check",
+		Short:   i18n.T(i18n.CLIOptimizeCheckShort),
+		Long:    i18n.T(i18n.CLIOptimizeCheckLong),
+		Example: i18n.T(i18n.CLIOptimizeCheckExample),
+		Args:    noArgs(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var r api.TuneCheck
+			err := g.callLong(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
+				r, err = l.OptimizeCheck(ctx)
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			return g.printTuneCheck(r)
+		},
+	}
+}
+
+// tuneDriftError is DEY-X067 for the first drifted key of a check (nil
+// without drift); the number of drifted keys is its detail.
+func tuneDriftError(r api.TuneCheck) error {
+	n := 0
+	var first *api.TuneDrift
+	for i := range r.Hosts {
+		for j := range r.Hosts[i].Drift {
+			if first == nil {
+				first = &r.Hosts[i].Drift[j]
+			}
+			n++
+		}
+	}
+	if first == nil {
+		return nil
+	}
+	where := first.OverriddenBy
+	if where == "" {
+		where = i18n.T(i18n.CLITuneRuntime)
+	}
+	e := deyerr.New(deyerr.X067, deyerr.Params{"key": first.Key, "where": where})
+	if n > 1 {
+		e = e.WithDetail(i18n.T(i18n.CLITuneCheckFound, n))
+	}
+	return e
+}
+
+// printTuneCheck prints `optimize check`: per host the drifted keys
+// (KEY, WANT, LIVE, CHANGED BY) and the findings. Drift is DEY-X067 (exit
+// 2); with --json the error is part of the one document.
+func (g *Globals) printTuneCheck(r api.TuneCheck) error {
+	derr := tuneDriftError(r)
+	if g.JSON {
+		doc, err := jsonDoc(r)
+		if err != nil {
+			return err
+		}
+		if derr != nil {
+			e := deyerr.As(derr)
+			d := api.ToDTO(e)
+			d.Log = e.Log()
+			doc["error"], doc["exit_code"] = d, e.ExitCode()
+		}
+		if err := writeJSON(g.Out, doc, true); err != nil {
+			return err
+		}
+		if derr != nil {
+			return jsonShownError{derr}
+		}
+		return nil
+	}
+	s := g.sym()
+	for i, h := range r.Hosts {
+		if i > 0 {
+			g.println()
+		}
+		g.println(g.styleOut(styleBold, g.text(i18n.T(i18n.CLITuneCheckHost, tuneHostName(h.Host), orDash(h.Profile)))))
+		if h.Error != nil {
+			g.say(i18n.CLITuneCheckError, h.Error.Code+" "+clean(h.Error.Message))
+			continue
+		}
+		if len(h.Drift) > 0 {
+			rows := make([][]string, 0, len(h.Drift))
+			for _, d := range h.Drift {
+				by := d.OverriddenBy
+				if by == "" {
+					by = i18n.T(i18n.CLITuneRuntime)
+				}
+				rows = append(rows, []string{clean(d.Key), orDash(clean(d.Want)), orDash(clean(d.Live)), clean(by)})
+			}
+			g.table([]string{i18n.T(i18n.CLIColKey), i18n.T(i18n.CLIColWant), i18n.T(i18n.CLIColLive), i18n.T(i18n.CLIColChangedBy)}, rows)
+		}
+		for _, f := range h.Findings {
+			mark := s.ok
+			switch f.Severity {
+			case "warn":
+				mark = s.warn
+			case "error":
+				mark = s.fail
+			}
+			msg := clean(f.Message)
+			if f.Code != "" {
+				msg = f.Code + " " + msg
+			}
+			g.println(g.text("  " + mark + " " + pad(clean(f.Check), 16) + msg))
+		}
+		if len(h.Drift) == 0 && len(h.Findings) == 0 {
+			g.say(i18n.CLITuneCheckOK)
+		}
+	}
+	if r.Clean {
+		g.println()
+		g.say(i18n.CLITuneCheckClean)
+	}
+	return derr
 }
 
 func (g *Globals) printOptimize(st api.OptimizeStatus, k i18n.Key) error {
@@ -81,6 +420,9 @@ func (g *Globals) printOptimize(st api.OptimizeStatus, k i18n.Key) error {
 		bbr = i18n.T(i18n.CLIBBRMissing)
 	}
 	g.println(g.text("  " + bbr))
+	if facts := tui.TuneFactsText(st.Facts); facts != "" {
+		g.println(g.text("  " + tuneHostName(config.RoleHub) + ": " + facts))
+	}
 	keys := make([]string, 0, len(st.Applied))
 	for key := range st.Applied {
 		keys = append(keys, key)
@@ -91,6 +433,20 @@ func (g *Globals) printOptimize(st api.OptimizeStatus, k i18n.Key) error {
 	}
 	for _, w := range st.Warnings {
 		g.println(g.text("  " + g.sym().warn + " " + clean(w)))
+	}
+	if len(st.Nodes) == 0 {
+		return nil
+	}
+	g.say(i18n.CLITuneNodesTitle)
+	rows := make([][]string, 0, len(st.Nodes))
+	for _, n := range st.Nodes {
+		rows = append(rows, []string{n.Node, yesNo(n.Online), orDash(n.Profile), yesNo(n.Pending)})
+	}
+	g.table([]string{i18n.T(i18n.CLIColNode), i18n.T(i18n.CLIColOnline), i18n.T(i18n.CLIColProfile), i18n.T(i18n.CLIColPending)}, rows)
+	for _, n := range st.Nodes {
+		if n.Online && !n.AutoCapable {
+			g.println(g.text("  " + g.sym().warn + " " + tuneHostName(n.Node) + ": " + i18n.T(i18n.CLITuneOldAgent)))
+		}
 	}
 	return nil
 }

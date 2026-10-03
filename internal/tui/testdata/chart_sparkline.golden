@@ -1,0 +1,48 @@
+hour         u=true  w=1  |█|
+hour         u=true  w=10 |██████████|
+hour         u=true  w=30 |▇▇█▇█▇▇█▇▇█▇█▇▇█▇▇▇██▇▇▇█▇▇█▇▇|
+hour         u=true  w=60 |▆▆▇▇▇▇▆▇▇▇▇▆▇▇▇▇▇·▅▇▇▇▆▇▇▇▇▆▇▇▇▇▆▇▇▇▇▆█▇▇▇▆█▇▇▇▆█▇▇▇▆█▆█▇▆▇▆|
+hour         u=false w=1  |#|
+hour         u=false w=10 |##########|
+hour         u=false w=30 |**#*#**#**#*#**#***##***#**#**|
+hour         u=false w=60 |++****+****+*****?=***+****+****+****+#***+#***+#***+#+#*+*+|
+flat zero    u=true  w=1  |▁|
+flat zero    u=true  w=10 |▁▁▁▁▁▁▁▁▁▁|
+flat zero    u=true  w=30 |▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁|
+flat zero    u=true  w=60 |▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁|
+flat zero    u=false w=1  | |
+flat zero    u=false w=10 |          |
+flat zero    u=false w=30 |                              |
+flat zero    u=false w=60 |                                                            |
+single spike u=true  w=1  |█|
+single spike u=true  w=10 |▁▁▁▁█▁▁▁▁▁|
+single spike u=true  w=30 |▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁|
+single spike u=true  w=60 |▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁|
+single spike u=false w=1  |#|
+single spike u=false w=10 |    #     |
+single spike u=false w=30 |              #               |
+single spike u=false w=60 |                             #                              |
+all gaps     u=true  w=1  |·|
+all gaps     u=true  w=10 |··········|
+all gaps     u=true  w=30 |······························|
+all gaps     u=true  w=60 |                              ······························|
+all gaps     u=false w=1  |?|
+all gaps     u=false w=10 |??????????|
+all gaps     u=false w=30 |??????????????????????????????|
+all gaps     u=false w=60 |                              ??????????????????????????????|
+one point    u=true  w=1  |█|
+one point    u=true  w=10 |         █|
+one point    u=true  w=30 |                             █|
+one point    u=true  w=60 |                                                           █|
+one point    u=false w=1  |#|
+one point    u=false w=10 |         #|
+one point    u=false w=30 |                             #|
+one point    u=false w=60 |                                                           #|
+bytes        u=true  w=1  |█|
+bytes        u=true  w=10 |      ▁▃█▆|
+bytes        u=true  w=30 |                          ▁▃█▆|
+bytes        u=true  w=60 |                                                        ▁▃█▆|
+bytes        u=false w=1  |#|
+bytes        u=false w=10 |       :#+|
+bytes        u=false w=30 |                           :#+|
+bytes        u=false w=60 |                                                         :#+|

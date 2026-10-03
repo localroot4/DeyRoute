@@ -35,13 +35,17 @@ func (h *Hub) optimizeStatus() (api.OptimizeStatus, error) {
 			out.Applied[kv.Key] = kv.Value
 		}
 	}
+	out.Facts = h.hubFacts()
+	out.Nodes = h.nodeTuneRows(h.Config())
 	return out, nil
 }
 
 // OptimizeStatus implements api.Local (section 12): the sysctl profile
 // applied on the hub, BBR availability and state, the values deyroute set in
-// /etc/sysctl.d/99-deyroute.conf, and the hub's RAM with the profile
-// recommended for it.
+// /etc/sysctl.d/99-deyroute.conf, the hub's RAM with the profile
+// recommended for it, its measured facts and the tuning state of every
+// node (profile and inputs hash from its hello, pending while it must still
+// apply the hub's automatic tuning).
 func (l *local) OptimizeStatus(context.Context) (api.OptimizeStatus, error) {
 	st, err := l.h.optimizeStatus()
 	return st, withLog(err)
@@ -73,6 +77,12 @@ func (h *Hub) ipForwardNeeds() (hub bool, nodes map[string]bool) {
 // node applies the same profile with the hub's tuning.bbr (sysctl.apply);
 // what a node skipped comes back as a warning naming it. "off" reverts
 // everything.
+//
+// "auto" is `optimize auto --yes`: the automatic plan is computed and
+// applied as computed (no backend items). Any other profile leaves the
+// automatic one: its resource drop-ins go, tuning.nodes_auto and the
+// backend items are cleared (the tunnels they changed are re-rendered) and
+// the kernel restores what auto set beyond the new profile.
 func (l *local) OptimizeApply(ctx context.Context, profile string) (api.OptimizeStatus, error) {
 	h := l.h
 	profile = strings.TrimSpace(profile)
@@ -85,6 +95,22 @@ func (l *local) OptimizeApply(ctx context.Context, profile string) (api.Optimize
 	// must stop the call before it.
 	if err := h.checkApplied(h.Config()); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
+	}
+	if profile == config.SysctlAuto {
+		plan, err := h.planAuto(ctx, false)
+		if err != nil {
+			return api.OptimizeStatus{}, withLog(err)
+		}
+		rep, err := l.OptimizeAutoApply(ctx, api.AutoApply{Hash: plan.report.Hash}, nil)
+		if err != nil {
+			return api.OptimizeStatus{}, err
+		}
+		st, err := h.optimizeStatus()
+		if err != nil {
+			return api.OptimizeStatus{}, withLog(err)
+		}
+		st.Warnings = rep.Warnings
+		return st, nil
 	}
 	if _, err := h.autoBackup(); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
@@ -99,13 +125,9 @@ func (l *local) OptimizeApply(ctx context.Context, profile string) (api.Optimize
 	for _, w := range warnings {
 		h.log.Warn("sysctl: "+w, slog.String("profile", profile))
 	}
-	if _, err := h.mutate(func(c *config.Config) error {
-		if c.Tuning == nil {
-			c.Tuning = config.DefaultTuning()
-		}
-		c.Tuning.SysctlProfile = profile
-		return nil
-	}); err != nil {
+	left, err := h.leaveAuto(ctx, profile)
+	warnings = append(warnings, left...)
+	if err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
 	warnings = append(warnings, h.optimizeNodes(ctx, profile, bbr, nodeFwd)...)
@@ -121,9 +143,12 @@ func (l *local) OptimizeApply(ctx context.Context, profile string) (api.Optimize
 }
 
 // OptimizeRevert implements api.Local (`deyroute optimize revert`): the hub
-// returns to the values saved before deyroute's first change (the conf file
-// and the backup go), tuning.sysctl_profile becomes off and every online
-// node reverts too.
+// returns to the values saved before deyroute's first change by
+// compare-and-restore (a value another program changed since, or a limit
+// in use, is left with a warning; the conf file and the backup go), the
+// resource drop-ins of the automatic tuning go, tuning.sysctl_profile
+// becomes off, tuning.nodes_auto and the backend items are cleared (the
+// tunnels they changed are re-rendered) and every online node reverts too.
 func (l *local) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) {
 	h := l.h
 	if err := h.checkApplied(h.Config()); err != nil {
@@ -132,8 +157,12 @@ func (l *local) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) 
 	if _, err := h.autoBackup(); err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
-	if err := h.sysctlManager().Revert(); err != nil {
+	warnings, err := h.sysctlManager().RevertWithWarnings()
+	if err != nil {
 		return api.OptimizeStatus{}, withLog(err)
+	}
+	for _, w := range warnings {
+		h.log.Warn("sysctl: " + w)
 	}
 	// A running WireGuard/AmneziaWG hub side still forwards packets.
 	hubFwd, nodeFwd := h.ipForwardNeeds()
@@ -142,17 +171,13 @@ func (l *local) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) 
 			h.log.Warn("cannot keep net.ipv4.ip_forward on after the revert", dlog.Err(err))
 		}
 	}
-	if _, err := h.mutate(func(c *config.Config) error {
-		if c.Tuning == nil {
-			c.Tuning = config.DefaultTuning()
-		}
-		c.Tuning.SysctlProfile = config.SysctlOff
-		return nil
-	}); err != nil {
+	left, err := h.leaveAuto(ctx, config.SysctlOff)
+	warnings = append(warnings, left...)
+	if err != nil {
 		return api.OptimizeStatus{}, withLog(err)
 	}
 	cfg := h.Config()
-	warnings := h.optimizeNodes(ctx, config.SysctlOff, cfg.Tuning == nil || cfg.Tuning.BBR, nodeFwd)
+	warnings = append(warnings, h.optimizeNodes(ctx, config.SysctlOff, cfg.Tuning == nil || cfg.Tuning.BBR, nodeFwd)...)
 	st, err := h.optimizeStatus()
 	if err != nil {
 		return api.OptimizeStatus{}, withLog(err)

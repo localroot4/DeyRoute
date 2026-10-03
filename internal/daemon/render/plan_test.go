@@ -492,3 +492,74 @@ func registerGlobalFake() {
 	default:
 	}
 }
+
+// TestPlanBackendTiers: the sticky backend tiers and tuning.wg_mtu reach
+// the RenderInput of the hub side and of each node, and a node's tier only
+// changes the files of that node's candidates.
+func TestPlanBackendTiers(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.Nodes = append(e.cfg.Nodes, config.Node{ID: "fr-1", Name: "France 1", PublicIP: "1.2.3.5"})
+	e.fakes["rev"].render = func(in backend.RenderInput, side backend.Side) (backend.Rendered, error) {
+		r := defaultRender(in, side)
+		extra := "tier = \"" + in.Tier(side) + "\"\nwg_mtu = " + strconv.Itoa(in.WGMTU) + "\n"
+		r.Files["config.toml"] = append(r.Files["config.toml"], extra...)
+		return r, nil
+	}
+	plan := func() TunnelPlan {
+		in := e.input()
+		in.HubTier = e.cfg.BackendTier("")
+		in.NodeTier = e.cfg.BackendTier
+		in.WGMTU = e.cfg.Tuning.WGMTU
+		p, err := Plan(in)
+		require.NoError(t, err)
+		return p
+	}
+	files := func(p TunnelPlan, node string) (hub, nodeSide []byte) {
+		c, ok := p.Candidate(node, "rev/plain")
+		require.True(t, ok)
+		return c.Hub.Files["config.toml"], c.NodeSide.Files["config.toml"]
+	}
+
+	// No tiers: the backends see "" (their defaults) and wg_mtu 0.
+	base := plan()
+	ri, ok := e.fakes["rev"].lastInput("de-1", "plain")
+	require.True(t, ok)
+	require.Empty(t, ri.HubTier)
+	require.Empty(t, ri.NodeTier)
+	require.Zero(t, ri.WGMTU)
+
+	e.cfg.Tuning.BackendTier = config.BackendTierLarge
+	e.cfg.Tuning.WGMTU = 1380
+	e.cfg.Nodes[0].BackendTier = config.BackendTierSmall // de-1
+	tiered := plan()
+	ri, _ = e.fakes["rev"].lastInput("de-1", "plain")
+	require.Equal(t, config.BackendTierLarge, ri.HubTier)
+	require.Equal(t, config.BackendTierSmall, ri.NodeTier)
+	require.Equal(t, 1380, ri.WGMTU)
+	ri, _ = e.fakes["rev"].lastInput("nl-1", "plain")
+	require.Equal(t, config.BackendTierLarge, ri.HubTier)
+	require.Empty(t, ri.NodeTier, "nl-1 has no tier of its own")
+	hub, node := files(tiered, "de-1")
+	require.Contains(t, string(hub), `tier = "large"`)
+	require.Contains(t, string(node), `tier = "small"`)
+	_, baseNL := files(base, "nl-1")
+	_, nl := files(tiered, "nl-1")
+	require.NotEqual(t, baseNL, nl, "wg_mtu changed")
+
+	// Another node's tier (nl-1 in this tunnel, fr-1 in none) leaves the
+	// files of de-1's candidates as they were.
+	e.cfg.Nodes[1].BackendTier = config.BackendTierLarge
+	e.cfg.Nodes[2].BackendTier = config.BackendTierMedium
+	again := plan()
+	for _, c := range tiered.Candidates {
+		if c.Node != "de-1" {
+			continue
+		}
+		c2, ok := again.Candidate(c.Node, c.TransportID)
+		require.True(t, ok)
+		require.Equal(t, c.Hub.Files, c2.Hub.Files, c.TransportID)
+		require.Equal(t, c.NodeSide.Files, c2.NodeSide.Files, c.TransportID)
+	}
+	_, nl2 := files(again, "nl-1")
+	require.Contains(t, string(nl2), `tier = "large"`)
+}

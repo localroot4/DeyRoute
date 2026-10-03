@@ -4,16 +4,22 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/backend/hysteria2"
+	"github.com/localroot4/deyroute/internal/backend/wireguard"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	"github.com/localroot4/deyroute/internal/doctor"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/firewall"
+	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
@@ -130,15 +136,32 @@ func (a *agent) uninstall(ctx context.Context) error {
 // does not send it leaves the choice to this node's config. The warnings
 // (BBR or keys skipped, aggressive on a small server) go back to the hub,
 // which shows them to the owner.
-func (a *agent) sysctlApply(args api.SysctlArgs) (api.SysctlResult, error) {
-	bbr := true
-	if args.BBR != nil {
-		bbr = *args.BBR
-	} else if cfg, err := config.Load(a.cfgPath); err == nil && cfg.Tuning != nil {
-		bbr = cfg.Tuning.BBR
+//
+// The profile auto (sent only to agents announcing api.FeatureTuneAuto)
+// computes this node's own plan from its measured facts and the hub's
+// inputs (tuneOptions), applies it with the node's resource drop-ins and
+// records the inputs hash for Hello.TuneHash; the answer carries the facts,
+// the changes made, the skipped items and the plan hash. Any other profile
+// removes the drop-ins and the recorded hash (the node left auto).
+func (a *agent) sysctlApply(ctx context.Context, args api.SysctlArgs) (api.SysctlResult, error) {
+	if args.Profile == config.SysctlAuto {
+		t := setup.PlanHostTune(a.o.Root, config.RoleNode, a.tuneOptions(args))
+		warnings, err := setup.ApplyHostTune(ctx, a.o.Root, a.sd, t)
+		for _, w := range warnings {
+			a.log.Warn("sysctl: "+w, slog.String("profile", args.Profile))
+		}
+		if err != nil {
+			return api.SysctlResult{}, err
+		}
+		if err := a.saveTuneHash(args.InputsHash()); err != nil {
+			a.log.Warn("cannot record the applied tuning", dlog.Err(err))
+		}
+		host := t.API(a.nodeID)
+		a.log.Info("automatic tuning applied", slog.Int("changes", len(host.Changes)), slog.String("plan", t.Hash))
+		return api.SysctlResult{Warnings: warnings, Facts: host.Facts, Changes: host.Changes, Skips: host.Skips, Hash: t.Hash}, nil
 	}
 	applied, warnings, err := sysctl.Manager{Root: a.o.Root}.ApplyWith(sysctl.ApplyOptions{
-		Profile: args.Profile, BBR: bbr, IPForward: args.IPForward,
+		Profile: args.Profile, BBR: a.tuneBBR(args), IPForward: args.IPForward,
 	})
 	for _, w := range warnings {
 		a.log.Warn("sysctl: "+w, slog.String("profile", args.Profile))
@@ -146,8 +169,114 @@ func (a *agent) sysctlApply(args api.SysctlArgs) (api.SysctlResult, error) {
 	if err != nil {
 		return api.SysctlResult{}, err
 	}
+	if err := setup.RemoveAutoTune(ctx, a.sd); err != nil {
+		warnings = append(warnings, i18n.T(i18n.TuneWarnDropins, deyerr.As(err).Message()))
+	}
+	if err := a.saveTuneHash(""); err != nil {
+		a.log.Warn("cannot record the applied tuning", dlog.Err(err))
+	}
 	a.log.Info("sysctl profile applied", slog.String("profile", args.Profile), slog.Int("keys", len(applied)))
 	return api.SysctlResult{Warnings: warnings}, nil
+}
+
+// tunePlan answers tune.plan: this node's automatic plan for the hub's
+// inputs, without changing anything (the list the owner confirms). It is a
+// command of its own, not a flag of sysctl.apply, so an agent that does not
+// know it refuses instead of applying.
+func (a *agent) tunePlan(args api.SysctlArgs) (api.SysctlResult, error) {
+	if args.Profile != config.SysctlAuto {
+		return api.SysctlResult{}, a.refuse(api.CmdTunePlan, "only the profile auto has a plan")
+	}
+	t := setup.PlanHostTune(a.o.Root, config.RoleNode, a.tuneOptions(args))
+	host := t.API(a.nodeID)
+	return api.SysctlResult{Facts: host.Facts, Changes: host.Changes, Skips: host.Skips, Hash: t.Hash}, nil
+}
+
+// tuneCheck answers tune.check: drift and findings of this node's tuning.
+func (a *agent) tuneCheck() (api.TuneHostCheck, error) {
+	return setup.CheckHost(a.o.Root, a.nodeID, config.RoleNode)
+}
+
+// tuneBBR is the hub's tuning.bbr; only a hub that does not send it leaves
+// the choice to this node's config.
+func (a *agent) tuneBBR(args api.SysctlArgs) bool {
+	if args.BBR != nil {
+		return *args.BBR
+	}
+	if cfg, err := config.Load(a.cfgPath); err == nil && cfg.Tuning != nil {
+		return cfg.Tuning.BBR
+	}
+	return true
+}
+
+// tuneOptions are the inputs of this node's automatic plan: the hub's
+// (BBR, IP forwarding, reserved ports) plus what runs here: UDP rungs
+// (Hysteria2, AmneziaWG) and NAT, which needs connection tracking.
+func (a *agent) tuneOptions(args api.SysctlArgs) sysctl.ApplyOptions {
+	udp, nat := false, false
+	a.instMu.Lock()
+	for _, inst := range a.st.Instances {
+		udp = udp || inst.Backend == hysteria2.Name || inst.Backend == wireguard.AWGName
+		nat = nat || len(inst.NAT) > 0 || inst.IPForward
+	}
+	nat = nat || len(a.st.HubNAT) > 0
+	a.instMu.Unlock()
+	return sysctl.ApplyOptions{Profile: config.SysctlAuto, BBR: a.tuneBBR(args), IPForward: args.IPForward,
+		UDPRungs: udp, Conntrack: nat || args.IPForward, Reserved: args.Reserved}
+}
+
+// TuneHashFile holds SysctlArgs.InputsHash of the hub's last automatic
+// tuning this node applied (Hello.TuneHash); absent when the node is not on
+// the profile auto through the hub.
+const TuneHashFile = config.LibDir + "/tune-inputs"
+
+// saveTuneHash records hash ("" removes the record).
+func (a *agent) saveTuneHash(hash string) error {
+	p := a.path(TuneHashFile)
+	if hash == "" {
+		if err := os.Remove(p); err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil { //nolint:gosec // G301: /var/lib/deyroute stays traversable
+		return err
+	}
+	return os.WriteFile(p, []byte(hash+"\n"), 0o600)
+}
+
+// tuneState returns the profile of 99-deyroute.conf and, for auto, the
+// recorded inputs hash (Hello.TuneProfile and TuneHash).
+func (a *agent) tuneState() (profile, hash string) {
+	profile, err := sysctl.Manager{Root: a.o.Root}.Current()
+	if err != nil {
+		return "", ""
+	}
+	if profile != config.SysctlAuto {
+		return profile, ""
+	}
+	data, err := os.ReadFile(a.path(TuneHashFile))
+	if err != nil {
+		return profile, ""
+	}
+	return profile, strings.TrimSpace(string(data))
+}
+
+// reassertTuning runs at start after the NAT table is restored: conntrack
+// keys of 99-deyroute.conf that systemd-sysctl could not set at boot
+// (nf_conntrack loaded later) and that nobody changed since are set again
+// (sysctl.Manager.Reassert). Every key set is logged.
+func (a *agent) reassertTuning() {
+	kvs, warnings, err := sysctl.Manager{Root: a.o.Root}.Reassert()
+	for _, kv := range kvs {
+		a.log.Info("tuned kernel value set again after the boot", slog.String("key", kv.Key), slog.String("value", kv.Value))
+	}
+	for _, w := range warnings {
+		a.log.Warn("sysctl: " + w)
+	}
+	if err != nil {
+		a.log.Warn("cannot set the tuned kernel values again", dlog.Err(err))
+	}
 }
 
 // doctorData collects this node's doctor sections and findings (doctor

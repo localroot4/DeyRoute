@@ -369,6 +369,7 @@ func (h *Hub) forgetTunnel(id string) {
 	if err := h.st.DeleteTunnel(id); err != nil {
 		h.log.Warn("cannot delete the tunnel state", dlog.Tunnel(id), dlog.Err(err))
 	}
+	h.forgetTraffic(id)
 	if err := h.st.DeleteMeta(metaCanaryEcho + id); err != nil {
 		h.log.Warn("cannot delete the canary record", dlog.Tunnel(id), dlog.Err(err))
 	}

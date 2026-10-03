@@ -667,6 +667,8 @@ func (l *local) TunnelShow(ctx context.Context, id string) (api.TunnelDetail, er
 	if m, ok, err := h.st.GetMetrics(t.ID); err == nil && ok {
 		d.Metrics = &m
 	}
+	// The byte counters are current; the stored record is up to 30 s old.
+	d.Metrics = h.traffic.overlayMetrics(t.ID, d.Metrics)
 	if evs, err := h.st.Events(state.EventFilter{Tunnel: t.ID, Limit: tunnelDetailEvents}); err == nil && evs != nil {
 		d.Events = evs
 	}

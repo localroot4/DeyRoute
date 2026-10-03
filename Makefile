@@ -12,7 +12,7 @@ export GOTOOLCHAIN ?= local
 
 COVER_PKGS := ./internal/config/... ./internal/failover/... ./internal/ports/... ./internal/errors/... ./internal/backend/...
 
-.PHONY: all build build-all test race cover lint fmt vet docs check-docs integration clean install-local help
+.PHONY: all build build-all test race cover lint fmt vet docs screens check-docs integration clean install-local help
 
 all: lint test build
 
@@ -52,11 +52,15 @@ fmt: ## format sources
 vet:
 	go vet ./...
 
-docs: ## regenerate generated docs (ERRORS.md)
+docs: screens ## regenerate generated docs (ERRORS.md, screenshots)
 	go test ./internal/errors -run TestErrorsDocUpToDate -update
 
-check-docs:
+screens: ## redraw the README screenshots in docs/assets/screens (after any UI or text change)
+	go test ./internal/tui ./internal/cli -run 'TestScreens$$' -count=1 -screens
+
+check-docs: ## check that ERRORS.md and the screenshots are up to date
 	go test ./internal/errors -run TestErrorsDocUpToDate
+	go test ./internal/tui ./internal/cli -run 'TestScreens' -count=1
 
 integration: build ## docker-compose scenarios (needs docker with systemd-capable containers)
 	cd test/integration && ./run.sh

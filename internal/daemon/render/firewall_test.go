@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,7 @@ func TestFirewallSpec(t *testing.T) {
 		ListenUDP:          []int{443, 27015},
 		NAT:                active.NAT,
 		Masquerade:         []string{"dey-main"},
+		ClampMSS:           1380,
 	}, s)
 	require.NoError(t, s.Validate())
 	out := firewall.Render(s)
@@ -86,6 +88,29 @@ func TestFirewallSpec(t *testing.T) {
 	bs := FirewallSpec(bare, nil, false, "")
 	require.True(t, bs.RestrictControl)
 	require.Zero(t, bs.ControlPort)
+}
+
+// TestFirewallSpecClampMSS: tuning.wg_mtu sets the MSS that SYNs from the
+// WireGuard interfaces are clamped to (MTU - 40); unset is 1420 - 40.
+func TestFirewallSpecClampMSS(t *testing.T) {
+	cfg := fwConfig()
+	active := []Side{{
+		NAT:        []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "10.77.0.2", ToPort: 443}},
+		Masquerade: []string{"dey-main"},
+	}}
+	cfg.Tuning = nil
+	require.Equal(t, 1380, FirewallSpec(cfg, active, false, "").ClampMSS)
+	cfg.Tuning = &config.Tuning{}
+	require.Equal(t, 1380, FirewallSpec(cfg, active, false, "").ClampMSS)
+	for mtu, mss := range map[int]int{1380: 1340, 1280: 1240, 1420: 1380} {
+		cfg.Tuning.WGMTU = mtu
+		s := FirewallSpec(cfg, active, false, "")
+		require.Equal(t, mss, s.ClampMSS, mtu)
+		require.NoError(t, s.Validate())
+		out := firewall.Render(s)
+		require.Contains(t, out, fmt.Sprintf(`iifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set %d`, mss))
+		require.Contains(t, out, `oifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu`)
+	}
 }
 
 func TestNodePayload(t *testing.T) {

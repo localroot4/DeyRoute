@@ -41,6 +41,8 @@ func diagMenu(a *app) screen {
 		}},
 		{label: i18n.TUIDgLogs, act: func(a *app) tea.Cmd { return a.push(pickLog(a)) }},
 		{label: i18n.TUIDgDoctor, act: func(a *app) tea.Cmd { return a.push(doctorTask(a)) }},
+		// Last, so the numbers above never move (traffic_screen.go).
+		{label: i18n.TUIDgTraffic, role: roleHub, act: func(a *app) tea.Cmd { return a.push(trafficPicker()) }},
 	})
 }
 

@@ -77,6 +77,9 @@ func TestHelloAndHeartbeat(t *testing.T) {
 	require.Equal(t, "amd64", s.Hello.Arch)
 	require.Equal(t, "6.1.0-test", s.Hello.Kernel)
 	require.Equal(t, "Debian GNU/Linux 12 (bookworm)", s.Hello.OS)
+	require.Equal(t, uint64(1000*1024), s.Hello.MemTotal, "MemTotal of the fake /proc/meminfo")
+	require.Empty(t, s.Hello.Virt, "the fake tree is no container")
+	require.Positive(t, s.Hello.CPUs)
 
 	eventually(t, func() bool {
 		select {

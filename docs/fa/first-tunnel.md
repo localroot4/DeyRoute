@@ -48,6 +48,15 @@
  Press Enter or q to go back.
 ```
 
+وقتی هاب تانل را راه می‌اندازد، صفحه این شکلی است (مرحلهٔ در حال اجرا `…` دارد):
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/screens/tui-add-tunnel-dark.svg">
+    <img src="../assets/screens/tui-add-tunnel-light.svg" alt="صفحهٔ پیشرفت Add tunnel: نصب بک‌اند روی هاب، نصب روی نود، ساخت تنظیمات و فایروال تیک خورده‌اند، راه‌اندازی در حال اجراست و صفحه Working نشان می‌دهد.">
+  </picture>
+</p>
+
 خط فرمان همین مراحل را با علامت در ابتدای خط چاپ می‌کند (`  ✔ install backend on hub  backhaul v0.7.2, …`).
 
 اگر مرحله‌ای شکست بخورد، کد خطا با Why و Fix نشان داده می‌شود و می‌توانید `1) Retry` (تلاش دوباره) یا `0) Back` را بزنید.

@@ -89,12 +89,20 @@ type Stub struct {
 	DiagProbeFn func(ctx context.Context, tunnel string, allPorts bool) ([]api.ProbeReport, error)
 	// DoctorCollectFn implements DoctorCollect.
 	DoctorCollectFn func(ctx context.Context, node string) (api.DoctorData, error)
+	// TrafficFn implements Traffic.
+	TrafficFn func(ctx context.Context, q api.TrafficQuery) (api.TrafficReport, error)
 	// OptimizeStatusFn implements OptimizeStatus.
 	OptimizeStatusFn func(ctx context.Context) (api.OptimizeStatus, error)
 	// OptimizeApplyFn implements OptimizeApply.
 	OptimizeApplyFn func(ctx context.Context, profile string) (api.OptimizeStatus, error)
 	// OptimizeRevertFn implements OptimizeRevert.
 	OptimizeRevertFn func(ctx context.Context) (api.OptimizeStatus, error)
+	// OptimizeAutoPlanFn implements OptimizeAutoPlan.
+	OptimizeAutoPlanFn func(ctx context.Context, opts api.AutoOptions) (api.TunePlanReport, error)
+	// OptimizeAutoApplyFn implements OptimizeAutoApply.
+	OptimizeAutoApplyFn func(ctx context.Context, req api.AutoApply, progress func(api.Step)) (api.TunePlanReport, error)
+	// OptimizeCheckFn implements OptimizeCheck.
+	OptimizeCheckFn func(ctx context.Context) (api.TuneCheck, error)
 	// SecurityRotateTokensFn implements SecurityRotateTokens.
 	SecurityRotateTokensFn func(ctx context.Context, tunnel string, progress func(api.Step)) error
 	// SecurityRotateCAFn implements SecurityRotateCA.
@@ -458,6 +466,15 @@ func (s *Stub) DoctorCollect(ctx context.Context, node string) (api.DoctorData, 
 	return s.DoctorCollectFn(ctx, node)
 }
 
+// Traffic calls TrafficFn or returns DEY-X008 when it is nil.
+func (s *Stub) Traffic(ctx context.Context, q api.TrafficQuery) (api.TrafficReport, error) {
+	if s.TrafficFn == nil {
+		var zero api.TrafficReport
+		return zero, notImplemented("Traffic")
+	}
+	return s.TrafficFn(ctx, q)
+}
+
 // OptimizeStatus calls OptimizeStatusFn or returns DEY-X008 when it is nil.
 func (s *Stub) OptimizeStatus(ctx context.Context) (api.OptimizeStatus, error) {
 	if s.OptimizeStatusFn == nil {
@@ -483,6 +500,33 @@ func (s *Stub) OptimizeRevert(ctx context.Context) (api.OptimizeStatus, error) {
 		return zero, notImplemented("OptimizeRevert")
 	}
 	return s.OptimizeRevertFn(ctx)
+}
+
+// OptimizeAutoPlan calls OptimizeAutoPlanFn or returns DEY-X008 when it is nil.
+func (s *Stub) OptimizeAutoPlan(ctx context.Context, opts api.AutoOptions) (api.TunePlanReport, error) {
+	if s.OptimizeAutoPlanFn == nil {
+		var zero api.TunePlanReport
+		return zero, notImplemented("OptimizeAutoPlan")
+	}
+	return s.OptimizeAutoPlanFn(ctx, opts)
+}
+
+// OptimizeAutoApply calls OptimizeAutoApplyFn or returns DEY-X008 when it is nil.
+func (s *Stub) OptimizeAutoApply(ctx context.Context, req api.AutoApply, progress func(api.Step)) (api.TunePlanReport, error) {
+	if s.OptimizeAutoApplyFn == nil {
+		var zero api.TunePlanReport
+		return zero, notImplemented("OptimizeAutoApply")
+	}
+	return s.OptimizeAutoApplyFn(ctx, req, progress)
+}
+
+// OptimizeCheck calls OptimizeCheckFn or returns DEY-X008 when it is nil.
+func (s *Stub) OptimizeCheck(ctx context.Context) (api.TuneCheck, error) {
+	if s.OptimizeCheckFn == nil {
+		var zero api.TuneCheck
+		return zero, notImplemented("OptimizeCheck")
+	}
+	return s.OptimizeCheckFn(ctx)
 }
 
 // SecurityRotateTokens calls SecurityRotateTokensFn or returns DEY-X008 when it is nil.

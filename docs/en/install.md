@@ -71,9 +71,16 @@ Step 4 of 5 · Control port for the nodes
    Press Enter to use 44433, or type another value and press Enter.
  ›
 
-Step 5 of 5 · Kernel network profile
-   Apply the balanced profile: BBR congestion control and larger network buffers (recommended).
-   You can undo it any time with: deyroute optimize revert
+Step 5 of 5 · Tune this server automatically (recommended)
+   deyroute measured this server and lists the kernel settings that suit it:
+   Measured: 2.0 GiB RAM · 2 CPU · kernel 6.1.0-21-amd64 · eth0 MTU 1500
+   9 settings change (4 of them only after a reboot or the next start):
+     net.ipv4.tcp_congestion_control                     cubic   → bbr
+     net.core.somaxconn                                  4096    → 65535
+     net.core.rmem_max                                   212992  → 33554432
+     …
+     net.netfilter.nf_conntrack_max                      -       → 131072  (after reboot)
+   Why each one: deyroute optimize auto --dry-run (after setup). You can undo it any time with: deyroute optimize revert
    Type y (yes) or n (no) and press Enter. Enter alone = y (yes).
  ›
 
@@ -82,7 +89,7 @@ Summary
    Name             ir-1
    Public IP        5.6.7.8
    Control port     44433
-   Kernel profile   balanced (BBR, larger buffers)
+   Kernel profile   automatic (9 changes)
 ```
 
 - **Public IP**: detected automatically. If the detected address is private or
@@ -90,16 +97,26 @@ Summary
   provider panel).
 - **Control port**: the port the nodes connect to. `44433` by default; when it
   is taken, the next free port is offered.
-- **Kernel profile**: writes `/etc/sysctl.d/99-deyroute.conf` (BBR, larger
-  buffers). The previous values are saved and `deyroute optimize revert`
-  restores them. A kernel without BBR skips only
-  `net.ipv4.tcp_congestion_control` (a warning); everything else, `fq`
-  included, is applied. Later, `deyroute optimize apply --profile P` (menu
-  `7) Optimize`) applies a profile on the hub and every online node with the
-  hub's `tuning.bbr`; what a node skips is shown as `node <id>: …`.
-  `aggressive` (64 MB buffers) is meant for servers with 4 GB RAM or more:
-  the menu names the profile recommended for the hub's RAM and warns before
-  `aggressive` on a smaller hub, and every smaller server reports a warning.
+- **Automatic tuning**: before the question the wizard measures the server
+  (RAM, CPUs, kernel, network card, conntrack) and lists every kernel setting
+  it would change, with the current and the new value. *Yes* writes
+  `/etc/sysctl.d/99-deyroute.conf` with that plan (profile `auto`: the
+  balanced values plus buffers sized to the RAM, raise-only limits, the
+  reserved backend ports and, when needed, a conntrack table that fits). The
+  previous values are saved and `deyroute optimize revert` restores them.
+  *No* leaves the kernel alone (profile `off`). In a container (OpenVZ, LXC,
+  Docker) the kernel belongs to the host, so every kernel item is skipped
+  (`DEY-X064`). Every step, why it is safe and how it is undone is in
+  [Automatic tuning](tuning.md).
+- Later, `deyroute optimize auto` (menu `7) Optimize → 1) Automatic tuning`)
+  plans and applies the same on the hub and every online node after one
+  confirmation, and `deyroute optimize check` reports values someone else
+  changed. The fixed profiles stay available: `deyroute optimize apply
+  --profile P` applies `balanced` or `aggressive` on the hub and every online
+  node with the hub's `tuning.bbr`; what a node skips is shown as
+  `node <id>: …`. `aggressive` (64 MB buffers) is meant for servers with
+  4 GB RAM or more: the menu names the profile recommended for the hub's RAM
+  and warns before `aggressive` on a smaller hub.
 
 Everything else is automatic. The wizard shows each step:
 
@@ -139,7 +156,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 ```
 
 With `--yes` the public IP is detected, the control port is 44433 (or the next
-free one) and the balanced kernel profile is applied. The same flags work on
+free one) and the server is tuned automatically (profile `auto`). The same flags work on
 an installed binary:
 
 ```bash

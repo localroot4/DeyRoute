@@ -17,6 +17,7 @@ import (
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/ports"
 	"github.com/localroot4/deyroute/internal/state"
+	"github.com/localroot4/deyroute/internal/tui"
 )
 
 // testLadderRung is how long test-ladder tries each rung (spec section 9).
@@ -210,8 +211,12 @@ func newTunnelShowCmd(g *Globals) *cobra.Command {
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var d api.TunnelDetail
+			var tr *api.TrafficReport
 			err := g.call(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
 				d, err = l.TunnelShow(ctx, args[0])
+				if err == nil && d.Traffic != nil && !g.JSON {
+					tr = tunnelTotals(ctx, l, d.ID)
+				}
 				return err
 			})
 			if err != nil {
@@ -220,15 +225,81 @@ func newTunnelShowCmd(g *Globals) *cobra.Command {
 			if g.JSON {
 				return g.emitJSON(d)
 			}
-			g.printTunnelDetail(d)
+			g.printTunnelDetail(d, tr)
 			return nil
 		},
 	}
 }
 
+// tunnelTotals asks for the 30-day totals of a tunnel for the traffic line
+// of `tunnel show`; nil when the call fails (the line then has no 30-day
+// part).
+func tunnelTotals(ctx context.Context, l api.Local, id string) *api.TrafficReport {
+	q := api.TrafficQuery{Targets: []string{api.TrafficTarget(api.TrafficKindTunnel, id)}, Period: api.TrafficPeriod1h, MaxPoints: 1}
+	rep, err := l.Traffic(ctx, q)
+	if err != nil {
+		return nil
+	}
+	return &rep
+}
+
+// trafficLine is the Traffic: line of `tunnel show`: "today ↓ 3.8 GiB ↑
+// 512 MiB · 30 days ↓ … ↑ … · now ↓ 12.3 Mb/s ↑ 1.20 Mb/s · 12
+// connections" (download first). A hub that cannot count bytes shows "—"
+// and the reason, never "0 B"; without traffic monitoring the byte
+// counters of the metrics are shown as before.
+func trafficLine(d api.TunnelDetail, tr *api.TrafficReport) (string, bool) {
+	conns := -1
+	if d.Metrics != nil {
+		conns = d.Metrics.ActiveConns
+	}
+	t := d.Traffic
+	if t == nil {
+		if d.Metrics == nil {
+			return "", false
+		}
+		return i18n.T(i18n.CLITrafficLine, humanBytes(d.Metrics.BytesIn), humanBytes(d.Metrics.BytesOut), conns), true
+	}
+	var parts []string
+	var series *api.TrafficSeries
+	if tr != nil {
+		for i := range tr.Series {
+			if tr.Series[i].Kind == api.TrafficKindTunnel && tr.Series[i].ID == d.ID {
+				series = &tr.Series[i]
+			}
+		}
+	}
+	available := t.Available && (series == nil || (tr.Available && series.Available))
+	if !available {
+		text := i18n.T(i18n.TUITrafficNone)
+		var reason *api.ErrorDTO
+		if series != nil {
+			reason = series.Reason
+		}
+		if reason == nil && tr != nil {
+			reason = tr.Reason
+		}
+		if reason != nil {
+			text = i18n.T(i18n.TUITrafficDetNone, text, reason.Code, clean(reason.Message))
+		}
+		parts = append(parts, text)
+	} else {
+		parts = append(parts, i18n.T(i18n.TUITrafficToday, tui.FormatBytes(t.TodayOut), tui.FormatBytes(t.TodayIn)))
+		if series != nil && series.Totals != nil {
+			parts = append(parts, i18n.T(i18n.CLITrafficDays30, tui.FormatBytes(series.Totals.Days30Out), tui.FormatBytes(series.Totals.Days30In)))
+		}
+		parts = append(parts, i18n.T(i18n.CLITrafficNow, tui.FormatRate(float64(t.RateOutBitS)), tui.FormatRate(float64(t.RateInBitS))))
+	}
+	if conns >= 0 {
+		parts = append(parts, i18n.T(i18n.CLITrafficConns, conns))
+	}
+	return strings.Join(parts, " · "), true
+}
+
 // printTunnelDetail prints `deyroute tunnel show`: ports, ladder, active
-// transport, rungs, probe history, metrics and recent events.
-func (g *Globals) printTunnelDetail(d api.TunnelDetail) {
+// transport, rungs, probe history, traffic and recent events; tr holds the
+// tunnel's 30-day totals (nil = unknown).
+func (g *Globals) printTunnelDetail(d api.TunnelDetail, tr *api.TrafficReport) {
 	s := g.sym()
 	name := d.Name
 	if name == "" {
@@ -286,8 +357,8 @@ func (g *Globals) printTunnelDetail(d api.TunnelDetail) {
 	}
 	kv(i18n.CLIKeyFailover, i18n.T(i18n.CLIFailoverLine, f.ProbeIntervalS, f.ProbeTimeoutS, f.FailThreshold,
 		f.RecoverThreshold, failback, f.MaxSwitchesPerHour, f.QuarantineS))
-	if d.Metrics != nil {
-		kv(i18n.CLIKeyTraffic, i18n.T(i18n.CLITrafficLine, humanBytes(d.Metrics.BytesIn), humanBytes(d.Metrics.BytesOut), d.Metrics.ActiveConns))
+	if line, ok := trafficLine(d, tr); ok {
+		kv(i18n.CLIKeyTraffic, line)
 	}
 	for _, w := range d.Warnings {
 		g.println(g.text("  " + s.warn + " " + clean(w)))
@@ -368,19 +439,9 @@ func (g *Globals) probeSummary(ps []state.ProbeSample) string {
 
 func sortDurations(d []time.Duration) { slices.Sort(d) }
 
-// humanBytes formats a byte count ("1.5 GB").
-func humanBytes(n uint64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := uint64(unit), 0
-	for v := n / unit; v >= unit && exp < 4; v /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTP"[exp])
-}
+// humanBytes formats a byte count in IEC units, the same text as every
+// other size of the UI: "12 B", "2 KiB", "1.5 MiB", "3.0 GiB".
+func humanBytes(n uint64) string { return tui.FormatBytes(n) }
 
 func newTunnelEditCmd(g *Globals) *cobra.Command {
 	var name, ladder, policy, tlsMode, tlsCert, tlsKey string

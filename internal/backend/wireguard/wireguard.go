@@ -48,6 +48,8 @@ const (
 	// MTU of the tunnel interface: 1500 minus the 80 bytes of the
 	// WireGuard/UDP/IPv6 worst-case overhead (the wg-quick default).
 	MTU = 1420
+	// MinMTU is the smallest tunnel MTU (the IPv6 minimum).
+	MinMTU = 1280
 	// Keepalive is the PersistentKeepalive the hub sets on its node peer.
 	Keepalive = 25
 	// prefixLen is the tunnel subnet size: 10.77.<n>.0/30.
@@ -208,4 +210,14 @@ func (b *Backend) PostStart(ctx context.Context, configDir string, r Runner) err
 // is left of it. It is idempotent.
 func (b *Backend) PostStop(ctx context.Context, configDir string, r Runner) error {
 	return Down(ctx, filepath.Join(configDir, ConfigFile), r)
+}
+
+// TunnelMTU is the MTU of the tunnel interface of in: RenderInput.WGMTU
+// (tuning.wg_mtu, set by optimize auto when the NIC MTU is below 1500)
+// when it is within [MinMTU, MTU], otherwise MTU.
+func TunnelMTU(in backend.RenderInput) int {
+	if in.WGMTU >= MinMTU && in.WGMTU <= MTU {
+		return in.WGMTU
+	}
+	return MTU
 }

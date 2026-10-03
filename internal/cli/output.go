@@ -236,6 +236,13 @@ func trunc(s string, w int, ell string) string {
 // table prints rows under a header, columns separated by two spaces and
 // indented by two, the last column unpadded.
 func (g *Globals) table(header []string, rows [][]string) {
+	for _, l := range tableLines(header, rows) {
+		g.println(g.text(l))
+	}
+}
+
+// tableLines lays out a table like table does, one string per line.
+func tableLines(header []string, rows [][]string) []string {
 	w := make([]int, len(header))
 	for i, h := range header {
 		w[i] = width(h)
@@ -263,10 +270,12 @@ func (g *Globals) table(header []string, rows [][]string) {
 		}
 		return strings.TrimRight(b.String(), " ")
 	}
-	g.println(g.text(line(header)))
+	out := make([]string, 0, len(rows)+1)
+	out = append(out, line(header))
 	for _, r := range rows {
-		g.println(g.text(line(r)))
+		out = append(out, line(r))
 	}
+	return out
 }
 
 // ms formats milliseconds ("41ms"); "-" for zero.
@@ -323,6 +332,13 @@ var errNeedConfirm = deyerr.Plain("confirmation required")
 
 // errAborted is returned when the owner declines a confirmation (exit 1).
 var errAborted = deyerr.Plain("aborted")
+
+// jsonShownError is an error a command already put into its --json
+// document ("error" and "exit_code" next to its result, so stdout still
+// holds one document): printError prints only the human block on stderr.
+type jsonShownError struct{ error }
+
+func (e jsonShownError) Unwrap() error { return e.error }
 
 // usageError is a wrong command line: DEY-C025 when printed (exit 1).
 type usageError struct{ msg string }
@@ -389,7 +405,7 @@ func (g *Globals) printError(err error) int {
 		g.logError(e)
 		code = max(code, e.ExitCode())
 	}
-	if g.JSON {
+	if g.JSON && !stderrors.As(err, new(jsonShownError)) {
 		dtos := make([]*api.ErrorDTO, 0, len(list))
 		for _, e := range list {
 			d := api.ToDTO(e)

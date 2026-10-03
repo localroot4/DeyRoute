@@ -298,6 +298,18 @@ stated default until the owner decides · **[ANSWERED]** closed.
     nodes), and still verifies every node by its client certificate; nodes
     still verify the hub only against the pinned CA, never by that name.
 
+44. **[DEFERRED] Measuring the rungs and preferring the fastest one.** The
+    monitoring and tuning work planned a per-tunnel benchmark of the rungs
+    (in the canary slot, at quiet hours, within a daily byte budget) and an
+    opt-in `failover.prefer: fastest` that moves the fastest rung to the
+    front of the ladder. It is not built. Adopting a faster rung goes through
+    failback, which stops the active rung and makes every user reconnect,
+    for a gain that is often small; and a preferred rung conflicts with the
+    canary (which tests rung 1 of the primary node) and with the primary
+    node itself, in ways that need a decision first. Until then the ladder
+    order is the owner's: `deyroute tunnel test-ladder` compares the rungs
+    (it interrupts the tunnel) and `deyroute ladder create` sets the order.
+
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
 The spec audit of 2026-10-01 found 100 gaps; the critical and major ones in

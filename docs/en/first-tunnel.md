@@ -63,6 +63,16 @@ A progress screen follows (details shortened):
  Press Enter or q to go back.
 ```
 
+While the hub starts the tunnel, the screen looks like this (the running
+step has `…`):
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/screens/tui-add-tunnel-dark.svg">
+    <img src="../assets/screens/tui-add-tunnel-light.svg" alt="The progress screen of Add tunnel: install backend on hub, install on node, render and firewall are ticked, start is running, and the screen says Working.">
+  </picture>
+</p>
+
 The command line prints the same steps with the mark first
 (`  ✔ install backend on hub  backhaul v0.7.2, …`).
 

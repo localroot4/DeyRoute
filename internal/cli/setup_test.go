@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
+	"github.com/localroot4/deyroute/internal/sysinfo"
 )
 
 // fakeSetup records the hub options and reports the setup steps.
@@ -43,10 +46,34 @@ func (e *env) fakeSetup(got *setup.HubOptions) {
 	}
 }
 
+// tuneFixture gives the wizard fixed host facts (2 GiB, 2 CPUs, a VM with
+// BBR) and a few live kernel values below the test root, so the automatic
+// tuning preview is the same on every machine.
+func (e *env) tuneFixture() {
+	e.t.Helper()
+	e.g.HostFacts = func() sysinfo.Facts {
+		return sysinfo.Facts{MemBytes: 2 << 30, CPUs: 2, Kernel: "6.1.0-21-amd64", BBRAvailable: true, FQAvailable: true,
+			NIC: "eth0", NICMTU: 1500}
+	}
+	for key, v := range map[string]string{
+		"net/core/rmem_max":                         "212992",
+		"net/core/somaxconn":                        "4096",
+		"net/ipv4/tcp_congestion_control":           "cubic",
+		"net/ipv4/tcp_slow_start_after_idle":        "1",
+		"net/ipv4/ip_local_reserved_ports":          "",
+		"net/ipv4/tcp_available_congestion_control": "reno cubic bbr",
+	} {
+		p := filepath.Join(e.root, "proc", "sys", key)
+		require.NoError(e.t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(e.t, os.WriteFile(p, []byte(v+"\n"), 0o644))
+	}
+}
+
 func TestSetupWizardHub(t *testing.T) {
 	e := newEnv(t)
 	var o setup.HubOptions
 	e.fakeSetup(&o)
+	e.tuneFixture()
 	e.vars[EnvMirror] = "https://mirror.example"
 	e.g.PortBusy = func(p int) bool { return p == 44433 || p == 5000 }
 	// role (default hub), name (default), IP (edited after a bad answer),
@@ -59,7 +86,7 @@ func TestSetupWizardHub(t *testing.T) {
 	require.Equal(t, "5.6.7.9", o.PublicIP)
 	require.Equal(t, 44434, o.ControlPort)
 	require.True(t, o.ApplySysctl)
-	require.Equal(t, "balanced", o.SysctlProfile)
+	require.Equal(t, "auto", o.SysctlProfile)
 	require.Equal(t, "https://mirror.example", o.Mirror)
 	require.False(t, o.StartService)
 	require.Equal(t, e.root, o.Root)
@@ -75,8 +102,16 @@ func TestSetupWizardHub(t *testing.T) {
 		"Not accepted: DEY-C013",
 		"Step 4 of 5 · Control port for the nodes\n", "Press Enter to use 44434,",
 		"Not accepted: DEY-P012 Port 5000/tcp is already in use",
-		"Step 5 of 5 · Kernel network profile\n", "   Type y (yes) or n (no) and press Enter. Enter alone = y (yes).\n",
+		// The last question lists the measured facts and the plan first.
+		"Step 5 of 5 · Tune this server automatically (recommended)\n",
+		"   Measured: 2.0 GiB RAM · 2 CPU · kernel 6.1.0-21-amd64 · eth0 MTU 1500\n",
+		"     net.core.rmem_max ", " 212992 ", "→ 33554432\n",
+		"     net.ipv4.tcp_congestion_control ", "→ bbr\n",
+		"     net.ipv4.ip_local_reserved_ports ", "→ 30000-31999,44434\n",
+		"deyroute optimize auto --dry-run (after setup). You can undo it any time with: deyroute optimize revert\n",
+		"   Type y (yes) or n (no) and press Enter. Enter alone = y (yes).\n",
 		"Summary\n   Role             hub\n   Name             ir-server\n   Public IP        5.6.7.9\n   Control port     44434\n",
+		"   Kernel profile   automatic (",
 		"Setting up hub ir-server", "✔ " + setup.StepTitle(setup.StepCA), "✔ Hub ir-server is ready: 5.6.7.9, control port 44434.",
 		"! BBR missing", "Next: add a node", "1. Run this command on the node (one node per command, valid until",
 		"\nbash <(curl -fsSL https://x/install.sh) join 'dey://T@5.6.7.8:44433#sha256:ab'\n",
@@ -121,6 +156,7 @@ func TestSetupNonInteractive(t *testing.T) {
 	require.Empty(t, o.PublicIP)
 	require.Zero(t, o.ControlPort)
 	require.True(t, o.ApplySysctl)
+	require.Equal(t, "auto", o.SysctlProfile, "--yes means automatic tuning")
 	require.Contains(t, out, "Hub ir-1 is ready")
 	require.NotContains(t, out, "Role of this server")
 
@@ -131,7 +167,7 @@ func TestSetupNonInteractive(t *testing.T) {
 	out = e.ok("setup", "--role", "hub", "--name", "ir-1", "--control-port", "44500")
 	require.False(t, o.ApplySysctl)
 	require.Equal(t, 44500, o.ControlPort)
-	require.Contains(t, out, "Kernel profile not applied")
+	require.Contains(t, out, "Kernel tuning not applied (no --yes); apply it later with: deyroute optimize auto")
 	// A TTY with flags asks only the rest.
 	e.tty("5.6.7.8", "")
 	e.ok("setup", "--role", "hub", "--name", "ir-1", "--control-port", "44500")

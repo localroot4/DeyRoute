@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"flag"
+	"fmt"
 	"math/rand/v2"
 	"net/netip"
 	"os"
@@ -68,6 +69,14 @@ var goldenSpecs = map[string]Spec{
 		s.Masquerade = []string{"dey-main", "dey-games"}
 		return s
 	}(),
+	// WireGuard with tuning.wg_mtu 1380: SYNs from the tunnel interfaces
+	// are clamped to 1340.
+	"hub_wireguard_mtu1380": {
+		ControlPort: 44433,
+		NAT:         []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443}},
+		Masquerade:  []string{"dey-main"},
+		ClampMSS:    1340,
+	},
 	// No listen ports yet (fresh hub).
 	"hub_no_listen": func() Spec {
 		s := hubSpec()
@@ -481,4 +490,67 @@ func TestRenderFrontSetsAreDeterministic(t *testing.T) {
 			netip.MustParsePrefix("11.0.0.0/8"), netip.MustParsePrefix("10.0.0.0/16"), netip.MustParsePrefix("10.0.0.0/8"),
 			netip.MustParsePrefix("10.0.0.0/8"), {},
 		}))
+}
+
+// TestRenderMSSClamp: both directions of every tunnel interface are clamped
+// (towards the tunnel to the route MTU, from it to ClampMSS), on the hub's
+// masqueraded interfaces and on the node's NAT interfaces, ahead of the
+// confinement; tables without a tunnel interface have no clamp at all.
+func TestRenderMSSClamp(t *testing.T) {
+	const (
+		out = "oifname %q tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu"
+		in  = "iifname %q tcp flags & (syn | rst) == syn tcp option maxseg size set %d"
+	)
+	hub := Spec{
+		NAT:        []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443}},
+		Masquerade: []string{"dey-main"},
+	}
+	lines := strings.Split(Render(hub), "\n")
+	require.GreaterOrEqual(t, lineIndex(lines, fmt.Sprintf(out, "dey-main")), 0)
+	require.GreaterOrEqual(t, lineIndex(lines, fmt.Sprintf(in, "dey-main", DefaultClampMSS)), 0, "0 = 1420 - 40")
+	require.NotContains(t, Render(hub), "iifname \"dey-main\" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu")
+
+	hub.ClampMSS = 1340
+	require.NoError(t, hub.Validate())
+	require.Contains(t, Render(hub), fmt.Sprintf(in, "dey-main", 1340))
+
+	// Out of range: reported, and the default is rendered.
+	for _, bad := range []int{-1, 100, MinClampMSS - 1, MaxClampMSS + 1} {
+		hub.ClampMSS = bad
+		require.ErrorContains(t, hub.Validate(), "clamp mss", bad)
+		require.Contains(t, Render(hub), fmt.Sprintf(in, "dey-main", DefaultClampMSS), bad)
+	}
+
+	// Node: every NAT interface is clamped once, before its confinement.
+	node := Spec{ClampMSS: 1340, NAT: []backend.NATRule{
+		{Proto: "tcp", DportLow: 443, ToAddr: "127.0.0.1", ToPort: 443, Iface: "dey-main"},
+		{Proto: "udp", DportLow: 27015, ToAddr: "127.0.0.1", ToPort: 27015, Iface: "dey-main"},
+		{Proto: "tcp", DportLow: 8443, ToAddr: "10.0.0.5", ToPort: 8443, Iface: "deyc-3"},
+	}}
+	got := Render(node)
+	lines = strings.Split(got, "\n")
+	for _, i := range []string{"dey-main", "deyc-3"} {
+		o := lineIndex(lines, fmt.Sprintf(out, i))
+		c := lineIndex(lines, fmt.Sprintf(in, i, 1340))
+		est := lineIndex(lines, "iifname "+quote(i)+" ct state established,related accept")
+		require.True(t, o >= 0 && c == o+1 && c < est, "%s: %d %d %d\n%s", i, o, c, est, got)
+		require.Equal(t, 1, strings.Count(got, fmt.Sprintf(out, i)))
+	}
+	// Every clamp precedes every verdict of the chain.
+	fwd := got[strings.Index(got, "chain forward"):]
+	require.Less(t, strings.LastIndex(fwd, "maxseg"), strings.Index(fwd, " ct state "))
+
+	// An interface both masqueraded and NAT-matched is clamped once.
+	both := Render(Spec{
+		NAT:        []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "127.0.0.1", ToPort: 443, Iface: "dey-main"}},
+		Masquerade: []string{"dey-main"},
+	})
+	require.Equal(t, 1, strings.Count(both, fmt.Sprintf(out, "dey-main")))
+
+	// No tunnel interface, no clamp.
+	for name, spec := range goldenSpecs {
+		if len(spec.Masquerade) == 0 && !slices.ContainsFunc(spec.NAT, func(r backend.NATRule) bool { return r.Iface != "" }) {
+			require.NotContains(t, Render(spec), "maxseg", name)
+		}
+	}
 }

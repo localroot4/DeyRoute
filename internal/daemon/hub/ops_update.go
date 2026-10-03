@@ -187,6 +187,9 @@ func (l *local) UpdateApply(ctx context.Context, want string, progress func(api.
 	if err := h.refuseOlderThanFront(want); err != nil {
 		return info, withLog(err)
 	}
+	if err := h.refuseOlderThanNewerKeys(want); err != nil {
+		return info, withLog(err)
+	}
 	var target string
 	if err := rep.run(stepResolve, func() (string, error) {
 		ref, err := h.latestRelease(ctx, want)
@@ -254,6 +257,10 @@ func (l *local) UpdateRollback(context.Context) (api.UpdateInfo, error) {
 	if err := h.refuseWhileFrontInUse("roll back", "the previous binary may predate front mode"); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
+	if err := h.refuseWhileNewerKeysInUse("roll back",
+		"the previous binary may predate traffic monitoring and automatic tuning"); err != nil {
+		return api.UpdateInfo{Current: version.Version}, withLog(err)
+	}
 	prev := h.previousVersion()
 	if err := (install.SelfUpdater{Root: h.o.Root}).Rollback(); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
@@ -309,6 +316,35 @@ func (h *Hub) refuseOlderThanFront(want string) error {
 	}
 	return h.refuseWhileFrontInUse("install an older version",
 		"version "+want+" is older than "+FirstFrontVersion+", the first release with front mode")
+}
+
+// FirstTrafficVersion is the first release that knows the monitoring and
+// automatic tuning keys of config.yaml (config.NewerKeysInUse). An older
+// binary refuses them, so rollback and downgrades below it are refused
+// while any is set (DEY-S011).
+const FirstTrafficVersion = "0.3.0"
+
+// refuseWhileNewerKeysInUse returns DEY-S011 while config.yaml sets keys
+// that a release before FirstTrafficVersion refuses (strict decoding).
+func (h *Hub) refuseWhileNewerKeysInUse(action, reason string) error {
+	keys := h.Config().NewerKeysInUse()
+	if len(keys) == 0 {
+		return nil
+	}
+	return deyerr.New(deyerr.S011, deyerr.Params{"action": action, "keys": strings.Join(keys, ", "), "reason": reason})
+}
+
+// refuseOlderThanNewerKeys refuses `update --version V` for a V older than
+// FirstTrafficVersion while such keys are set.
+func (h *Hub) refuseOlderThanNewerKeys(want string) error {
+	if want == "" {
+		return nil
+	}
+	if c, ok := install.CompareVersions(want, FirstTrafficVersion); !ok || c >= 0 {
+		return nil
+	}
+	return h.refuseWhileNewerKeysInUse("install an older version",
+		"version "+want+" is older than "+FirstTrafficVersion+", the first release with traffic monitoring and automatic tuning")
 }
 
 // markNodesForUpdate records that every node must run the hub's version

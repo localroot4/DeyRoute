@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/exec"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/systemd"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 )
@@ -463,4 +465,248 @@ func TestFactsFromNodeCollection(t *testing.T) {
 	f := Facts{Role: "node", Now: testNow, Status: api.Status{Role: "node", NodeSelf: &api.NodeSelf{ID: "de-1"}}}
 	col.Apply(&f)
 	require.Equal(t, []string{RuleControlOffline}, rulesOf(Run(f)))
+}
+
+// ---------------------------------------------------------------- tuning and monitoring
+
+const statsCounters = "table inet deyroute_stats {\n\tcounter tun_main_in {\n\t\tpackets 12 bytes 3456\n\t}\n" +
+	"\tcounter tun_main_out {\n\t\tpackets 30 bytes 7340032\n\t}\n}\n"
+
+const statsListCmd = "nft list counters table inet deyroute_stats"
+
+// tuneRoot adds an automatically tuned hub to the fake tree: conntrack
+// 90 % full, nr_open below the tunnel template's LimitNOFILE, a key that
+// drifted, one /etc/sysctl.conf overrides, small UDP buffers and the auto
+// drop-ins.
+func tuneRoot(t *testing.T, root string) {
+	t.Helper()
+	writeFile(t, root, "/etc/sysctl.d/99-deyroute.conf", "# managed by deyroute (profile: auto)\n# plan abc\n"+
+		"net.core.default_qdisc = fq\nnet.core.somaxconn = 65535\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216\n"+
+		"net.netfilter.nf_conntrack_max = 1000\n")
+	writeFile(t, root, "/etc/sysctl.conf", "# local\nnet.core.rmem_max = 212992\n")
+	writeFile(t, root, "/proc/sys/net/core/default_qdisc", "fq\n")
+	writeFile(t, root, "/proc/sys/net/core/somaxconn", "4096\n")
+	writeFile(t, root, "/proc/sys/net/core/rmem_max", "212992\n")
+	writeFile(t, root, "/proc/sys/net/core/wmem_max", "16777216\n")
+	writeFile(t, root, "/proc/sys/net/netfilter/nf_conntrack_max", "1000\n")
+	writeFile(t, root, "/proc/sys/net/netfilter/nf_conntrack_count", "900\n")
+	writeFile(t, root, "/proc/sys/fs/nr_open", "524288\n")
+	writeFile(t, root, "/proc/sys/fs/file-nr", "1200\t0\t100000\n")
+	writeFile(t, root, "/etc/systemd/system/deyroute-tun@.service", "[Service]\nLimitNOFILE=1048576\n")
+	writeFile(t, root, "/etc/systemd/system/deyroute-tun@.service.d/60-deyroute-auto.conf",
+		"# managed by deyroute optimize auto; removed by optimize revert\n[Service]\nOOMScoreAdjust=300\n")
+	writeFile(t, root, "/etc/systemd/system/deyroute-hub.service", "[Service]\nLimitNOFILE=1048576\n")
+	writeFile(t, root, "/etc/systemd/system/deyroute-hub.service.d/60-deyroute-auto.conf",
+		"# managed by deyroute optimize auto; removed by optimize revert\n[Service]\nLimitNOFILE=524288\nEnvironment=GOMEMLIMIT=256MiB\n")
+	writeFile(t, root, "/etc/modules-load.d/deyroute.conf", "nf_conntrack\n")
+	writeFile(t, root, "/proc/812/limits", "Limit                     Soft Limit           Hard Limit           Units\n"+
+		"Max open files            524288               524288               files\n")
+}
+
+func hubConfig(monitoring bool) *config.Config {
+	return &config.Config{
+		Role:       config.RoleHub,
+		Monitoring: &config.Monitoring{Enabled: &monitoring},
+		Tunnels: []config.Tunnel{
+			{ID: "main", Enabled: true, Ladder: config.LadderRef{Inline: []string{"backhaul/wssmux", "hysteria2/udp"}}},
+			{ID: "old", Enabled: false},
+		},
+	}
+}
+
+func TestCollectTuningAndTraffic(t *testing.T) {
+	c, f, root := newCollector(t)
+	tuneRoot(t, root)
+	f.On(statsListCmd, exec.OK(statsCounters))
+	c.Config = hubConfig(true)
+	c.StateSize = func() (int64, error) { return 45 << 20, nil }
+	col := c.Collect(context.Background())
+
+	tf := col.Tune
+	require.Equal(t, "", tf.Virt)
+	require.Equal(t, config.SysctlAuto, tf.Profile)
+	require.True(t, tf.QdiscFQ)
+	require.Equal(t, 900, tf.ConntrackCount)
+	require.Equal(t, 1000, tf.ConntrackMax)
+	require.Equal(t, uint64(1200), tf.FilesUsed)
+	require.Equal(t, uint64(100000), tf.FilesMax)
+	require.Equal(t, uint64(524288), tf.NROpen)
+	require.Equal(t, uint64(212992), tf.RmemMax)
+	require.True(t, tf.UDPRungs, "hysteria2 is in the ladder of an enabled tunnel")
+	require.Equal(t, int64(45<<20), tf.StateDBBytes)
+	require.Equal(t, state.SizeBudget, tf.StateDBBudget)
+	require.True(t, tf.Monitoring)
+	require.Equal(t, 1, tf.MonitoredTunnels)
+	require.Equal(t, StatsPresent, tf.Stats)
+	require.Equal(t, []NofileLimit{
+		{Unit: systemd.HubUnit, Limit: 524288}, // the drop-in lowers it
+		{Unit: systemd.TunTemplate, Limit: 1048576},
+		{Unit: systemd.HubUnit, PID: 812, Limit: 524288},
+	}, tf.Nofile)
+	drift := map[string]api.TuneDrift{}
+	for _, d := range tf.Drift {
+		drift[d.Key] = d
+	}
+	require.Equal(t, api.TuneDrift{Key: "net.core.somaxconn", Want: "65535", Live: "4096"}, drift["net.core.somaxconn"])
+	require.Equal(t, "/etc/sysctl.conf", drift["net.core.rmem_max"].OverriddenBy)
+	require.NotContains(t, drift, "net.core.wmem_max")
+
+	sec := col.Sections[SectionTuning]
+	require.Contains(t, sec, "conntrack: 900 of 1000 entries")
+	require.Contains(t, sec, `drift: net.core.somaxconn want="65535" live="4096"`)
+	require.Contains(t, sec, "overridden at boot by /etc/sysctl.conf")
+	require.Contains(t, sec, "check conntrack_fill (warn)")
+	require.Contains(t, sec, "LimitNOFILE deyroute-tun@.service: 1048576")
+	require.Contains(t, sec, "open files deyroute-hub.service (pid 812): 524288")
+	require.Contains(t, sec, "state.db: 45 MiB of 50 MiB (data in use)")
+	require.Contains(t, sec, "--- /etc/systemd/system/deyroute-tun@.service.d/60-deyroute-auto.conf\n# managed by deyroute optimize auto")
+	require.Contains(t, sec, "--- /etc/systemd/system/deyroute-hub.service.d/60-deyroute-auto.conf")
+	require.Contains(t, sec, "--- /etc/modules-load.d/deyroute.conf\nnf_conntrack\n")
+	tr := col.Sections[SectionTraffic]
+	require.Contains(t, tr, "monitoring: on, 1 enabled tunnel(s)")
+	require.Contains(t, tr, "tun_main_in  packets 12  bytes 3456 (3.4 KiB)")
+	require.Contains(t, tr, "tun_main_out  packets 30  bytes 7340032 (7 MiB)")
+	require.Contains(t, col.Sections[SectionSysctl], "net.netfilter.nf_conntrack_max = 1000")
+	require.Contains(t, col.Sections[SectionSysctl], "fs.nr_open = 524288")
+
+	// The measurements drive R11 and R12.
+	facts := Facts{Role: "hub", Now: testNow}
+	col.Apply(&facts)
+	var msgs []string
+	for _, fd := range Run(facts) {
+		if fd.Rule == RuleTuning || (fd.Rule == RuleResources && !strings.Contains(fd.Message, "disk") && !strings.Contains(fd.Message, "memory")) {
+			msgs = append(msgs, fd.Severity+" "+fd.Rule+" "+fd.Message)
+		}
+	}
+	require.Equal(t, []string{
+		"warn R11 /etc/sysctl.conf sets net.core.rmem_max again at boot, after deyroute's 99-deyroute.conf: deyroute's tuning is lost at the next reboot",
+		"warn R11 1 tuned kernel setting(s) changed after deyroute applied them: net.core.somaxconn is 4096, deyroute set 65535",
+		"warn R11 Open-files limit above fs.nr_open (524288): deyroute-tun@.service LimitNOFILE=1048576; systemd cannot set it, so the service does not start again",
+		"warn R11 Hysteria2/AmneziaWG rungs run here but net.core.rmem_max is only 208 KiB (QUIC needs at least 7 MiB): UDP throughput is limited",
+		"warn R12 The connection tracking table is 90% full (900 of 1000 entries): new connections are dropped when it is full",
+		"warn R12 state.db uses 45 MiB of its 50 MiB budget (90%): the hub keeps only 6 hours of 1-minute traffic history while it is this large",
+	}, msgs)
+}
+
+func TestCollectStatsTableStates(t *testing.T) {
+	stats := func(t *testing.T, setup func(*exec.Fake), cfg *config.Config) (TuneFacts, string) {
+		c, f, _ := newCollector(t)
+		setup(f)
+		c.Config = cfg
+		col := c.Collect(context.Background())
+		return col.Tune, col.Sections[SectionTraffic]
+	}
+
+	// Missing table: nft works, the table does not exist.
+	tf, sec := stats(t, func(f *exec.Fake) {
+		f.On(statsListCmd, exec.Fail(1, "Error: No such file or directory\nlist counters table inet deyroute_stats\n"))
+	}, hubConfig(true))
+	require.Equal(t, StatsMissing, tf.Stats)
+	require.Contains(t, sec, "table inet deyroute_stats: missing")
+	fd := only(t, ruleResources(Facts{Role: "hub", Tune: tf}), RuleResources, SevWarn)
+	require.Contains(t, fd.Message, "is missing")
+
+	// Unreadable output.
+	tf, sec = stats(t, func(f *exec.Fake) { f.On(statsListCmd, exec.OK("garbage\n")) }, hubConfig(true))
+	require.Equal(t, StatsUnreadable, tf.Stats)
+	require.Contains(t, tf.StatsReason, "unexpected nft output on line 1")
+	require.Contains(t, sec, "unreadable")
+
+	// nft missing: unavailable, the counters are never asked for.
+	var fake *exec.Fake
+	tf, sec = stats(t, func(f *exec.Fake) {
+		fake = f
+		f.On("nft list tables", exec.Fail(1, "Error: Could not process rule: Operation not supported"))
+	}, hubConfig(true))
+	require.Equal(t, StatsUnavailable, tf.Stats)
+	require.Contains(t, tf.StatsReason, "Operation not supported")
+	require.Contains(t, sec, "unavailable")
+	require.False(t, fake.Called(statsListCmd))
+
+	// Monitoring off: nothing is asked.
+	tf, sec = stats(t, func(f *exec.Fake) { fake = f }, hubConfig(false))
+	require.False(t, tf.Monitoring)
+	require.Equal(t, "", tf.Stats)
+	require.Equal(t, "monitoring: off (monitoring.enabled: false)\n", sec)
+	require.False(t, fake.Called(statsListCmd))
+
+	// A node (no hub config): no traffic section.
+	tf, sec = stats(t, func(f *exec.Fake) { fake = f }, &config.Config{Role: config.RoleNode})
+	require.False(t, tf.Monitoring)
+	require.Empty(t, tf.Stats)
+	require.Empty(t, sec)
+	require.False(t, fake.Called(statsListCmd))
+}
+
+func TestCollectTuningFromFiles(t *testing.T) {
+	c, f, root := newCollector(t)
+	// No Collector.Config: the config file below Root is read.
+	writeFile(t, root, config.DefaultPath, "schema_version: 1\nrole: hub\ntunnels:\n  - id: main\n    name: Main\n    enabled: true\n    ladder: [awg/userspace]\n")
+	f.On(statsListCmd, exec.OK("table inet deyroute_stats {\n}\n"))
+	writeFile(t, root, config.StatePath, strings.Repeat("x", 4096))
+	writeFile(t, root, "/run/systemd/container", "lxc\n")
+	col := c.Collect(context.Background())
+	require.True(t, col.Tune.Monitoring, "monitoring defaults to on")
+	require.Equal(t, StatsPresent, col.Tune.Stats)
+	require.Contains(t, col.Sections[SectionTraffic], "(no counters)")
+	require.True(t, col.Tune.UDPRungs, "awg in the ladder")
+	require.Equal(t, int64(4096), col.Tune.StateDBBytes)
+	require.Contains(t, col.Sections[SectionTuning], "state.db: 4 KiB of 50 MiB (file size)")
+	require.Equal(t, "lxc", col.Tune.Virt)
+	require.Contains(t, col.Sections[SectionTuning], "virtualization: lxc")
+	require.Contains(t, col.Sections[SectionTuning], "no resource drop-ins")
+
+	// A failing live-size function falls back to the file size.
+	c.StateSize = func() (int64, error) { return 0, errors.New("closed") }
+	require.Equal(t, int64(4096), c.Collect(context.Background()).Tune.StateDBBytes)
+}
+
+func TestCollectUDPRungsFromUnits(t *testing.T) {
+	require.False(t, udpRungs(nil, nil))
+	require.True(t, udpRungs(nil, map[string]string{"deyroute-tun@main.de-1.hysteria2-udp.service": "active"}))
+	require.False(t, udpRungs(nil, map[string]string{"deyroute-tun@main.de-1.hysteria2-udp.service": "inactive"}))
+	require.False(t, udpRungs(nil, map[string]string{"deyroute-tun@main.de-1.backhaul-wssmux.service": "active"}))
+	require.True(t, udpRungs(hubConfig(true), nil), "the ladder has hysteria2")
+	cfg := hubConfig(true)
+	cfg.Tunnels[0].Enabled = false
+	require.False(t, udpRungs(cfg, nil), "disabled tunnels do not count")
+}
+
+func TestParseNofile(t *testing.T) {
+	for in, want := range map[string]uint64{"1048576": 1048576, " 4096:524288 ": 524288} {
+		n, ok := parseNofile(in)
+		require.True(t, ok, in)
+		require.Equal(t, want, n)
+	}
+	for _, in := range []string{"", "infinity", "1024:infinity", "x"} {
+		_, ok := parseNofile(in)
+		require.False(t, ok, in)
+	}
+
+	// An empty LimitNOFILE= in a drop-in resets the unit's value.
+	c, _, root := newCollector(t)
+	writeFile(t, root, "/etc/systemd/system/deyroute-node.service", "[Service]\nLimitNOFILE=1048576\n")
+	writeFile(t, root, "/etc/systemd/system/deyroute-node.service.d/10-reset.conf", "[Service]\nLimitNOFILE=\n")
+	_, ok := c.unitNofile(systemd.NodeUnit)
+	require.False(t, ok)
+	_, ok = c.unitNofile("deyroute-missing.service")
+	require.False(t, ok)
+	_, ok = c.processNofile(4242)
+	require.False(t, ok)
+}
+
+func TestSysctlKeysIncludeAutoKeys(t *testing.T) {
+	keys := SysctlKeys()
+	for _, k := range []string{"net.core.rmem_default", "net.ipv4.tcp_slow_start_after_idle", "fs.nr_open", "fs.file-max", "fs.file-nr",
+		"net.ipv4.ip_local_reserved_ports", "net.netfilter.nf_conntrack_max", "net.netfilter.nf_conntrack_count",
+		"net.netfilter.nf_conntrack_tcp_timeout_established", "net.ipv4.ip_forward"} {
+		require.Contains(t, keys, k)
+	}
+	seen := map[string]bool{}
+	for _, k := range keys {
+		require.False(t, seen[k], "duplicate %s", k)
+		require.False(t, strings.HasPrefix(k, "/"), "files are not sysctl keys: %s", k)
+		seen[k] = true
+	}
+	require.Equal(t, "net.ipv4.tcp_available_congestion_control", keys[len(keys)-1])
 }

@@ -114,6 +114,10 @@ func (b *testBackend) Validate(in backend.RenderInput) error {
 func (b *testBackend) Render(in backend.RenderInput, side backend.Side) (backend.Rendered, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "side=%s\ntransport=%s\ncontrol=%d\ntoken=%s\ncanary=%t\n", side, in.Transport.ID(), in.ControlPort, in.Secrets.Token, in.Canary)
+	if tier := in.Tier(side); tier != "" {
+		// Like the backends that scale with the host (optimize auto --backends).
+		fmt.Fprintf(&sb, "tier=%s\n", tier)
+	}
 	var binds []backend.PortUse
 	if side == backend.SideHub && in.Transport.Direction == backend.Forward {
 		// The hub dials the node (forward transports).

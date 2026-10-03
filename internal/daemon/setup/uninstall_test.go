@@ -22,14 +22,15 @@ const tunInstanceUnit = "deyroute-tun@main.de-1.backhaul-wssmux.service"
 type fakeSystem struct {
 	root string
 
-	mu     sync.Mutex
-	loaded map[string]bool
-	table  bool
-	nftErr string
+	mu         sync.Mutex
+	loaded     map[string]bool
+	table      bool
+	statsTable bool
+	nftErr     string
 }
 
 func newFakeSystem(root string) *fakeSystem {
-	return &fakeSystem{root: root, table: true, loaded: map[string]bool{
+	return &fakeSystem{root: root, table: true, statsTable: true, loaded: map[string]bool{
 		"deyroute-hub.service": true, tunInstanceUnit: true,
 	}}
 }
@@ -103,6 +104,15 @@ func (s *fakeSystem) handle(c exec.Call) (exec.Response, bool) {
 			return exec.Fail(1, "Error: Could not process rule: No such file or directory"), true
 		}
 		s.table = false
+		return exec.OK(""), true
+	case line == "nft delete table inet deyroute_stats":
+		if s.nftErr != "" {
+			return exec.Fail(1, s.nftErr), true
+		}
+		if !s.statsTable {
+			return exec.Fail(1, "Error: Could not process rule: No such file or directory"), true
+		}
+		s.statsTable = false
 		return exec.OK(""), true
 	}
 	return exec.Response{}, false
@@ -193,6 +203,8 @@ func TestUninstallOrderAndIdempotence(t *testing.T) {
 	idx("systemctl disable deyroute-hub.service")
 	require.Less(t, idx("systemctl disable "+tunInstanceUnit), idx("systemctl daemon-reload"))
 	require.Less(t, idx("systemctl daemon-reload"), idx("nft delete table inet deyroute"))
+	idx("nft delete table inet deyroute_stats")
+	require.False(t, sys.table || sys.statsTable, "both deyroute tables are removed")
 
 	for _, p := range []string{
 		"etc/deyroute", "etc/deyroute.pre-restore-20260101T000000Z", "var/lib/deyroute", "var/log/deyroute", "run/deyroute",
@@ -258,6 +270,7 @@ func TestUninstallWithoutSystemctl(t *testing.T) {
 	missing := exec.Response{Err: deyerr.New(deyerr.X002, nil)}
 	f.OnPrefix("systemctl ", missing)
 	f.On("nft delete table inet deyroute", exec.Response{Err: deyerr.New(deyerr.X030, deyerr.Params{"command": "nft"})})
+	f.On("nft delete table inet deyroute_stats", exec.Response{Err: deyerr.New(deyerr.X030, deyerr.Params{"command": "nft"})})
 	f.On("userdel deyroute", exec.OK(""))
 	f.On("groupdel deyroute", exec.OK(""))
 	steps := &stepLog{}
@@ -276,6 +289,7 @@ func TestUninstallStopErrorsAreCollected(t *testing.T) {
 	f.OnPrefix("systemctl stop ", exec.Fail(1, "Failed to connect to bus"))
 	f.OnPrefix("systemctl ", exec.OK(""))
 	f.On("nft delete table inet deyroute", exec.OK(""))
+	f.On("nft delete table inet deyroute_stats", exec.OK(""))
 	err := Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f})
 	e := requireTop(t, err, deyerr.I022)
 	require.Contains(t, e.Message(), "stop_units")
@@ -353,8 +367,14 @@ func TestUninstallKeepsTheSysctlBackupWhenRevertFails(t *testing.T) {
 	proc := filepath.Join(root, "proc/sys/net/core/somaxconn")
 	require.NoError(t, os.Remove(proc))
 	require.NoError(t, os.Symlink(ro, proc))
+	// The revert is compare-and-restore: only a value still equal to what
+	// deyroute wrote is restored, so the conf names the value read back.
+	live, err := os.ReadFile(ro)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "etc/sysctl.d/99-deyroute.conf"),
+		[]byte("# managed by deyroute (profile: balanced)\nnet.core.somaxconn = "+strings.TrimSpace(string(live))+"\n"), 0o600))
 	sys := newFakeSystem(root)
-	err := Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: sys.runner()})
+	err = Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: sys.runner()})
 	require.Error(t, err)
 	require.FileExists(t, filepath.Join(root, "var/lib/deyroute/sysctl-before-deyroute.conf"))
 	require.NoFileExists(t, filepath.Join(root, "var/lib/deyroute/state.db"), "everything else is removed")

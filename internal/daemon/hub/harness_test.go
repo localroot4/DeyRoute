@@ -25,6 +25,7 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
+	"github.com/localroot4/deyroute/internal/firewall"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
@@ -97,6 +98,8 @@ func prepareEnv(t *testing.T, edit func(c *config.Config), opts ...envOption) (*
 		SelfBinary:      self,
 		Arch:            "amd64",
 		DisableFirewall: true,
+		DisableStats:    true,
+		DisableTuning:   true,
 		Notify:          func(string) error { return nil },
 		Getenv:          func(string) string { return "" },
 		// Long enough that a loaded test machine (-race, other packages'
@@ -397,11 +400,12 @@ func (env *testEnv) addTunnel(id string, nodes []string, listen int) {
 	require.NoError(env.t, err)
 }
 
-// nftScripts returns the stdin of every `nft -f -` run.
+// nftScripts returns the stdin of every `nft -f -` run of table inet
+// deyroute (the traffic accounting table is left out).
 func (env *testEnv) nftScripts() []string {
 	var out []string
 	for _, c := range env.runner.Calls() {
-		if c.Name == "nft" && len(c.Args) == 2 && c.Args[0] == "-f" {
+		if c.Name == "nft" && len(c.Args) == 2 && c.Args[0] == "-f" && !strings.Contains(string(c.Stdin), firewall.StatsTable) {
 			out = append(out, string(c.Stdin))
 		}
 	}

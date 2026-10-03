@@ -49,12 +49,19 @@ func NodePayload(tunnel string, s Side) api.BackendRenderArgs {
 //   - every listen port of every enabled tunnel (tcp/udp);
 //   - NAT and masquerade only from activeHub, the hub sides of the ACTIVE
 //     candidates (warm rungs never have NAT rules);
-//   - IPv6 sets when the hub has a public IPv6.
+//   - IPv6 sets when the hub has a public IPv6;
+//   - the MSS that SYNs from a WireGuard/AmneziaWG interface are clamped
+//     to: tuning.wg_mtu minus 40 (1380 for the default MTU 1420).
 func FirewallSpec(cfg *config.Config, activeHub []Side, joinWindow bool, unknownRate string) firewall.Spec {
 	var s firewall.Spec
 	if cfg == nil {
 		return s
 	}
+	wgMTU := 0
+	if cfg.Tuning != nil {
+		wgMTU = cfg.Tuning.WGMTU
+	}
+	s.ClampMSS = firewall.ClampMSSForMTU(wgMTU)
 	restrict := true
 	if cfg.Security != nil {
 		restrict = cfg.Security.RestrictControlToNodes

@@ -409,6 +409,14 @@ func Clone(c *Config) *Config {
 		s := *c.Security
 		out.Security = &s
 	}
+	if c.Monitoring != nil {
+		m := *c.Monitoring
+		if m.Enabled != nil {
+			b := *m.Enabled
+			m.Enabled = &b
+		}
+		out.Monitoring = &m
+	}
 	if c.Node != nil {
 		n := *c.Node
 		out.Node = &n

@@ -10,6 +10,7 @@
 
 [شروع سریع](#شروع-سریع-۵-دقیقه) ·
 [کار روزمره](#کار-روزمره) ·
+[پایش ترافیک](#پایش-ترافیک) ·
 [مقابله با فیلترینگ](#مقابله-با-فیلترینگ) ·
 [عیب‌یابی](#مشکلی-پیش-آمده) ·
 [راهنماهای کامل](docs/fa/index.md)
@@ -53,7 +54,7 @@ DEYROUTE دو نوع سرور را به هم وصل می‌کند:
 | **نود پشتیبان** | یک سرور خارج دیگر اضافه کنید که همان سرویس VPN را اجرا می‌کند (با همان کاربران و تنظیمات)؛ اگر اولی از کار بیفتد، تانل خودش به آن می‌رود. |
 | **سرویس شما همان‌طور می‌ماند** | همان پورت، همان گواهی، همان UUID. در تنظیمات کلاینت فقط آدرس سرور عوض می‌شود، به IP هاب. |
 | **خطاهایی که می‌شود خواند** | هر مشکل می‌گوید چه شد، چرا شد و چه کنید، با یک کد ثابت مثل `DEY-P012`. |
-| **طراحی‌شده برای حریم خصوصی** | یک برنامهٔ امضاشده، بدون ارسال هیچ آماری، بدون ثبت اطلاعات حساس در لاگ‌ها، و دقیقاً یک جدول فایروال که فقط DEYROUTE آن را مدیریت می‌کند. |
+| **طراحی‌شده برای حریم خصوصی** | یک برنامهٔ امضاشده، بدون ارسال هیچ آماری، بدون ثبت اطلاعات حساس در لاگ‌ها، و فقط جدول‌های فایروال خودش. |
 
 ## شروع سریع (۵ دقیقه)
 
@@ -78,6 +79,19 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 یک اسم مثل `ir-1` بدهید و برای بقیه فقط <kbd>Enter</kbd> بزنید. در پایان یک **دستور join**
 چاپ می‌شود. آن را کامل و یک‌جا کپی کنید.
 
+تصویرهای این صفحه از خود برنامه گرفته شده‌اند؛ صفحه‌ها و پیام‌های برنامه به انگلیسی است.
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-setup-dark.svg">
+    <img src="docs/assets/screens/cli-setup-light.svg" alt="ویزارد راه‌اندازی روی هاب: پنج سؤال شماره‌دار با جواب پیشنهادی، فهرست تنظیمات کرنل که تنظیم می‌شوند، بعد خلاصه، مرحله‌های نصب و دستور join برای اجرا روی نود.">
+  </picture>
+</p>
+
+<div dir="rtl">
+
 ### ۲. روی نود (سرور خارج)
 
 دستور join را کامل بچسبانید و در انتهای آن `--name de-1` را اضافه کنید: این **شناسهٔ** نود است،
@@ -101,6 +115,19 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 ```bash
 deyroute node list
 ```
+
+<div dir="rtl">
+
+منو همین فهرست را در `3) Nodes` نشان می‌دهد:
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-nodes-dark.svg">
+    <img src="docs/assets/screens/tui-nodes-light.svg" alt="صفحهٔ Nodes در منو: نودهای de-1 و nl-1، هر کدام با آدرس، وضعیت online، تأخیر کانال کنترل، نسخه، CPU و RAM، و کارها: نمایش دستور join، فهرست، تغییر نام، حذف، آزمایش.">
+  </picture>
+</p>
 
 <div dir="rtl">
 
@@ -130,6 +157,19 @@ deyroute tunnel add --node de-1 --ports 443 --name main
 
 <div dir="rtl">
 
+منو همین کار را در `2) Tunnels → 1) Add tunnel` انجام می‌دهد (نود، پورت‌ها، تأیید):
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-add-tunnel-done-dark.svg">
+    <img src="docs/assets/screens/tui-add-tunnel-done-light.svg" alt="ساخت تانل در منو: نصب بک‌اند روی هاب، نصب روی نود، ساخت تنظیمات، فایروال، راه‌اندازی و پروب همه تیک خورده‌اند و خط آخر می‌گوید: Tunnel main is UP via backhaul/wssmux (41ms).">
+  </picture>
+</p>
+
+<div dir="rtl">
+
 ### ۴. بررسی کنید، بعد آدرس را در کلاینت‌ها عوض کنید
 
 </div>
@@ -156,11 +196,25 @@ UUID یا رمز، SNI، مسیر) را دقیقاً مثل قبل نگه دار
 
 </div>
 
-```text
- 1) Dashboard       4) Ports           7) Optimize         10) Backup & Restore
- 2) Tunnels         5) Failover        8) Security         11) Update
- 3) Nodes           6) Diagnostics     9) Notifications    12) Settings
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-main-menu-dark.svg">
+    <img src="docs/assets/screens/tui-main-menu-light.svg" alt="منوی اصلی: بنر DEYROUTE، اسم و آدرس هاب، بعد گزینه‌های ۱ تا ۱۲ (Dashboard، Tunnels، Nodes، Ports، Failover، Diagnostics، Optimize، Security، Notifications، Backup & Restore، Update، Settings) و 0 برای خروج.">
+  </picture>
+</p>
+
+<div dir="rtl">
+
+`1) Dashboard` همهٔ تانل‌ها، نودها و رویدادهای اخیر را نشان می‌دهد و هر ۲ ثانیه به‌روز می‌شود:
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-dashboard-dark.svg">
+    <img src="docs/assets/screens/tui-dashboard-light.svg" alt="داشبورد: جدول سه تانل UP با نود، روش و پورت‌هایشان؛ بخش ترافیک با نمودار کوچک و سرعت دانلود و آپلود هر تانل؛ دو نود online با CPU و RAM؛ آخرین رویدادها.">
+  </picture>
+</p>
 
 <div dir="rtl">
 
@@ -182,6 +236,59 @@ UUID یا رمز، SNI، مسیر) را دقیقاً مثل قبل نگه دار
 
 تازه‌کارید؟ در **حالت Simple** بمانید: همهٔ بخش‌های پیشرفته را پنهان می‌کند و ویزارد ساخت تانل
 حداکثر سه سؤال می‌پرسد (نود، پورت‌ها، تأیید). هر وقت بیشتر خواستید، از منوی `12) Settings` گزینهٔ `1) UI mode` را عوض کنید.
+
+## پایش ترافیک
+
+هاب بایت‌های هر تانل را می‌شمارد و CPU و RAM همهٔ سرورها را نگه می‌دارد؛ لازم نیست چیزی تنظیم کنید.
+دانلود (به سمت کاربران) و آپلود (از کاربران) همیشه جدا و با برچسب نشان داده می‌شوند. در منو
+`6) Diagnostics → 6) Traffic and load` را باز کنید (یا روی داشبورد <kbd>t</kbd> را بزنید) و بازه را انتخاب کنید:
+<kbd>1</kbd> یک ساعت، <kbd>2</kbd> ۲۴ ساعت، <kbd>3</kbd> ۷ روز، <kbd>4</kbd> ۳۰ روز.
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-traffic-dark.svg">
+    <img src="docs/assets/screens/tui-traffic-light.svg" alt="صفحهٔ Traffic and load برای تانل main در ۲۴ ساعت: نمودار دانلود و نمودار آپلود با منحنی روزانه که شب به اوج می‌رسد، ردیف تعداد اتصال‌ها، جمع امروز و ۳۰ روز گذشته و سهمیهٔ ماهانه.">
+  </picture>
+</p>
+
+<div dir="rtl">
+
+همین را از خط فرمان هم می‌بینید، برای اسکریپت‌ها هم (`--json`):
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-stats-dark.svg">
+    <img src="docs/assets/screens/cli-stats-light.svg" alt="دستور deyroute stats: جدول تانل‌ها با سرعت فعلی، امروز، ۳۰ روز، سهمیه و نمودار کوچک ساعت گذشته؛ بعد deyroute stats main --period 24h با نمودارهای دانلود و آپلود.">
+  </picture>
+</p>
+
+<div dir="rtl">
+
+برای هر تانل می‌توانید سهمیهٔ ماهانه بگذارید؛ در ۸۰٪ و ۱۰۰٪ هشدار می‌گیرید. بیشتر:
+[ترافیک و بار سرورها](docs/fa/monitoring.md).
+
+## تنظیم خودکار
+
+`deyroute optimize auto` همهٔ سرورها را اندازه می‌گیرد (RAM، تعداد CPU، کرنل، شبکه) و تنظیمات کرنل
+مناسب هر کدام را فهرست می‌کند: مقدار فعلی، مقدار جدید، زمان اثر و دلیل. تا تأیید نکنید چیزی عوض نمی‌شود
+و `deyroute optimize revert` همه را برمی‌گرداند. ویزارد راه‌اندازی هم همین را در سؤال آخرش پیشنهاد می‌کند.
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-optimize-auto-dark.svg">
+    <img src="docs/assets/screens/cli-optimize-auto-light.svg" alt="دستور deyroute optimize auto --dry-run: برای هاب و نود de-1 جدول کلیدها با مقدار فعلی و جدید، زمان اثر و دلیل هر کدام؛ نود nl-1 آفلاین است و وقتی وصل شود برنامه را اجرا می‌کند؛ چیزی عوض نشده است.">
+  </picture>
+</p>
+
+<div dir="rtl">
+
+بیشتر: [تنظیم خودکار](docs/fa/tuning.md).
 
 ## مقابله با فیلترینگ
 
@@ -216,7 +323,7 @@ UUID یا رمز، SNI، مسیر) را دقیقاً مثل قبل نگه دار
 
 - **کانال کنترل** همیشه از سرورهای خارج **به سمت هاب** برقرار می‌شود، با TLS 1.3 دو طرفه (mTLS) و یک CA خصوصی. هاب هیچ‌وقت وارد نود نمی‌شود و از SSH هم استفاده نمی‌شود.
 - دستور join فقط **یک‌بار** کار می‌کند و ۱۵ دقیقه بعد منقضی می‌شود.
-- DEYROUTE فقط یک جدول فایروال (`inet deyroute`) می‌سازد و خودش مدیریتش می‌کند؛ به بقیهٔ قانون‌های فایروال شما دست نمی‌زند.
+- DEYROUTE جدول فایروال خودش (`inet deyroute`) را مدیریت می‌کند و برای شمردن ترافیک یک جدول دوم (`inet deyroute_stats`) دارد که فقط می‌شمارد و هیچ‌چیز را مسدود نمی‌کند. به بقیهٔ قانون‌های فایروال شما دست نمی‌زند.
 - هر نسخه امضا می‌شود؛ نصب‌کننده قبل از نصب امضا و چک‌سام را بررسی می‌کند.
 - بدون ارسال هیچ آماری. اطلاعات حساس (کلیدها و توکن‌ها) با سطح دسترسی `0600` ذخیره می‌شوند و هرگز در لاگ نوشته نمی‌شوند.
 
@@ -249,6 +356,17 @@ deyroute uninstall                   # حذف کامل و برگرداندن س�
 اول `deyroute doctor` را بزنید. سیستم، پورت‌ها، گواهی‌ها، سرویس‌ها و لاگ‌ها را بررسی
 می‌کند و هر مشکل را به زبان ساده توضیح می‌دهد.
 
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-doctor-dark.svg">
+    <img src="docs/assets/screens/cli-doctor-light.svg" alt="دستور deyroute doctor: ۳ از ۳ تانل UP، ۲ از ۲ نود online، یک هشدار (گواهی‌ای که ۱۲ روز دیگر منقضی می‌شود، با دستور تمدیدش) و یک نکته، بعد فایل پشتیبانی که اطلاعات حساس از آن حذف شده.">
+  </picture>
+</p>
+
+<div dir="rtl">
+
 | نشانه | این را امتحان کنید |
 | --- | --- |
 | نود `offline` است | روی هاب: `deyroute node test <id>`، بعد `44433/tcp` را در فایروال ارائه‌دهندهٔ سرورِ هاب باز کنید |
@@ -273,6 +391,8 @@ deyroute uninstall                   # حذف کامل و برگرداندن س�
 | [افزودن نود](docs/fa/join.md) | دستور join، انقضا، تغییر IP |
 | [اولین تانل](docs/fa/first-tunnel.md) | منو و CLI، نحوهٔ نوشتن پورت، پروب سلامت |
 | [نود پشتیبان](docs/fa/backup-node.md) | failover، failback و زمان‌بندی‌ها |
+| [ترافیک و بار سرورها](docs/fa/monitoring.md) | چه چیزی شمرده می‌شود، نمودارها، سابقه، سهمیهٔ ماهانه |
+| [تنظیم خودکار](docs/fa/tuning.md) | چه چیزی اندازه گرفته و عوض می‌شود و چطور برمی‌گردد |
 | [پرسش‌های فیلترینگ](docs/fa/faq-filtering.md) | نردبان، روش‌های کنار گذاشته‌شده، سایت‌های فریب |
 | [عیب‌یابی](docs/fa/troubleshooting.md) | doctor، لاگ، کدهای رایج |
 | [امنیت](docs/fa/security.md) | کانال کنترل، توکن‌ها، فایروال، تعویض توکن‌ها و کلیدها |

@@ -150,6 +150,18 @@ func TestGolden(t *testing.T) {
 		in     backend.RenderInput
 	}{"wssmux_canary", canary})
 
+	// Backend tiers (optimize auto --backends): each side renders its own.
+	for _, tier := range []string{config.BackendTierSmall, config.BackendTierLarge} {
+		for _, name := range []string{TCP, WSSMux} {
+			in := fixture(t, name)
+			in.HubTier, in.NodeTier = tier, tier
+			cases = append(cases, struct {
+				golden string
+				in     backend.RenderInput
+			}{name + "_" + tier, in})
+		}
+	}
+
 	for _, c := range cases {
 		for _, side := range []backend.Side{backend.SideHub, backend.SideNode} {
 			t.Run(c.golden+"."+side.String(), func(t *testing.T) {
@@ -639,4 +651,33 @@ func TestUDPCompanion(t *testing.T) {
 func requireCode(t *testing.T, err error, code deyerr.Code) {
 	t.Helper()
 	require.True(t, deyerr.HasCode(err, code), "want %s, got %v", code, err)
+}
+
+// TestBackendTier: no tier and the medium tier render the defaults byte for
+// byte; each side scales with its own tier.
+func TestBackendTier(t *testing.T) {
+	b := New()
+	for _, side := range []backend.Side{backend.SideHub, backend.SideNode} {
+		def, err := b.Render(fixture(t, WSSMux), side)
+		require.NoError(t, err)
+		in := fixture(t, WSSMux)
+		in.HubTier, in.NodeTier = config.BackendTierMedium, config.BackendTierMedium
+		med, err := b.Render(in, side)
+		require.NoError(t, err)
+		require.Equal(t, def, med)
+	}
+
+	in := fixture(t, WSSMux)
+	in.HubTier, in.NodeTier = config.BackendTierLarge, config.BackendTierSmall
+	hub, err := b.Render(in, backend.SideHub)
+	require.NoError(t, err)
+	require.Contains(t, string(hub.Files[ServerFile]), "channel_size = 4096\n")
+	require.Contains(t, string(hub.Files[ServerFile]), "mux_recievebuffer = 8388608\n")
+	node, err := b.Render(in, backend.SideNode)
+	require.NoError(t, err)
+	require.Contains(t, string(node.Files[ClientFile]), "mux_recievebuffer = 2097152\n")
+
+	require.Equal(t, 1024, tierChannelSize(config.BackendTierSmall))
+	require.Equal(t, channelSize, tierChannelSize("bogus"))
+	require.Equal(t, muxReceiveBuffer, tierReceiveBuffer(""))
 }

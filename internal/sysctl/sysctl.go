@@ -1,8 +1,12 @@
 // Package sysctl manages deyroute's kernel tuning (section 12): the off,
-// balanced and aggressive profiles, applying them only through
-// /etc/sysctl.d/99-deyroute.conf and /proc/sys, backing up the previous values
-// in /var/lib/deyroute/sysctl-before-deyroute.conf, reverting with one call, and
-// BBR detection. Callers apply a profile only after the owner confirmed it.
+// balanced and aggressive profiles and the automatic profile (auto.go: a
+// plan computed from the measured host facts), applying them only through
+// /etc/sysctl.d/99-deyroute.conf, /proc/sys and the conntrack files of the
+// plan, backing up the previous values in
+// /var/lib/deyroute/sysctl-before-deyroute.conf, reverting with one call
+// (compare-and-restore), the tuning check (check.go) and BBR detection.
+// Callers apply a profile only after the owner confirmed it. It never starts
+// a process: everything is /proc, /sys and file I/O.
 package sysctl
 
 import (
@@ -11,9 +15,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,18 +88,19 @@ var aggressiveOverrides = map[string]string{
 const aggressiveNotsentLowat = "16384"
 
 // Profiles lists the valid profile names.
-var Profiles = []string{config.SysctlOff, config.SysctlBalanced, config.SysctlAggressive}
+var Profiles = []string{config.SysctlOff, config.SysctlBalanced, config.SysctlAggressive, config.SysctlAuto}
 
 // Profile returns the ordered assignments of a profile. "off" changes
 // nothing (not even ip_forward); balanced and aggressive append
 // net.ipv4.ip_forward = 1 when ipForward is true (a WireGuard/AmneziaWG
-// transport exists). Unknown names return DEY-C013.
+// transport exists). "auto" returns its fixed base, balanced: its computed
+// layer depends on the host (AutoPlan). Unknown names return DEY-C013.
 func Profile(name string, ipForward bool) ([]KV, error) {
 	var out []KV
 	switch name {
 	case config.SysctlOff:
 		return nil, nil
-	case config.SysctlBalanced:
+	case config.SysctlBalanced, config.SysctlAuto:
 		out = append(out, balanced...)
 	case config.SysctlAggressive:
 		for _, kv := range balanced {
@@ -122,9 +129,17 @@ func RecommendAggressive(memBytes uint64) bool { return memBytes >= AggressiveMi
 
 // ApplyOptions selects what Manager.ApplyWith does.
 type ApplyOptions struct {
-	Profile   string // off | balanced | aggressive
+	Profile   string // off | balanced | aggressive | auto
 	BBR       bool   // tuning.bbr: set tcp_congestion_control = bbr when the kernel has BBR
 	IPForward bool   // a WireGuard/AmneziaWG transport exists
+
+	// The inputs of the profile auto (AutoInputs).
+	UDPRungs  bool
+	Conntrack bool
+	Reserved  []string
+	BDPBytes  uint64
+	// Plan is the auto plan the owner confirmed; nil computes it now.
+	Plan *Plan
 }
 
 // Manager applies and reverts profiles. Root ("/" when empty) prefixes every
@@ -182,14 +197,7 @@ func (m Manager) set(key, value string) error {
 	if !ok {
 		return deyerr.New(deyerr.X033, deyerr.Params{"key": key, "value": value})
 	}
-	f, err := os.OpenFile(p, os.O_WRONLY|os.O_TRUNC, 0) // #nosec G304 -- validated sysctl key under Root/proc/sys
-	if err == nil {
-		_, err = f.WriteString(value + "\n")
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-	}
-	if err != nil {
+	if err := writeKernel(p, value); err != nil {
 		return deyerr.Wrap(deyerr.X033, err, deyerr.Params{"key": key, "value": value})
 	}
 	return nil
@@ -220,11 +228,15 @@ func (m Manager) Apply(profile string, ipForward bool) (applied []KV, warnings [
 //  4. /etc/sysctl.d/99-deyroute.conf is rewritten (0644, "managed by deyroute"
 //     header naming the profile) so the settings survive a reboot.
 //  5. Keys deyroute changed earlier but the profile no longer sets are
-//     restored from the backup; profile values are written to /proc/sys.
+//     restored from the backup by compare-and-restore (restoreKey: a key
+//     changed by someone else since, a limit in use, or ip_forward another
+//     program needs is left with a warning); profile values are written to
+//     /proc/sys.
 //
-// applied lists the assignments now in effect (profile order); kernel write
-// failures are warnings. Errors: DEY-C013 for an unknown profile, DEY-X032
-// when the backup or conf file cannot be written.
+// The profile auto computes its plan (or takes o.Plan) and applies it with
+// ApplyPlan. applied lists the assignments now in effect (profile order);
+// kernel write failures are warnings. Errors: DEY-C013 for an unknown
+// profile, DEY-X032 when the backup or conf file cannot be written.
 func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err error) {
 	want, err := Profile(o.Profile, o.IPForward)
 	if err != nil {
@@ -233,12 +245,16 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 	applyMu.Lock()
 	defer applyMu.Unlock()
 	if o.Profile == config.SysctlOff {
-		if err := m.revert(); err != nil || !o.IPForward {
-			return nil, nil, err
+		warnings, err := m.revert()
+		if err != nil || !o.IPForward {
+			return nil, warnings, err
 		}
 		// A running WireGuard/AmneziaWG side still forwards: keep it on
 		// (recorded again in the backup, so uninstall restores it).
-		return nil, nil, m.ensure(KeyIPForward, "1")
+		return nil, warnings, m.ensure(KeyIPForward, "1")
+	}
+	if o.Profile == config.SysctlAuto {
+		return m.applyAuto(o)
 	}
 
 	if o.Profile == config.SysctlAggressive {
@@ -266,28 +282,21 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 		keys = append(keys, kv)
 	}
 
-	backup, err := m.readKVFile(m.BackupPath())
+	backup, err := m.readBackup()
 	if err != nil {
 		return nil, warnings, err
 	}
-	have := map[string]bool{}
-	for _, kv := range backup {
-		have[kv.Key] = true
-	}
-	added := false
+	// What deyroute wrote before this call (best effort: the ledger of the
+	// backup file covers it too; an unreadable conf fails below).
+	oldConf, _ := m.readKVFile(m.ConfPath())
+	written := writtenValues(oldConf, backup)
 	for _, kv := range keys {
-		if have[kv.Key] {
-			continue
-		}
 		cur, _ := m.Get(kv.Key)
-		backup = append(backup, KV{kv.Key, cur})
-		have[kv.Key] = true
-		added = true
+		backup.record(kv.Key, cur)
+		backup.Written[kv.Key] = normalize(kv.Value)
 	}
-	if added {
-		if err := writeFile(m.BackupPath(), renderBackup(backup), 0o600); err != nil {
-			return nil, warnings, err
-		}
+	if err := m.writeBackup(backup); err != nil {
+		return nil, warnings, err
 	}
 	if err := writeFile(m.ConfPath(), renderConf(o.Profile, keys), 0o644); err != nil {
 		return nil, warnings, err
@@ -297,15 +306,9 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 	for _, kv := range keys {
 		wanted[kv.Key] = true
 	}
-	for _, kv := range backup {
-		if wanted[kv.Key] {
-			continue
-		}
-		if cur, ok := m.Get(kv.Key); ok && cur != normalize(kv.Value) {
-			if err := m.set(kv.Key, kv.Value); err != nil {
-				warnings = append(warnings, fmt.Sprintf("restore %s: %v", kv.Key, errors.Unwrap(err)))
-			}
-		}
+	warnings = append(warnings, m.restoreDropped(&backup, wanted, written)...)
+	if err := m.writeBackup(backup); err != nil {
+		return nil, warnings, err
 	}
 	for _, kv := range keys {
 		if cur, _ := m.Get(kv.Key); cur == normalize(kv.Value) {
@@ -346,62 +349,88 @@ func (m Manager) ensure(key, value string) error {
 	if cur == normalize(value) {
 		return nil
 	}
-	backup, err := m.readKVFile(m.BackupPath())
+	backup, err := m.readBackup()
 	if err != nil {
 		return err
 	}
-	have := false
-	for _, kv := range backup {
-		if kv.Key == key {
-			have = true
-			break
-		}
-	}
-	if !have {
-		backup = append(backup, KV{key, cur})
-		if err := writeFile(m.BackupPath(), renderBackup(backup), 0o600); err != nil {
-			return err
-		}
+	backup.record(key, cur)
+	backup.Written[key] = normalize(value)
+	if err := m.writeBackup(backup); err != nil {
+		return err
 	}
 	return m.set(key, value)
 }
 
-// Revert restores every backed-up value, removes 99-deyroute.conf and, when
-// all values were restored, the backup file. It is a no-op without a
-// backup. Restore failures return DEY-X033 (joined) and keep the backup so
-// the call can be retried.
+// Revert is RevertWithWarnings without the warnings.
 func (m Manager) Revert() error {
+	_, err := m.RevertWithWarnings()
+	return err
+}
+
+// RevertWithWarnings undoes deyroute's tuning by compare-and-restore:
+//
+//  1. The values deyroute wrote are read (99-deyroute.conf and the ledger
+//     of the backup file) before the conf is removed.
+//  2. Every backed-up key is restored only when its live value is still what
+//     deyroute wrote; a key changed by another program since is left with
+//     the warning "{key} changed by another program after deyroute; left at
+//     {live}". A limit key (conntrack, file handles, backlogs) is never
+//     lowered below max(original, usage x 1.25): it keeps its live value and
+//     the original returns at the next boot (warning). ip_forward stays 1
+//     while a bridge or another sysctl file needs forwarding (warning).
+//     Reserved ports lose only the entries deyroute added.
+//  3. The sysfs hashsize is restored the same way and the modules-load.d and
+//     modprobe.d files deyroute created are removed.
+//
+// The backup is removed only when nothing failed: failures return DEY-X033
+// (DEY-X032 for a file), joined, and keep it so the call can be retried. It
+// is a no-op without a backup.
+func (m Manager) RevertWithWarnings() ([]string, error) {
 	applyMu.Lock()
 	defer applyMu.Unlock()
 	return m.revert()
 }
 
-// revert is Revert without the lock (ApplyWith("off") already holds it).
-func (m Manager) revert() error {
-	backup, err := m.readKVFile(m.BackupPath())
+// revert is RevertWithWarnings without the lock (ApplyWith("off") already
+// holds it).
+func (m Manager) revert() (warnings []string, err error) {
+	backup, err := m.readBackup()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	conf, _ := m.readKVFile(m.ConfPath()) // best effort, like oldConf in ApplyWith
+	written := writtenValues(conf, backup)
 	if err := os.Remove(m.ConfPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": m.ConfPath()})
+		return nil, deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": m.ConfPath()})
 	}
 	var errs []error
-	for _, kv := range backup {
-		cur, ok := m.Get(kv.Key)
-		if !ok || cur == normalize(kv.Value) {
-			continue
+	for _, kv := range backup.KVs {
+		w, has := written[kv.Key]
+		out, msg, err := m.restoreKey(kv.Key, kv.Value, w, has)
+		switch out {
+		case outChanged, outKept:
+			warnings = append(warnings, msg)
+		case outFailed:
+			errs = append(errs, err)
 		}
-		if err := m.set(kv.Key, kv.Value); err != nil {
+	}
+	for _, p := range slices.Sorted(maps.Keys(backup.Files)) {
+		w, has := written[p]
+		out, msg, err := m.restoreFile(p, backup.Files[p], w, has)
+		switch out {
+		case outChanged, outKept:
+			warnings = append(warnings, msg)
+		case outFailed:
 			errs = append(errs, err)
 		}
 	}
 	if len(errs) > 0 {
-		return deyerr.Join(errs...)
+		return warnings, deyerr.Join(errs...)
 	}
 	if err := os.Remove(m.BackupPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": m.BackupPath()})
+		return warnings, deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": m.BackupPath()})
 	}
-	return nil
+	return warnings, nil
 }
 
 // Current returns the applied profile named in the 99-deyroute.conf header,
@@ -548,15 +577,6 @@ func renderConf(profile string, kvs []KV) []byte {
 	fmt.Fprintf(&b, "%s (profile: %s)\n", confHeaderPrefix, profile)
 	b.WriteString("# Rewritten by \"deyroute optimize apply\", removed by \"deyroute optimize revert\".\n")
 	fmt.Fprintf(&b, "# Values from before deyroute: %s\n", config.SysctlBackup)
-	for _, kv := range kvs {
-		b.WriteString(kv.String() + "\n")
-	}
-	return b.Bytes()
-}
-
-func renderBackup(kvs []KV) []byte {
-	var b bytes.Buffer
-	b.WriteString("# Kernel settings before deyroute changed them; restored by \"deyroute optimize revert\".\n")
 	for _, kv := range kvs {
 		b.WriteString(kv.String() + "\n")
 	}

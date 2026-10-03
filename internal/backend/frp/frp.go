@@ -315,10 +315,14 @@ func trustAnchor(in backend.RenderInput) string {
 	return in.Secrets.CAFile
 }
 
-// poolCount is advanced.connection_pool (default 8, spec 7.3), capped at
-// the server's transport.maxPoolCount.
+// poolCount is advanced.connection_pool, or without it the default of the
+// backend tier (8/16/32 for small/medium/large; 8 without a tier, spec
+// 7.3), capped at the server's transport.maxPoolCount. The pooled
+// connections are held by frpc and frps alike, so the smaller tier of the
+// two sides applies.
 func poolCount(in backend.RenderInput) int {
-	n := config.DefaultConnectionPool
+	tier := backend.SmallerTier(in.Tier(backend.SideHub), in.Tier(backend.SideNode))
+	n := backend.ByTier(tier, config.DefaultConnectionPool, 8, 16, 32)
 	if adv := in.Tunnel.Advanced; adv != nil && adv.ConnectionPool > 0 {
 		n = adv.ConnectionPool
 	}

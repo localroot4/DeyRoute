@@ -151,6 +151,254 @@ func TestOptimizeCommands(t *testing.T) {
 	require.Contains(t, e.ok("optimize", "revert"), "BBR: available, not active")
 }
 
+// samplePlan is an automatic tuning plan of the hub, an online node with a
+// skipped item and an offline node.
+func samplePlan() api.TunePlanReport {
+	return api.TunePlanReport{
+		Hash: "h1",
+		Hosts: []api.TuneHost{
+			{Host: "hub", Role: "hub", Hash: "a",
+				Facts: &api.TuneFacts{MemBytes: 2 << 30, CPUs: 2, Kernel: "6.1.0-21-amd64", NIC: "eth0", NICMTU: 1500, Qdisc: "fq_codel"},
+				Changes: []api.TuneChange{
+					{Kind: "sysctl", Key: "net.core.rmem_max", From: "212992", To: "33554432", Reason: "larger buffers for 2 GiB RAM", Effect: "now", RaiseOnly: true},
+					{Kind: "sysctl", Key: "net.core.default_qdisc", From: "fq_codel", To: "fq", Reason: "fq paces every flow", Effect: "reboot"},
+					{Kind: "dropin", Key: "deyroute-hub.service", From: "", To: "GOMEMLIMIT=256MiB", Reason: "keeps the hub's memory bounded", Effect: "next-start"},
+				}},
+			{Host: "de-1", Role: "node", Hash: "b",
+				Facts:   &api.TuneFacts{MemBytes: 1 << 30, CPUs: 1, Kernel: "5.15.0", Virt: "lxc"},
+				Changes: []api.TuneChange{},
+				Skips: []api.TuneSkip{
+					{Key: "net.core.rmem_max", Reason: "kernel tuning is not possible in a container (lxc)", Code: "DEY-X064"},
+					{Key: "net.core.wmem_max", Reason: "kernel tuning is not possible in a container (lxc)", Code: "DEY-X064"},
+				}},
+			{Host: "nl-1", Role: "node", Pending: true},
+		},
+	}
+}
+
+// sampleCheck is a tuning check with drift on the hub and a finding on a
+// node.
+func sampleCheck() api.TuneCheck {
+	return api.TuneCheck{Hosts: []api.TuneHostCheck{
+		{Host: "hub", Role: "hub", Profile: "auto", Drift: []api.TuneDrift{
+			{Key: "net.core.rmem_max", Want: "33554432", Live: "212992", OverriddenBy: "/etc/sysctl.d/99-zz-local.conf"},
+			{Key: "net.core.somaxconn", Want: "65535", Live: "4096"},
+		}},
+		{Host: "de-1", Role: "node", Profile: "auto", Findings: []api.TuneFinding{
+			{Check: "conntrack_fill", Severity: "warn", Message: "the conntrack table is 85% full"},
+		}},
+		{Host: "nl-1", Role: "node", Error: &api.ErrorDTO{Code: "DEY-N004", Message: "node nl-1 is offline"}},
+	}}
+}
+
+// The plan is listed by host with KEY, NOW, NEW, EFFECT and WHY, the skips
+// and the offline node, then applied after one typed confirmation with the
+// hash that was shown.
+func TestOptimizeAuto(t *testing.T) {
+	e := newEnv(t)
+	var opts []api.AutoOptions
+	var applied []api.AutoApply
+	e.stub.OptimizeAutoPlanFn = func(_ context.Context, o api.AutoOptions) (api.TunePlanReport, error) {
+		opts = append(opts, o)
+		return samplePlan(), nil
+	}
+	e.stub.OptimizeAutoApplyFn = func(_ context.Context, r api.AutoApply, progress func(api.Step)) (api.TunePlanReport, error) {
+		applied = append(applied, r)
+		steps(progress, api.Step{ID: "tune_hub", Title: "Tune the hub", Status: api.StepOK})
+		res := samplePlan()
+		res.Applied = true
+		res.Hosts[1].Error = &api.ErrorDTO{Code: "DEY-X064", Message: "kernel tuning is not possible in a container (lxc)"}
+		res.Warnings = []string{"node nl-1: offline; it applies the plan when it reconnects"}
+		return res, nil
+	}
+
+	// --dry-run lists the plan and never applies.
+	out := e.ok("optimize", "auto", "--dry-run")
+	require.Empty(t, applied)
+	for _, want := range []string{
+		"Automatic tuning plan\n",
+		"\nhub · 2.0 GiB RAM · 2 CPU · kernel 6.1.0-21-amd64 · eth0 MTU 1500 · qdisc fq_codel\n",
+		"  KEY                     NOW       NEW                EFFECT        WHY\n",
+		"  net.core.rmem_max       212992    33554432           now           larger buffers for 2 GiB RAM\n",
+		"  net.core.default_qdisc  fq_codel  fq                 after reboot  fq paces every flow\n",
+		"  deyroute-hub.service    -         GOMEMLIMIT=256MiB  next start    keeps the hub's memory bounded\n",
+		"\nnode de-1 · 1.0 GiB RAM · 1 CPU · kernel 5.15.0 · container: lxc\n  nothing to change\n",
+		"  skipped net.core.rmem_max, net.core.wmem_max: DEY-X064 kernel tuning is not possible in a container (lxc)\n",
+		"\nnode nl-1\n  offline: it applies the plan when it reconnects\n",
+		"\n3 changes on 3 servers.\nUndo any time with: deyroute optimize revert\n",
+		"Dry run: nothing was changed. Apply it with: deyroute optimize auto\n",
+	} {
+		require.Contains(t, out, want)
+	}
+	require.Equal(t, []api.AutoOptions{{}}, opts)
+
+	// Without a terminal and without --yes: the plan and what happens are
+	// printed, nothing is applied, exit 3.
+	errOut := e.fail(deyerr.ExitNeedConfirm, "optimize", "auto")
+	require.Contains(t, errOut, "The 3 changes listed above are applied now. Offline nodes (nl-1) apply their plan when they reconnect.")
+	require.Contains(t, e.out.String(), "net.core.rmem_max")
+	require.Empty(t, applied)
+
+	// A declined confirmation applies nothing.
+	e.tty("no")
+	require.Contains(t, e.fail(1, "optimize", "auto"), "Aborted.")
+	require.Empty(t, applied)
+
+	// "yes" applies the plan that was shown.
+	e.tty("yes")
+	out = e.ok("optimize", "auto", "--backends")
+	require.Equal(t, []api.AutoApply{{Hash: "h1", Backends: true}}, applied)
+	require.Equal(t, api.AutoOptions{Backends: true}, opts[len(opts)-1])
+	for _, want := range []string{
+		"Type yes to continue",
+		"  ✔ Tune the hub\n",
+		"  ! node de-1: DEY-X064 kernel tuning is not possible in a container (lxc)\n",
+		"  ! node nl-1: offline; it applies the plan when it reconnects\n",
+		"✔ Automatic tuning applied (profile auto).\nUndo any time with: deyroute optimize revert\n",
+	} {
+		require.Contains(t, out, want)
+	}
+
+	// --yes skips the question; apply --profile auto is the same.
+	e.g.IsTTY = false
+	applied = nil
+	e.ok("optimize", "auto", "--yes")
+	e.ok("optimize", "apply", "--profile", "auto")
+	require.Equal(t, []api.AutoApply{{Hash: "h1"}, {Hash: "h1"}}, applied)
+
+	// --json: the plan with --dry-run, the result and the steps otherwise;
+	// stdout holds one document.
+	doc := e.json("optimize", "auto", "--dry-run")
+	require.Equal(t, "h1", doc["hash"])
+	require.Len(t, doc["hosts"], 3)
+	require.Nil(t, doc["applied"])
+	doc = e.json("optimize", "auto", "--yes")
+	require.Equal(t, true, doc["applied"])
+	require.Len(t, doc["steps"], 1)
+	host := doc["hosts"].([]any)[0].(map[string]any)
+	change := host["changes"].([]any)[0].(map[string]any)
+	require.Equal(t, "net.core.rmem_max", change["key"])
+	require.Equal(t, "now", change["effect"])
+	require.Equal(t, true, change["raise_only"])
+	// --json without --yes and without a terminal: exit 3 with the plan on
+	// stderr and the error document on stdout.
+	require.Equal(t, deyerr.ExitNeedConfirm, e.run("optimize", "auto", "--json"))
+	require.Contains(t, e.errOut.String(), "Automatic tuning plan")
+	var errDoc map[string]any
+	require.NoError(t, json.Unmarshal(e.out.Bytes(), &errDoc), e.out.String())
+	require.EqualValues(t, deyerr.ExitNeedConfirm, errDoc["exit_code"])
+
+	// A plan that changed between the list and the confirmation is refused.
+	e.stub.OptimizeAutoApplyFn = func(context.Context, api.AutoApply, func(api.Step)) (api.TunePlanReport, error) {
+		return api.TunePlanReport{}, deyerr.New(deyerr.X065, nil)
+	}
+	require.Contains(t, e.fail(deyerr.ExitSystem, "optimize", "auto", "--yes"), "DEY-X065")
+
+	// A second run lists nothing to change and applies nothing.
+	e.stub.OptimizeAutoApplyFn = func(context.Context, api.AutoApply, func(api.Step)) (api.TunePlanReport, error) {
+		t.Fatal("nothing to apply")
+		return api.TunePlanReport{}, nil
+	}
+	e.stub.OptimizeAutoPlanFn = func(context.Context, api.AutoOptions) (api.TunePlanReport, error) {
+		return api.TunePlanReport{Hash: "h2", Hosts: []api.TuneHost{{Host: "hub", Role: "hub", Changes: []api.TuneChange{}}}}, nil
+	}
+	out = e.ok("optimize", "auto")
+	require.Contains(t, out, "hub\n  nothing to change\n")
+	require.Contains(t, out, "Nothing to change: automatic tuning is already in effect.")
+	doc = e.json("optimize", "auto")
+	require.Equal(t, "h2", doc["hash"])
+
+	// Restarting items are named in the confirmation.
+	e.stub.OptimizeAutoPlanFn = func(context.Context, api.AutoOptions) (api.TunePlanReport, error) {
+		return api.TunePlanReport{Hash: "h3", Hosts: []api.TuneHost{{Host: "hub", Role: "hub", Changes: []api.TuneChange{
+			{Kind: "backend", Key: "tuning.backend_tier", To: "medium", Reason: "restarts main", Effect: "restarts-tunnels"}}}}}, nil
+	}
+	require.Contains(t, e.fail(deyerr.ExitNeedConfirm, "optimize", "auto", "--backends"),
+		`Items marked "restarts tunnels" restart the active transport of the tunnels they name (users reconnect).`)
+	require.Contains(t, e.out.String(), "restarts tunnels  restarts main")
+
+	// Errors of the plan are shown as they are.
+	e.stub.OptimizeAutoPlanFn = nil
+	require.Contains(t, e.fail(deyerr.ExitSystem, "optimize", "auto", "--dry-run"), "DEY-X008")
+	require.Contains(t, e.fail(1, "optimize", "auto", "extra"), "DEY-C025")
+}
+
+// optimize check lists drift and findings per host; drift exits 2 with
+// DEY-X067, and --json keeps one document with the error inside it.
+func TestOptimizeCheck(t *testing.T) {
+	e := newEnv(t)
+	e.stub.OptimizeCheckFn = func(context.Context) (api.TuneCheck, error) { return sampleCheck(), nil }
+	errOut := e.fail(deyerr.ExitSystem, "optimize", "check")
+	out := e.out.String()
+	for _, want := range []string{
+		"hub · profile auto\n",
+		"  KEY                 WANT      LIVE    CHANGED BY\n",
+		"  net.core.rmem_max   33554432  212992  /etc/sysctl.d/99-zz-local.conf\n",
+		"  net.core.somaxconn  65535     4096    a runtime write\n",
+		"\nnode de-1 · profile auto\n  ! conntrack_fill  the conntrack table is 85% full\n",
+		"\nnode nl-1 · profile -\n  not checked: DEY-N004 node nl-1 is offline\n",
+	} {
+		require.Contains(t, out, want)
+	}
+	require.Contains(t, errOut, "DEY-X067  Tuned value net.core.rmem_max is not what deyroute set")
+	require.Contains(t, errOut, "/etc/sysctl.d/99-zz-local.conf changed it")
+	require.Contains(t, errOut, "2 tuned values differ from what deyroute set.")
+
+	code := e.run("optimize", "check", "--json")
+	require.Equal(t, deyerr.ExitSystem, code)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(e.out.Bytes(), &doc), "one JSON document: %s", e.out.String())
+	require.Equal(t, false, doc["clean"])
+	require.Len(t, doc["hosts"], 3)
+	require.EqualValues(t, deyerr.ExitSystem, doc["exit_code"])
+	require.Equal(t, "DEY-X067", doc["error"].(map[string]any)["code"])
+	require.Contains(t, e.errOut.String(), "DEY-X067")
+
+	// Findings alone are reported but are no drift: exit 0.
+	e.stub.OptimizeCheckFn = func(context.Context) (api.TuneCheck, error) {
+		c := sampleCheck()
+		c.Hosts[0].Drift = nil
+		return c, nil
+	}
+	out = e.ok("optimize", "check")
+	require.Contains(t, out, "hub · profile auto\n  every tuned value is in effect\n")
+	e.stub.OptimizeCheckFn = func(context.Context) (api.TuneCheck, error) {
+		return api.TuneCheck{Clean: true, Hosts: []api.TuneHostCheck{{Host: "hub", Role: "hub", Profile: "auto"}}}, nil
+	}
+	require.Contains(t, e.ok("optimize", "check"), "\nEvery tuned value is in effect.\n")
+	doc = e.json("optimize", "check")
+	require.Equal(t, true, doc["clean"])
+	require.NotContains(t, doc, "error")
+}
+
+// optimize status shows the hub's facts and one row per node.
+func TestOptimizeStatus(t *testing.T) {
+	e := newEnv(t)
+	e.stub.OptimizeStatusFn = func(context.Context) (api.OptimizeStatus, error) {
+		return api.OptimizeStatus{Profile: "auto", BBRAvailable: true, BBRActive: true,
+			Facts: &api.TuneFacts{MemBytes: 4 << 30, CPUs: 4, Kernel: "6.8.0"},
+			Nodes: []api.NodeTuneStatus{
+				{Node: "de-1", Online: true, Profile: "auto", Hash: "x", AutoCapable: true},
+				{Node: "nl-1", Online: false, Pending: true, AutoCapable: true},
+				{Node: "fr-1", Online: true, Profile: "balanced"},
+			}}, nil
+	}
+	out := e.ok("optimize", "status")
+	for _, want := range []string{
+		"Kernel profile: auto\n", "  BBR: active\n", "  hub: 4.0 GiB RAM · 4 CPU · kernel 6.8.0\n",
+		"Nodes:\n  NODE  ONLINE  PROFILE   PENDING\n",
+		"  de-1  yes     auto      no\n",
+		"  nl-1  no      -         yes\n",
+		"  fr-1  yes     balanced  no\n",
+		"  ! node fr-1: too old for auto (gets balanced)\n",
+	} {
+		require.Contains(t, out, want)
+	}
+	doc := e.json("optimize", "status")
+	require.Equal(t, "auto", doc["profile"])
+	require.Len(t, doc["nodes"], 3)
+}
+
 func TestSecurityCommands(t *testing.T) {
 	e := newEnv(t)
 	rotated := "-"

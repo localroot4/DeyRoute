@@ -127,7 +127,11 @@ nothing (frpc's admin `webServer` stays disabled).
 - Canary: only the first port map, `proxyBindAddr` forced to loopback.
 - `transport.poolCount` = `advanced.connection_pool` or 8, capped at the
   server's `maxPoolCount` 32; a negative value is `DEY-B006` (v0.71.0 rejects
-  negative pool counts).
+  negative pool counts). With a backend tier (`tuning.backend_tier`,
+  `nodes[].backend_tier`, set by `deyroute optimize auto --backends`) the
+  default is 8/16/32 for small/medium/large; frpc and frps both hold the
+  pooled connections, so the smaller tier of the two sides applies. An
+  explicit `advanced.connection_pool` always wins.
 - frp renders every config file through Go `text/template` before parsing it
   (`pkg/config/load.go`), so `Validate` rejects `{{`/`}}` in any rendered value
   (token, TLS paths, server name, hub IP, listen address, targets).

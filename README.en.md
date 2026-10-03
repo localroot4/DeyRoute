@@ -8,6 +8,7 @@
 
 [Quick start](#quick-start-5-minutes) ·
 [Everyday use](#everyday-use) ·
+[Monitoring](#monitoring) ·
 [How it survives filtering](#how-it-survives-filtering) ·
 [Troubleshooting](#something-is-wrong) ·
 [Full guides](docs/en/index.md)
@@ -44,7 +45,7 @@ their device: DEYROUTE does not open, change, or re-encrypt it.
 | **Backup nodes** | Add a second foreign server that runs the same VPN service (same users and settings), and the tunnel moves to it if the first one goes down. |
 | **Your service stays as it is** | Same port, same certificate, same UUID. In your client configs only the server address changes, to the hub's IP. |
 | **Errors you can read** | Every problem says what happened, why, and what to do, with a fixed code such as `DEY-P012`. |
-| **Private by design** | One signed program, no telemetry, no secrets in logs, and exactly one firewall table that DEYROUTE owns. |
+| **Private by design** | One signed program, no telemetry, no secrets in logs, and only its own firewall tables. |
 
 ## Quick start (5 minutes)
 
@@ -65,6 +66,13 @@ A short wizard asks at most five questions, one per screen. Type `1` for the rol
 give the server a name such as `ir-1`, and press <kbd>Enter</kbd> for the rest.
 At the end it prints a **join command**. Copy that whole line.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-setup-dark.svg">
+    <img src="docs/assets/screens/cli-setup-light.svg" alt="The setup wizard on the hub: five numbered questions with suggested answers, the list of kernel settings it will tune, then the summary, the setup steps and the join command to run on the node.">
+  </picture>
+</p>
+
 ### 2. On the node (foreign server)
 
 Paste the whole join command and add `--name de-1` at its very end: that is the node's
@@ -83,6 +91,15 @@ About 30 seconds later, go back to the **hub**. The node must be listed as `onli
 deyroute node list
 ```
 
+The menu shows the same list under `3) Nodes`:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-nodes-dark.svg">
+    <img src="docs/assets/screens/tui-nodes-light.svg" alt="The Nodes screen of the menu: nodes de-1 and nl-1, each with its address, online, control latency, version, CPU and RAM, and the actions: show join command, list, rename, remove, test.">
+  </picture>
+</p>
+
 Not listed? The usual cause is `44433/tcp` closed in the hub's provider firewall. Open it, then run `deyroute node join-command` on the hub for a new command.
 
 ### 3. On the hub: create the tunnel
@@ -100,6 +117,15 @@ You will see the steps go by, ending with a line like:
 ```text
 ✔ Tunnel main is UP via backhaul/wssmux (41ms)
 ```
+
+The menu does the same in `2) Tunnels → 1) Add tunnel` (node, ports, confirm):
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-add-tunnel-done-dark.svg">
+    <img src="docs/assets/screens/tui-add-tunnel-done-light.svg" alt="Adding a tunnel in the menu: install backend on hub, install on node, render, firewall, start and probe are all ticked, and the last line says: Tunnel main is UP via backhaul/wssmux (41ms).">
+  </picture>
+</p>
 
 ### 4. Check it, then change the address in your clients
 
@@ -122,11 +148,21 @@ the same VPN service), then make it the backup:
 Type `deyroute` (or just `dey`) to open the menu. Press a number, then
 <kbd>Enter</kbd>. <kbd>q</kbd> goes back and <kbd>?</kbd> explains the screen you are on.
 
-```text
- 1) Dashboard       4) Ports           7) Optimize         10) Backup & Restore
- 2) Tunnels         5) Failover        8) Security         11) Update
- 3) Nodes           6) Diagnostics     9) Notifications    12) Settings
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-main-menu-dark.svg">
+    <img src="docs/assets/screens/tui-main-menu-light.svg" alt="The main menu: the DEYROUTE banner, the hub name and address, then items 1 to 12 (Dashboard, Tunnels, Nodes, Ports, Failover, Diagnostics, Optimize, Security, Notifications, Backup and Restore, Update, Settings) and 0 Exit.">
+  </picture>
+</p>
+
+`1) Dashboard` shows every tunnel, node and recent event and refreshes every 2 seconds:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-dashboard-dark.svg">
+    <img src="docs/assets/screens/tui-dashboard-light.svg" alt="The dashboard: a table of three tunnels that are UP with their node, transport and ports; a traffic block with a sparkline, the download and upload rate of each tunnel; the two nodes online with CPU and RAM; the last events.">
+  </picture>
+</p>
 
 Everything in the menu is also a command, handy for scripts (add `--json`):
 
@@ -146,6 +182,50 @@ Everything in the menu is also a command, handy for scripts (add `--json`):
 
 New to it? Stay in **Simple mode**: it hides everything advanced, and the tunnel wizard asks
 at most three questions (node, ports, confirm). Switch in `12) Settings → 1) UI mode` when you want more.
+
+## Monitoring
+
+The hub counts the bytes of every tunnel and keeps the CPU and RAM of every
+server, with nothing to set up. Download (to your users) and upload (from
+them) are always labelled. Open `6) Diagnostics → 6) Traffic and load` (or press
+<kbd>t</kbd> on the dashboard) and pick a period: <kbd>1</kbd> hour, <kbd>2</kbd> 24 hours,
+<kbd>3</kbd> 7 days, <kbd>4</kbd> 30 days.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/tui-traffic-dark.svg">
+    <img src="docs/assets/screens/tui-traffic-light.svg" alt="The Traffic and load screen of tunnel main over 24 hours: a download chart and an upload chart with a daily curve that peaks in the evening, a connections row, the totals of today and of the last 30 days, and the monthly quota.">
+  </picture>
+</p>
+
+The same from the command line, for scripts too (`--json`):
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-stats-dark.svg">
+    <img src="docs/assets/screens/cli-stats-light.svg" alt="deyroute stats: a table of the tunnels with the current rate, today, 30 days, quota and a sparkline of the last hour; then deyroute stats main --period 24h with the download and upload charts.">
+  </picture>
+</p>
+
+An optional monthly quota per tunnel sends an alert at 80 % and 100 %. More:
+[traffic and load](docs/en/monitoring.md).
+
+## Automatic tuning
+
+`deyroute optimize auto` measures every server (RAM, CPUs, kernel, network)
+and lists the kernel settings that suit it: the current value, the new one,
+when it takes effect and why. Nothing changes until you confirm, and
+`deyroute optimize revert` undoes it all. The setup wizard offers the same as its
+last question.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-optimize-auto-dark.svg">
+    <img src="docs/assets/screens/cli-optimize-auto-light.svg" alt="deyroute optimize auto --dry-run: for the hub and node de-1, a table of keys with their current and new values, when each takes effect and why; node nl-1 is offline and applies the plan when it reconnects; nothing was changed.">
+  </picture>
+</p>
+
+More: [automatic tuning](docs/en/tuning.md).
 
 ## How it survives filtering
 
@@ -182,7 +262,7 @@ your own: `deyroute ladder create NAME --rungs a,b,c`, then
 
 - The **control channel** always goes from the foreign servers **out** to the hub, over mutual TLS 1.3 with a private CA. The hub never logs in to a node, and SSH is not used.
 - The join command works **once** and expires in 15 minutes.
-- DEYROUTE creates and manages exactly one firewall table (`inet deyroute`) and never touches your other rules.
+- DEYROUTE manages its own firewall table (`inet deyroute`) and, for traffic counting, a second table that only counts and never blocks anything (`inet deyroute_stats`). It never touches your other rules.
 - Every release is signed; the installer verifies the signature and checksums before installing.
 - No telemetry. Secrets are stored with mode `0600` and never written to logs.
 
@@ -211,6 +291,13 @@ Guides: [update and uninstall](docs/en/update-uninstall.md) ·
 Start with `deyroute doctor`. It checks the system, ports, certificates, units and
 logs, and explains each finding in plain words.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-doctor-dark.svg">
+    <img src="docs/assets/screens/cli-doctor-light.svg" alt="deyroute doctor: 3 of 3 tunnels UP, 2 of 2 nodes online, one warning (a certificate expires in 12 days, with the command that renews it) and one note, then the support file with secrets removed.">
+  </picture>
+</p>
+
 | Symptom | Try |
 | --- | --- |
 | a node is `offline` | on the hub: `deyroute node test <id>`, then open `44433/tcp` in the hub's provider firewall |
@@ -235,6 +322,8 @@ More: [troubleshooting](docs/en/troubleshooting.md).
 | [Join a node](docs/en/join.md) | the join command, expiry, IP changes |
 | [First tunnel](docs/en/first-tunnel.md) | the menu and the CLI, port syntax, health probes |
 | [Backup node](docs/en/backup-node.md) | failover, failback, timings |
+| [Traffic and load](docs/en/monitoring.md) | what is counted, charts, history, monthly quota |
+| [Automatic tuning](docs/en/tuning.md) | what is measured and changed, and how to undo it |
 | [Filtering FAQ](docs/en/faq-filtering.md) | the ladder, skipped methods, decoy sites |
 | [Troubleshooting](docs/en/troubleshooting.md) | doctor, logs, common codes |
 | [Security](docs/en/security.md) | control channel, tokens, firewall, rotation |

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
@@ -40,6 +41,14 @@ type nodeRuntime struct {
 	// (zero otherwise): once that session has lasted Options.RouteStable the
 	// route goes back to direct (the heartbeat checks it).
 	directSince time.Time
+	// hello is the hello of the current (or last) stream of this hub
+	// process: the agent's optional features, RAM and the tuning it last
+	// applied (optimize status, automatic tuning, convergence).
+	hello api.Hello
+	// tuneSent is the tuning the hub last sent this node on its own
+	// (convergence): the inputs hash, or "balanced" for an old agent. The
+	// same inputs are never sent twice, so a flapping link gets them once.
+	tuneSent string
 }
 
 // loadNodes fills the registry from state.db at start.
@@ -138,6 +147,17 @@ func (h *Hub) serveSession(s *api.Session) {
 		return
 	}
 	defer h.detach(s)
+	if compatible {
+		// A node that follows the hub's automatic tuning and runs other
+		// inputs gets them (ops_tune.go); it never delays the stream.
+		var conv sync.WaitGroup
+		conv.Add(1)
+		go func() {
+			defer conv.Done()
+			h.convergeTuning(s)
+		}()
+		defer conv.Wait()
+	}
 	ping := time.NewTicker(h.o.PingInterval)
 	defer ping.Stop()
 	h.pingNode(s)
@@ -175,6 +195,7 @@ func (h *Hub) attach(s *api.Session, compatible bool) bool {
 	}
 	nr.st.AgentVersion = s.Hello.Version
 	nr.st.Compatible = compatible
+	nr.hello = s.Hello
 	nr.st.Arch, nr.st.OS, nr.st.Kernel = s.Hello.Arch, s.Hello.OS, s.Hello.Kernel
 	if s.Hello.CPUs > 0 {
 		nr.st.CPUs = s.Hello.CPUs
@@ -281,6 +302,7 @@ func (h *Hub) heartbeat(s *api.Session, hb api.Heartbeat) {
 	}
 	snap := copyNodeState(nr.st)
 	h.nodesMu.Unlock()
+	h.traffic.noteNode(s.NodeID, hb.CPUPercent, hb.RAMBytes)
 	if persist {
 		h.persistNode(snap)
 	}

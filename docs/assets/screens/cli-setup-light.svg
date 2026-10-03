@@ -1,0 +1,1006 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="972" height="1480" viewBox="0 0 9720 14800" role="img" aria-labelledby="title">
+<title id="title">deyroute setup</title>
+<style>
+rect{shape-rendering:crispEdges}
+.w{fill:#f6f8fa;stroke:#d1d9e0;stroke-width:10;shape-rendering:auto}
+.l{fill:#d1d9e0}
+.tt{fill:#59636e;font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace;font-size:120px}
+text{fill:#1f2328;font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace;font-size:140px}
+.b{font-weight:700}
+.k{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.f2{fill:#116329}
+.f4{fill:#0550ae}
+.f6{fill:#0e7490}
+.f8{fill:#59636e}
+.fd{fill:#1f2328}
+.s2{stroke:#116329}
+.sd{stroke:#1f2328}
+</style>
+<rect class="w" x="5" y="5" width="9710" height="14790" rx="120"/>
+<circle cx="240" cy="160" r="60" fill="#ff5f57"/>
+<circle cx="440" cy="160" r="60" fill="#febc2e"/>
+<circle cx="640" cy="160" r="60" fill="#28c840"/>
+<text class="tt" x="4860" y="202" text-anchor="middle">deyroute setup</text>
+<rect class="l" x="10" y="320" width="9700" height="10"/>
+<g xml:space="preserve">
+<text x="240" y="628" class="f2 b" textLength="756">root@ir-1</text>
+<text x="996" y="628">:</text>
+<text x="1080" y="628" class="f4 b">~</text>
+<text x="1164" y="628">#</text>
+<text x="1332" y="628" textLength="672">deyroute</text>
+<text x="2088" y="628" textLength="420">setup</text>
+<rect class="fd" x="324" y="676" width="504" height="176"/>
+<rect class="fd" x="828" y="737" width="69" height="10"/>
+<rect class="fd" x="887" y="737" width="10" height="115"/>
+<rect class="fd" x="828" y="781" width="25" height="10"/>
+<rect class="fd" x="843" y="781" width="10" height="71"/>
+<rect class="fd" x="996" y="676" width="588" height="176"/>
+<rect class="fd" x="1584" y="737" width="69" height="10"/>
+<rect class="fd" x="1643" y="737" width="10" height="115"/>
+<rect class="fd" x="1584" y="781" width="25" height="10"/>
+<rect class="fd" x="1599" y="781" width="10" height="71"/>
+<rect class="fd" x="1668" y="676" width="168" height="176"/>
+<rect class="fd" x="1836" y="737" width="69" height="10"/>
+<rect class="fd" x="1895" y="737" width="10" height="115"/>
+<rect class="fd" x="1836" y="781" width="25" height="10"/>
+<rect class="fd" x="1851" y="781" width="10" height="71"/>
+<rect class="fd" x="2172" y="676" width="168" height="176"/>
+<rect class="fd" x="2340" y="737" width="69" height="10"/>
+<rect class="fd" x="2399" y="737" width="10" height="115"/>
+<rect class="fd" x="2340" y="781" width="25" height="10"/>
+<rect class="fd" x="2355" y="781" width="10" height="71"/>
+<rect class="fd" x="2424" y="676" width="504" height="176"/>
+<rect class="fd" x="2928" y="737" width="69" height="10"/>
+<rect class="fd" x="2987" y="737" width="10" height="115"/>
+<rect class="fd" x="2928" y="781" width="25" height="10"/>
+<rect class="fd" x="2943" y="781" width="10" height="71"/>
+<rect class="fd" x="3180" y="676" width="504" height="176"/>
+<rect class="fd" x="3684" y="737" width="69" height="10"/>
+<rect class="fd" x="3743" y="737" width="10" height="115"/>
+<rect class="fd" x="3684" y="781" width="25" height="10"/>
+<rect class="fd" x="3699" y="781" width="10" height="71"/>
+<rect class="fd" x="3852" y="676" width="168" height="176"/>
+<rect class="fd" x="4020" y="737" width="69" height="10"/>
+<rect class="fd" x="4079" y="737" width="10" height="115"/>
+<rect class="fd" x="4020" y="781" width="25" height="10"/>
+<rect class="fd" x="4035" y="781" width="10" height="71"/>
+<rect class="fd" x="4356" y="676" width="168" height="176"/>
+<rect class="fd" x="4524" y="737" width="69" height="10"/>
+<rect class="fd" x="4583" y="737" width="10" height="115"/>
+<rect class="fd" x="4524" y="781" width="25" height="10"/>
+<rect class="fd" x="4539" y="781" width="10" height="71"/>
+<rect class="fd" x="4608" y="676" width="672" height="176"/>
+<rect class="fd" x="5280" y="737" width="69" height="10"/>
+<rect class="fd" x="5339" y="737" width="10" height="115"/>
+<rect class="fd" x="5280" y="781" width="25" height="10"/>
+<rect class="fd" x="5295" y="781" width="10" height="71"/>
+<rect class="fd" x="5364" y="676" width="588" height="176"/>
+<rect class="fd" x="5952" y="737" width="69" height="10"/>
+<rect class="fd" x="6011" y="737" width="10" height="115"/>
+<rect class="fd" x="5952" y="781" width="25" height="10"/>
+<rect class="fd" x="5967" y="781" width="10" height="71"/>
+<rect class="fd" x="324" y="852" width="168" height="176"/>
+<rect class="fd" x="507" y="913" width="69" height="10"/>
+<rect class="fd" x="507" y="913" width="10" height="115"/>
+<rect class="fd" x="551" y="957" width="25" height="10"/>
+<rect class="fd" x="551" y="957" width="10" height="71"/>
+<rect class="fd" x="576" y="913" width="84" height="10"/>
+<rect class="fd" x="576" y="957" width="84" height="10"/>
+<rect class="fd" x="660" y="913" width="84" height="10"/>
+<rect class="fd" x="660" y="957" width="84" height="10"/>
+<rect class="fd" x="744" y="852" width="168" height="176"/>
+<rect class="fd" x="912" y="913" width="69" height="10"/>
+<rect class="fd" x="971" y="913" width="10" height="115"/>
+<rect class="fd" x="912" y="957" width="25" height="10"/>
+<rect class="fd" x="927" y="957" width="10" height="71"/>
+<rect class="fd" x="996" y="852" width="168" height="176"/>
+<rect class="fd" x="1179" y="913" width="69" height="10"/>
+<rect class="fd" x="1179" y="913" width="10" height="115"/>
+<rect class="fd" x="1223" y="957" width="25" height="10"/>
+<rect class="fd" x="1223" y="957" width="10" height="71"/>
+<rect class="fd" x="1248" y="913" width="84" height="10"/>
+<rect class="fd" x="1248" y="957" width="84" height="10"/>
+<rect class="fd" x="1332" y="913" width="84" height="10"/>
+<rect class="fd" x="1332" y="957" width="84" height="10"/>
+<rect class="fd" x="1416" y="913" width="84" height="10"/>
+<rect class="fd" x="1416" y="957" width="84" height="10"/>
+<rect class="fd" x="1500" y="913" width="84" height="10"/>
+<rect class="fd" x="1500" y="957" width="84" height="10"/>
+<rect class="fd" x="1584" y="957" width="69" height="10"/>
+<rect class="fd" x="1643" y="852" width="10" height="115"/>
+<rect class="fd" x="1584" y="913" width="25" height="10"/>
+<rect class="fd" x="1599" y="852" width="10" height="71"/>
+<rect class="fd" x="1683" y="957" width="69" height="10"/>
+<rect class="fd" x="1683" y="852" width="10" height="115"/>
+<rect class="fd" x="1727" y="913" width="25" height="10"/>
+<rect class="fd" x="1727" y="852" width="10" height="71"/>
+<rect class="fd" x="1752" y="852" width="168" height="176"/>
+<rect class="fd" x="1920" y="913" width="69" height="10"/>
+<rect class="fd" x="1979" y="913" width="10" height="115"/>
+<rect class="fd" x="1920" y="957" width="25" height="10"/>
+<rect class="fd" x="1935" y="957" width="10" height="71"/>
+<rect class="fd" x="2088" y="852" width="168" height="176"/>
+<rect class="fd" x="2271" y="913" width="69" height="10"/>
+<rect class="fd" x="2271" y="913" width="10" height="115"/>
+<rect class="fd" x="2315" y="957" width="25" height="10"/>
+<rect class="fd" x="2315" y="957" width="10" height="71"/>
+<rect class="fd" x="2340" y="957" width="69" height="10"/>
+<rect class="fd" x="2399" y="852" width="10" height="115"/>
+<rect class="fd" x="2340" y="913" width="25" height="10"/>
+<rect class="fd" x="2355" y="852" width="10" height="71"/>
+<rect class="fd" x="2424" y="852" width="168" height="176"/>
+<rect class="fd" x="2607" y="913" width="69" height="10"/>
+<rect class="fd" x="2607" y="913" width="10" height="115"/>
+<rect class="fd" x="2651" y="957" width="25" height="10"/>
+<rect class="fd" x="2651" y="957" width="10" height="71"/>
+<rect class="fd" x="2676" y="913" width="84" height="10"/>
+<rect class="fd" x="2676" y="957" width="84" height="10"/>
+<rect class="fd" x="2760" y="913" width="84" height="10"/>
+<rect class="fd" x="2760" y="957" width="84" height="10"/>
+<rect class="fd" x="2844" y="852" width="168" height="176"/>
+<rect class="fd" x="3012" y="913" width="69" height="10"/>
+<rect class="fd" x="3071" y="913" width="10" height="115"/>
+<rect class="fd" x="3012" y="957" width="25" height="10"/>
+<rect class="fd" x="3027" y="957" width="10" height="71"/>
+<rect class="fd" x="3096" y="852" width="168" height="176"/>
+<rect class="fd" x="3279" y="913" width="69" height="10"/>
+<rect class="fd" x="3279" y="913" width="10" height="115"/>
+<rect class="fd" x="3323" y="957" width="25" height="10"/>
+<rect class="fd" x="3323" y="957" width="10" height="71"/>
+<rect class="fd" x="3348" y="913" width="84" height="10"/>
+<rect class="fd" x="3348" y="957" width="84" height="10"/>
+<rect class="fd" x="3432" y="913" width="84" height="10"/>
+<rect class="fd" x="3432" y="957" width="84" height="10"/>
+<rect class="fd" x="3516" y="913" width="84" height="10"/>
+<rect class="fd" x="3516" y="957" width="84" height="10"/>
+<rect class="fd" x="3600" y="852" width="168" height="176"/>
+<rect class="fd" x="3768" y="913" width="69" height="10"/>
+<rect class="fd" x="3827" y="913" width="10" height="115"/>
+<rect class="fd" x="3768" y="957" width="25" height="10"/>
+<rect class="fd" x="3783" y="957" width="10" height="71"/>
+<rect class="fd" x="3852" y="852" width="168" height="176"/>
+<rect class="fd" x="4035" y="852" width="10" height="176"/>
+<rect class="fd" x="4079" y="852" width="10" height="176"/>
+<rect class="fd" x="4356" y="852" width="168" height="176"/>
+<rect class="fd" x="4539" y="852" width="10" height="176"/>
+<rect class="fd" x="4583" y="852" width="10" height="176"/>
+<rect class="fd" x="4623" y="957" width="69" height="10"/>
+<rect class="fd" x="4623" y="852" width="10" height="115"/>
+<rect class="fd" x="4667" y="913" width="25" height="10"/>
+<rect class="fd" x="4667" y="852" width="10" height="71"/>
+<rect class="fd" x="4692" y="913" width="84" height="10"/>
+<rect class="fd" x="4692" y="957" width="84" height="10"/>
+<rect class="fd" x="4776" y="913" width="84" height="10"/>
+<rect class="fd" x="4776" y="957" width="84" height="10"/>
+<rect class="fd" x="4860" y="852" width="168" height="176"/>
+<rect class="fd" x="5043" y="913" width="69" height="10"/>
+<rect class="fd" x="5043" y="913" width="10" height="115"/>
+<rect class="fd" x="5087" y="957" width="25" height="10"/>
+<rect class="fd" x="5087" y="957" width="10" height="71"/>
+<rect class="fd" x="5112" y="913" width="84" height="10"/>
+<rect class="fd" x="5112" y="957" width="84" height="10"/>
+<rect class="fd" x="5196" y="913" width="84" height="10"/>
+<rect class="fd" x="5196" y="957" width="84" height="10"/>
+<rect class="fd" x="5280" y="957" width="69" height="10"/>
+<rect class="fd" x="5339" y="852" width="10" height="115"/>
+<rect class="fd" x="5280" y="913" width="25" height="10"/>
+<rect class="fd" x="5295" y="852" width="10" height="71"/>
+<rect class="fd" x="5364" y="852" width="168" height="176"/>
+<rect class="fd" x="5547" y="913" width="69" height="10"/>
+<rect class="fd" x="5547" y="913" width="10" height="115"/>
+<rect class="fd" x="5591" y="957" width="25" height="10"/>
+<rect class="fd" x="5591" y="957" width="10" height="71"/>
+<rect class="fd" x="5616" y="913" width="84" height="10"/>
+<rect class="fd" x="5616" y="957" width="84" height="10"/>
+<rect class="fd" x="5700" y="913" width="84" height="10"/>
+<rect class="fd" x="5700" y="957" width="84" height="10"/>
+<rect class="fd" x="5784" y="913" width="84" height="10"/>
+<rect class="fd" x="5784" y="957" width="84" height="10"/>
+<rect class="fd" x="5868" y="913" width="84" height="10"/>
+<rect class="fd" x="5868" y="957" width="84" height="10"/>
+<rect class="fd" x="5952" y="957" width="69" height="10"/>
+<rect class="fd" x="6011" y="852" width="10" height="115"/>
+<rect class="fd" x="5952" y="913" width="25" height="10"/>
+<rect class="fd" x="5967" y="852" width="10" height="71"/>
+<rect class="fd" x="324" y="1028" width="168" height="176"/>
+<rect class="fd" x="507" y="1028" width="10" height="176"/>
+<rect class="fd" x="551" y="1028" width="10" height="176"/>
+<rect class="fd" x="744" y="1028" width="168" height="176"/>
+<rect class="fd" x="927" y="1028" width="10" height="176"/>
+<rect class="fd" x="971" y="1028" width="10" height="176"/>
+<rect class="fd" x="996" y="1028" width="420" height="176"/>
+<rect class="fd" x="1416" y="1089" width="69" height="10"/>
+<rect class="fd" x="1475" y="1089" width="10" height="115"/>
+<rect class="fd" x="1416" y="1133" width="25" height="10"/>
+<rect class="fd" x="1431" y="1133" width="10" height="71"/>
+<rect class="fd" x="1767" y="1133" width="69" height="10"/>
+<rect class="fd" x="1767" y="1028" width="10" height="115"/>
+<rect class="fd" x="1811" y="1089" width="25" height="10"/>
+<rect class="fd" x="1811" y="1028" width="10" height="71"/>
+<rect class="fd" x="1836" y="1028" width="336" height="176"/>
+<rect class="fd" x="2187" y="1089" width="69" height="10"/>
+<rect class="fd" x="2187" y="1089" width="10" height="115"/>
+<rect class="fd" x="2231" y="1133" width="25" height="10"/>
+<rect class="fd" x="2231" y="1133" width="10" height="71"/>
+<rect class="fd" x="2256" y="1133" width="69" height="10"/>
+<rect class="fd" x="2315" y="1028" width="10" height="115"/>
+<rect class="fd" x="2256" y="1089" width="25" height="10"/>
+<rect class="fd" x="2271" y="1028" width="10" height="71"/>
+<rect class="fd" x="2424" y="1028" width="504" height="176"/>
+<rect class="fd" x="2943" y="1089" width="69" height="10"/>
+<rect class="fd" x="2943" y="1089" width="10" height="115"/>
+<rect class="fd" x="2987" y="1133" width="25" height="10"/>
+<rect class="fd" x="2987" y="1133" width="10" height="71"/>
+<rect class="fd" x="3012" y="1133" width="69" height="10"/>
+<rect class="fd" x="3071" y="1028" width="10" height="115"/>
+<rect class="fd" x="3012" y="1089" width="25" height="10"/>
+<rect class="fd" x="3027" y="1028" width="10" height="71"/>
+<rect class="fd" x="3096" y="1028" width="168" height="176"/>
+<rect class="fd" x="3279" y="1028" width="10" height="176"/>
+<rect class="fd" x="3323" y="1028" width="10" height="176"/>
+<rect class="fd" x="3600" y="1028" width="168" height="176"/>
+<rect class="fd" x="3783" y="1028" width="10" height="176"/>
+<rect class="fd" x="3827" y="1028" width="10" height="176"/>
+<rect class="fd" x="3852" y="1028" width="168" height="176"/>
+<rect class="fd" x="4035" y="1028" width="10" height="176"/>
+<rect class="fd" x="4079" y="1028" width="10" height="176"/>
+<rect class="fd" x="4356" y="1028" width="168" height="176"/>
+<rect class="fd" x="4539" y="1028" width="10" height="176"/>
+<rect class="fd" x="4583" y="1028" width="10" height="176"/>
+<rect class="fd" x="4860" y="1028" width="168" height="176"/>
+<rect class="fd" x="5043" y="1028" width="10" height="176"/>
+<rect class="fd" x="5087" y="1028" width="10" height="176"/>
+<rect class="fd" x="5364" y="1028" width="420" height="176"/>
+<rect class="fd" x="5784" y="1089" width="69" height="10"/>
+<rect class="fd" x="5843" y="1089" width="10" height="115"/>
+<rect class="fd" x="5784" y="1133" width="25" height="10"/>
+<rect class="fd" x="5799" y="1133" width="10" height="71"/>
+<rect class="fd" x="324" y="1204" width="168" height="176"/>
+<rect class="fd" x="507" y="1204" width="10" height="176"/>
+<rect class="fd" x="551" y="1204" width="10" height="176"/>
+<rect class="fd" x="744" y="1204" width="168" height="176"/>
+<rect class="fd" x="927" y="1204" width="10" height="176"/>
+<rect class="fd" x="971" y="1204" width="10" height="176"/>
+<rect class="fd" x="996" y="1204" width="168" height="176"/>
+<rect class="fd" x="1179" y="1265" width="69" height="10"/>
+<rect class="fd" x="1179" y="1265" width="10" height="115"/>
+<rect class="fd" x="1223" y="1309" width="25" height="10"/>
+<rect class="fd" x="1223" y="1309" width="10" height="71"/>
+<rect class="fd" x="1248" y="1265" width="84" height="10"/>
+<rect class="fd" x="1248" y="1309" width="84" height="10"/>
+<rect class="fd" x="1332" y="1265" width="84" height="10"/>
+<rect class="fd" x="1332" y="1309" width="84" height="10"/>
+<rect class="fd" x="1416" y="1309" width="69" height="10"/>
+<rect class="fd" x="1475" y="1204" width="10" height="115"/>
+<rect class="fd" x="1416" y="1265" width="25" height="10"/>
+<rect class="fd" x="1431" y="1204" width="10" height="71"/>
+<rect class="fd" x="1851" y="1309" width="69" height="10"/>
+<rect class="fd" x="1851" y="1204" width="10" height="115"/>
+<rect class="fd" x="1895" y="1265" width="25" height="10"/>
+<rect class="fd" x="1895" y="1204" width="10" height="71"/>
+<rect class="fd" x="1920" y="1204" width="168" height="176"/>
+<rect class="fd" x="2103" y="1265" width="69" height="10"/>
+<rect class="fd" x="2103" y="1265" width="10" height="115"/>
+<rect class="fd" x="2147" y="1309" width="25" height="10"/>
+<rect class="fd" x="2147" y="1309" width="10" height="71"/>
+<rect class="fd" x="2172" y="1309" width="69" height="10"/>
+<rect class="fd" x="2231" y="1204" width="10" height="115"/>
+<rect class="fd" x="2172" y="1265" width="25" height="10"/>
+<rect class="fd" x="2187" y="1204" width="10" height="71"/>
+<rect class="fd" x="2424" y="1204" width="168" height="176"/>
+<rect class="fd" x="2607" y="1265" width="69" height="10"/>
+<rect class="fd" x="2607" y="1265" width="10" height="115"/>
+<rect class="fd" x="2651" y="1309" width="25" height="10"/>
+<rect class="fd" x="2651" y="1309" width="10" height="71"/>
+<rect class="fd" x="2676" y="1265" width="84" height="10"/>
+<rect class="fd" x="2676" y="1309" width="84" height="10"/>
+<rect class="fd" x="2760" y="1265" width="84" height="10"/>
+<rect class="fd" x="2760" y="1309" width="84" height="10"/>
+<rect class="fd" x="2844" y="1204" width="168" height="176"/>
+<rect class="fd" x="3012" y="1265" width="69" height="10"/>
+<rect class="fd" x="3071" y="1265" width="10" height="115"/>
+<rect class="fd" x="3012" y="1309" width="25" height="10"/>
+<rect class="fd" x="3027" y="1309" width="10" height="71"/>
+<rect class="fd" x="3096" y="1204" width="168" height="176"/>
+<rect class="fd" x="3279" y="1204" width="10" height="176"/>
+<rect class="fd" x="3323" y="1204" width="10" height="176"/>
+<rect class="fd" x="3600" y="1204" width="168" height="176"/>
+<rect class="fd" x="3783" y="1204" width="10" height="176"/>
+<rect class="fd" x="3827" y="1204" width="10" height="176"/>
+<rect class="fd" x="3852" y="1204" width="168" height="176"/>
+<rect class="fd" x="4035" y="1204" width="10" height="176"/>
+<rect class="fd" x="4079" y="1204" width="10" height="176"/>
+<rect class="fd" x="4356" y="1204" width="168" height="176"/>
+<rect class="fd" x="4539" y="1204" width="10" height="176"/>
+<rect class="fd" x="4583" y="1204" width="10" height="176"/>
+<rect class="fd" x="4860" y="1204" width="168" height="176"/>
+<rect class="fd" x="5043" y="1204" width="10" height="176"/>
+<rect class="fd" x="5087" y="1204" width="10" height="176"/>
+<rect class="fd" x="5364" y="1204" width="168" height="176"/>
+<rect class="fd" x="5547" y="1265" width="69" height="10"/>
+<rect class="fd" x="5547" y="1265" width="10" height="115"/>
+<rect class="fd" x="5591" y="1309" width="25" height="10"/>
+<rect class="fd" x="5591" y="1309" width="10" height="71"/>
+<rect class="fd" x="5616" y="1265" width="84" height="10"/>
+<rect class="fd" x="5616" y="1309" width="84" height="10"/>
+<rect class="fd" x="5700" y="1265" width="84" height="10"/>
+<rect class="fd" x="5700" y="1309" width="84" height="10"/>
+<rect class="fd" x="5784" y="1309" width="69" height="10"/>
+<rect class="fd" x="5843" y="1204" width="10" height="115"/>
+<rect class="fd" x="5784" y="1265" width="25" height="10"/>
+<rect class="fd" x="5799" y="1204" width="10" height="71"/>
+<rect class="fd" x="324" y="1380" width="504" height="176"/>
+<rect class="fd" x="843" y="1441" width="69" height="10"/>
+<rect class="fd" x="843" y="1441" width="10" height="115"/>
+<rect class="fd" x="887" y="1485" width="25" height="10"/>
+<rect class="fd" x="887" y="1485" width="10" height="71"/>
+<rect class="fd" x="912" y="1485" width="69" height="10"/>
+<rect class="fd" x="971" y="1380" width="10" height="115"/>
+<rect class="fd" x="912" y="1441" width="25" height="10"/>
+<rect class="fd" x="927" y="1380" width="10" height="71"/>
+<rect class="fd" x="996" y="1380" width="588" height="176"/>
+<rect class="fd" x="1584" y="1441" width="69" height="10"/>
+<rect class="fd" x="1643" y="1441" width="10" height="115"/>
+<rect class="fd" x="1584" y="1485" width="25" height="10"/>
+<rect class="fd" x="1599" y="1485" width="10" height="71"/>
+<rect class="fd" x="1920" y="1380" width="168" height="176"/>
+<rect class="fd" x="2103" y="1380" width="10" height="176"/>
+<rect class="fd" x="2147" y="1380" width="10" height="176"/>
+<rect class="fd" x="2424" y="1380" width="168" height="176"/>
+<rect class="fd" x="2607" y="1380" width="10" height="176"/>
+<rect class="fd" x="2651" y="1380" width="10" height="176"/>
+<rect class="fd" x="2844" y="1380" width="168" height="176"/>
+<rect class="fd" x="3027" y="1380" width="10" height="176"/>
+<rect class="fd" x="3071" y="1380" width="10" height="176"/>
+<rect class="fd" x="3111" y="1485" width="69" height="10"/>
+<rect class="fd" x="3111" y="1380" width="10" height="115"/>
+<rect class="fd" x="3155" y="1441" width="25" height="10"/>
+<rect class="fd" x="3155" y="1380" width="10" height="71"/>
+<rect class="fd" x="3180" y="1380" width="504" height="176"/>
+<rect class="fd" x="3699" y="1441" width="69" height="10"/>
+<rect class="fd" x="3699" y="1441" width="10" height="115"/>
+<rect class="fd" x="3743" y="1485" width="25" height="10"/>
+<rect class="fd" x="3743" y="1485" width="10" height="71"/>
+<rect class="fd" x="3768" y="1485" width="69" height="10"/>
+<rect class="fd" x="3827" y="1380" width="10" height="115"/>
+<rect class="fd" x="3768" y="1441" width="25" height="10"/>
+<rect class="fd" x="3783" y="1380" width="10" height="71"/>
+<rect class="fd" x="3867" y="1485" width="69" height="10"/>
+<rect class="fd" x="3867" y="1380" width="10" height="115"/>
+<rect class="fd" x="3911" y="1441" width="25" height="10"/>
+<rect class="fd" x="3911" y="1380" width="10" height="71"/>
+<rect class="fd" x="3936" y="1380" width="504" height="176"/>
+<rect class="fd" x="4455" y="1441" width="69" height="10"/>
+<rect class="fd" x="4455" y="1441" width="10" height="115"/>
+<rect class="fd" x="4499" y="1485" width="25" height="10"/>
+<rect class="fd" x="4499" y="1485" width="10" height="71"/>
+<rect class="fd" x="4524" y="1485" width="69" height="10"/>
+<rect class="fd" x="4583" y="1380" width="10" height="115"/>
+<rect class="fd" x="4524" y="1441" width="25" height="10"/>
+<rect class="fd" x="4539" y="1380" width="10" height="71"/>
+<rect class="fd" x="4860" y="1380" width="168" height="176"/>
+<rect class="fd" x="5043" y="1380" width="10" height="176"/>
+<rect class="fd" x="5087" y="1380" width="10" height="176"/>
+<rect class="fd" x="5364" y="1380" width="588" height="176"/>
+<rect class="fd" x="5952" y="1441" width="69" height="10"/>
+<rect class="fd" x="6011" y="1441" width="10" height="115"/>
+<rect class="fd" x="5952" y="1485" width="25" height="10"/>
+<rect class="fd" x="5967" y="1485" width="10" height="71"/>
+<rect class="fd" x="339" y="1661" width="69" height="10"/>
+<rect class="fd" x="339" y="1556" width="10" height="115"/>
+<rect class="fd" x="383" y="1617" width="25" height="10"/>
+<rect class="fd" x="383" y="1556" width="10" height="71"/>
+<rect class="fd" x="408" y="1617" width="84" height="10"/>
+<rect class="fd" x="408" y="1661" width="84" height="10"/>
+<rect class="fd" x="492" y="1617" width="84" height="10"/>
+<rect class="fd" x="492" y="1661" width="84" height="10"/>
+<rect class="fd" x="576" y="1617" width="84" height="10"/>
+<rect class="fd" x="576" y="1661" width="84" height="10"/>
+<rect class="fd" x="660" y="1617" width="84" height="10"/>
+<rect class="fd" x="660" y="1661" width="84" height="10"/>
+<rect class="fd" x="744" y="1617" width="84" height="10"/>
+<rect class="fd" x="744" y="1661" width="84" height="10"/>
+<rect class="fd" x="828" y="1661" width="69" height="10"/>
+<rect class="fd" x="887" y="1556" width="10" height="115"/>
+<rect class="fd" x="828" y="1617" width="25" height="10"/>
+<rect class="fd" x="843" y="1556" width="10" height="71"/>
+<rect class="fd" x="1011" y="1661" width="69" height="10"/>
+<rect class="fd" x="1011" y="1556" width="10" height="115"/>
+<rect class="fd" x="1055" y="1617" width="25" height="10"/>
+<rect class="fd" x="1055" y="1556" width="10" height="71"/>
+<rect class="fd" x="1080" y="1617" width="84" height="10"/>
+<rect class="fd" x="1080" y="1661" width="84" height="10"/>
+<rect class="fd" x="1164" y="1617" width="84" height="10"/>
+<rect class="fd" x="1164" y="1661" width="84" height="10"/>
+<rect class="fd" x="1248" y="1617" width="84" height="10"/>
+<rect class="fd" x="1248" y="1661" width="84" height="10"/>
+<rect class="fd" x="1332" y="1617" width="84" height="10"/>
+<rect class="fd" x="1332" y="1661" width="84" height="10"/>
+<rect class="fd" x="1416" y="1617" width="84" height="10"/>
+<rect class="fd" x="1416" y="1661" width="84" height="10"/>
+<rect class="fd" x="1500" y="1617" width="84" height="10"/>
+<rect class="fd" x="1500" y="1661" width="84" height="10"/>
+<rect class="fd" x="1584" y="1661" width="69" height="10"/>
+<rect class="fd" x="1643" y="1556" width="10" height="115"/>
+<rect class="fd" x="1584" y="1617" width="25" height="10"/>
+<rect class="fd" x="1599" y="1556" width="10" height="71"/>
+<rect class="fd" x="1935" y="1661" width="69" height="10"/>
+<rect class="fd" x="1935" y="1556" width="10" height="115"/>
+<rect class="fd" x="1979" y="1617" width="25" height="10"/>
+<rect class="fd" x="1979" y="1556" width="10" height="71"/>
+<rect class="fd" x="2004" y="1617" width="84" height="10"/>
+<rect class="fd" x="2004" y="1661" width="84" height="10"/>
+<rect class="fd" x="2088" y="1661" width="69" height="10"/>
+<rect class="fd" x="2147" y="1556" width="10" height="115"/>
+<rect class="fd" x="2088" y="1617" width="25" height="10"/>
+<rect class="fd" x="2103" y="1556" width="10" height="71"/>
+<rect class="fd" x="2439" y="1661" width="69" height="10"/>
+<rect class="fd" x="2439" y="1556" width="10" height="115"/>
+<rect class="fd" x="2483" y="1617" width="25" height="10"/>
+<rect class="fd" x="2483" y="1556" width="10" height="71"/>
+<rect class="fd" x="2508" y="1617" width="84" height="10"/>
+<rect class="fd" x="2508" y="1661" width="84" height="10"/>
+<rect class="fd" x="2592" y="1661" width="69" height="10"/>
+<rect class="fd" x="2651" y="1556" width="10" height="115"/>
+<rect class="fd" x="2592" y="1617" width="25" height="10"/>
+<rect class="fd" x="2607" y="1556" width="10" height="71"/>
+<rect class="fd" x="2859" y="1661" width="69" height="10"/>
+<rect class="fd" x="2859" y="1556" width="10" height="115"/>
+<rect class="fd" x="2903" y="1617" width="25" height="10"/>
+<rect class="fd" x="2903" y="1556" width="10" height="71"/>
+<rect class="fd" x="2928" y="1617" width="84" height="10"/>
+<rect class="fd" x="2928" y="1661" width="84" height="10"/>
+<rect class="fd" x="3012" y="1661" width="69" height="10"/>
+<rect class="fd" x="3071" y="1556" width="10" height="115"/>
+<rect class="fd" x="3012" y="1617" width="25" height="10"/>
+<rect class="fd" x="3027" y="1556" width="10" height="71"/>
+<rect class="fd" x="3195" y="1661" width="69" height="10"/>
+<rect class="fd" x="3195" y="1556" width="10" height="115"/>
+<rect class="fd" x="3239" y="1617" width="25" height="10"/>
+<rect class="fd" x="3239" y="1556" width="10" height="71"/>
+<rect class="fd" x="3264" y="1617" width="84" height="10"/>
+<rect class="fd" x="3264" y="1661" width="84" height="10"/>
+<rect class="fd" x="3348" y="1617" width="84" height="10"/>
+<rect class="fd" x="3348" y="1661" width="84" height="10"/>
+<rect class="fd" x="3432" y="1617" width="84" height="10"/>
+<rect class="fd" x="3432" y="1661" width="84" height="10"/>
+<rect class="fd" x="3516" y="1617" width="84" height="10"/>
+<rect class="fd" x="3516" y="1661" width="84" height="10"/>
+<rect class="fd" x="3600" y="1617" width="84" height="10"/>
+<rect class="fd" x="3600" y="1661" width="84" height="10"/>
+<rect class="fd" x="3684" y="1661" width="69" height="10"/>
+<rect class="fd" x="3743" y="1556" width="10" height="115"/>
+<rect class="fd" x="3684" y="1617" width="25" height="10"/>
+<rect class="fd" x="3699" y="1556" width="10" height="71"/>
+<rect class="fd" x="3951" y="1661" width="69" height="10"/>
+<rect class="fd" x="3951" y="1556" width="10" height="115"/>
+<rect class="fd" x="3995" y="1617" width="25" height="10"/>
+<rect class="fd" x="3995" y="1556" width="10" height="71"/>
+<rect class="fd" x="4020" y="1617" width="84" height="10"/>
+<rect class="fd" x="4020" y="1661" width="84" height="10"/>
+<rect class="fd" x="4104" y="1617" width="84" height="10"/>
+<rect class="fd" x="4104" y="1661" width="84" height="10"/>
+<rect class="fd" x="4188" y="1617" width="84" height="10"/>
+<rect class="fd" x="4188" y="1661" width="84" height="10"/>
+<rect class="fd" x="4272" y="1617" width="84" height="10"/>
+<rect class="fd" x="4272" y="1661" width="84" height="10"/>
+<rect class="fd" x="4356" y="1617" width="84" height="10"/>
+<rect class="fd" x="4356" y="1661" width="84" height="10"/>
+<rect class="fd" x="4440" y="1661" width="69" height="10"/>
+<rect class="fd" x="4499" y="1556" width="10" height="115"/>
+<rect class="fd" x="4440" y="1617" width="25" height="10"/>
+<rect class="fd" x="4455" y="1556" width="10" height="71"/>
+<rect class="fd" x="4875" y="1661" width="69" height="10"/>
+<rect class="fd" x="4875" y="1556" width="10" height="115"/>
+<rect class="fd" x="4919" y="1617" width="25" height="10"/>
+<rect class="fd" x="4919" y="1556" width="10" height="71"/>
+<rect class="fd" x="4944" y="1617" width="84" height="10"/>
+<rect class="fd" x="4944" y="1661" width="84" height="10"/>
+<rect class="fd" x="5028" y="1661" width="69" height="10"/>
+<rect class="fd" x="5087" y="1556" width="10" height="115"/>
+<rect class="fd" x="5028" y="1617" width="25" height="10"/>
+<rect class="fd" x="5043" y="1556" width="10" height="71"/>
+<rect class="fd" x="5379" y="1661" width="69" height="10"/>
+<rect class="fd" x="5379" y="1556" width="10" height="115"/>
+<rect class="fd" x="5423" y="1617" width="25" height="10"/>
+<rect class="fd" x="5423" y="1556" width="10" height="71"/>
+<rect class="fd" x="5448" y="1617" width="84" height="10"/>
+<rect class="fd" x="5448" y="1661" width="84" height="10"/>
+<rect class="fd" x="5532" y="1617" width="84" height="10"/>
+<rect class="fd" x="5532" y="1661" width="84" height="10"/>
+<rect class="fd" x="5616" y="1617" width="84" height="10"/>
+<rect class="fd" x="5616" y="1661" width="84" height="10"/>
+<rect class="fd" x="5700" y="1617" width="84" height="10"/>
+<rect class="fd" x="5700" y="1661" width="84" height="10"/>
+<rect class="fd" x="5784" y="1617" width="84" height="10"/>
+<rect class="fd" x="5784" y="1661" width="84" height="10"/>
+<rect class="fd" x="5868" y="1617" width="84" height="10"/>
+<rect class="fd" x="5868" y="1661" width="84" height="10"/>
+<rect class="fd" x="5952" y="1661" width="69" height="10"/>
+<rect class="fd" x="6011" y="1556" width="10" height="115"/>
+<rect class="fd" x="5952" y="1617" width="25" height="10"/>
+<rect class="fd" x="5967" y="1556" width="10" height="71"/>
+<text x="324" y="1860" textLength="672">DEYROUTE</text>
+<text x="1080" y="1860" textLength="504">Tunnel</text>
+<text x="1668" y="1860" textLength="588">Manager</text>
+<text x="2424" y="1860" textLength="504">v1.0.0</text>
+<text x="3096" y="1860">·</text>
+<text x="3348" y="1860" textLength="840">first-time</text>
+<text x="4272" y="1860" textLength="420">setup</text>
+<text x="4860" y="1860">·</text>
+<text x="5112" y="1860" textLength="420">Mode:</text>
+<text x="5616" y="1860" textLength="504">Simple</text>
+<text x="240" y="2036" textLength="840">First-time</text>
+<text x="1164" y="2036" textLength="504">setup:</text>
+<text x="1752" y="2036">a</text>
+<text x="1920" y="2036" textLength="252">few</text>
+<text x="2256" y="2036" textLength="840">questions.</text>
+<text x="3180" y="2036" textLength="336">Each</text>
+<text x="3600" y="2036" textLength="252">one</text>
+<text x="3936" y="2036" textLength="336">says</text>
+<text x="4356" y="2036" textLength="336">what</text>
+<text x="4776" y="2036" textLength="168">to</text>
+<text x="5028" y="2036" textLength="420">type;</text>
+<text x="5532" y="2036" textLength="420">Enter</text>
+<text x="6036" y="2036" textLength="420">alone</text>
+<text x="6540" y="2036" textLength="420">takes</text>
+<text x="7044" y="2036" textLength="252">the</text>
+<text x="7380" y="2036" textLength="756">suggested</text>
+<text x="8220" y="2036" textLength="588">answer.</text>
+<text x="240" y="2388" class="f6 b" textLength="336">Step</text>
+<text x="660" y="2388" class="f6 b">1</text>
+<text x="828" y="2388" class="f6 b" textLength="168">of</text>
+<text x="1080" y="2388" class="f6 b">5</text>
+<text x="1248" y="2388">·</text>
+<text x="1416" y="2388" class="b" textLength="336">Role</text>
+<text x="1836" y="2388" class="b" textLength="168">of</text>
+<text x="2088" y="2388" class="b" textLength="336">this</text>
+<text x="2508" y="2388" class="b" textLength="504">server</text>
+<text x="492" y="2564" textLength="252">Set</text>
+<text x="828" y="2564" textLength="168">up</text>
+<text x="1080" y="2564" textLength="252">the</text>
+<text x="1416" y="2564" textLength="252">hub</text>
+<text x="1752" y="2564" textLength="504">first;</text>
+<text x="2340" y="2564" textLength="336">each</text>
+<text x="2760" y="2564" textLength="336">node</text>
+<text x="3180" y="2564" textLength="336">then</text>
+<text x="3600" y="2564" textLength="420">joins</text>
+<text x="4104" y="2564" textLength="168">it</text>
+<text x="4356" y="2564" textLength="336">with</text>
+<text x="4776" y="2564" textLength="252">the</text>
+<text x="5112" y="2564" textLength="588">command</text>
+<text x="5784" y="2564" textLength="252">the</text>
+<text x="6120" y="2564" textLength="252">hub</text>
+<text x="6456" y="2564" textLength="588">prints.</text>
+<text x="492" y="2740" class="f2 b" textLength="168">1)</text>
+<text x="744" y="2740" class="b" textLength="252">hub</text>
+<text x="1332" y="2740" textLength="252">the</text>
+<text x="1668" y="2740" textLength="504">server</text>
+<text x="2256" y="2740" textLength="168">in</text>
+<text x="2508" y="2740" textLength="420">Iran:</text>
+<text x="3012" y="2740" textLength="336">your</text>
+<text x="3432" y="2740" textLength="420">users</text>
+<text x="3936" y="2740" textLength="588">connect</text>
+<text x="4608" y="2740" textLength="168">to</text>
+<text x="4860" y="2740" textLength="168">it</text>
+<text x="492" y="2916" class="f2 b" textLength="168">2)</text>
+<text x="744" y="2916" class="b" textLength="336">node</text>
+<text x="1332" y="2916" textLength="252">the</text>
+<text x="1668" y="2916" textLength="504">server</text>
+<text x="2256" y="2916" textLength="588">abroad:</text>
+<text x="2928" y="2916" textLength="336">runs</text>
+<text x="3348" y="2916" textLength="336">your</text>
+<text x="3768" y="2916" textLength="252">VPN</text>
+<text x="4104" y="2916" textLength="588">service</text>
+<text x="4776" y="2916" textLength="504">(Xray,</text>
+<text x="5364" y="2916" textLength="588">Marzban</text>
+<text x="6036" y="2916" textLength="336">node</text>
+<text x="6456" y="2916" textLength="336">...)</text>
+<text x="492" y="3092" class="f8" textLength="336">Type</text>
+<text x="912" y="3092" class="f8">1</text>
+<text x="1080" y="3092" class="f8" textLength="168">or</text>
+<text x="1332" y="3092" class="f8">2</text>
+<text x="1500" y="3092" class="f8" textLength="252">and</text>
+<text x="1836" y="3092" class="f8" textLength="420">press</text>
+<text x="2340" y="3092" class="f8" textLength="504">Enter.</text>
+<text x="2928" y="3092" class="f8" textLength="420">Enter</text>
+<text x="3432" y="3092" class="f8" textLength="420">alone</text>
+<text x="3936" y="3092" class="f8">=</text>
+<text x="4104" y="3092" class="f8">1</text>
+<text x="4272" y="3092" class="f8" textLength="504">(hub).</text>
+<text x="324" y="3268" class="f2 b">›</text>
+<text x="492" y="3268">1</text>
+<text x="240" y="3620" class="f6 b" textLength="336">Step</text>
+<text x="660" y="3620" class="f6 b">2</text>
+<text x="828" y="3620" class="f6 b" textLength="168">of</text>
+<text x="1080" y="3620" class="f6 b">5</text>
+<text x="1248" y="3620">·</text>
+<text x="1416" y="3620" class="b" textLength="336">Name</text>
+<text x="1836" y="3620" class="b" textLength="168">of</text>
+<text x="2088" y="3620" class="b" textLength="336">this</text>
+<text x="2508" y="3620" class="b" textLength="252">hub</text>
+<text x="492" y="3796" textLength="420">Shown</text>
+<text x="996" y="3796" textLength="168">in</text>
+<text x="1248" y="3796" textLength="252">the</text>
+<text x="1584" y="3796" textLength="420">menu,</text>
+<text x="2088" y="3796" textLength="252">the</text>
+<text x="2424" y="3796" textLength="336">logs</text>
+<text x="2844" y="3796" textLength="252">and</text>
+<text x="3180" y="3796" textLength="252">the</text>
+<text x="3516" y="3796" textLength="756">messages.</text>
+<text x="4356" y="3796" textLength="672">Letters,</text>
+<text x="5112" y="3796" textLength="504">digits</text>
+<text x="5700" y="3796" textLength="252">and</text>
+<text x="6036" y="3796" textLength="168">-,</text>
+<text x="6288" y="3796" textLength="336">e.g.</text>
+<text x="6708" y="3796" textLength="420">ir-1.</text>
+<text x="492" y="3972" class="f8" textLength="420">Press</text>
+<text x="996" y="3972" class="f8" textLength="420">Enter</text>
+<text x="1500" y="3972" class="f8" textLength="168">to</text>
+<text x="1752" y="3972" class="f8" textLength="252">use</text>
+<text x="2088" y="3972" class="f8" textLength="420">ir-1,</text>
+<text x="2592" y="3972" class="f8" textLength="168">or</text>
+<text x="2844" y="3972" class="f8" textLength="336">type</text>
+<text x="3264" y="3972" class="f8" textLength="588">another</text>
+<text x="3936" y="3972" class="f8" textLength="420">value</text>
+<text x="4440" y="3972" class="f8" textLength="252">and</text>
+<text x="4776" y="3972" class="f8" textLength="420">press</text>
+<text x="5280" y="3972" class="f8" textLength="504">Enter.</text>
+<text x="324" y="4148" class="f2 b">›</text>
+<text x="240" y="4500" class="f6 b" textLength="336">Step</text>
+<text x="660" y="4500" class="f6 b">3</text>
+<text x="828" y="4500" class="f6 b" textLength="168">of</text>
+<text x="1080" y="4500" class="f6 b">5</text>
+<text x="1248" y="4500">·</text>
+<text x="1416" y="4500" class="b" textLength="504">Public</text>
+<text x="2004" y="4500" class="b" textLength="168">IP</text>
+<text x="2256" y="4500" class="b" textLength="168">of</text>
+<text x="2508" y="4500" class="b" textLength="336">this</text>
+<text x="2928" y="4500" class="b" textLength="504">server</text>
+<text x="492" y="4676" textLength="252">The</text>
+<text x="828" y="4676" textLength="588">address</text>
+<text x="1500" y="4676" textLength="336">your</text>
+<text x="1920" y="4676" textLength="420">users</text>
+<text x="2424" y="4676" textLength="252">and</text>
+<text x="2760" y="4676" textLength="336">your</text>
+<text x="3180" y="4676" textLength="420">nodes</text>
+<text x="3684" y="4676" textLength="588">connect</text>
+<text x="4356" y="4676" textLength="252">to.</text>
+<text x="492" y="4852" textLength="672">Detected</text>
+<text x="1248" y="4852" textLength="1176">automatically:</text>
+<text x="2508" y="4852" textLength="1008">203.0.113.10</text>
+<text x="492" y="5028" class="f8" textLength="420">Press</text>
+<text x="996" y="5028" class="f8" textLength="420">Enter</text>
+<text x="1500" y="5028" class="f8" textLength="168">to</text>
+<text x="1752" y="5028" class="f8" textLength="252">use</text>
+<text x="2088" y="5028" class="f8" textLength="1092">203.0.113.10,</text>
+<text x="3264" y="5028" class="f8" textLength="168">or</text>
+<text x="3516" y="5028" class="f8" textLength="336">type</text>
+<text x="3936" y="5028" class="f8" textLength="588">another</text>
+<text x="4608" y="5028" class="f8" textLength="420">value</text>
+<text x="5112" y="5028" class="f8" textLength="252">and</text>
+<text x="5448" y="5028" class="f8" textLength="420">press</text>
+<text x="5952" y="5028" class="f8" textLength="504">Enter.</text>
+<text x="324" y="5204" class="f2 b">›</text>
+<text x="240" y="5556" class="f6 b" textLength="336">Step</text>
+<text x="660" y="5556" class="f6 b">4</text>
+<text x="828" y="5556" class="f6 b" textLength="168">of</text>
+<text x="1080" y="5556" class="f6 b">5</text>
+<text x="1248" y="5556">·</text>
+<text x="1416" y="5556" class="b" textLength="588">Control</text>
+<text x="2088" y="5556" class="b" textLength="336">port</text>
+<text x="2508" y="5556" class="b" textLength="252">for</text>
+<text x="2844" y="5556" class="b" textLength="252">the</text>
+<text x="3180" y="5556" class="b" textLength="420">nodes</text>
+<text x="492" y="5732" textLength="336">Your</text>
+<text x="912" y="5732" textLength="420">nodes</text>
+<text x="1416" y="5732" textLength="588">connect</text>
+<text x="2088" y="5732" textLength="168">to</text>
+<text x="2340" y="5732" textLength="252">the</text>
+<text x="2676" y="5732" textLength="252">hub</text>
+<text x="3012" y="5732" textLength="168">on</text>
+<text x="3264" y="5732" textLength="336">this</text>
+<text x="3684" y="5732" textLength="252">TCP</text>
+<text x="4020" y="5732" textLength="336">port</text>
+<text x="4440" y="5732" textLength="588">(mutual</text>
+<text x="5112" y="5732" textLength="420">TLS).</text>
+<text x="5616" y="5732" textLength="420">Allow</text>
+<text x="6120" y="5732" textLength="168">it</text>
+<text x="6372" y="5732" textLength="168">in</text>
+<text x="6624" y="5732" textLength="336">your</text>
+<text x="7044" y="5732" textLength="840">provider&#39;s</text>
+<text x="7968" y="5732" textLength="672">firewall</text>
+<text x="8724" y="5732" textLength="336">too.</text>
+<text x="492" y="5908" class="f8" textLength="420">Press</text>
+<text x="996" y="5908" class="f8" textLength="420">Enter</text>
+<text x="1500" y="5908" class="f8" textLength="168">to</text>
+<text x="1752" y="5908" class="f8" textLength="252">use</text>
+<text x="2088" y="5908" class="f8" textLength="504">44433,</text>
+<text x="2676" y="5908" class="f8" textLength="168">or</text>
+<text x="2928" y="5908" class="f8" textLength="336">type</text>
+<text x="3348" y="5908" class="f8" textLength="588">another</text>
+<text x="4020" y="5908" class="f8" textLength="420">value</text>
+<text x="4524" y="5908" class="f8" textLength="252">and</text>
+<text x="4860" y="5908" class="f8" textLength="420">press</text>
+<text x="5364" y="5908" class="f8" textLength="504">Enter.</text>
+<text x="324" y="6084" class="f2 b">›</text>
+<text x="240" y="6436" class="f6 b" textLength="336">Step</text>
+<text x="660" y="6436" class="f6 b">5</text>
+<text x="828" y="6436" class="f6 b" textLength="168">of</text>
+<text x="1080" y="6436" class="f6 b">5</text>
+<text x="1248" y="6436">·</text>
+<text x="1416" y="6436" class="b" textLength="336">Tune</text>
+<text x="1836" y="6436" class="b" textLength="336">this</text>
+<text x="2256" y="6436" class="b" textLength="504">server</text>
+<text x="2844" y="6436" class="b" textLength="1092">automatically</text>
+<text x="4020" y="6436" class="b" textLength="1092">(recommended)</text>
+<text x="492" y="6612" textLength="672">deyroute</text>
+<text x="1248" y="6612" textLength="672">measured</text>
+<text x="2004" y="6612" textLength="336">this</text>
+<text x="2424" y="6612" textLength="504">server</text>
+<text x="3012" y="6612" textLength="252">and</text>
+<text x="3348" y="6612" textLength="420">lists</text>
+<text x="3852" y="6612" textLength="252">the</text>
+<text x="4188" y="6612" textLength="504">kernel</text>
+<text x="4776" y="6612" textLength="672">settings</text>
+<text x="5532" y="6612" textLength="336">that</text>
+<text x="5952" y="6612" textLength="336">suit</text>
+<text x="6372" y="6612" textLength="252">it:</text>
+<text x="492" y="6788" textLength="756">Measured:</text>
+<text x="1332" y="6788" textLength="252">2.0</text>
+<text x="1668" y="6788" textLength="252">GiB</text>
+<text x="2004" y="6788" textLength="252">RAM</text>
+<text x="2340" y="6788">·</text>
+<text x="2508" y="6788">2</text>
+<text x="2676" y="6788" textLength="252">CPU</text>
+<text x="3012" y="6788">·</text>
+<text x="3180" y="6788" textLength="504">kernel</text>
+<text x="3768" y="6788" textLength="1176">6.1.0-21-amd64</text>
+<text x="5028" y="6788">·</text>
+<text x="5196" y="6788" textLength="336">eth0</text>
+<text x="5616" y="6788" textLength="252">MTU</text>
+<text x="5952" y="6788" textLength="336">1500</text>
+<text x="492" y="6964">9</text>
+<text x="660" y="6964" textLength="672">settings</text>
+<text x="1416" y="6964" textLength="504">change</text>
+<text x="2004" y="6964" textLength="168">(4</text>
+<text x="2256" y="6964" textLength="168">of</text>
+<text x="2508" y="6964" textLength="336">them</text>
+<text x="2928" y="6964" textLength="336">only</text>
+<text x="3348" y="6964" textLength="420">after</text>
+<text x="3852" y="6964">a</text>
+<text x="4020" y="6964" textLength="504">reboot</text>
+<text x="4608" y="6964" textLength="168">or</text>
+<text x="4860" y="6964" textLength="252">the</text>
+<text x="5196" y="6964" textLength="336">next</text>
+<text x="5616" y="6964" textLength="588">start):</text>
+<text x="660" y="7140" textLength="2604">net.ipv4.tcp_congestion_control</text>
+<text x="5028" y="7140" textLength="420">cubic</text>
+<text x="5700" y="7140">→</text>
+<text x="5868" y="7140" textLength="252">bbr</text>
+<text x="660" y="7316" textLength="1512">net.core.somaxconn</text>
+<text x="5028" y="7316" textLength="336">4096</text>
+<text x="5700" y="7316">→</text>
+<text x="5868" y="7316" textLength="420">65535</text>
+<text x="660" y="7492" textLength="1428">net.core.rmem_max</text>
+<text x="5028" y="7492" textLength="504">212992</text>
+<text x="5700" y="7492">→</text>
+<text x="5868" y="7492" textLength="672">33554432</text>
+<text x="660" y="7668" textLength="2856">net.ipv4.tcp_slow_start_after_idle</text>
+<text x="5028" y="7668">1</text>
+<text x="5700" y="7668">→</text>
+<text x="5868" y="7668">0</text>
+<text x="660" y="7844" textLength="2688">net.ipv4.ip_local_reserved_ports</text>
+<text x="5028" y="7844">-</text>
+<text x="5700" y="7844">→</text>
+<text x="5868" y="7844" textLength="1428">30000-31999,44433</text>
+<text x="660" y="8020" textLength="2520">net.netfilter.nf_conntrack_max</text>
+<text x="5028" y="8020">-</text>
+<text x="5700" y="8020">→</text>
+<text x="5868" y="8020" textLength="504">131072</text>
+<text x="6540" y="8020" textLength="504">(after</text>
+<text x="7128" y="8020" textLength="588">reboot)</text>
+<text x="660" y="8196" textLength="2436">/etc/modprobe.d/deyroute.conf</text>
+<text x="5028" y="8196">-</text>
+<text x="5700" y="8196">→</text>
+<text x="5868" y="8196" textLength="588">options</text>
+<text x="6540" y="8196" textLength="1008">nf_conntrack</text>
+<text x="7632" y="8196" textLength="1176">hashsize=32768</text>
+<text x="8976" y="8196" textLength="504">(after</text>
+<text x="324" y="8372" textLength="588">reboot)</text>
+<text x="660" y="8548" textLength="4200">net.netfilter.nf_conntrack_tcp_timeout_established</text>
+<text x="5028" y="8548">-</text>
+<text x="5700" y="8548">→</text>
+<text x="5868" y="8548" textLength="420">86400</text>
+<text x="6456" y="8548" textLength="504">(after</text>
+<text x="7044" y="8548" textLength="588">reboot)</text>
+<text x="660" y="8724" textLength="2772">/etc/modules-load.d/deyroute.conf</text>
+<text x="5028" y="8724">-</text>
+<text x="5700" y="8724">→</text>
+<text x="5868" y="8724" textLength="1008">nf_conntrack</text>
+<text x="7044" y="8724" textLength="504">(after</text>
+<text x="7632" y="8724" textLength="588">reboot)</text>
+<text x="492" y="8900" textLength="168">19</text>
+<text x="744" y="8900" textLength="336">left</text>
+<text x="1164" y="8900" textLength="252">out</text>
+<text x="1500" y="8900" textLength="336">(for</text>
+<text x="1920" y="8900" textLength="588">example</text>
+<text x="2592" y="8900" textLength="1932">net.core.default_qdisc:</text>
+<text x="4608" y="8900" textLength="336">this</text>
+<text x="5028" y="8900" textLength="504">kernel</text>
+<text x="5616" y="8900" textLength="252">has</text>
+<text x="5952" y="8900" textLength="168">no</text>
+<text x="6204" y="8900" textLength="336">such</text>
+<text x="6624" y="8900" textLength="756">setting).</text>
+<text x="492" y="9076" textLength="252">Why</text>
+<text x="828" y="9076" textLength="336">each</text>
+<text x="1248" y="9076" textLength="336">one:</text>
+<text x="1668" y="9076" textLength="672">deyroute</text>
+<text x="2424" y="9076" textLength="672">optimize</text>
+<text x="3180" y="9076" textLength="336">auto</text>
+<text x="3600" y="9076" textLength="756">--dry-run</text>
+<text x="4440" y="9076" textLength="504">(after</text>
+<text x="5028" y="9076" textLength="588">setup).</text>
+<text x="5700" y="9076" textLength="252">You</text>
+<text x="6036" y="9076" textLength="252">can</text>
+<text x="6372" y="9076" textLength="336">undo</text>
+<text x="6792" y="9076" textLength="168">it</text>
+<text x="7044" y="9076" textLength="252">any</text>
+<text x="7380" y="9076" textLength="336">time</text>
+<text x="7800" y="9076" textLength="420">with:</text>
+<text x="8304" y="9076" textLength="672">deyroute</text>
+<text x="9060" y="9076" textLength="420">optim</text>
+<text x="240" y="9252" textLength="252">ize</text>
+<text x="576" y="9252" textLength="504">revert</text>
+<text x="492" y="9428" class="f8" textLength="336">Type</text>
+<text x="912" y="9428" class="f8">y</text>
+<text x="1080" y="9428" class="f8" textLength="420">(yes)</text>
+<text x="1584" y="9428" class="f8" textLength="168">or</text>
+<text x="1836" y="9428" class="f8">n</text>
+<text x="2004" y="9428" class="f8" textLength="336">(no)</text>
+<text x="2424" y="9428" class="f8" textLength="252">and</text>
+<text x="2760" y="9428" class="f8" textLength="420">press</text>
+<text x="3264" y="9428" class="f8" textLength="504">Enter.</text>
+<text x="3852" y="9428" class="f8" textLength="420">Enter</text>
+<text x="4356" y="9428" class="f8" textLength="420">alone</text>
+<text x="4860" y="9428" class="f8">=</text>
+<text x="5028" y="9428" class="f8">y</text>
+<text x="5196" y="9428" class="f8" textLength="504">(yes).</text>
+<text x="324" y="9604" class="f2 b">›</text>
+<text x="492" y="9604">y</text>
+<text x="240" y="9956" class="b" textLength="588">Summary</text>
+<text x="492" y="10132" textLength="336">Role</text>
+<text x="1920" y="10132" textLength="252">hub</text>
+<text x="492" y="10308" textLength="336">Name</text>
+<text x="1920" y="10308" textLength="336">ir-1</text>
+<text x="492" y="10484" textLength="504">Public</text>
+<text x="1080" y="10484" textLength="168">IP</text>
+<text x="1920" y="10484" textLength="1008">203.0.113.10</text>
+<text x="492" y="10660" textLength="588">Control</text>
+<text x="1164" y="10660" textLength="336">port</text>
+<text x="1920" y="10660" textLength="420">44433</text>
+<text x="492" y="10836" textLength="504">Kernel</text>
+<text x="1080" y="10836" textLength="588">profile</text>
+<text x="1920" y="10836" textLength="756">automatic</text>
+<text x="2760" y="10836" textLength="168">(9</text>
+<text x="3012" y="10836" textLength="672">changes)</text>
+<text x="240" y="11188" textLength="588">Setting</text>
+<text x="912" y="11188" textLength="168">up</text>
+<text x="1164" y="11188" textLength="252">hub</text>
+<text x="1500" y="11188" textLength="336">ir-1</text>
+<text x="1920" y="11188" textLength="252">...</text>
+<path class="k sd" d="M422 11326L442 11350L480 11294" stroke-width="16"/>
+<text x="576" y="11364" textLength="504">Detect</text>
+<text x="1164" y="11364" textLength="504">public</text>
+<text x="1752" y="11364" textLength="168">IP</text>
+<text x="2088" y="11364" textLength="1008">203.0.113.10</text>
+<path class="k sd" d="M422 11502L442 11526L480 11470" stroke-width="16"/>
+<text x="576" y="11540" textLength="504">Create</text>
+<text x="1164" y="11540" textLength="672">internal</text>
+<text x="1920" y="11540" textLength="168">CA</text>
+<path class="k sd" d="M422 11678L442 11702L480 11646" stroke-width="16"/>
+<text x="576" y="11716" textLength="420">Issue</text>
+<text x="1080" y="11716" textLength="252">hub</text>
+<text x="1416" y="11716" textLength="924">certificate</text>
+<path class="k sd" d="M422 11854L442 11878L480 11822" stroke-width="16"/>
+<text x="576" y="11892" textLength="420">Apply</text>
+<text x="1080" y="11892" textLength="672">firewall</text>
+<text x="1836" y="11892" textLength="504">(table</text>
+<text x="2424" y="11892" textLength="336">inet</text>
+<text x="2844" y="11892" textLength="756">deyroute)</text>
+<path class="k sd" d="M422 12030L442 12054L480 11998" stroke-width="16"/>
+<text x="576" y="12068" textLength="420">Apply</text>
+<text x="1080" y="12068" textLength="504">kernel</text>
+<text x="1668" y="12068" textLength="672">settings</text>
+<path class="k sd" d="M422 12206L442 12230L480 12174" stroke-width="16"/>
+<text x="576" y="12244" textLength="420">Write</text>
+<text x="1080" y="12244" textLength="2100">/etc/deyroute/config.yaml</text>
+<path class="k sd" d="M422 12382L442 12406L480 12350" stroke-width="16"/>
+<text x="576" y="12420" textLength="588">Install</text>
+<text x="1248" y="12420" textLength="252">and</text>
+<text x="1584" y="12420" textLength="420">start</text>
+<text x="2088" y="12420" textLength="588">service</text>
+<path class="k s2" d="M254 12734L274 12758L312 12702" stroke-width="16"/>
+<text x="408" y="12772" class="f2 b" textLength="252">Hub</text>
+<text x="744" y="12772" class="f2 b" textLength="336">ir-1</text>
+<text x="1164" y="12772" class="f2 b" textLength="168">is</text>
+<text x="1416" y="12772" class="f2 b" textLength="504">ready:</text>
+<text x="2004" y="12772" class="f2 b" textLength="1092">203.0.113.10,</text>
+<text x="3180" y="12772" class="f2 b" textLength="588">control</text>
+<text x="3852" y="12772" class="f2 b" textLength="336">port</text>
+<text x="4272" y="12772" class="f2 b" textLength="504">44433.</text>
+<text x="240" y="13124" class="b" textLength="420">Next:</text>
+<text x="744" y="13124" class="b" textLength="252">add</text>
+<text x="1080" y="13124" class="b">a</text>
+<text x="1248" y="13124" class="b" textLength="336">node</text>
+<text x="1668" y="13124" class="b" textLength="336">(the</text>
+<text x="2088" y="13124" class="b" textLength="504">server</text>
+<text x="2676" y="13124" class="b" textLength="504">abroad</text>
+<text x="3264" y="13124" class="b" textLength="336">that</text>
+<text x="3684" y="13124" class="b" textLength="336">runs</text>
+<text x="4104" y="13124" class="b" textLength="336">your</text>
+<text x="4524" y="13124" class="b" textLength="252">VPN</text>
+<text x="4860" y="13124" class="b" textLength="672">service)</text>
+<text x="492" y="13300" textLength="168">1.</text>
+<text x="744" y="13300" textLength="252">Run</text>
+<text x="1080" y="13300" textLength="336">this</text>
+<text x="1500" y="13300" textLength="588">command</text>
+<text x="2172" y="13300" textLength="168">on</text>
+<text x="2424" y="13300" textLength="252">the</text>
+<text x="2760" y="13300" textLength="336">node</text>
+<text x="3180" y="13300" textLength="336">(one</text>
+<text x="3600" y="13300" textLength="336">node</text>
+<text x="4020" y="13300" textLength="252">per</text>
+<text x="4356" y="13300" textLength="672">command,</text>
+<text x="5112" y="13300" textLength="420">valid</text>
+<text x="5616" y="13300" textLength="420">until</text>
+<text x="6120" y="13300" textLength="504">12:15,</text>
+<text x="6708" y="13300" textLength="420">15m):</text>
+<text x="240" y="13652" textLength="336">bash</text>
+<text x="660" y="13652" textLength="504">&lt;(curl</text>
+<text x="1248" y="13652" textLength="420">-fsSL</text>
+<text x="1752" y="13652" textLength="6300">https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)</text>
+<text x="8136" y="13652" textLength="336">join</text>
+<text x="8556" y="13652" textLength="924">&#39;dey://EXAM</text>
+<text x="240" y="13828" textLength="3612">PLE-TOKEN@203.0.113.10:44433#sha256:3f9a5c&#39;</text>
+<text x="3936" y="13828" textLength="756">--version</text>
+<text x="4776" y="13828" textLength="420">1.0.0</text>
+<text x="492" y="14180" textLength="168">2.</text>
+<text x="744" y="14180" textLength="336">When</text>
+<text x="1164" y="14180" textLength="252">the</text>
+<text x="1500" y="14180" textLength="336">node</text>
+<text x="1920" y="14180" textLength="168">is</text>
+<text x="2172" y="14180" textLength="504">online</text>
+<text x="2760" y="14180" textLength="756">(deyroute</text>
+<text x="3600" y="14180" textLength="336">node</text>
+<text x="4020" y="14180" textLength="504">list),</text>
+<text x="4608" y="14180" textLength="504">create</text>
+<text x="5196" y="14180">a</text>
+<text x="5364" y="14180" textLength="504">tunnel</text>
+<text x="5952" y="14180" textLength="168">on</text>
+<text x="6204" y="14180" textLength="336">this</text>
+<text x="6624" y="14180" textLength="336">hub:</text>
+<text x="744" y="14356" textLength="168">in</text>
+<text x="996" y="14356" textLength="252">the</text>
+<text x="1332" y="14356" textLength="420">menu:</text>
+<text x="1836" y="14356" textLength="252">run</text>
+<text x="2172" y="14356" textLength="756">deyroute,</text>
+<text x="3012" y="14356" textLength="336">then</text>
+<text x="3432" y="14356" textLength="168">2)</text>
+<text x="3684" y="14356" textLength="588">Tunnels</text>
+<text x="4356" y="14356">→</text>
+<text x="4524" y="14356" textLength="168">1)</text>
+<text x="4776" y="14356" textLength="252">Add</text>
+<text x="5112" y="14356" textLength="504">tunnel</text>
+<text x="744" y="14532" textLength="168">or</text>
+<text x="996" y="14532" textLength="756">directly:</text>
+<text x="1836" y="14532" textLength="672">deyroute</text>
+<text x="2592" y="14532" textLength="504">tunnel</text>
+<text x="3180" y="14532" textLength="252">add</text>
+<text x="3516" y="14532" textLength="504">--node</text>
+<text x="4104" y="14532" textLength="420">&lt;node</text>
+<text x="4608" y="14532" textLength="252">id&gt;</text>
+<text x="4944" y="14532" textLength="588">--ports</text>
+<text x="5616" y="14532" textLength="252">443</text>
+</g>
+</svg>

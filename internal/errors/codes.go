@@ -57,6 +57,7 @@ const (
 	C024 Code = "DEY-C024" // config.yaml changed during config edit {path} {copy}
 	C025 Code = "DEY-C025" // invalid command line {reason} {command}
 	C026 Code = "DEY-C026" // config.yaml holds an edit that is not applied {path}
+	C027 Code = "DEY-C027" // invalid traffic query (stats period or target) {field} {value} {allowed}
 	C050 Code = "DEY-C050" // telegram rejected token/chat id {status} {reason}
 )
 
@@ -169,6 +170,7 @@ const (
 	S008 Code = "DEY-S008" // backup passphrase required
 	S009 Code = "DEY-S009" // secret file unreadable or damaged {path} {reason}
 	S010 Code = "DEY-S010" // update or rollback refused while the front is in use {action} {reason}
+	S011 Code = "DEY-S011" // rollback or downgrade refused while newer config keys are set {action} {keys} {reason}
 )
 
 // Internal (DEY-X0xx).
@@ -199,6 +201,12 @@ const (
 	X052 Code = "DEY-X052" // speed test failed {addr} {phase} {reason}
 	X053 Code = "DEY-X053" // front listener stopped or could not bind {addr} {reason}
 	X060 Code = "DEY-X060" // doctor file refused: a secret survived redaction {file} {what}
+	X061 Code = "DEY-X061" // traffic accounting unavailable {reason}
+	X062 Code = "DEY-X062" // traffic counters could not be read {reason}
+	X063 Code = "DEY-X063" // state.db above its size budget {size} {budget}
+	X064 Code = "DEY-X064" // kernel tuning not possible in a container {virt}
+	X065 Code = "DEY-X065" // tuning plan changed since it was shown
+	X067 Code = "DEY-X067" // tuned value overridden or drifted {key} {where}
 )
 
 var catalog = map[Code]Info{
@@ -337,6 +345,9 @@ var catalog = map[Code]Info{
 	C026: {C026, "{path} has changes that are not applied",
 		"the file was edited after the running configuration was loaded and deyroute config apply was not run (or it refused the edit); deyroute changes nothing now, so that edit is neither overwritten nor taken over without the checks of config apply",
 		"apply the edit: deyroute config apply (it names any problem; correct it with deyroute config edit), or undo it; then try again"},
+	C027: {C027, "Invalid {field} for traffic statistics: '{value}'",
+		"traffic statistics accept {allowed}",
+		"use one of them, e.g. deyroute stats main --period 24h; list the tunnels with deyroute tunnel list and the nodes with deyroute node list"},
 	C050: {C050, "Telegram rejected the notification settings (HTTP {status})",
 		"Telegram answered '{reason}': the bot token is wrong, the chat id is unknown, or the bot is not a member of that chat",
 		"send /start to the bot (or add it to the group), then: deyroute notify telegram set --token-file F --chat-id C   and   deyroute notify telegram test"},
@@ -614,6 +625,9 @@ var catalog = map[Code]Info{
 	S010: {S010, "Cannot {action} while the CDN front is in use",
 		"{reason}: an older deyroute does not know the front settings in config.yaml (the hub's hub.front, a node's node.front and route), so it refuses the file (DEY-C001) and a node that updates to it can no longer start; the nodes abroad cannot be repaired remotely",
 		"run deyroute front disable and move every front node back to a direct hub address (deyroute node set-hub HOST:PORT on each node, or join it again), then repeat the command"},
+	S011: {S011, "Cannot {action} while config.yaml uses newer settings: {keys}",
+		"{reason}: an older deyroute does not know these keys, so it refuses config.yaml (DEY-C001) and the hub would not start",
+		"undo them first (automatic tuning: deyroute optimize revert; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command"},
 
 	// ---------------------------------------------------------------- X
 	X000: {X000, "Unexpected error",
@@ -694,4 +708,22 @@ var catalog = map[Code]Info{
 	X060: {X060, "Doctor file not written: {file} still contains {what}",
 		"the final check found secret material that the central filter did not remove, so no file was created (nothing leaked)",
 		"send the summary printed on the screen instead of the file and report this bug with the DEY code; logs are in /var/log/deyroute"},
+	X061: {X061, "Traffic accounting is not available",
+		"{reason}; deyroute shows connection counts only and never shows unknown traffic as 0 B",
+		"install nftables (apt install nftables) on a host whose kernel has nf_tables (not an unprivileged container), check monitoring.enabled in config.yaml, then: systemctl restart deyroute-hub"},
+	X062: {X062, "Traffic counters could not be read",
+		"{reason}; the samples of this interval are stored as a gap",
+		"check nftables: nft list table inet deyroute_stats; if the table is missing it is rebuilt at the next sample; if it repeats run deyroute doctor"},
+	X063: {X063, "state.db is above its size budget ({size} of {budget})",
+		"traffic history fills the database; 1-minute points are now kept for 6 hours instead of 24",
+		"check free space (df -h /var/lib/deyroute) and the number of tunnels and nodes; deyroute doctor shows which series use the space"},
+	X064: {X064, "Kernel tuning is not possible in a container ({virt})",
+		"the kernel belongs to the host: /proc/sys is read-only or shared, so deyroute leaves every kernel setting alone; service and backend items still apply",
+		"ask the provider for a KVM or bare-metal server to tune the kernel, or keep tuning.sysctl_profile off"},
+	X065: {X065, "The tuning plan changed since it was shown",
+		"a host, its facts or the configuration changed between the preview and the confirmation, so the confirmed list is no longer what would be applied",
+		"look at the new plan and confirm it: deyroute optimize auto"},
+	X067: {X067, "Tuned value {key} is not what deyroute set",
+		"{where} changed it after deyroute applied its tuning (a later sysctl.d file, a runtime write or another tool)",
+		"remove the other setting or keep it on purpose; apply deyroute's value again with: deyroute optimize auto; see deyroute optimize check"},
 }

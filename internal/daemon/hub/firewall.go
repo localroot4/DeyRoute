@@ -102,6 +102,9 @@ func (h *Hub) firewallLoop(ctx context.Context) {
 		case <-debounceC:
 			debounce, debounceC = nil, nil
 			_ = h.applyFirewall(ctx)
+			// Tunnels, ports or rungs changed: the accounting table follows
+			// (rebuilt only when its ports changed).
+			h.traffic.requestCheck()
 			schedule()
 		case <-expiryC:
 			expiry, expiryC, expiryAt = nil, nil, time.Time{}

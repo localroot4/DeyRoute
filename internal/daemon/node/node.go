@@ -24,6 +24,7 @@ import (
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/sysinfo"
 	"github.com/localroot4/deyroute/internal/systemd"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 	"github.com/localroot4/deyroute/internal/version"
@@ -288,7 +289,7 @@ type agent struct {
 	jobsDone  bool            // Run is waiting for the jobs: no new ones
 	reconnect chan struct{}
 	listeners *registry
-	cpu       cpuSampler
+	cpu       *sysinfo.CPUSampler
 	// uninstalling is set by the first uninstall command; later ones are
 	// answered without starting a second removal.
 	uninstalling atomic.Bool
@@ -334,15 +335,18 @@ func newAgent(o Options, cfg *config.Config, cfgPath string, logger *slog.Logger
 		pids:      map[string]int{},
 		st:        nodeState{Instances: map[string]instance{}},
 		ctx:       context.Background(),
+		cpu:       sysinfo.NewCPUSampler(o.Root),
 	}
 	a.writer = &render.HubWriter{Root: o.Root, Systemd: o.Systemd, Chown: o.Chown, DeyrouteIDs: o.DeyrouteIDs}
 	a.helloV = api.Hello{
-		NodeID:  a.nodeID,
-		Version: version.Version,
-		Arch:    o.Arch,
-		OS:      osPrettyName(o.Root),
-		Kernel:  readTrim(filepath.Join(o.Root, "/proc/sys/kernel/osrelease")),
-		CPUs:    runtime.NumCPU(),
+		NodeID:   a.nodeID,
+		Version:  version.Version,
+		Arch:     o.Arch,
+		OS:       sysinfo.OSPrettyName(o.Root),
+		Kernel:   sysinfo.KernelRelease(o.Root),
+		CPUs:     sysinfo.CPUs(o.Root),
+		MemTotal: sysinfo.Mem(o.Root).Total,
+		Virt:     sysinfo.Virt(o.Root),
 	}
 	return a
 }
@@ -392,6 +396,9 @@ func (a *agent) run(ctx context.Context) error {
 		// served meanwhile.
 		a.reconcile(ctx)
 		a.restoreEchoes(ctx)
+		// After the NAT table: conntrack exists now, so tuned conntrack
+		// keys the boot could not set are set again.
+		a.reassertTuning()
 		var inner sync.WaitGroup
 		inner.Add(2)
 		go func() {
@@ -656,7 +663,15 @@ func (a *agent) later(delay time.Duration, fn func(ctx context.Context) error) {
 	}()
 }
 
-func (a *agent) hello() api.Hello { return a.helloV }
+// hello is the hello of every new control stream: the fixed facts plus the
+// optional features this agent understands and the tuning it last applied
+// (read now: an apply since the previous stream changes it).
+func (a *agent) hello() api.Hello {
+	h := a.helloV
+	h.Features = []string{api.FeatureTuneAuto}
+	h.TuneProfile, h.TuneHash = a.tuneState()
+	return h
+}
 
 // heartbeat returns the latest measurements; it is called by the control
 // client every heartbeat interval while the stream is up, the first time

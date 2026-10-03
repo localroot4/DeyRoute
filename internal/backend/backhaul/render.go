@@ -102,12 +102,12 @@ func renderServer(in backend.RenderInput, sp spec, maps []mapping, file string) 
 		w.boolean("nodelay", true)
 	}
 	w.num("heartbeat", heartbeat)
-	w.num("channel_size", channelSize)
+	w.num("channel_size", tierChannelSize(in.Tier(backend.SideHub)))
 	if sp.mux {
 		w.num("mux_con", muxCon)
 		w.num("mux_version", muxVersion)
 		w.num("mux_framesize", muxFrameSize)
-		w.num("mux_recievebuffer", muxReceiveBuffer)
+		w.num("mux_recievebuffer", tierReceiveBuffer(in.Tier(backend.SideHub)))
 		w.num("mux_streambuffer", muxStreamBuffer)
 	}
 	w.boolean("sniffer", false)
@@ -172,7 +172,7 @@ func renderClient(in backend.RenderInput, sp spec, maps []mapping, file string) 
 	if sp.mux {
 		w.num("mux_version", muxVersion)
 		w.num("mux_framesize", muxFrameSize)
-		w.num("mux_recievebuffer", muxReceiveBuffer)
+		w.num("mux_recievebuffer", tierReceiveBuffer(in.Tier(backend.SideNode)))
 		w.num("mux_streambuffer", muxStreamBuffer)
 	}
 	w.boolean("sniffer", false)
@@ -184,6 +184,19 @@ func renderClient(in backend.RenderInput, sp spec, maps []mapping, file string) 
 		Files: map[string][]byte{file: w.bytes()},
 		Unit:  unit(in, file),
 	}
+}
+
+// tierChannelSize is the server's channel_size for the hub's backend tier:
+// 1024/2048/4096 for small/medium/large, channelSize without a tier.
+func tierChannelSize(tier string) int {
+	return backend.ByTier(tier, channelSize, channelSize/2, channelSize, channelSize*2)
+}
+
+// tierReceiveBuffer is mux_recievebuffer for the backend tier of the side
+// that runs the process: 2/4/8 MiB for small/medium/large,
+// muxReceiveBuffer without a tier.
+func tierReceiveBuffer(tier string) int {
+	return backend.ByTier(tier, muxReceiveBuffer, muxReceiveBuffer/2, muxReceiveBuffer, muxReceiveBuffer*2)
 }
 
 // connectionPool is advanced.connection_pool, or max(8, number of ports)

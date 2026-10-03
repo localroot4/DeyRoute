@@ -40,9 +40,12 @@ type UninstallOptions struct {
 // Uninstall removes deyroute from this server (spec section 5). Steps, in
 // order: stop_units (deyroute-hub and deyroute-node first, so no daemon
 // restarts a tunnel, then every deyroute-tun@ instance: stop + disable),
-// unit_files (unit files, drop-in directories and .wants links, then
-// daemon-reload), firewall_remove (only table inet deyroute), sysctl_revert
-// (values of sysctl-before-deyroute.conf), files (/etc/deyroute and its
+// unit_files (unit files, drop-in directories — the resource drop-ins and
+// the deyroute-tunnels.slice of the automatic tuning included — and .wants
+// links, then daemon-reload), firewall_remove (tables inet deyroute and inet
+// deyroute_stats), sysctl_revert (compare-and-restore of the values of
+// sysctl-before-deyroute.conf, the conntrack hash size and the modules-load.d
+// and modprobe.d files), files (/etc/deyroute and its
 // restore leftovers, /var/lib/deyroute — without backups/ when KeepBackups —,
 // /var/log/deyroute, /run/deyroute) and binary (/usr/local/bin/dey and
 // /usr/local/bin/deyroute, last; Linux keeps the running binary's inode).
@@ -74,11 +77,19 @@ func Uninstall(ctx context.Context, o UninstallOptions) error {
 	})
 	run(StepUnitFiles, func() (string, error) { return e.removeUnitFiles(ctx, units) })
 	run(StepFirewallRemove, func() (string, error) {
-		return firewall.TableRef, firewall.Remove(ctx, e.runner)
+		// Both deyroute tables: the firewall and the traffic accounting.
+		return firewall.TableRef + ", " + firewall.StatsTable,
+			stderrors.Join(firewall.Remove(ctx, e.runner), firewall.RemoveStats(ctx, e.runner))
 	})
 	sysctlKept := false
 	run(StepSysctlRevert, func() (string, error) {
-		err := sysctl.Manager{Root: e.root}.Revert()
+		// Compare-and-restore: the kernel values, the conntrack hash size
+		// and the modules-load.d/modprobe.d files of the automatic profile.
+		// (Its resource drop-ins and slice went with the unit files.)
+		warnings, err := sysctl.Manager{Root: e.root}.RevertWithWarnings()
+		for _, w := range warnings {
+			e.log.Warn("sysctl: " + w)
+		}
 		sysctlKept = err != nil // keep the backup for the next run
 		return config.SysctlBackup, err
 	})

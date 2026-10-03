@@ -23,7 +23,13 @@ import (
 	"github.com/localroot4/deyroute/internal/tui"
 )
 
-func TestMain(m *testing.M) { goleak.VerifyTestMain(m) }
+// TestMain pins the local zone to UTC before any test runs, so output that
+// prints local times (stats ticks, event times) does not depend on the
+// machine running the tests.
+func TestMain(m *testing.M) {
+	time.Local = time.UTC
+	goleak.VerifyTestMain(m)
+}
 
 // testNow is the fixed clock of every test.
 var testNow = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)

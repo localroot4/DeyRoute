@@ -37,11 +37,15 @@ func renderOptimize(a *app, v any) string {
 	for _, w := range o.Warnings {
 		b.WriteString(a.paint(colYellow, "  "+a.sym().warn+" "+w) + "\n")
 	}
+	b.WriteString(renderTuneNodes(a, o.Nodes))
 	return b.String()
 }
 
+// optimizeMenu is Optimize (7). Automatic tuning comes first: it is the
+// recommended way; the fixed profiles stay for owners who want them.
 func optimizeMenu(a *app) screen {
 	m := newMenu(a, i18n.MenuOptimize, i18n.TUIHelpOptimize, []menuItem{
+		{label: i18n.TUIOpAuto, act: func(a *app) tea.Cmd { return a.push(autoTuning()) }},
 		{label: i18n.TUIOpApply, act: func(a *app) tea.Cmd { return a.push(pickProfile()) }},
 		{label: i18n.TUIOpRevert, act: func(a *app) tea.Cmd {
 			title := i18n.T(i18n.TUIOpRevert)
@@ -61,6 +65,7 @@ func optimizeMenu(a *app) screen {
 			t.refreshable = true
 			return a.push(t)
 		}},
+		{label: i18n.TUIOpCheck, act: func(a *app) tea.Cmd { return a.push(checkTuning()) }},
 		{label: i18n.TUIOpLimits, adv: true, act: func(a *app) tea.Cmd {
 			t := newTask(itemName(i18n.TUIOpLimits), callTimeout, loadOptimize, func(a *app, v any) string {
 				o, _ := v.(api.OptimizeStatus)

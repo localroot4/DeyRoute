@@ -54,7 +54,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --name de-1
 ```
 
-Node فقط یک سؤال می‌پرسد — اینکه پروفایل کرنل balanced اعمال شود یا نه (Enter یعنی بله) — و بعد مراحل را نشان می‌دهد:
+Node فقط یک سؤال می‌پرسد — اینکه پروفایل کرنل balanced اعمال شود یا نه (Enter یعنی بله) — و بعد مراحل را نشان می‌دهد. اگر Hub از تنظیم خودکار استفاده کند (`deyroute optimize auto`)، به محض آنلاین شدن Node آن را هم به همان شکل تنظیم می‌کند و در `deyroute optimize status` نشانش می‌دهد؛ [تنظیم خودکار](tuning.md) را ببینید:
 
 ```text
   ✔ Read join link

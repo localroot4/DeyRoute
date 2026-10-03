@@ -154,7 +154,7 @@ func (b *Backend) Render(in backend.RenderInput, side backend.Side) (backend.Ren
 	}
 	return backend.Rendered{
 		Files: map[string][]byte{
-			CoreFile:   CoreJSONFor(sideWorkers(in, side), in.FirstRun),
+			CoreFile:   coreJSON(sideWorkers(in, side), in.FirstRun, RAMProfile(in.Tier(side))),
 			ConfigFile: cfg,
 		},
 		Unit: backend.UnitSpec{

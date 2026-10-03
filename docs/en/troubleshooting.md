@@ -227,6 +227,28 @@ then `deyroute tunnel restart main`, or switch to another rung. `DEY-B001`:
 the binary could not be downloaded — a node must be online (the hub downloads
 through it), or set `DEYROUTE_MIRROR`.
 
+### A tuned value changed — `DEY-X067`
+
+`deyroute optimize check` found a kernel value that is no longer what
+deyroute set. The table names who changed it: a file that sorts after
+`99-deyroute.conf` in a `sysctl.d` directory, `/etc/sysctl.conf` (applied
+last, so it wins over every `sysctl.d` file), or a runtime write by another
+tool. Remove that setting or keep it on purpose; run
+`deyroute optimize auto` to see deyroute's value listed again and apply it.
+The hub runs the same check every 6 hours and records a warning event; it
+never changes a value by itself. See [Automatic tuning](tuning.md).
+
+### The conntrack table is full
+
+The kernel log says `nf_conntrack: table full, dropping packet` and new
+connections fail, or `deyroute optimize check` reports the table more than
+80 % full. Run `deyroute optimize auto`: it sizes the table to the server's
+RAM (64 entries per MiB, at least 65536) and shortens how long established
+entries of vanished clients stay (1 day instead of 5). A value you set
+yourself above deyroute's is kept. In a container (`DEY-X064`) the table
+belongs to the host: ask the provider. See
+[Automatic tuning](tuning.md#conntrack).
+
 ### Clock difference
 
 TLS fails when a server's clock is far off. Enable time sync on both servers:

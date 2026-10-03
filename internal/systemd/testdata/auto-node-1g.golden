@@ -1,0 +1,14 @@
+=== /etc/systemd/system/deyroute-tun@.service.d/60-deyroute-auto.conf
+# managed by deyroute optimize auto; removed by optimize revert
+[Service]
+OOMScoreAdjust=300
+Slice=deyroute-tunnels.slice
+=== /etc/systemd/system/deyroute-tunnels.slice
+# managed by deyroute optimize auto; removed by optimize revert
+[Unit]
+Description=DEYROUTE tunnel transports
+Documentation=https://github.com/localroot4/deyroute
+
+[Slice]
+MemoryAccounting=yes
+MemoryHigh=768M

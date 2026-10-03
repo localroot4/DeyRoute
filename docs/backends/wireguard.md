@@ -35,7 +35,9 @@ false).
   `dey-<prefix>_<NetIndex>` (the longest prefix that fits, at least 7
   characters; `_` never occurs in tunnel ids, so names cannot collide). The
   canary interface is `deyc-<NetIndex>`. The same name is used on both sides.
-* MTU 1420, `PersistentKeepalive = 25` on the hub's peer (the hub dials the
+* MTU 1420, or `tuning.wg_mtu` (1280-1420) when set (`deyroute optimize auto`
+  sets it to `min(1420, NIC MTU - 80)` when the NIC MTU is below 1500);
+  `PersistentKeepalive = 25` on the hub's peer (the hub dials the
   node's public IP on `<ctl>/udp`; the node learns the hub's endpoint from the
   handshake). Allowed IPs are the peer's `/32` only.
 
@@ -112,7 +114,7 @@ What `Up` does:
   (`sockaddr_in`/`sockaddr_in6`), `PERSISTENT_KEEPALIVE_INTERVAL`, nested
   `ALLOWEDIPS` with `FAMILY`/`IPADDR`/`CIDR_MASK`) — no `wg` binary
   (QUESTIONS.md C.10); then `ip address replace <addr> dev <iface>` and `ip
-  link set dev <iface> mtu 1420 up`. Any failure deletes the half-built
+  link set dev <iface> mtu <mtu> up`. Any failure deletes the half-built
   interface (`DEY-B070`).
 * **awg**: create `/var/run/amneziawg` if missing, wait up to 15 s for
   `/var/run/amneziawg/<iface>.sock`, send the UAPI `set=1` request

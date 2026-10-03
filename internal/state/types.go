@@ -1,7 +1,7 @@
 // Package state wraps the bbolt database /var/lib/deyroute/state.db that holds
 // every runtime fact (section 4): node liveness, tunnel state machines, probe
-// history, the event ring buffer and metrics. Nothing here is ever written to
-// config.yaml. All times are UTC.
+// history, the event ring buffer, metrics and the traffic time series.
+// Nothing here is ever written to config.yaml. All times are UTC.
 package state
 
 import "time"
@@ -16,6 +16,7 @@ const (
 	BucketCtlPorts = "ctlports" // backend control port allocations "<tunnel>/<node>/<transport>" → port
 	BucketNetIdx   = "netidx"   // per-tunnel small integers (WireGuard subnets) "<tunnel>" → n
 	BucketMeta     = "meta"     // misc key/value (udp probe results, decoy choice, update check…)
+	BucketTraffic  = "traffic"  // traffic/<series>/<tier> time series + checkpoint (traffic.go)
 )
 
 // Limits (sections 4 and 12).
@@ -59,6 +60,13 @@ const (
 	EvRungSkipped       = "rung_skipped"               // yellow warning: validate failed / UDP closed (section 8)
 	EvRungRestored      = "rung_restored"
 	EvConfigApplied     = "config_applied"
+	// EvTrafficQuota is emitted once per quota period when a tunnel's
+	// in+out bytes reach 80 % (warn) and 100 % (error) of
+	// advanced.monthly_quota_gib.
+	EvTrafficQuota = "traffic_quota"
+	// EvTuneDrift is emitted by the periodic tuning check when a tuned
+	// value was changed or overridden (DEY-X067); it never changes anything.
+	EvTuneDrift = "tune_drift"
 )
 
 // Event levels.
@@ -180,11 +188,28 @@ type EventFilter struct {
 	Limit  int // newest N after filtering; 0 = all
 }
 
-// Metrics is metrics/<tunnel>.
+// Metrics is metrics/<tunnel>. With Source "nft" BytesIn/BytesOut are the
+// tunnel's byte counters since BytesSince (the last counter reset: a table
+// rebuild or a reboot); with "ss" only ActiveConns is measured.
 type Metrics struct {
 	At          time.Time `json:"at"`
 	BytesIn     uint64    `json:"bytes_in"`
 	BytesOut    uint64    `json:"bytes_out"`
 	ActiveConns int       `json:"active_conns"`
-	Source      string    `json:"source"` // "backend" | "ss"
+	Source      string    `json:"source"` // "nft" | "ss" | "backend"
+	// BytesSince is when the byte counters started; zero when no bytes
+	// are counted.
+	BytesSince time.Time `json:"bytes_since,omitzero"`
+	// ConnsUnknown is set when ActiveConns was not measured (a UDP-only
+	// tunnel has no connection state); ActiveConns is then 0, not a count.
+	ConnsUnknown bool `json:"conns_unknown,omitempty"`
+	// Stale is set when this pass could not measure the tunnel (the node of
+	// a kernel-NAT rung did not answer): the numbers are not current.
+	Stale bool `json:"stale,omitempty"`
 }
+
+// Metrics sources.
+const (
+	MetricsSourceNFT = "nft"
+	MetricsSourceSS  = "ss"
+)

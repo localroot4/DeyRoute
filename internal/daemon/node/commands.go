@@ -190,7 +190,15 @@ func (a *agent) dispatch(ctx context.Context, cmd api.Command, stream func([]str
 		if err := a.decodeArgs(cmd, &args); err != nil {
 			return nil, err
 		}
-		return a.sysctlApply(args)
+		return a.sysctlApply(ctx, args)
+	case api.CmdTunePlan:
+		var args api.SysctlArgs
+		if err := a.decodeArgs(cmd, &args); err != nil {
+			return nil, err
+		}
+		return a.tunePlan(args)
+	case api.CmdTuneCheck:
+		return a.tuneCheck()
 	case api.CmdSpeedServe:
 		var args api.SpeedServeArgs
 		if err := a.decodeArgs(cmd, &args); err != nil {

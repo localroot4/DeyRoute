@@ -153,6 +153,7 @@ func (l *local) NodeRemove(ctx context.Context, id string) error {
 	// Drop the live entry first so a last heartbeat cannot write the
 	// state record again.
 	h.forgetNode(id)
+	h.traffic.forgetNode(id)
 	if err := h.st.DeleteNode(id); err != nil {
 		h.log.Warn("cannot delete the node state", dlog.Node(id), dlog.Err(err))
 	}

@@ -107,6 +107,17 @@ type Options struct {
 	// DisableFirewall computes the firewall specification but never runs
 	// nft (tests).
 	DisableFirewall bool
+	// DisableStats never installs the traffic accounting table (inet
+	// deyroute_stats) and never samples its counters (tests; production
+	// uses monitoring.enabled).
+	DisableStats bool
+	// DisableTuning never reasserts the tuned kernel values at start and
+	// never runs the periodic tuning check (tests).
+	DisableTuning bool
+	// Location is the hub-local zone of "today", the quota period and the
+	// month of the traffic totals; nil = time.Local. Tests pass a fixed zone
+	// instead of changing time.Local.
+	Location *time.Location
 	// OnReady is called once the Control API and the Local API accept
 	// connections (tests).
 	OnReady func(h *Hub)
@@ -187,6 +198,15 @@ type Options struct {
 	// DiagReadyWait bounds how long diag speed waits until its temporary
 	// copy of the transport forwards (15 s, like a started rung).
 	DiagReadyWait time.Duration
+
+	// Monitoring and tuning (traffic.go, ops_tune.go): TrafficInterval
+	// (10 s) is how often the byte counters are read, TrafficFlush (60 s)
+	// how often the samples are folded into state.db, TuneCheckInterval
+	// (6 h) how often the tuned values are compared with the live kernel
+	// (it only reports).
+	TrafficInterval   time.Duration
+	TrafficFlush      time.Duration
+	TuneCheckInterval time.Duration
 }
 
 func (o Options) withDefaults() Options {
@@ -261,6 +281,12 @@ func (o Options) withDefaults() Options {
 	setDur(&o.RestartDelay, DefaultRestartDelay)
 	setDur(&o.NodeReconnectWait, DefaultNodeReconnectWait)
 	setDur(&o.DiagReadyWait, DefaultDiagReadyWait)
+	setDur(&o.TrafficInterval, DefaultTrafficInterval)
+	setDur(&o.TrafficFlush, DefaultTrafficFlush)
+	setDur(&o.TuneCheckInterval, DefaultTuneCheckInterval)
+	if o.Location == nil {
+		o.Location = time.Local
+	}
 	setDur(&o.TunnelUpWait, DefaultTunnelUpWait)
 	setDur(&o.RecheckInterval, DefaultRecheckInterval)
 	setDur(&o.ReportInterval, DefaultReportInterval)

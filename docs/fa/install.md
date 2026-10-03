@@ -65,9 +65,16 @@ Step 4 of 5 · Control port for the nodes
    Press Enter to use 44433, or type another value and press Enter.
  ›
 
-Step 5 of 5 · Kernel network profile
-   Apply the balanced profile: BBR congestion control and larger network buffers (recommended).
-   You can undo it any time with: deyroute optimize revert
+Step 5 of 5 · Tune this server automatically (recommended)
+   deyroute measured this server and lists the kernel settings that suit it:
+   Measured: 2.0 GiB RAM · 2 CPU · kernel 6.1.0-21-amd64 · eth0 MTU 1500
+   9 settings change (4 of them only after a reboot or the next start):
+     net.ipv4.tcp_congestion_control                     cubic   → bbr
+     net.core.somaxconn                                  4096    → 65535
+     net.core.rmem_max                                   212992  → 33554432
+     …
+     net.netfilter.nf_conntrack_max                      -       → 131072  (after reboot)
+   Why each one: deyroute optimize auto --dry-run (after setup). You can undo it any time with: deyroute optimize revert
    Type y (yes) or n (no) and press Enter. Enter alone = y (yes).
  ›
 
@@ -76,12 +83,13 @@ Summary
    Name             ir-1
    Public IP        5.6.7.8
    Control port     44433
-   Kernel profile   balanced (BBR, larger buffers)
+   Kernel profile   automatic (9 changes)
 ```
 
 - **Public IP**: خودکار پیدا می‌شود. اگر آدرس پیداشده خصوصی یا CGNAT باشد، ویزارد می‌گوید؛ آدرسی را که کاربران به آن وصل می‌شوند (از پنل سرور) تایپ کنید.
 - **Control port**: پورتی که Nodeها به آن وصل می‌شوند. پیش‌فرض `44433` است و اگر گرفته باشد، اولین پورت آزاد بعدی پیشنهاد می‌شود.
-- **Kernel profile**: فایل `/etc/sysctl.d/99-deyroute.conf` را می‌نویسد (BBR و بافرهای بزرگ‌تر). مقادیر قبلی ذخیره می‌شوند و `deyroute optimize revert` آن‌ها را برمی‌گرداند. اگر کرنل BBR نداشته باشد فقط `net.ipv4.tcp_congestion_control` کنار گذاشته می‌شود (با هشدار) و بقیه، از جمله `fq`، اعمال می‌شود. بعداً `deyroute optimize apply --profile P` (منوی `7) Optimize`) پروفایل را روی Hub و همه Nodeهای آنلاین با `tuning.bbr` خود Hub اعمال می‌کند؛ هر چه یک Node کنار بگذارد با `node <id>: …` نشان داده می‌شود. `aggressive` (بافرهای ۶۴MB) برای سرورهای با RAM ۴ گیگ یا بیشتر است: منو پروفایل مناسب RAM هاب را نام می‌برد و پیش از `aggressive` روی Hub کوچک‌تر هشدار می‌دهد، و هر سرور کوچک‌تری هم هشدار گزارش می‌کند.
+- **تنظیم خودکار (Automatic tuning)**: ویزارد پیش از این سؤال سرور را اندازه می‌گیرد (RAM، تعداد CPU، کرنل، کارت شبکه، conntrack) و هر تنظیم کرنلی را که عوض می‌کند با مقدار فعلی و مقدار جدیدش فهرست می‌کند. با جواب *بله* فایل `/etc/sysctl.d/99-deyroute.conf` با همین برنامه نوشته می‌شود (پروفایل `auto`: مقادیر balanced به‌اضافهٔ بافرهای متناسب با RAM، حدهایی که فقط بالا برده می‌شوند و هرگز پایین نمی‌آیند، رزرو پورت‌های بک‌اند و در صورت نیاز جدول conntrack به اندازهٔ مناسب). مقادیر قبلی ذخیره می‌شوند و `deyroute optimize revert` آن‌ها را برمی‌گرداند. جواب *نه* به کرنل دست نمی‌زند (پروفایل `off`). در کانتینر (OpenVZ، LXC، Docker) کرنل مال میزبان است و همهٔ موارد کرنل کنار گذاشته می‌شوند (`DEY-X064`). همهٔ مراحل، دلیل امن بودنشان و راه برگرداندنشان در [تنظیم خودکار](tuning.md) آمده است.
+- بعداً `deyroute optimize auto` (منوی `7) Optimize → 1) Automatic tuning`) همین کار را روی Hub و همهٔ Nodeهای آنلاین با یک تأیید انجام می‌دهد و `deyroute optimize check` مقادیری را که کس دیگری عوض کرده گزارش می‌کند. پروفایل‌های ثابت هم هنوز هستند: `deyroute optimize apply --profile P` پروفایل `balanced` یا `aggressive` را روی Hub و همهٔ Nodeهای آنلاین با `tuning.bbr` خود Hub اعمال می‌کند؛ هر چه یک Node کنار بگذارد با `node <id>: …` نشان داده می‌شود. `aggressive` (بافرهای ۶۴MB) برای سرورهای با RAM ۴ گیگ یا بیشتر است: منو پروفایل مناسب RAM هاب را نام می‌برد و پیش از `aggressive` روی Hub کوچک‌تر هشدار می‌دهد.
 
 بقیه کارها خودکار است و مرحله به مرحله نشان داده می‌شود:
 
@@ -118,7 +126,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) --role hub --name ir-1 --yes
 ```
 
-با `--yes`، IP عمومی خودکار پیدا می‌شود، پورت کنترل 44433 (یا اولین پورت آزاد بعدی) است و پروفایل کرنل balanced اعمال می‌شود. همین گزینه‌ها روی برنامه نصب‌شده هم کار می‌کنند:
+با `--yes`، IP عمومی خودکار پیدا می‌شود، پورت کنترل 44433 (یا اولین پورت آزاد بعدی) است و سرور خودکار تنظیم می‌شود (پروفایل `auto`). همین گزینه‌ها روی برنامه نصب‌شده هم کار می‌کنند:
 
 ```bash
 deyroute setup --role hub --name ir-1 --yes

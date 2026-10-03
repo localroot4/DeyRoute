@@ -244,6 +244,12 @@ func (u UnimplementedLocal) DoctorCollect(ctx context.Context, node string) (Doc
 	return zero, u.wrongRole()
 }
 
+// Traffic implements Local.Traffic; it returns DEY-X009.
+func (u UnimplementedLocal) Traffic(ctx context.Context, q TrafficQuery) (TrafficReport, error) {
+	var zero TrafficReport
+	return zero, u.wrongRole()
+}
+
 // OptimizeStatus implements Local.OptimizeStatus; it returns DEY-X009.
 func (u UnimplementedLocal) OptimizeStatus(ctx context.Context) (OptimizeStatus, error) {
 	var zero OptimizeStatus
@@ -259,6 +265,24 @@ func (u UnimplementedLocal) OptimizeApply(ctx context.Context, profile string) (
 // OptimizeRevert implements Local.OptimizeRevert; it returns DEY-X009.
 func (u UnimplementedLocal) OptimizeRevert(ctx context.Context) (OptimizeStatus, error) {
 	var zero OptimizeStatus
+	return zero, u.wrongRole()
+}
+
+// OptimizeAutoPlan implements Local.OptimizeAutoPlan; it returns DEY-X009.
+func (u UnimplementedLocal) OptimizeAutoPlan(ctx context.Context, opts AutoOptions) (TunePlanReport, error) {
+	var zero TunePlanReport
+	return zero, u.wrongRole()
+}
+
+// OptimizeAutoApply implements Local.OptimizeAutoApply; it returns DEY-X009.
+func (u UnimplementedLocal) OptimizeAutoApply(ctx context.Context, req AutoApply, progress func(Step)) (TunePlanReport, error) {
+	var zero TunePlanReport
+	return zero, u.wrongRole()
+}
+
+// OptimizeCheck implements Local.OptimizeCheck; it returns DEY-X009.
+func (u UnimplementedLocal) OptimizeCheck(ctx context.Context) (TuneCheck, error) {
+	var zero TuneCheck
 	return zero, u.wrongRole()
 }
 

@@ -45,7 +45,7 @@ func newStatusCmd(g *Globals) *cobra.Command {
 			if g.JSON {
 				return g.emitJSON(st)
 			}
-			g.printf("%s", g.dashboard(st))
+			g.printf("%s", g.dashboard(st, g.sparklines(ctx, l, st)))
 			return nil
 		},
 	}
@@ -62,6 +62,10 @@ func (g *Globals) watchStatus(ctx context.Context, l api.Local) error {
 	for {
 		cctx, cancel := callCtx(ctx)
 		st, err := l.Status(cctx)
+		var tr *api.TrafficReport
+		if err == nil && !g.JSON {
+			tr = g.sparklines(cctx, l, st)
+		}
 		cancel()
 		if ctx.Err() != nil {
 			return nil
@@ -80,7 +84,7 @@ func (g *Globals) watchStatus(ctx context.Context, l api.Local) error {
 					g.printf("%s", g.text(e.Format(g.unicode())))
 				}
 			} else {
-				g.printf("%s", g.dashboard(st))
+				g.printf("%s", g.dashboard(st, tr))
 			}
 			g.println(g.text(" " + i18n.T(i18n.CLIWatchFooter, localTime(g.Now(), "15:04:05"), int(g.WatchInterval/time.Second))))
 		}
@@ -92,10 +96,26 @@ func (g *Globals) watchStatus(ctx context.Context, l api.Local) error {
 	}
 }
 
+// sparklines returns the last hour of every tunnel for the TRAFFIC block
+// of the dashboard, nil when no tunnel has traffic numbers or the call
+// fails (the block then shows the rates without sparklines).
+func (g *Globals) sparklines(ctx context.Context, l api.Local, st api.Status) *api.TrafficReport {
+	if !tui.HasTraffic(st.Tunnels) {
+		return nil
+	}
+	rep, err := l.Traffic(ctx, tui.TrafficBlockQuery())
+	if err != nil {
+		return nil
+	}
+	return &rep
+}
+
 // dashboard renders the dashboard of spec section 6 as plain text: the
-// banner status line, TUNNELS, NODES (hub) or NODE (node), LAST EVENTS and
-// the yellow warnings. It uses the same strings and layout as the TUI.
-func (g *Globals) dashboard(st api.Status) string {
+// banner status line, TUNNELS, the TRAFFIC block (when a tunnel has traffic
+// numbers; tr holds its sparklines), NODES (hub) or NODE (node), LAST
+// EVENTS and the yellow warnings. It uses the same strings and layout as
+// the TUI.
+func (g *Globals) dashboard(st api.Status, tr *api.TrafficReport) string {
 	var b strings.Builder
 	b.WriteString(g.statusLine(st) + "\n")
 	if line := frontLine(st); line != "" {
@@ -111,6 +131,13 @@ func (g *Globals) dashboard(st api.Status) string {
 			b.WriteString("  " + i18n.T(i18n.CLIStatusNoTunnels) + "\n")
 		} else {
 			b.WriteString(g.tunnelTable(st.Tunnels))
+		}
+	}
+	if lines := tui.TrafficBlock(g.outCaps(), st.Tunnels, tr, 0); len(lines) > 0 {
+		title, hint := tui.TrafficBlockTitle(g.outCaps())
+		b.WriteString(" " + title + "  " + hint + "\n")
+		for _, l := range lines {
+			b.WriteString(l + "\n")
 		}
 	}
 	if st.NodeSelf == nil {

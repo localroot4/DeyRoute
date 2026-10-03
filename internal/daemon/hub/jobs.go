@@ -66,6 +66,8 @@ func (h *Hub) startJobs(ctx context.Context, run func(func())) {
 	run(func() { h.metricsLoop(ctx) })
 	run(func() { h.nodeUpdateLoop(ctx) })
 	run(func() { h.restartLoop(ctx) })
+	run(func() { h.trafficLoop(ctx) })
+	run(func() { h.tuneCheckLoop(ctx) })
 }
 
 // every runs fn after first and then every interval until ctx ends.
@@ -237,13 +239,18 @@ func (h *Hub) metricsLoop(ctx context.Context) {
 	every(ctx, h.o.MetricsInterval, h.o.MetricsInterval, func() { h.collectMetrics(ctx) })
 }
 
-// collectMetrics counts, for every tunnel whose engine runs a candidate,
-// the established TCP connections on its listen ports on the hub. The hub
-// side of a NAT transport (WireGuard) forwards in the kernel without a
-// socket, so the node counts the connections to the targets instead
-// (metrics command).
+// collectMetrics records, for every tunnel whose engine runs a candidate,
+// the established TCP connections on its listen ports on the hub and its
+// byte counters (the accounting table, Source "nft"; "ss" when accounting
+// is unavailable), all tunnels in one transaction. /proc is read once per
+// pass and the counts are handed to the traffic sampler, which copies them
+// into its points. The hub side of a NAT transport (WireGuard) forwards in
+// the kernel without a socket, so the node counts the connections to the
+// targets instead (metrics command); when it does not answer the record is
+// marked stale. A tunnel with UDP ports only has no connection count.
 func (h *Hub) collectMetrics(ctx context.Context) {
 	var established map[int]int
+	batch := map[string]state.Metrics{}
 	for _, c := range h.tun.all() {
 		st, ok := c.liveState()
 		if !ok || st.Active.IsZero() || !runningState(st.State) {
@@ -256,32 +263,47 @@ func (h *Hub) collectMetrics(ctx context.Context) {
 				tcpPorts = append(tcpPorts, pm.Listen)
 			}
 		}
-		if len(tcpPorts) == 0 {
-			continue
-		}
-		m := state.Metrics{At: h.now(), Source: "ss"}
+		m := state.Metrics{At: h.now(), Source: state.MetricsSourceSS}
+		counted, countedOK := h.traffic.counter(t.ID)
 		pc, planned := plan.Candidate(st.Active.Node, st.Active.Transport)
-		if planned && len(pc.Hub.NAT) > 0 {
+		switch {
+		case len(tcpPorts) == 0:
+			m.ConnsUnknown = true
+			h.traffic.noteConns(t.ID, 0, false)
+		case planned && len(pc.Hub.NAT) > 0:
 			targets := targetPorts(t)
 			var res api.MetricsResult
 			cctx, cancel := context.WithTimeout(ctx, metricsCallTimeout)
 			err := h.Call(cctx, st.Active.Node, api.CmdMetrics, api.MetricsArgs{Ports: targets}, &res)
 			cancel()
 			if err != nil {
-				continue
+				// Not the old numbers silently: the record says they are
+				// not current.
+				m.Stale, m.ConnsUnknown = true, true
+				h.traffic.noteConns(t.ID, 0, false)
+				h.log.Debug("node metrics unavailable", dlog.Tunnel(t.ID), dlog.Node(st.Active.Node), dlog.Err(err))
+				break
 			}
 			m.ActiveConns, m.BytesIn, m.BytesOut = res.ActiveConns, res.BytesIn, res.BytesOut
-		} else {
+			h.traffic.noteConns(t.ID, res.ActiveConns, true)
+		default:
 			if established == nil {
 				established = h.establishedByPort(ctx)
 			}
 			for _, p := range tcpPorts {
 				m.ActiveConns += established[p]
 			}
+			h.traffic.noteConns(t.ID, m.ActiveConns, true)
 		}
-		if err := h.st.PutMetrics(t.ID, m); err != nil {
-			h.log.Debug("cannot store tunnel metrics", dlog.Tunnel(t.ID), dlog.Err(err))
+		if countedOK {
+			m.BytesIn, m.BytesOut, m.BytesSince, m.Source = counted.In, counted.Out, counted.Since, state.MetricsSourceNFT
+		} else if len(tcpPorts) == 0 {
+			continue // nothing measured at all
 		}
+		batch[t.ID] = m
+	}
+	if err := h.st.PutMetricsBatch(batch); err != nil {
+		h.log.Debug("cannot store tunnel metrics", dlog.Err(err))
 	}
 }
 

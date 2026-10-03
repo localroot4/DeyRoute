@@ -12,6 +12,8 @@ table inet deyroute {
 
 	chain forward {
 		type filter hook forward priority -10; policy accept;
+		oifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu
+		iifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set 1380
 		iifname "dey-main" ct state established,related accept
 		iifname "dey-main" ct status dnat accept
 		iifname "dey-main" drop

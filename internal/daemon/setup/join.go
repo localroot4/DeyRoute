@@ -42,8 +42,13 @@ type JoinOptions struct {
 	// non-interactive, so the CLI sets it unless the owner declined (spec
 	// section 12 asks for confirmation; `--yes` gives it).
 	ApplySysctl bool
-	// SysctlProfile is balanced (default when empty) or aggressive.
+	// SysctlProfile is balanced (default when empty), aggressive or auto
+	// (the CLI passes auto when the owner chose automatic tuning).
 	SysctlProfile string
+	// TunePlan is the automatic plan shown to the owner (PlanHostTune for
+	// the node role with NodeReserved); nil computes it at the sysctl step.
+	// Only for auto.
+	TunePlan *HostTune
 	// StartService installs the unit templates, runs `systemctl enable
 	// --now deyroute-node.service` and waits for the local API socket.
 	StartService bool
@@ -278,7 +283,16 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 	if !o.ApplySysctl {
 		e.rep.skip(StepSysctl, config.SysctlOff)
 	} else {
-		warnings, err := applySysctl(e.root, profile, cfg.Tuning.BBR, false)
+		var warnings []string
+		var err error
+		if profile == config.SysctlAuto {
+			// The node's own plan; when the hub's tuning.nodes_auto is set
+			// the hub sends its inputs (tuning.bbr, IP forwarding) once the
+			// node is connected.
+			warnings, err = e.applyAutoProfile(ctx, config.RoleNode, o.TunePlan, cfg.Tuning.BBR, NodeReserved())
+		} else {
+			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false)
+		}
 		res.SysctlWarnings = warnings
 		switch {
 		case err != nil:

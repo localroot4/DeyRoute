@@ -22,6 +22,7 @@ import (
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/sysinfo"
 	"github.com/localroot4/deyroute/internal/tui"
 )
 
@@ -97,6 +98,9 @@ type Globals struct {
 	DetectIP func(ctx context.Context) (ip string, private bool, err error)
 	// PortBusy reports whether a TCP port is taken (setup.PortBusy).
 	PortBusy func(port int) bool
+	// HostFacts measures this server for the setup wizard's automatic
+	// tuning preview (sysinfo.Collect of Root); tests pass fixed facts.
+	HostFacts func() sysinfo.Facts
 	// NoService keeps local operations from installing and starting the
 	// systemd services (tests and the end-to-end harness).
 	NoService bool
@@ -263,6 +267,9 @@ func (g *Globals) defaults() {
 			defer cancel()
 			return setup.PortBusy(ctx, g.Runner, g.Root)(port)
 		}
+	}
+	if g.HostFacts == nil {
+		g.HostFacts = func() sysinfo.Facts { return sysinfo.Collect(g.Root) }
 	}
 	if g.WatchInterval <= 0 {
 		g.WatchInterval = DefaultWatchInterval

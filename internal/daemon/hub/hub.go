@@ -107,6 +107,8 @@ type Hub struct {
 
 	// tun owns the tunnel controllers (tunnels.go).
 	tun tunnelManager
+	// traffic is the traffic sampler (traffic.go).
+	traffic *trafficSampler
 
 	// alive is the wall-clock time (UnixNano) of the offline detector's last
 	// pass: the watchdog pings systemd only while it keeps running.
@@ -190,6 +192,7 @@ func New(o Options) (_ *Hub, err error) {
 	h.importRestoredEvents()
 	h.loadNodes()
 	h.loadOps()
+	h.traffic = newHubTraffic(h)
 	h.reloadNotifier(cfg)
 
 	ln, err := net.Listen("tcp", o.controlListen(cfg.Hub.ControlPort))

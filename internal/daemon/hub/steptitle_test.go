@@ -19,6 +19,7 @@ func TestStepTitlesComeFromI18n(t *testing.T) {
 		stepNewCA, stepHubCert, stepTrustOnly, stepTunnelsCA,
 		stepResolve, stepDownload, stepInstall, stepNodes, stepRestart2,
 		stepSpeedServer, stepDiagRender, stepDiagStart, stepMeasure, stepDiagStop,
+		stepTunePlan, stepTuneHub, stepTuneDropins, stepTuneNodes, stepTuneTunnels,
 	}
 	for _, id := range ids {
 		k := i18n.Key("hub.step." + id)

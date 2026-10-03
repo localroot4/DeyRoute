@@ -106,7 +106,7 @@ func (b *Backend) baseConfig(in backend.RenderInput, p plan, side backend.Side) 
 		Side:      side.String(),
 		Tunnel:    in.Tunnel.ID,
 		Interface: p.iface,
-		MTU:       MTU,
+		MTU:       TunnelMTU(in),
 	}
 	if b.awg {
 		c.Mode = ModeUserspace
