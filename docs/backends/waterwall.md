@@ -183,7 +183,7 @@ config reaches `active` and listens).
   panels are client-first and work. The path probe (`auto` sends a TLS
   ClientHello) is not affected.
 - Decoy: `RenderInput.Decoy`, else the first `hub.decoy_snis` entry, else the
-  first built-in placeholder (`backend.DecoyFor`).
+  first built-in decoy (`backend.DecoyFor`).
 - Several port maps must share one target host and keep the listen port.
 - `ReverseClient` keeps a pool of idle, pre-opened connections to the hub (`minimum-unused: 16`).
 - Reality v2 is wire-incompatible with other Waterwall versions: hub and node

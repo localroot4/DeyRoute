@@ -15,7 +15,7 @@ func TestDecoyFor(t *testing.T) {
 	if got := DecoyFor(in); got != "sel.example" {
 		t.Fatalf("selected decoy wins: %q", got)
 	}
-	// Nothing configured: the built-in (placeholder) list applies.
+	// Nothing configured: the built-in list applies.
 	if got := DecoyFor(RenderInput{}); got != DefaultDecoySNIs[0] {
 		t.Fatalf("default decoy: %q", got)
 	}

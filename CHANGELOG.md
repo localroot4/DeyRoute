@@ -43,6 +43,15 @@ All notable changes to DEYROUTE are documented here. The format follows
   and clamps on the node's interface too, so TCP connections through a
   smaller tunnel MTU no longer stall on large packets.
 
+### Fixed — Reality decoys
+
+- `xray/reality` never came up with the first built-in decoy,
+  `www.microsoft.com`. The built-in decoys are now `dl.google.com`,
+  `www.speedtest.net` and `www.samsung.com`, each tested with both Reality
+  rungs; a hub that used the old list moves to the new one by itself.
+- The hub's decoy check also wants HTTP/2 now (REALITY needs it of its
+  target), so a site without it is never chosen.
+
 ### Added — the working system (phases 1–8)
 
 - **Install and lifecycle:** one-line installer (`install.sh`: GitHub

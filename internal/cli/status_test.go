@@ -250,3 +250,15 @@ func TestStatusJSONFront(t *testing.T) {
 	require.Equal(t, "front", node["via"])
 	require.NotContains(t, d["nodes"].([]any)[0].(map[string]any), "route")
 }
+
+// A pre-release version is longer than the version column; the CPU column
+// moves right instead of touching it.
+func TestStatusLongNodeVersion(t *testing.T) {
+	e := newEnv(t)
+	st := sampleStatus()
+	st.Nodes[0].Version = "v0.3.0-edge.18"
+	e.stub.StatusFn = func(context.Context) (api.Status, error) { return st, nil }
+	out := e.ok("status")
+	require.Regexp(t, `v0\.3\.0-edge\.18 +cpu`, out)
+	require.Regexp(t, `v0\.9\.0! +cpu`, out)
+}

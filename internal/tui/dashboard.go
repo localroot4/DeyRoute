@@ -405,11 +405,19 @@ func padLeft(s string, w int) string {
 func renderNodeTable(a *app, ns []api.NodeInfo) string {
 	narrow := a.caps.Narrow()
 	s := a.sym()
-	idW, nameW, ipW := 0, 0, 0
+	verOf := func(n api.NodeInfo) string {
+		if n.Version == "" {
+			return i18n.T(i18n.TUIDash)
+		}
+		return i18n.T(i18n.TUINodeVersion, strings.TrimPrefix(n.Version, "v"))
+	}
+	// A pre-release version (0.3.0-edge.18) is longer than the usual 9.
+	idW, nameW, ipW, verW := 0, 0, 0, 9
 	for _, n := range ns {
 		idW = max(idW, width(n.ID))
 		nameW = max(nameW, width(n.Name))
 		ipW = max(ipW, width(n.PublicIP))
+		verW = max(verW, width(verOf(n))+1)
 	}
 	var b strings.Builder
 	for _, n := range ns {
@@ -427,14 +435,11 @@ func renderNodeTable(a *app, ns []api.NodeInfo) string {
 			}
 			line += pad(i18n.T(i18n.TUINodeCtl, ctl), 11)
 		}
-		ver := i18n.T(i18n.TUIDash)
-		if n.Version != "" {
-			ver = i18n.T(i18n.TUINodeVersion, strings.TrimPrefix(n.Version, "v"))
-		}
+		ver := verOf(n)
 		if !n.Compatible && n.Version != "" {
-			ver = a.paint(colYellow, ver) + strings.Repeat(" ", max(0, 9-width(ver)))
+			ver = a.paint(colYellow, ver) + strings.Repeat(" ", max(0, verW-width(ver)))
 		} else {
-			ver = pad(ver, 9)
+			ver = pad(ver, verW)
 		}
 		line += ver
 		line += pad(i18n.T(i18n.TUINodeCPU, n.CPUPercent), 8)

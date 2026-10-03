@@ -143,10 +143,12 @@ exact targets. `TestNodeNotOpenProxy` evaluates the rendered rules.
 - REALITY on a port other than 443 makes Xray print a warning at start
   ("Listening on non-443 ports may get your IP blocked"); the node listens on
   the allocated control port by design (30000-31999).
-- Choosing Apple/iCloud as decoy triggers another upstream warning; the decoy
-  list is owner supplied (`internal/backend/decoy.go`, QUESTIONS.md B).
+- Choosing Apple/iCloud as decoy triggers another upstream warning.
+- `www.microsoft.com` does not work as the decoy: the rung never comes up
+  with it, although the site offers TLS 1.3, X25519 and HTTP/2. It is not in
+  the built-in list (`internal/backend/decoy.go`).
 - Decoy: `RenderInput.Decoy` (the reachable decoy the hub selected), else the
-  first `hub.decoy_snis` entry, else the first built-in placeholder
+  first `hub.decoy_snis` entry, else the first built-in decoy
   (`backend.DecoyFor`); an IP or a malformed name fails `Validate` with
   `DEY-B006`.
 - The node service sees the node's own address, not the user's IP

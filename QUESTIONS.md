@@ -30,7 +30,7 @@ stated default until the owner decides · **[ANSWERED]** closed.
 | --- | --- | --- |
 | Installer URL / mirror (`RELEASE_BASE`) | **[DEFAULT]** GitHub only for now: `https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh`; owner CDN can be set later in `RELEASE_BASE` | phase 1 |
 | Domain for ACME | none (`tls.mode: auto`) | phase 3 |
-| Decoy SNI list (Reality/Waterwall) | **[OPEN]** placeholder list in `internal/backend/decoy.go`; owner must supply 3 domains reachable from Iran | phase 6 |
+| Decoy SNI list (Reality/Waterwall) | **[DEFAULT]** `dl.google.com`, `www.speedtest.net`, `www.samsung.com` in `internal/backend/decoy.go` (each carries both Reality rungs, S18); the owner can set others in `hub.decoy_snis` | phase 6 |
 | Default ladder | as in section 8 | phase 4 |
 | Backend control port range | `30000-31999` | phase 2 |
 | Hub `control_port` | `44433` | phase 2 |

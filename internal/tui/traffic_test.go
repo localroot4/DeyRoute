@@ -589,3 +589,17 @@ func TestHubZone(t *testing.T) {
 		require.Equal(t, loc.String(), hubZone("Asia/Tehran").String())
 	}
 }
+
+// A pre-release version is longer than the version column; the CPU column
+// moves right instead of touching it.
+func TestDashboardLongNodeVersion(t *testing.T) {
+	a := dashApp(Caps{Unicode: true, Width: 120})
+	st := sampleStatus()
+	st.Nodes[0].Version = "v0.3.0-edge.18"
+	out := renderNodeTable(a, st.Nodes)
+	require.Regexp(t, `v0\.3\.0-edge\.18 +cpu`, out)
+	require.Regexp(t, `v1\.0\.0 +cpu`, out)
+	rows := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	require.Len(t, rows, 2)
+	require.Equal(t, strings.Index(rows[0], "cpu"), strings.Index(rows[1], "cpu"), "both rows put cpu in one column")
+}
