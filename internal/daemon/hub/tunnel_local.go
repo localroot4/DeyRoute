@@ -345,6 +345,10 @@ func (h *Hub) newTunnel(ctx context.Context, cfg *config.Config, req api.TunnelA
 // of the active candidates) and reports it; with security.firewall_managed
 // false it is skipped (suggestions only, DEY-P031).
 func (h *Hub) firewallStep(ctx context.Context, rep *steps) error {
+	// The traffic accounting table follows the tunnels and ports before
+	// the command returns as well: a deleted tunnel or port leaves no
+	// counter behind (it does not depend on firewall_managed).
+	defer h.traffic.syncNow(ctx)
 	if !firewallManaged(h.Config()) {
 		rep.emit(api.Step{ID: stepFirewall, Status: api.StepSkipped, Detail: deyerr.New(deyerr.P031, nil).Message()})
 		h.requestFirewall()

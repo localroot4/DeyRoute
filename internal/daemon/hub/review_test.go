@@ -385,6 +385,40 @@ func TestDecoyListChangeIsCheckedAtOnce(t *testing.T) {
 	require.Eventually(t, func() bool { return env.h.currentDecoy(env.h.Config()) == "good.example" }, testWait, 10*time.Millisecond)
 }
 
+// A decoy list edited in config.yaml (config edit / config apply) is tested
+// at once as well, not only at the next periodic check.
+func TestConfigApplyChecksAnEditedDecoyList(t *testing.T) {
+	checked := make(chan string, 64)
+	env := startHub(t, nil, func(o *Options, _ string) {
+		o.DecoyCheck = func(_ context.Context, sni string) error {
+			select {
+			case checked <- sni:
+			default:
+			}
+			if sni == "bad.example" {
+				return errors.New("connection refused")
+			}
+			return nil
+		}
+	})
+	c, err := config.LoadWith(env.h.cfgPath, testValidate)
+	require.NoError(t, err)
+	c.Hub.DecoySNIs = []string{"bad.example", "good.example"}
+	require.NoError(t, config.SaveWith(env.h.cfgPath, c, testValidate))
+	_, err = env.client.ConfigApply(ctxT(t), nil)
+	require.NoError(t, err)
+	deadline := time.After(testWait)
+	for seen := false; !seen; {
+		select {
+		case sni := <-checked:
+			seen = sni == "good.example"
+		case <-deadline:
+			t.Fatal("the edited decoy list was not checked")
+		}
+	}
+	require.Eventually(t, func() bool { return env.h.currentDecoy(env.h.Config()) == "good.example" }, testWait, 10*time.Millisecond)
+}
+
 // A canary whose node side cannot start (the node is going away) does not
 // leave its hub side running; it is built again once the node answers.
 func TestCanaryPartialStartIsStopped(t *testing.T) {

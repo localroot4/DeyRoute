@@ -1237,6 +1237,50 @@ func TestTrafficHub(t *testing.T) {
 	require.False(t, kept)
 }
 
+// TestTunnelDeleteRemovesAccountingAtOnce: tunnel delete returns with the
+// tunnel's counters gone from the accounting table (the sampler's next tick
+// is an hour away), and port remove with the port's map elements gone.
+func TestTunnelDeleteRemovesAccountingAtOnce(t *testing.T) {
+	nft := &fakeNFT{}
+	env, o := prepareEnv(t, nil, func(o *Options, _ string) {
+		o.DisableStats = false
+		o.TrafficInterval = time.Hour
+		o.TrafficFlush = time.Hour
+	})
+	te := &tunnelEnv{testEnv: env, o: o}
+	te.sd = newFakeSystemd(t, env)
+	sd := env.runner.Handler
+	env.runner.Handler = func(c exec.Call) (exec.Response, bool) {
+		if r, ok := nft.handle(c); ok {
+			return r, true
+		}
+		return sd(c)
+	}
+	env.startEnv(o)
+	te.tunnelNode("de-1")
+	port, port2 := freePort(t), freePort(t)
+	te.addTunnelUp(api.TunnelAddRequest{ID: "main", Node: "de-1", Ports: []api.PortSpec{{Listen: port}, {Listen: port2}},
+		FixedTransport: trAlpha, Failover: fastFailover(false)})
+	te.addTunnelUp(api.TunnelAddRequest{ID: "games", Node: "de-1", Ports: []api.PortSpec{{Listen: freePort(t)}},
+		FixedTransport: trAlpha, Failover: fastFailover(false)})
+	require.Eventually(t, func() bool { return nft.has("main") && nft.has("games") }, testWait, 10*time.Millisecond)
+	require.Contains(t, nft.lastScript(), "tcp . "+strconv.Itoa(port2))
+
+	_, err := te.client.PortRemove(ctxT(t), "main", port2, config.ProtoTCP)
+	require.NoError(t, err)
+	require.NotContains(t, nft.lastScript(), "tcp . "+strconv.Itoa(port2), "the removed port is no longer counted")
+
+	require.NoError(t, te.client.TunnelDelete(ctxT(t), "games", nil))
+	require.False(t, nft.has("games"), "the deleted tunnel's counters are gone when the delete returns")
+	require.True(t, nft.has("main"))
+
+	require.NoError(t, te.client.TunnelDelete(ctxT(t), "main", nil))
+	nft.mu.Lock()
+	table := nft.table
+	nft.mu.Unlock()
+	require.False(t, table, "no tunnels left: the table is gone when the delete returns")
+}
+
 // TestCollectMetricsNATStale: when the node of a kernel-NAT rung does not
 // answer, the record says so instead of keeping old numbers silently.
 func TestCollectMetricsNATStale(t *testing.T) {

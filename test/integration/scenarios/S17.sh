@@ -16,6 +16,8 @@
 #    WireGuard and AWG: the hub peer widened to 8.8.8.8/32 and a route into
 #    the tunnel), after the same client reached the tunnel's own target.
 # The node counts (and drops) what it sends or routes to 8.8.8.8:53: 0.
+# Online, xray/reality uses the lab's own decoy site (lib.sh lab_decoy), not
+# one on the internet.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -24,6 +26,7 @@ serve_http node1 443 1
 if [ "$DEY_OFFLINE" = 1 ]; then
   ladder=$(it_ladder)
 else
+  lab_decoy
   ladder=xray/reality,hysteria2/udp
   if sh_on hub "ip link add it-wgcheck type wireguard 2>/dev/null && ip link del it-wgcheck"; then
     ladder+=,wireguard/kernel
@@ -128,10 +131,12 @@ PY
 # (it-s17-client: 127.0.0.1:15353 -> 8.8.8.8:53, 127.0.0.1:15443 -> the
 # tunnel target); it must reach the target before the leak is tried.
 probe_client() {
-  local tr=$1 dir bin
+  local tr=$1 dir bin sni
   dir=$(hub_dir "$tr")
   case $tr in
     xray/*)
+      sni=$(on hub cat "$dir/config.json" | jq -r '[.. | .serverName? // empty] | first')
+      [ "$sni" = "$LAB_DECOY" ] || fail "$tr: the hub's client uses the decoy '$sni', not the lab decoy $LAB_DECOY"
       bin=$(sh_on hub "ls -d /var/lib/deyroute/bin/xray/*/xray | head -1")
       on hub python3 - "$dir/config.json" <<'PY'
 import json, sys

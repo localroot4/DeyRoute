@@ -181,7 +181,8 @@ type guardRecord struct {
 }
 
 // trafficSampler is the hub's traffic sampler. sample, flush and the stats
-// table run on the sampler goroutine; Status, Traffic, heartbeats and the
+// table run on the sampler goroutine (a tunnel or port command also syncs
+// the table, under statsMu: syncNow); Status, Traffic, heartbeats and the
 // metrics pass read and note under mu.
 type trafficSampler struct {
 	d    trafficDeps
@@ -342,6 +343,27 @@ func (s *trafficSampler) requestCheck() {
 	case s.kick <- struct{}{}:
 	default:
 	}
+}
+
+// syncNow makes the accounting table match the configuration before a
+// tunnel or port command returns (tunnel delete, port remove, disable…), so
+// a removed tunnel or port leaves no counter behind; the work is serialised
+// with the sampler by statsMu. Before the sampler started (its start builds
+// the table from the stored baseline) or while monitoring is off, it only
+// asks the sampler goroutine for a check.
+func (s *trafficSampler) syncNow(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	started := s.started
+	s.mu.Unlock()
+	cfg := s.d.config()
+	if !started || !cfg.MonitoringEnabled() {
+		s.requestCheck()
+		return
+	}
+	s.ensureStats(ctx, cfg, s.monoNow(s.d.now()), false)
 }
 
 // monoNow returns the monotonic time of the clock reading raw.

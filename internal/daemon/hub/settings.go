@@ -99,6 +99,11 @@ func (h *Hub) applyConfigFile(rep *steps) (api.ApplyResult, error) {
 		h.setConfig(next)
 		h.reloadNotifier(next)
 		h.requestFirewall()
+		if !slices.Equal(prev.Hub.DecoySNIs, next.Hub.DecoySNIs) {
+			// An edited decoy list is tested at once, as one changed in
+			// Settings (section 7.4): the first reachable decoy is used.
+			h.requestDecoyCheck()
+		}
 		if !reflect.DeepEqual(prev.Tuning, next.Tuning) && next.Tuning != nil {
 			// Kernel settings change only on the owner's explicit command
 			// (section 12).

@@ -212,8 +212,12 @@ func TestCDNUpgradePassThrough(t *testing.T) {
 	st := c.Stats()
 	assert.EqualValues(t, 1, st.Requests)
 	assert.EqualValues(t, 1, st.Upgrades)
-	assert.Positive(t, st.BytesUp)
-	assert.Positive(t, st.BytesDown)
+	// A pump counts its bytes after its Write returned, so the echo can
+	// reach the client before both directions are counted.
+	require.Eventually(t, func() bool {
+		st := c.Stats()
+		return st.BytesUp > 0 && st.BytesDown > 0
+	}, 5*time.Second, 5*time.Millisecond, "forwarded bytes are counted in both directions")
 
 	rs := c.Requests()
 	require.Len(t, rs, 1)

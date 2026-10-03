@@ -377,18 +377,22 @@ s = http.server.ThreadingHTTPServer((\"0.0.0.0\", 8443), http.server.SimpleHTTPR
 c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain(\"/etc/it-mirror.crt\", \"/etc/it-mirror.key\")
 s.socket = c.wrap_socket(s.socket, server_side=True); s.serve_forever()'"
   wait_for 20 "https mirror up" sh_on client "ss -Hltn 'sport = :8443' | grep -q ."
-  local crt s nodes=()
-  crt=$(on client cat /etc/it-mirror.crt)
+  trust_lab_ca it-mirror "$(on client cat /etc/it-mirror.crt)"
+}
+# trust_lab_ca NAME PEM: the hub and the nodes that run trust the lab
+# certificate PEM (NAME.crt in the system store).
+trust_lab_ca() {
+  local s nodes=()
   for s in hub node1 node2; do
     [ -n "$(cid "$s")" ] || continue
-    on "$s" sh -c 'cat > /usr/local/share/ca-certificates/it-mirror.crt && update-ca-certificates >/dev/null 2>&1' <<<"$crt"
+    on "$s" sh -c "cat > /usr/local/share/ca-certificates/$1.crt && update-ca-certificates >/dev/null 2>&1" <<<"$2"
     # A running deyroute daemon loaded the system roots when it first
     # verified a certificate (once per process): restart it so that it
     # trusts the new CA, as an owner does after adding one. The tunnel
     # units are separate services and keep running.
     if sh_on "$s" "systemctl is-active --quiet deyroute-hub"; then
       on "$s" systemctl restart deyroute-hub
-      wait_for 60 "hub back after trusting the mirror" sh_on "$s" "deyroute status --json >/dev/null"
+      wait_for 60 "hub back after trusting $1" sh_on "$s" "deyroute status --json >/dev/null"
     fi
     if sh_on "$s" "systemctl is-active --quiet deyroute-node"; then
       on "$s" systemctl restart deyroute-node
@@ -396,6 +400,44 @@ s.socket = c.wrap_socket(s.socket, server_side=True); s.serve_forever()'"
     fi
   done
   for s in "${nodes[@]}"; do wait_node_online "$(node_id_of "$s")"; done
+}
+
+# lab_decoy: the lab's own decoy site for the Reality transports (spec 7.4),
+# so that they do not depend on a site on the internet: a TLS 1.3 web server
+# on https://decoy.it.lab/ (the client, 10.77.0.30:443; compose.yml maps the
+# name on every server) with a lab CA certificate the hub and the nodes
+# trust, and hub.decoy_snis set to it (config.yaml + config apply, the
+# owner's way). Every connection is served on its own thread: the Reality
+# servers hold one decoy connection per tunnel connection (xray/reality on
+# the node, waterwall/reverse-reality on the hub).
+LAB_DECOY=decoy.it.lab
+lab_decoy() {
+  sh_on client "[ -s /etc/it-decoy.crt ] || {
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj /CN=it-decoy-ca \
+        -keyout /etc/it-decoy-ca.key -out /etc/it-decoy-ca.crt 2>/dev/null &&
+      openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=$LAB_DECOY \
+        -keyout /etc/it-decoy.key -out /tmp/it-decoy.csr 2>/dev/null &&
+      printf 'subjectAltName=DNS:$LAB_DECOY\n' > /tmp/it-decoy.ext &&
+      openssl x509 -req -in /tmp/it-decoy.csr -CA /etc/it-decoy-ca.crt -CAkey /etc/it-decoy-ca.key -CAcreateserial \
+        -days 2 -extfile /tmp/it-decoy.ext -out /etc/it-decoy.crt 2>/dev/null; }
+    mkdir -p /srv/decoy && echo '<!doctype html><title>decoy</title>' > /srv/decoy/index.html
+    systemctl stop it-decoy 2>/dev/null || true
+    systemd-run --quiet --unit it-decoy -p WorkingDirectory=/srv/decoy python3 -c '
+import http.server, ssl
+s = http.server.ThreadingHTTPServer((\"0.0.0.0\", 443), http.server.SimpleHTTPRequestHandler)
+c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.minimum_version = ssl.TLSVersion.TLSv1_3
+c.set_alpn_protocols([\"http/1.1\"]); c.load_cert_chain(\"/etc/it-decoy.crt\", \"/etc/it-decoy.key\")
+s.socket = c.wrap_socket(s.socket, server_side=True, do_handshake_on_connect=False); s.serve_forever()'"
+  wait_for 20 "lab decoy up" sh_on client "ss -Hltn 'sport = :443' | grep -q ."
+  trust_lab_ca it-decoy "$(on client cat /etc/it-decoy-ca.crt)"
+  sh_on hub "curl -fsS -o /dev/null --noproxy '*' --tlsv1.3 https://$LAB_DECOY/" || fail "the hub does not reach the lab decoy"
+  sh_on hub "python3 - <<'PY'
+import re
+p = '/etc/deyroute/config.yaml'
+s = re.sub(r'(?m)^  decoy_snis:.*\n(?:    - .*\n)*', '', open(p).read())
+open(p, 'w').write(re.sub(r'(?m)^hub:\n', 'hub:\n  decoy_snis: [$LAB_DECOY]\n', s, count=1))
+PY"
+  dey config apply --json >/dev/null
 }
 # fake_backend_archive NAME SCRIPT: /srv/mirror/<NAME>.tar.gz on the client with
 # one executable NAME whose body is SCRIPT; prints its sha256.

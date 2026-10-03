@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # S18: every rung of the ladder on its own (test-ladder): all pass, RTT reported
+# The Reality rungs use the hub's real decoy sites, not the lab decoy
+# (lib.sh lab_decoy): the node side of waterwall/reverse-reality verifies
+# the decoy's certificate against the CA list built into Waterwall only, so
+# only a real public site can pass it (and only without TLS interception).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
