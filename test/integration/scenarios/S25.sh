@@ -61,7 +61,7 @@ mh=$(mem hub) mn=$(mem node1)
 log "ok=$ok err=$err, backend peak RSS: hub $((mh / 1048576)) MB, node $((mn / 1048576)) MB" \
   "(unit MemoryPeak with socket buffers: hub $(cgpeak hub), node $(cgpeak node1))"
 { [ "$err" = 0 ] && [ "$ok" = 500 ]; } || fail "$err of 500 connections failed"
-[ "$mh" -gt 0 ] && [ "$mn" -gt 0 ] || fail "cannot read the backend memory (hub $mh, node $mn)"
+{ [ "$mh" -gt 0 ] && [ "$mn" -gt 0 ]; } || fail "cannot read the backend memory (hub $mh, node $mn)"
 [ "$mh" -le $((150 * 1048576)) ] || fail "hub backend used $((mh / 1048576)) MB"
 [ "$mn" -le $((150 * 1048576)) ] || fail "node backend used $((mn / 1048576)) MB"
 pass
