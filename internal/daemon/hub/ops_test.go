@@ -2,6 +2,8 @@ package hub
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -434,6 +436,31 @@ func TestDecoyCheck(t *testing.T) {
 	cfg.Hub.DecoySNIs = []string{"c.example.com"}
 	require.Equal(t, "c.example.com", env.h.currentDecoy(cfg))
 	require.Equal(t, backend.DecoyCandidates(nil)[0], env.h.currentDecoy(nil))
+}
+
+// The default decoy check wants TLS 1.3 with a verified certificate and
+// HTTP/2: REALITY cannot use a target without them.
+func TestDecoyHandshake(t *testing.T) {
+	site := func(h2 bool, maxVer uint16) (string, *x509.CertPool) {
+		srv := httptest.NewUnstartedServer(http.NotFoundHandler())
+		srv.EnableHTTP2 = h2
+		srv.TLS = &tls.Config{MaxVersion: maxVer}
+		srv.StartTLS()
+		t.Cleanup(srv.Close)
+		roots := x509.NewCertPool()
+		roots.AddCert(srv.Certificate())
+		return srv.Listener.Addr().String(), roots
+	}
+	addr, roots := site(true, 0)
+	require.NoError(t, decoyHandshake(ctxT(t), "example.com", addr, roots))
+	require.Error(t, decoyHandshake(ctxT(t), "example.com", addr, nil), "certificate not trusted")
+
+	addr, roots = site(false, 0)
+	err := decoyHandshake(ctxT(t), "example.com", addr, roots)
+	require.ErrorContains(t, err, "no HTTP/2")
+
+	addr, roots = site(true, tls.VersionTLS12)
+	require.Error(t, decoyHandshake(ctxT(t), "example.com", addr, roots), "TLS 1.2 only")
 }
 
 func TestCheckDecoyTLSRefused(t *testing.T) {

@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -120,7 +122,7 @@ func (h *Hub) requestDecoyCheck() {
 }
 
 // checkDecoys tests hub.decoy_snis (or the built-in list) in order with a
-// TLS 1.3 handshake from the hub; the first that answers becomes the decoy
+// TLS 1.3 + HTTP/2 handshake from the hub; the first that answers becomes the decoy
 // of the Reality transports (section 7.4). When it changed, the tunnels are
 // rendered again. When none answers the last choice stays and a warning
 // event (DEY-B042) is emitted.
@@ -176,14 +178,26 @@ func (h *Hub) checkDecoys(ctx context.Context) {
 }
 
 // checkDecoyTLS is the default Options.DecoyCheck: a TLS 1.3 handshake with
-// sni:443 whose certificate verifies against the system roots.
+// sni:443 whose certificate verifies against the system roots and that
+// agrees on HTTP/2, as REALITY needs of its target.
 func checkDecoyTLS(ctx context.Context, sni string) error {
-	d := tls.Dialer{Config: &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS13}}
-	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(sni, "443"))
+	return decoyHandshake(ctx, sni, net.JoinHostPort(sni, "443"), nil)
+}
+
+// decoyHandshake runs the decoy check against addr; nil roots means the
+// system roots.
+func decoyHandshake(ctx context.Context, sni, addr string, roots *x509.CertPool) error {
+	d := tls.Dialer{Config: &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2", "http/1.1"}, RootCAs: roots}}
+	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return err
 	}
-	return conn.Close()
+	defer func() { _ = conn.Close() }()
+	if p := conn.(*tls.Conn).ConnectionState().NegotiatedProtocol; p != "h2" {
+		return fmt.Errorf("no HTTP/2 (ALPN %q)", p)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------- TLS renewal

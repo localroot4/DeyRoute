@@ -88,12 +88,15 @@ not an error. Typical reasons:
 
 `xray/reality` and `waterwall/reverse-reality` make the tunnel look like a
 TLS 1.3 connection to a real, harmless website (the decoy). Before such a
-rung is used, the hub checks which decoy answers and takes the first
-reachable one. If none answers, you get `DEY-B042`.
+rung is used, the hub checks which decoy answers with TLS 1.3 and HTTP/2
+and takes the first one that does. If none answers, you get `DEY-B042`.
 
-The built-in list is only a placeholder. Set three TLS 1.3 sites that are
-reachable from your hub's datacenter and not blocked in Iran, under `hub:` in
-`config.yaml`:
+The built-in list is `dl.google.com`, `www.speedtest.net` and
+`www.samsung.com`; each one is tested with both rungs. You only need your
+own list when none of them works from your hub's datacenter. Then set TLS 1.3
+sites with HTTP/2 that are reachable there and not blocked in Iran, under
+`hub:` in `config.yaml` (avoid `www.microsoft.com`: `xray/reality` failed the ladder
+test with it):
 
 ```bash
 deyroute config edit

@@ -318,6 +318,21 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 		nameW = max(nameW, width(n.Name))
 		ipW = max(ipW, width(nodeAddr(n)))
 	}
+	verOf := func(n api.NodeInfo) string {
+		if n.Version == "" {
+			return orDash("")
+		}
+		ver := i18n.T(i18n.TUINodeVersion, strings.TrimPrefix(n.Version, "v"))
+		if !n.Compatible {
+			ver += "!"
+		}
+		return ver
+	}
+	// A pre-release version (0.3.0-edge.18) is longer than the usual 9.
+	verW := 9
+	for _, n := range ns {
+		verW = max(verW, width(verOf(n))+1)
+	}
 	var b strings.Builder
 	for _, n := range ns {
 		st := s.up + " " + i18n.T(i18n.TUIOnline)
@@ -332,14 +347,7 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 			}
 			line += pad(i18n.T(i18n.TUINodeCtl, ctl), 11)
 		}
-		ver := orDash("")
-		if n.Version != "" {
-			ver = i18n.T(i18n.TUINodeVersion, strings.TrimPrefix(n.Version, "v"))
-			if !n.Compatible {
-				ver += "!"
-			}
-		}
-		line += pad(ver, 9) + pad(i18n.T(i18n.TUINodeCPU, n.CPUPercent), 8) + i18n.T(i18n.TUINodeRAM, n.RAMBytes/(1<<20))
+		line += pad(verOf(n), verW) + pad(i18n.T(i18n.TUINodeCPU, n.CPUPercent), 8) + i18n.T(i18n.TUINodeRAM, n.RAMBytes/(1<<20))
 		b.WriteString(line + "\n")
 	}
 	return b.String()
