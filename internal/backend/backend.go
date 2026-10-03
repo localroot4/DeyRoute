@@ -159,6 +159,56 @@ type RenderInput struct {
 	// unknown); Waterwall renders min(4, CPU) workers per side (§7.4).
 	HubCPUs  int
 	NodeCPUs int
+	// HubTier and NodeTier are the sticky backend tiers of the two sides
+	// (config.BackendTierSmall|Medium|Large, from tuning.backend_tier and
+	// nodes[].backend_tier). "" renders exactly the defaults; backends that
+	// scale buffers or pools read the tier of the side they render (Tier).
+	HubTier  string
+	NodeTier string
+	// WGMTU is the MTU of WireGuard/AmneziaWG tunnel interfaces
+	// (tuning.wg_mtu, 1280-1420); 0 = the backend default (1420).
+	WGMTU int
+}
+
+// Tier returns the backend tier of side ("" = the defaults). Unknown
+// values are treated as "".
+func (in RenderInput) Tier(side Side) string {
+	t := in.HubTier
+	if side == SideNode {
+		t = in.NodeTier
+	}
+	switch t {
+	case config.BackendTierSmall, config.BackendTierMedium, config.BackendTierLarge:
+		return t
+	}
+	return ""
+}
+
+// ByTier picks the value of tier: small, medium or large; def for "" (and
+// unknown tiers).
+func ByTier[T any](tier string, def, small, medium, large T) T {
+	switch tier {
+	case config.BackendTierSmall:
+		return small
+	case config.BackendTierMedium:
+		return medium
+	case config.BackendTierLarge:
+		return large
+	}
+	return def
+}
+
+// SmallerTier returns the smaller of two backend tiers; a tier that is not
+// set ("") does not count, so SmallerTier("", t) is t.
+func SmallerTier(a, b string) string {
+	rank := func(t string) int { return ByTier(t, 0, 1, 2, 3) }
+	switch {
+	case rank(a) == 0:
+		return ByTier(b, "", b, b, b)
+	case rank(b) == 0 || rank(a) <= rank(b):
+		return a
+	}
+	return b
 }
 
 // UsesCompanion reports whether the UDP maps of in travel through the UDP

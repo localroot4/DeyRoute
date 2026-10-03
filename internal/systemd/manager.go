@@ -218,9 +218,71 @@ func (m *Manager) Restart(ctx context.Context, unit string) error {
 // Enable runs systemctl enable <unit>.
 func (m *Manager) Enable(ctx context.Context, unit string) error { return m.verb(ctx, "enable", unit) }
 
-// Disable runs systemctl disable <unit>.
+// Disable removes the links of unit (RemoveWantsLinks), then runs
+// systemctl disable <unit>.
 func (m *Manager) Disable(ctx context.Context, unit string) error {
+	if err := checkUnit(unit); err != nil {
+		return err
+	}
+	if err := RemoveWantsLinks(m.root(), unit); err != nil {
+		return err
+	}
 	return m.verb(ctx, "disable", unit)
+}
+
+// wantsDirSuffixes are the dependency directories `systemctl enable` links
+// a unit into ([Install] WantedBy=, RequiredBy=, UpheldBy=).
+var wantsDirSuffixes = []string{".wants", ".requires", ".upholds"}
+
+// RemoveWantsLinks deletes the symlinks named unit in the .wants, .requires
+// and .upholds directories of root/etc/systemd/system — what `systemctl
+// enable` created for the unit — and keeps the directories themselves.
+// `systemctl disable` removes those links too, but it also deletes a
+// directory its last link leaves empty, and that directory belongs to the
+// system, not to deyroute (a fresh multi-user.target.wants can be empty
+// before deyroute is installed). Removing the links first leaves systemctl
+// nothing to delete, so callers run this before `systemctl disable` and the
+// system keeps the directories it had before the install. Missing links
+// and directories are not an error.
+func RemoveWantsLinks(root, unit string) error {
+	if err := checkUnit(unit); err != nil {
+		return err
+	}
+	if root == "" {
+		root = "/"
+	}
+	dir := filepath.Join(root, UnitDir)
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		if stderrors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": dir})
+	}
+	var errs []error
+	for _, ent := range ents {
+		if !ent.IsDir() || !hasWantsSuffix(ent.Name()) {
+			continue
+		}
+		link := filepath.Join(dir, ent.Name(), unit)
+		fi, err := os.Lstat(link)
+		if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		if err := os.Remove(link); err != nil && !stderrors.Is(err, os.ErrNotExist) {
+			errs = append(errs, deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": link}))
+		}
+	}
+	return stderrors.Join(errs...)
+}
+
+func hasWantsSuffix(name string) bool {
+	for _, s := range wantsDirSuffixes {
+		if strings.HasSuffix(name, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // ResetFailed runs systemctl reset-failed <unit>.

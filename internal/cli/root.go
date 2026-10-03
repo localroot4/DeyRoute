@@ -72,7 +72,7 @@ func NewRoot(g *Globals) *cobra.Command {
 	}
 	add(groupStart, newSetupCmd(g), newJoinCmd(g), newStatusCmd(g), newVersionCmd(g))
 	add(groupManage, newNodeCmd(g), newHubCmd(g), newTunnelCmd(g), newPortCmd(g), newLadderCmd(g))
-	add(groupDiag, newDiagCmd(g), newLogsCmd(g), newEventsCmd(g), newDoctorCmd(g))
+	add(groupDiag, newDiagCmd(g), newLogsCmd(g), newEventsCmd(g), newDoctorCmd(g), newStatsCmd(g))
 	add(groupSystem, newOptimizeCmd(g), newSecurityCmd(g), newNotifyCmd(g), newBackupCmd(g), newRestoreCmd(g),
 		newUpdateCmd(g), newConfigCmd(g), newSettingsCmd(g), newUninstallCmd(g), newCompletionCmd(g))
 	root.AddCommand(newMenuCmd(g), newDaemonCmd(g), newRelayCmd(g), newWGCmd(g), newPairCmd(g))

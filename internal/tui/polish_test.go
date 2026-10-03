@@ -89,7 +89,7 @@ func TestTitlesWithoutStar(t *testing.T) {
 	h.must(" Thresholds: main\n")
 	h.mustNot("Thresholds *:")
 	h.press("esc", "esc", "esc")
-	h.choose("7").choose("4")
+	h.choose("7").choose("6")
 	h.must(" Limits\n")
 	h.press("esc", "esc")
 	h.choose("12").choose("2").choose("1")

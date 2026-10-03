@@ -1,0 +1,3 @@
+# Managed by deyroute. Traffic accounting only: no accept, drop or reject. Rebuilt when the tunnel listen ports change.
+table inet deyroute_stats {
+}

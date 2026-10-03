@@ -38,6 +38,9 @@ func (l *local) ConfigApply(ctx context.Context, progress func(api.Step)) (api.A
 	if err != nil {
 		return api.ApplyResult{}, withLog(err)
 	}
+	// The front follows hub.front at once (enable, disable, a new port), and
+	// a front that could not start (DEY-X053) is tried again here.
+	h.reloadFront(h.Config())
 	if cfg := h.Config(); h.ctlPort != 0 && cfg.Hub.ControlPort != h.ctlPort {
 		res.Warnings = append(res.Warnings, h.announcePort(ctx, cfg))
 	}
@@ -96,6 +99,11 @@ func (h *Hub) applyConfigFile(rep *steps) (api.ApplyResult, error) {
 		h.setConfig(next)
 		h.reloadNotifier(next)
 		h.requestFirewall()
+		if !slices.Equal(prev.Hub.DecoySNIs, next.Hub.DecoySNIs) {
+			// An edited decoy list is tested at once, as one changed in
+			// Settings (section 7.4): the first reachable decoy is used.
+			h.requestDecoyCheck()
+		}
 		if !reflect.DeepEqual(prev.Tuning, next.Tuning) && next.Tuning != nil {
 			// Kernel settings change only on the owner's explicit command
 			// (section 12).
@@ -127,6 +135,9 @@ func (h *Hub) announcePort(ctx context.Context, cfg *config.Config) string {
 	}
 	if len(res.Offline) > 0 {
 		msg += "; offline nodes, run on each: deyroute node set-hub " + addr + " (" + strings.Join(res.Offline, ", ") + ")"
+	}
+	if len(res.Front) > 0 {
+		msg += "; front: unchanged (" + strings.Join(res.Front, ", ") + "): they reach the hub through the CDN front, not this address"
 	}
 	return msg
 }

@@ -313,7 +313,7 @@ func TestErrorPrinting(t *testing.T) {
 	require.True(t, isDEY(errors.Join(errors.New("a"), deyerr.New(deyerr.C001, nil))))
 	require.Len(t, deyErrors(errors.Join(errors.New("a"))), 1)
 	require.Nil(t, deyErrors(nil))
-	require.Equal(t, "1.5 KB", humanBytes(1536))
+	require.Equal(t, "2 KiB", humanBytes(1536)) // IEC units, KiB rounded up (stats_test.go)
 	require.Equal(t, "12 B", humanBytes(12))
 	require.Equal(t, "ab…", trunc("abcdef", 3, "…"))
 	require.Equal(t, "  x", padLeft("x", 3))

@@ -65,7 +65,10 @@ deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --name de-1
 ```
 
 The node asks one question — whether to apply the balanced kernel profile
-(Enter = yes) — and then shows its steps:
+(Enter = yes) — and then shows its steps. When the hub uses automatic tuning
+(`deyroute optimize auto`), the hub tunes the node the same way as soon as it
+is online and lists it under `deyroute optimize status`; see
+[Automatic tuning](tuning.md).
 
 ```text
   ✔ Read join link

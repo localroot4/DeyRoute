@@ -124,6 +124,12 @@ The hub binds `<ctl>/tcp` (purpose `control`) and every user port on
   `ProtectSystem=strict`.
 - `tcp-tune` and `try-enabling-bbr` are off: deyroute owns kernel tuning
   (spec section 12).
+- `ram-profile`: `server` (spec 7.4). With the small backend tier of the
+  side that runs the unit (`tuning.backend_tier` / `nodes[].backend_tier`,
+  set by `deyroute optimize auto --backends`) it is `client`, Waterwall's
+  smaller buffer pools. Only these two names are rendered: v1.46.94 exits at
+  start on a name it does not know, and `server` is already its largest
+  profile, so medium and large keep `server`.
 - `workers`: `min(4, CPU)` of the side that runs the unit. The hub passes
   its own CPU count and each node's (reported in the node's hello) in
   `RenderInput.HubCPUs` / `NodeCPUs`; while a node's count is unknown

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # S18: every rung of the ladder on its own (test-ladder): all pass, RTT reported
+# The Reality rungs use the hub's real decoy sites, not the lab decoy
+# (lib.sh lab_decoy): the node side of waterwall/reverse-reality verifies
+# the decoy's certificate against the CA list built into Waterwall only, so
+# only a real public site can pass it (and only without TLS interception).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -11,7 +15,7 @@ res=$(dey tunnel test-ladder "$T" --yes --json) || { echo "$res" >&2; fail "test
 jq -r '.results[] | "\(.transport) ok=\(.ok) rtt=\(.rtt_ms)ms skipped=\(.skipped) \(.error.code // "")"' <<<"$res" >&2
 jq -e '[.results[] | select(.skipped | not or . == "")] | length > 0' <<<"$res" >/dev/null || fail "no rung was tested"
 bad=$(jq -r '[.results[] | select((.skipped | not or . == "") and (.ok | not)) | .transport] | join(" ")' <<<"$res")
-[ -z "$bad" ] || fail "rungs failed: $bad"
+[ -z "$bad" ] || fail "rungs failed: $bad"$'\n'"$(jq -r '.results[] | select(.ok | not) | .error.detail // empty' <<<"$res")"
 jq -e 'all(.results[] | select(.ok); .rtt_ms > 0)' <<<"$res" >/dev/null || fail "a passing rung has no RTT"
 tunnel_up "$T" || wait_tunnel_up "$T" 60
 pass

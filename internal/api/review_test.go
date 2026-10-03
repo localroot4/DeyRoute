@@ -206,7 +206,7 @@ type blockingAuthHub struct {
 	release chan struct{}
 }
 
-func (h blockingAuthHub) Authenticate(string, string, string) error {
+func (h blockingAuthHub) Authenticate(context.Context, string, string, string) error {
 	<-h.release
 	return deyerr.New(deyerr.N008, deyerr.Params{"node": "de-1"})
 }

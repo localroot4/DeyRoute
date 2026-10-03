@@ -371,6 +371,11 @@ func Clone(c *Config) *Config {
 		h := *c.Hub
 		h.Notify.Telegram.Events = cloneStrings(c.Hub.Notify.Telegram.Events)
 		h.DecoySNIs = cloneStrings(c.Hub.DecoySNIs)
+		h.Front.TrustedProxies = cloneStrings(c.Hub.Front.TrustedProxies)
+		if c.Hub.Front.CFOnly != nil {
+			b := *c.Hub.Front.CFOnly
+			h.Front.CFOnly = &b
+		}
 		if c.Hub.ACME != nil {
 			a := *c.Hub.ACME
 			h.ACME = &a
@@ -403,6 +408,14 @@ func Clone(c *Config) *Config {
 	if c.Security != nil {
 		s := *c.Security
 		out.Security = &s
+	}
+	if c.Monitoring != nil {
+		m := *c.Monitoring
+		if m.Enabled != nil {
+			b := *m.Enabled
+			m.Enabled = &b
+		}
+		out.Monitoring = &m
 	}
 	if c.Node != nil {
 		n := *c.Node

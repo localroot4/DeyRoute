@@ -154,6 +154,15 @@ func TestGolden(t *testing.T) {
 		{"tcp_canary", canaryFixture(t, TCP)},
 		{"tcp_acme", acme},
 	}
+	// Backend tiers (optimize auto --backends) scale the default pool.
+	for _, tier := range []string{config.BackendTierSmall, config.BackendTierLarge} {
+		in := fixture(t, TCP)
+		in.HubTier, in.NodeTier = tier, tier
+		cases = append(cases, struct {
+			golden string
+			in     backend.RenderInput
+		}{"tcp_" + tier, in})
+	}
 	for _, c := range cases {
 		for _, side := range []backend.Side{backend.SideHub, backend.SideNode} {
 			t.Run(c.golden+"."+side.String(), func(t *testing.T) {
@@ -626,4 +635,34 @@ func parseTOML(t *testing.T, data []byte) frpDoc {
 		}
 	}
 	return doc
+}
+
+// TestPoolByTier: the default pool follows the smaller tier of the two
+// sides (8/16/32); an explicit advanced.connection_pool always wins, and
+// the server's maxPoolCount caps it.
+func TestPoolByTier(t *testing.T) {
+	in := fixture(t, TCP)
+	require.Equal(t, config.DefaultConnectionPool, poolCount(in))
+	cases := []struct {
+		hub, node string
+		want      int
+	}{
+		{config.BackendTierSmall, config.BackendTierSmall, 8},
+		{config.BackendTierMedium, config.BackendTierMedium, 16},
+		{config.BackendTierLarge, config.BackendTierLarge, 32},
+		{config.BackendTierLarge, config.BackendTierSmall, 8},
+		{config.BackendTierMedium, config.BackendTierLarge, 16},
+		{"", config.BackendTierLarge, 32},
+		{config.BackendTierMedium, "", 16},
+		{"bogus", "", config.DefaultConnectionPool},
+	}
+	for _, c := range cases {
+		in.HubTier, in.NodeTier = c.hub, c.node
+		require.Equal(t, c.want, poolCount(in), "%s/%s", c.hub, c.node)
+	}
+	in.HubTier, in.NodeTier = config.BackendTierLarge, config.BackendTierLarge
+	in.Tunnel.Advanced = &config.Advanced{ConnectionPool: 4}
+	require.Equal(t, 4, poolCount(in))
+	in.Tunnel.Advanced = &config.Advanced{ConnectionPool: 100}
+	require.Equal(t, maxPoolCount, poolCount(in))
 }

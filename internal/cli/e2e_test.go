@@ -45,6 +45,7 @@ func startRealHub(t *testing.T, e *env) {
 	o := hub.Options{
 		Root: e.root, Runner: runner, Logger: dlog.Discard(), ControlListen: "127.0.0.1:0",
 		SocketPath: filepath.Join(sockDir, "d.sock"), SelfBinary: self, Arch: "amd64", DisableFirewall: true,
+		DisableStats: true, DisableTuning: true,
 		Notify: func(string) error { return nil }, Getenv: func(string) string { return "" },
 		OnReady: func(*hub.Hub) { close(ready) },
 	}

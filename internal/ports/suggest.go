@@ -26,23 +26,25 @@ const (
 )
 
 // CloudflarePorts are the HTTPS ports Cloudflare proxies; they are
-// suggested first, in this order (section 10).
-var CloudflarePorts = []int{443, 2053, 2083, 2087, 2096, 8443}
+// suggested first, in this order (section 10). The list is owned by
+// internal/config (config.CloudflareHTTPSPorts).
+var CloudflarePorts = config.CloudflareHTTPSPorts()
 
 // Reserved reports whether a tunnel may not listen on port, and why: 22
 // (SSH), the hub control port and the backend control range 30000-31999
-// (section 10). It is the rule config validation applies (DEY-C011), so
-// the owner sees the same reason in DEY-P011 and DEY-C011.
-func Reserved(port, controlPort int) (bool, string) {
-	return config.ReservedListen(port, controlPort, nil)
+// (section 10). extra lists more reserved ports, for example the hub front
+// port (config.Hub.FrontPort). It is the rule config validation applies
+// (DEY-C011), so the owner sees the same reason in DEY-P011 and DEY-C011.
+func Reserved(port, controlPort int, extra ...int) (bool, string) {
+	return config.ReservedListen(port, controlPort, extra)
 }
 
 // CheckReserved returns DEY-P011 for every spec on a reserved port (joined),
-// or nil.
-func CheckReserved(specs []Spec, controlPort int) error {
+// or nil. extra is as for Reserved.
+func CheckReserved(specs []Spec, controlPort int, extra ...int) error {
 	var errs []error
 	for _, s := range specs {
-		if r, why := Reserved(s.Listen, controlPort); r {
+		if r, why := Reserved(s.Listen, controlPort, extra...); r {
 			errs = append(errs, deyerr.New(deyerr.P011, deyerr.Params{"port": FormatSpec(s), "reason": why}))
 		}
 	}
@@ -54,21 +56,22 @@ func CheckReserved(specs []Spec, controlPort int) error {
 // free and not reserved, then pseudo-random ports in 1024-65535, never 22,
 // controlPort, 30000-31999 or a port for which busy reports true (checked for
 // both tcp and udp, so the port suits any tunnel protocol). busy may be nil.
+// extra lists more ports that are never suggested (the hub front port).
 // Fewer than n ports are returned only when no more exist; use SuggestFree
 // to get DEY-P018 in that case.
-func Suggest(n int, busy func(port int, proto string) bool, controlPort int) []int {
-	out, _ := SuggestFree(n, "", busy, controlPort)
+func Suggest(n int, busy func(port int, proto string) bool, controlPort int, extra ...int) []int {
+	out, _ := SuggestFree(n, "", busy, controlPort, extra...)
 	return out
 }
 
 // SuggestFree is Suggest for one protocol ("tcp" or "udp"; "" means both
 // must be free). It returns exactly n ports, or the ports found plus
 // DEY-P018 when fewer than n are available.
-func SuggestFree(n int, proto string, busy func(port int, proto string) bool, controlPort int) ([]int, error) {
-	return suggest(n, proto, busy, controlPort, newRand())
+func SuggestFree(n int, proto string, busy func(port int, proto string) bool, controlPort int, extra ...int) ([]int, error) {
+	return suggest(n, proto, busy, controlPort, newRand(), extra...)
 }
 
-func suggest(n int, proto string, busy func(int, string) bool, controlPort int, rng *rand.Rand) ([]int, error) {
+func suggest(n int, proto string, busy func(int, string) bool, controlPort int, rng *rand.Rand, extra ...int) ([]int, error) {
 	if n <= 0 {
 		return nil, nil
 	}
@@ -82,7 +85,7 @@ func suggest(n int, proto string, busy func(int, string) bool, controlPort int, 
 		if ok, seen := checked[p]; seen {
 			return ok
 		}
-		ok := isUsable(p, proto, busy, controlPort)
+		ok := isUsable(p, proto, busy, controlPort, extra)
 		checked[p] = ok
 		return ok
 	}
@@ -117,11 +120,11 @@ func suggest(n int, proto string, busy func(int, string) bool, controlPort int, 
 	return out, nil
 }
 
-func isUsable(p int, proto string, busy func(int, string) bool, controlPort int) bool {
+func isUsable(p int, proto string, busy func(int, string) bool, controlPort int, extra []int) bool {
 	if !ValidPort(p) {
 		return false
 	}
-	if r, _ := Reserved(p, controlPort); r {
+	if r, _ := Reserved(p, controlPort, extra...); r {
 		return false
 	}
 	if busy == nil {

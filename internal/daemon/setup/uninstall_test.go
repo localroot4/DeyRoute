@@ -22,14 +22,15 @@ const tunInstanceUnit = "deyroute-tun@main.de-1.backhaul-wssmux.service"
 type fakeSystem struct {
 	root string
 
-	mu     sync.Mutex
-	loaded map[string]bool
-	table  bool
-	nftErr string
+	mu         sync.Mutex
+	loaded     map[string]bool
+	table      bool
+	statsTable bool
+	nftErr     string
 }
 
 func newFakeSystem(root string) *fakeSystem {
-	return &fakeSystem{root: root, table: true, loaded: map[string]bool{
+	return &fakeSystem{root: root, table: true, statsTable: true, loaded: map[string]bool{
 		"deyroute-hub.service": true, tunInstanceUnit: true,
 	}}
 }
@@ -67,6 +68,13 @@ func (s *fakeSystem) handle(c exec.Call) (exec.Response, bool) {
 		if !exists(filepath.Join(s.root, "etc/systemd/system", file)) {
 			return exec.Fail(1, "Failed to disable unit: Unit file "+c.Args[1]+" does not exist."), true
 		}
+		// Like systemd (rmdir_parents): every link of the unit goes and a
+		// .wants directory its last link leaves empty is deleted too.
+		wants, _ := filepath.Glob(filepath.Join(s.root, "etc/systemd/system", "*.wants", c.Args[1]))
+		for _, l := range wants {
+			_ = os.Remove(l)
+			_ = os.Remove(filepath.Dir(l)) // fails unless empty
+		}
 		return exec.OK(""), true
 	case line == "systemctl daemon-reload", strings.HasPrefix(line, "systemctl reset-failed "):
 		return exec.OK(""), true
@@ -103,6 +111,15 @@ func (s *fakeSystem) handle(c exec.Call) (exec.Response, bool) {
 			return exec.Fail(1, "Error: Could not process rule: No such file or directory"), true
 		}
 		s.table = false
+		return exec.OK(""), true
+	case line == "nft delete table inet deyroute_stats":
+		if s.nftErr != "" {
+			return exec.Fail(1, s.nftErr), true
+		}
+		if !s.statsTable {
+			return exec.Fail(1, "Error: Could not process rule: No such file or directory"), true
+		}
+		s.statsTable = false
 		return exec.OK(""), true
 	}
 	return exec.Response{}, false
@@ -193,6 +210,8 @@ func TestUninstallOrderAndIdempotence(t *testing.T) {
 	idx("systemctl disable deyroute-hub.service")
 	require.Less(t, idx("systemctl disable "+tunInstanceUnit), idx("systemctl daemon-reload"))
 	require.Less(t, idx("systemctl daemon-reload"), idx("nft delete table inet deyroute"))
+	idx("nft delete table inet deyroute_stats")
+	require.False(t, sys.table || sys.statsTable, "both deyroute tables are removed")
 
 	for _, p := range []string{
 		"etc/deyroute", "etc/deyroute.pre-restore-20260101T000000Z", "var/lib/deyroute", "var/log/deyroute", "run/deyroute",
@@ -213,6 +232,32 @@ func TestUninstallOrderAndIdempotence(t *testing.T) {
 	steps2 := &stepLog{}
 	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: sys.runner(), Progress: steps2.add}))
 	require.Equal(t, steps.final(), steps2.final())
+}
+
+// A .wants directory that only holds deyroute's link (it was empty before
+// the install) stays: the link is removed before systemctl disable, which
+// would delete the directory together with its last link (S23).
+func TestUninstallKeepsEmptyWantsDirectory(t *testing.T) {
+	root := t.TempDir()
+	installedTree(t, root)
+	wants := filepath.Join(root, "etc/systemd/system/multi-user.target.wants")
+	require.NoError(t, os.Remove(filepath.Join(wants, "ssh.service")))
+	sys := newFakeSystem(root)
+	f := sys.runner()
+	require.NoError(t, Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f}))
+	require.Contains(t, f.Lines(), "systemctl disable deyroute-hub.service")
+	require.DirExists(t, wants)
+	ents, err := os.ReadDir(wants)
+	require.NoError(t, err)
+	require.Empty(t, ents)
+
+	// The fake really deletes a directory whose last link systemctl removes
+	// (what the test above guards against).
+	require.NoError(t, os.Symlink("/etc/systemd/system/deyroute-hub.service", filepath.Join(wants, "deyroute-hub.service")))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "etc/systemd/system/deyroute-hub.service"), []byte("[Unit]"), 0o600))
+	_, _, err = f.Run(ctxT(t), "systemctl", []string{"disable", "deyroute-hub.service"}, nil)
+	require.NoError(t, err)
+	require.NoDirExists(t, wants)
 }
 
 func TestUninstallKeepBackups(t *testing.T) {
@@ -258,6 +303,7 @@ func TestUninstallWithoutSystemctl(t *testing.T) {
 	missing := exec.Response{Err: deyerr.New(deyerr.X002, nil)}
 	f.OnPrefix("systemctl ", missing)
 	f.On("nft delete table inet deyroute", exec.Response{Err: deyerr.New(deyerr.X030, deyerr.Params{"command": "nft"})})
+	f.On("nft delete table inet deyroute_stats", exec.Response{Err: deyerr.New(deyerr.X030, deyerr.Params{"command": "nft"})})
 	f.On("userdel deyroute", exec.OK(""))
 	f.On("groupdel deyroute", exec.OK(""))
 	steps := &stepLog{}
@@ -276,6 +322,7 @@ func TestUninstallStopErrorsAreCollected(t *testing.T) {
 	f.OnPrefix("systemctl stop ", exec.Fail(1, "Failed to connect to bus"))
 	f.OnPrefix("systemctl ", exec.OK(""))
 	f.On("nft delete table inet deyroute", exec.OK(""))
+	f.On("nft delete table inet deyroute_stats", exec.OK(""))
 	err := Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: f})
 	e := requireTop(t, err, deyerr.I022)
 	require.Contains(t, e.Message(), "stop_units")
@@ -353,8 +400,14 @@ func TestUninstallKeepsTheSysctlBackupWhenRevertFails(t *testing.T) {
 	proc := filepath.Join(root, "proc/sys/net/core/somaxconn")
 	require.NoError(t, os.Remove(proc))
 	require.NoError(t, os.Symlink(ro, proc))
+	// The revert is compare-and-restore: only a value still equal to what
+	// deyroute wrote is restored, so the conf names the value read back.
+	live, err := os.ReadFile(ro)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "etc/sysctl.d/99-deyroute.conf"),
+		[]byte("# managed by deyroute (profile: balanced)\nnet.core.somaxconn = "+strings.TrimSpace(string(live))+"\n"), 0o600))
 	sys := newFakeSystem(root)
-	err := Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: sys.runner()})
+	err = Uninstall(ctxT(t), UninstallOptions{Root: root, Runner: sys.runner()})
 	require.Error(t, err)
 	require.FileExists(t, filepath.Join(root, "var/lib/deyroute/sysctl-before-deyroute.conf"))
 	require.NoFileExists(t, filepath.Join(root, "var/lib/deyroute/state.db"), "everything else is removed")

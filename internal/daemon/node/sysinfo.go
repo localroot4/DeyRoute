@@ -1,22 +1,19 @@
 package node
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/hex"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/sysinfo"
 	"github.com/localroot4/deyroute/internal/systemd"
 	"github.com/localroot4/deyroute/internal/version"
 )
@@ -63,11 +60,11 @@ func (a *agent) refresh(ctx context.Context) {
 		}
 	}
 	props := a.showUnits(rctx, running)
-	ram := selfRSS(a.o.Root)
+	ram := sysinfo.SelfRSS(a.o.Root)
 	for _, p := range props {
 		ram += p.MemoryCurrent
 	}
-	cpu := a.cpu.sample(a.o.Root)
+	cpu := a.cpu.Sample()
 	a.mu.Lock()
 	if err != nil {
 		// Not a current list: the heartbeat says so and keeps the last one.
@@ -199,94 +196,6 @@ func (a *agent) rerunPostStart(ctx context.Context, inst string) {
 	a.pids[inst] = st.MainPID
 }
 
-// cpuSampler turns /proc/stat counters into a busy percentage between two
-// samples.
-type cpuSampler struct {
-	mu          sync.Mutex
-	total, idle uint64
-}
-
-// sample returns the whole-system CPU usage in percent since the previous
-// sample (0 on the first call or when /proc/stat is unreadable).
-func (c *cpuSampler) sample(root string) float64 {
-	total, idle, ok := readCPU(root)
-	if !ok {
-		return 0
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	prevTotal, prevIdle := c.total, c.idle
-	c.total, c.idle = total, idle
-	if prevTotal == 0 || total <= prevTotal || idle < prevIdle {
-		return 0
-	}
-	dt, di := total-prevTotal, idle-prevIdle
-	if di > dt {
-		return 0
-	}
-	pct := float64(dt-di) * 100 / float64(dt)
-	return float64(int(pct*10+0.5)) / 10
-}
-
-// readCPU parses the aggregate "cpu" line of /proc/stat: total jiffies and
-// idle+iowait jiffies.
-func readCPU(root string) (total, idle uint64, ok bool) {
-	data, err := os.ReadFile(filepath.Join(root, "/proc/stat")) // #nosec G304 -- procfs below Root
-	if err != nil {
-		return 0, 0, false
-	}
-	line, _, _ := bytes.Cut(data, []byte("\n"))
-	f := strings.Fields(string(line))
-	if len(f) < 5 || f[0] != "cpu" {
-		return 0, 0, false
-	}
-	for i, s := range f[1:] {
-		n, err := strconv.ParseUint(s, 10, 64)
-		if err != nil {
-			return 0, 0, false
-		}
-		if i >= 8 { // guest and guest_nice are already part of user/nice
-			break
-		}
-		total += n
-		if i == 3 || i == 4 { // idle, iowait
-			idle += n
-		}
-	}
-	return total, idle, true
-}
-
-// selfRSS returns VmRSS of this process in bytes (0 when unknown).
-func selfRSS(root string) uint64 {
-	return procStatusKB(filepath.Join(root, "/proc/self/status"), "VmRSS:") * 1024
-}
-
-// procStatusKB reads a "Key:  123 kB" line of a /proc status-like file.
-func procStatusKB(path, key string) uint64 {
-	f, err := os.Open(path) // #nosec G304 -- procfs below Root
-	if err != nil {
-		return 0
-	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		if !strings.HasPrefix(line, key) {
-			continue
-		}
-		fields := strings.Fields(strings.TrimPrefix(line, key))
-		if len(fields) == 0 {
-			return 0
-		}
-		n, err := strconv.ParseUint(fields[0], 10, 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	}
-	return 0
-}
-
 // readTrim returns the trimmed content of a small file ("" on error).
 func readTrim(path string) string {
 	data, err := os.ReadFile(path) // #nosec G304 -- system information files below Root
@@ -294,29 +203,6 @@ func readTrim(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
-}
-
-// osPrettyName returns PRETTY_NAME from /etc/os-release (or
-// /usr/lib/os-release), "linux" when unknown.
-func osPrettyName(root string) string {
-	for _, p := range []string{"/etc/os-release", "/usr/lib/os-release"} {
-		data, err := os.ReadFile(filepath.Join(root, p)) // #nosec G304 -- fixed system file below Root
-		if err != nil {
-			continue
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			if v, ok := strings.CutPrefix(line, "PRETTY_NAME="); ok {
-				if u, err := strconv.Unquote(v); err == nil {
-					v = u
-				}
-				v = strings.Trim(v, `"'`)
-				if v != "" {
-					return v
-				}
-			}
-		}
-	}
-	return runtime.GOOS
 }
 
 // sysinfo answers the sysinfo command: hostname, os, kernel, arch, cpus,
@@ -332,8 +218,8 @@ func (a *agent) sysinfo() map[string]string {
 		"os":        a.helloV.OS,
 		"kernel":    a.helloV.Kernel,
 		"arch":      a.o.Arch,
-		"cpus":      strconv.Itoa(runtime.NumCPU()),
-		"mem_total": strconv.FormatUint(procStatusKB(a.path("/proc/meminfo"), "MemTotal:")*1024, 10),
+		"cpus":      strconv.Itoa(sysinfo.CPUs(a.o.Root)),
+		"mem_total": strconv.FormatUint(sysinfo.Mem(a.o.Root).Total, 10),
 		"version":   version.Version,
 		"go":        version.GoVersion(),
 	}

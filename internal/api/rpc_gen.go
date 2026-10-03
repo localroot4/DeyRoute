@@ -249,6 +249,13 @@ func (c *localClient) DoctorCollect(ctx context.Context, node string) (DoctorDat
 	return out, err
 }
 
+// Traffic implements Local.Traffic by calling the daemon over the unix socket.
+func (c *localClient) Traffic(ctx context.Context, q TrafficQuery) (TrafficReport, error) {
+	var out TrafficReport
+	err := c.call(ctx, "Traffic", []any{q}, &out)
+	return out, err
+}
+
 // OptimizeStatus implements Local.OptimizeStatus by calling the daemon over the unix socket.
 func (c *localClient) OptimizeStatus(ctx context.Context) (OptimizeStatus, error) {
 	var out OptimizeStatus
@@ -267,6 +274,27 @@ func (c *localClient) OptimizeApply(ctx context.Context, profile string) (Optimi
 func (c *localClient) OptimizeRevert(ctx context.Context) (OptimizeStatus, error) {
 	var out OptimizeStatus
 	err := c.call(ctx, "OptimizeRevert", nil, &out)
+	return out, err
+}
+
+// OptimizeAutoPlan implements Local.OptimizeAutoPlan by calling the daemon over the unix socket.
+func (c *localClient) OptimizeAutoPlan(ctx context.Context, opts AutoOptions) (TunePlanReport, error) {
+	var out TunePlanReport
+	err := c.call(ctx, "OptimizeAutoPlan", []any{opts}, &out)
+	return out, err
+}
+
+// OptimizeAutoApply implements Local.OptimizeAutoApply by calling the daemon over the unix socket.
+func (c *localClient) OptimizeAutoApply(ctx context.Context, req AutoApply, progress func(Step)) (TunePlanReport, error) {
+	var out TunePlanReport
+	err := c.stream(ctx, "OptimizeAutoApply", []any{req}, &out, progress, nil)
+	return out, err
+}
+
+// OptimizeCheck implements Local.OptimizeCheck by calling the daemon over the unix socket.
+func (c *localClient) OptimizeCheck(ctx context.Context) (TuneCheck, error) {
+	var out TuneCheck
+	err := c.call(ctx, "OptimizeCheck", nil, &out)
 	return out, err
 }
 
@@ -671,6 +699,13 @@ func NewLocalHandler(impl Local, logger *slog.Logger) http.Handler {
 			}
 			return impl.DoctorCollect(ctx, a0)
 		}},
+		"Traffic": {arity: 1, stream: false, call: func(ctx context.Context, args []json.RawMessage, _ *rpcCallbacks) (any, error) {
+			var a0 TrafficQuery
+			if err := decodeArg(args, 0, &a0); err != nil {
+				return nil, err
+			}
+			return impl.Traffic(ctx, a0)
+		}},
 		"OptimizeStatus": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
 			return impl.OptimizeStatus(ctx)
 		}},
@@ -683,6 +718,23 @@ func NewLocalHandler(impl Local, logger *slog.Logger) http.Handler {
 		}},
 		"OptimizeRevert": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
 			return impl.OptimizeRevert(ctx)
+		}},
+		"OptimizeAutoPlan": {arity: 1, stream: false, call: func(ctx context.Context, args []json.RawMessage, _ *rpcCallbacks) (any, error) {
+			var a0 AutoOptions
+			if err := decodeArg(args, 0, &a0); err != nil {
+				return nil, err
+			}
+			return impl.OptimizeAutoPlan(ctx, a0)
+		}},
+		"OptimizeAutoApply": {arity: 1, stream: true, call: func(ctx context.Context, args []json.RawMessage, cb *rpcCallbacks) (any, error) {
+			var a0 AutoApply
+			if err := decodeArg(args, 0, &a0); err != nil {
+				return nil, err
+			}
+			return impl.OptimizeAutoApply(ctx, a0, cb.Step)
+		}},
+		"OptimizeCheck": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
+			return impl.OptimizeCheck(ctx)
 		}},
 		"SecurityRotateTokens": {arity: 1, stream: true, call: func(ctx context.Context, args []json.RawMessage, cb *rpcCallbacks) (any, error) {
 			var a0 string

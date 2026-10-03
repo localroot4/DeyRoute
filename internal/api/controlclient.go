@@ -60,6 +60,16 @@ type ControlClient struct {
 	// AddrFunc, when set, is consulted on every (re)connect instead of
 	// HubAddr (node set-hub / hub announce-move).
 	AddrFunc func() string
+	// Dial, when set, opens the raw connection to the hub instead of a plain
+	// TCP dial (a CDN front or another carrier). The control channel TLS
+	// (TLSConfig, pinned to the hub CA) always runs on top of the returned
+	// connection, so the carrier only ever sees ciphertext. The hook applies
+	// its own connect deadline; ctx ends with the open timeout.
+	Dial func(ctx context.Context) (net.Conn, error)
+	// DialFunc, when set, is called on every (re)connect and returns the
+	// dial hook to use (nil = Dial), so the node can rebuild it from the
+	// current configuration after set-hub or a front change.
+	DialFunc func() func(ctx context.Context) (net.Conn, error)
 	// TLSConfig is tlsutil.ClientTLSConfig(ca, nodeCert, nodeKey, "").
 	TLSConfig *tls.Config
 	// Hello returns the node's hello (sent first on every connection).
@@ -82,7 +92,7 @@ type ControlClient struct {
 	// MaxConcurrent bounds concurrently running commands (default 16).
 	MaxConcurrent int
 	// OpenTimeout bounds dial, handshake and the hub's answer to the stream
-	// request (default 20 s).
+	// request (default 20 s; 30 s when a dial hook is set).
 	OpenTimeout time.Duration
 }
 
@@ -108,6 +118,9 @@ func (c *ControlClient) openTimeout() time.Duration {
 	if c.OpenTimeout > 0 {
 		return c.OpenTimeout
 	}
+	if c.Dial != nil || c.DialFunc != nil {
+		return dialHookOpenTimeout
+	}
 	return dialTimeout + DefaultHandshakeTimeout
 }
 
@@ -119,10 +132,15 @@ func (c *ControlClient) hello() Hello {
 }
 
 // newTransport returns an HTTP/2 transport that dials TLS with cfg (ALPN
-// "deyroute/1"; the "h2" ALPN check of x/net is bypassed on purpose).
-func newTransport(cfg *tls.Config, lastDialErr *dialErrBox) *http2.Transport {
+// "deyroute/1"; the "h2" ALPN check of x/net is bypassed on purpose). With a
+// dial hook the raw connection comes from it and cfg runs on top of it;
+// without one the hub is dialed over TCP with keepalive.
+func newTransport(cfg *tls.Config, lastDialErr *dialErrBox, dial dialHook) *http2.Transport {
 	return &http2.Transport{
 		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+			if dial != nil {
+				return dialHooked(ctx, dial, addr, cfg, lastDialErr)
+			}
 			d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}, Config: cfg.Clone()}
 			conn, err := d.DialContext(ctx, network, addr)
 			if err != nil && lastDialErr != nil {
@@ -136,28 +154,17 @@ func newTransport(cfg *tls.Config, lastDialErr *dialErrBox) *http2.Transport {
 	}
 }
 
-// dialErrBox keeps the last dial error (the transport may wrap it).
-type dialErrBox struct {
-	mu  sync.Mutex
-	err error
-}
-
-func (b *dialErrBox) set(err error) {
-	b.mu.Lock()
-	b.err = err
-	b.mu.Unlock()
-}
-
-func (b *dialErrBox) get() error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.err
-}
-
-// netErr maps a transport failure to DEY errors: a DEY error from the TLS
-// verification (DEY-N002) is kept, anything else is DEY-N009 {addr}.
+// netErr maps a transport failure to DEY errors: the pin failure DEY-N002 of
+// the inner TLS wins over everything (an outer layer must never mask it), any
+// other DEY error is kept, the rest is DEY-N009 {addr}.
 func netErr(addr string, err error, box *dialErrBox) error {
-	for _, e := range []error{err, box.get()} {
+	cands := []error{err, box.get()}
+	for _, e := range cands {
+		if e != nil && deyerr.HasCode(e, deyerr.N002) {
+			return deyerr.As(e)
+		}
+	}
+	for _, e := range cands {
 		if e == nil {
 			continue
 		}
@@ -183,6 +190,7 @@ func (c *ControlClient) Run(ctx context.Context) error {
 		maxB = max(ReconnectMax, minB)
 	}
 	backoff := minB
+	var warned string // the permanent error already logged
 	for {
 		start := time.Now()
 		connected, err := c.runOnce(ctx)
@@ -195,10 +203,22 @@ func (c *ControlClient) Run(ctx context.Context) error {
 		stable := connected && time.Since(start) >= maxB
 		if stable {
 			backoff = minB
+			warned = ""
 		}
-		delay := jitter(backoff, minB)
-		c.logger().Info("control: connection to hub ended; reconnecting",
-			slog.String("hub", c.addr()), slog.Duration("in", delay), dlog.Err(err))
+		hint, permanent := retryHint(err)
+		delay, ceiling, clamped := planReconnect(backoff, minB, maxB, hint, permanent)
+		backoff = clamped
+		if permanent && err.Error() == warned {
+			c.logger().Debug("control: hub still unreachable; reconnecting",
+				slog.String("hub", c.addr()), slog.Duration("in", delay))
+		} else if permanent {
+			warned = err.Error()
+			c.logger().Warn("control: connection to hub failed and will keep failing until the configuration changes; retrying slowly",
+				slog.String("hub", c.addr()), slog.Duration("in", delay), dlog.Err(err))
+		} else {
+			c.logger().Info("control: connection to hub ended; reconnecting",
+				slog.String("hub", c.addr()), slog.Duration("in", delay), dlog.Err(err))
+		}
 		t := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -207,7 +227,7 @@ func (c *ControlClient) Run(ctx context.Context) error {
 		case <-t.C:
 		}
 		if !stable {
-			backoff = min(backoff*2, maxB)
+			backoff = min(backoff*2, ceiling)
 		}
 	}
 }
@@ -240,7 +260,7 @@ func (c *ControlClient) runOnce(parent context.Context) (connected bool, err err
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	box := &dialErrBox{}
-	tr := newTransport(c.TLSConfig, box)
+	tr := newTransport(c.TLSConfig, box, c.dial())
 	defer tr.CloseIdleConnections()
 
 	maxc := c.MaxConcurrent
@@ -531,7 +551,7 @@ func (c *ControlClient) request(ctx context.Context, method, path string, body i
 		return nil, nil, deyerr.Wrap(deyerr.X000, errors.New("control client needs TLSConfig"), nil)
 	}
 	box := &dialErrBox{}
-	tr := newTransport(c.TLSConfig, box)
+	tr := newTransport(c.TLSConfig, box, c.dial())
 	req, err := http.NewRequestWithContext(ctx, method, "https://"+addr+path, body)
 	if err != nil {
 		tr.CloseIdleConnections()
@@ -608,10 +628,16 @@ func (c *ControlClient) FetchAsset(ctx context.Context, arch string, w io.Writer
 // keep their DEY codes (N001 token, N007 rate limit, N010, …); network
 // problems are DEY-N009 {addr}. The returned CA is checked against the pin.
 func Join(ctx context.Context, hubAddr, fingerprint string, req JoinRequest) (JoinResponse, error) {
-	return joinWithConfig(ctx, hubAddr, fingerprint, req, tlsutil.JoinClientTLSConfig(fingerprint))
+	return JoinVia(ctx, hubAddr, fingerprint, req, nil)
 }
 
-func joinWithConfig(ctx context.Context, hubAddr, fingerprint string, jr JoinRequest, cfg *tls.Config) (JoinResponse, error) {
+// JoinVia is Join over a custom carrier: dial opens the raw connection to the
+// hub (nil = plain TCP) and the pinned-CA TLS of the join runs on top of it.
+func JoinVia(ctx context.Context, hubAddr, fingerprint string, req JoinRequest, dial func(ctx context.Context) (net.Conn, error)) (JoinResponse, error) {
+	return joinWithConfig(ctx, hubAddr, fingerprint, req, tlsutil.JoinClientTLSConfig(fingerprint), dial)
+}
+
+func joinWithConfig(ctx context.Context, hubAddr, fingerprint string, jr JoinRequest, cfg *tls.Config, dial dialHook) (JoinResponse, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, DefaultJoinTimeout)
@@ -622,7 +648,7 @@ func joinWithConfig(ctx context.Context, hubAddr, fingerprint string, jr JoinReq
 		return JoinResponse{}, deyerr.Wrap(deyerr.X000, err, nil)
 	}
 	box := &dialErrBox{}
-	tr := newTransport(cfg, box)
+	tr := newTransport(cfg, box, dial)
 	defer tr.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+hubAddr+PathJoin, bytes.NewReader(body))
 	if err != nil {

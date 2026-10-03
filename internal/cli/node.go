@@ -10,6 +10,7 @@ import (
 
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
+	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/tui"
@@ -202,37 +203,48 @@ func newNodeTestCmd(g *Globals) *cobra.Command {
 
 func newNodeSetHubCmd(g *Globals) *cobra.Command {
 	return &cobra.Command{
-		Use:     "set-hub <ip:port>",
+		Use:     "set-hub <ip:port | wss://DOMAIN:PORT/SECRET>",
 		Short:   i18n.T(i18n.CLINodeSetHubShort),
+		Long:    i18n.T(i18n.CLINodeSetHubLong),
 		Example: i18n.T(i18n.CLINodeSetHubExample),
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			addr := strings.TrimSpace(args[0])
-			running, err := g.setHub(cmd.Context(), addr)
+			t, err := setup.ParseHubTarget(args[0])
 			if err != nil {
 				return err
 			}
-			if !running {
-				return g.done(map[string]any{"hub_addr": addr, "daemon_running": false}, i18n.CLINodeSetHubOffline, addr, g.service())
+			running, err := g.setHub(cmd.Context(), args[0])
+			if err != nil {
+				return err
 			}
-			return g.done(map[string]any{"hub_addr": addr, "daemon_running": true}, i18n.CLINodeSetHubDone, addr)
+			// Only the host:port is ever shown: the path of a front target is a secret.
+			shown := t.Addr
+			if t.Front {
+				shown += " (" + i18n.T(i18n.CLIViaFront) + ")"
+			}
+			if !running {
+				return g.done(map[string]any{"hub_addr": t.Addr, "front": t.Front, "daemon_running": false}, i18n.CLINodeSetHubOffline, shown, g.service())
+			}
+			return g.done(map[string]any{"hub_addr": t.Addr, "front": t.Front, "daemon_running": true}, i18n.CLINodeSetHubDone, shown)
 		},
 	}
 }
 
-// setHub points this node to its hub's new address (node set-hub and the
-// menu's Set hub address): the running agent stores it and reconnects at
-// once. running is false when the agent is down on this node and
-// node.hub_addr was written directly (the agent reads it when it starts).
-func (g *Globals) setHub(ctx context.Context, addr string) (running bool, err error) {
-	if !config.ValidHostPort(addr) {
-		return false, deyerr.New(deyerr.C013, deyerr.Params{"field": "node.hub_addr", "value": addr, "allowed": "ip:port"})
+// setHub points this node to its hub (node set-hub and the menu's Set hub
+// address) as the owner: target is ip:port (direct, front mode is cleared)
+// or wss://DOMAIN:PORT/SECRET (front). The running agent stores it and
+// reconnects at once. running is false when the agent is down on this node
+// and the config was written directly (the agent reads it when it starts).
+func (g *Globals) setHub(ctx context.Context, target string) (running bool, err error) {
+	target = strings.TrimSpace(target)
+	if _, err := setup.ParseHubTarget(target); err != nil {
+		return false, err
 	}
 	err = g.call(ctx, func(ctx context.Context, l api.Local) error {
-		return l.NodeSetHub(ctx, addr)
+		return l.NodeSetHub(ctx, target)
 	})
 	if deyerr.HasCode(err, deyerr.X003) && g.role() == config.RoleNode {
-		return false, g.Ops.SetHubAddr(g.Root, addr)
+		return false, g.Ops.SetHubAddr(g.Root, target)
 	}
 	return err == nil, err
 }
@@ -259,11 +271,18 @@ func newHubCmd(g *Globals) *cobra.Command {
 				return err
 			}
 			if g.JSON {
-				return g.emitJSON(map[string]any{"addr": addr, "accepted": nonNil(r.Accepted), "offline": nonNil(r.Offline)})
+				out := map[string]any{"addr": addr, "accepted": nonNil(r.Accepted), "offline": nonNil(r.Offline)}
+				if len(r.Front) > 0 {
+					out["front"] = r.Front
+				}
+				return g.emitJSON(out)
 			}
 			g.say(i18n.CLIHubAnnounced, addr, orDash(strings.Join(r.Accepted, ", ")))
 			if len(r.Offline) > 0 {
 				g.say(i18n.CLIHubAnnounceOffline, strings.Join(r.Offline, ", "), addr)
+			}
+			if len(r.Front) > 0 {
+				g.say(i18n.CLIHubAnnounceFront, strings.Join(r.Front, ", "))
 			}
 			return nil
 		},

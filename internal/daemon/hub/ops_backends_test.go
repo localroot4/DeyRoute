@@ -168,6 +168,51 @@ func TestUpdateBackends(t *testing.T) {
 	require.Equal(t, "2.0", pin.Version)
 }
 
+// The failover engine leaves a new version that does not pass its probe
+// before the update window ends (fail_threshold probes < 60 s): the update
+// is rolled back and the tunnel returns to the rung it had before the
+// update, running the previous version again (S21).
+func TestUpdateBackendsRollbackReturnsTunnel(t *testing.T) {
+	tfu.setVersion("1.0")
+	t.Cleanup(func() { tfu.setVersion("1.0") })
+	te := startTunnelHub(t, func(o *Options, _ string) {
+		o.Fetcher = tfuFetcher{}
+		o.BackendProbeWait = 30 * time.Second
+	})
+	te.tunnelNode("de-1")
+	ctx := ctxT(t)
+	te.addTunnelUp(api.TunnelAddRequest{ID: "main", Node: "de-1", Ports: []api.PortSpec{{Listen: freePort(t)}},
+		Rungs: []string{trUpd, "direct/native"}, Failover: &api.FailoverSettings{ProbeIntervalS: 1, ProbeTimeoutS: 1,
+			FailThreshold: 2, RecoverThreshold: 2, FailbackAfterS: 3600, MaxSwitchesPerHour: 20, QuarantineS: 600}})
+	te.waitActive("main", "de-1", trUpd)
+	inst := systemd.InstanceName("main", "de-1", trUpd)
+
+	te.sd.mu.Lock()
+	te.sd.brokenIf = func(i string) bool { return strings.Contains(te.dropIn(i), "/tfu/2.0/") }
+	te.sd.mu.Unlock()
+	tfu.setVersion("2.0")
+	start := time.Now()
+	res, err := te.client.UpdateBackends(ctx, "tfu", nil)
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	require.Equal(t, BackendRolledBack, res[0].Status)
+	require.Less(t, time.Since(start), 30*time.Second, "the engine moved away before the window ended")
+	require.Contains(t, te.dropIn(inst), "/tfu/1.0/tfu")
+	st := te.waitActive("main", "de-1", trUpd)
+	require.Equal(t, state.StateUp, st.State)
+	evs, err := te.h.st.Events(state.EventFilter{Types: []string{state.EvSwitchTransport}, Tunnel: "main"})
+	require.NoError(t, err)
+	var back bool
+	for _, ev := range evs {
+		if ev.ToTransport == trUpd && strings.Contains(ev.Reason, "tfu 2.0 rolled back") {
+			back = true
+		}
+	}
+	require.True(t, back, "a switch_transport event back to %s names the rollback", trUpd)
+	pin, _ := te.h.pinned("tfu")
+	require.Equal(t, "1.0", pin.Version)
+}
+
 func TestPinnedBackendKeepsKeyGenerator(t *testing.T) {
 	kb := &keyBackend{testBackend: testBackend{name: "x"}}
 	pb := pinBackend(kb, backend.ManifestEntry{Name: "x", Version: "0.1"})

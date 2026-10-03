@@ -112,6 +112,16 @@ func TestGolden(t *testing.T) {
 		{"reverse-reality_single", singleFixture(t)},
 		{"reverse-reality_canary", canary},
 	}
+	// Backend tiers (optimize auto --backends): the ram-profile of each
+	// side follows its own tier.
+	for _, tier := range []string{config.BackendTierSmall, config.BackendTierLarge} {
+		in := fixture(t)
+		in.HubTier, in.NodeTier = tier, tier
+		cases = append(cases, struct {
+			golden string
+			in     backend.RenderInput
+		}{"reverse-reality_" + tier, in})
+	}
 	for _, c := range cases {
 		for _, side := range []backend.Side{backend.SideHub, backend.SideNode} {
 			t.Run(c.golden+"."+side.String(), func(t *testing.T) {
@@ -560,4 +570,37 @@ func TestPreStartValidatesTheJSON(t *testing.T) {
 	require.Equal(t, deyerr.B043, b.StartFailureCode())
 	require.Equal(t, deyerr.B043, backend.StartFailureCode("waterwall/reverse-reality"))
 	require.Equal(t, deyerr.B003, backend.StartFailureCode("nosuch/x"))
+}
+
+// The ram-profile follows the backend tier of the side that runs the unit;
+// only names the pinned Waterwall accepts are rendered, and no tier (or
+// medium) keeps the spec's "server".
+func TestRAMProfileFollowsTheSideTier(t *testing.T) {
+	b := New()
+	profile := func(r backend.Rendered) string {
+		var c struct {
+			Misc struct {
+				RAMProfile string `json:"ram-profile"`
+			} `json:"misc"`
+		}
+		require.NoError(t, json.Unmarshal(r.Files[CoreFile], &c))
+		return c.Misc.RAMProfile
+	}
+	for _, tier := range []string{"", config.BackendTierSmall, config.BackendTierMedium, config.BackendTierLarge, "bogus"} {
+		require.Contains(t, []string{RAMProfileServer, RAMProfileClient}, RAMProfile(tier))
+	}
+	require.Equal(t, RAMProfileServer, RAMProfile(""))
+	require.Equal(t, RAMProfileServer, RAMProfile(config.BackendTierMedium))
+
+	in := fixture(t)
+	def, err := b.Render(in, backend.SideHub)
+	require.NoError(t, err)
+	in.HubTier, in.NodeTier = config.BackendTierMedium, config.BackendTierSmall
+	hub, err := b.Render(in, backend.SideHub)
+	require.NoError(t, err)
+	require.Equal(t, def, hub, "medium renders the defaults")
+	node, err := b.Render(in, backend.SideNode)
+	require.NoError(t, err)
+	require.Equal(t, RAMProfileServer, profile(hub))
+	require.Equal(t, RAMProfileClient, profile(node))
 }

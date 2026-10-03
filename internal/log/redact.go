@@ -127,9 +127,11 @@ var (
 	// Telegram bot tokens: <bot id>:<35 char secret>, also inside
 	// https://api.telegram.org/bot<token>/… URLs.
 	botTokenRe = regexp.MustCompile(`\d{6,}:[A-Za-z0-9_-]{30,}`)
-	// dey://TOKEN@HUB_IP:PORT#FINGERPRINT — only the token is masked; a
-	// truncated link without "@" still loses its token.
-	joinLinkRe = regexp.MustCompile(`(?i)(dey://)[^@\s/"'\\#]+`)
+	// dey://TOKEN@HUB_IP:PORT[/SECRET][?tls=1]#FINGERPRINT — the token and
+	// the front path secret are masked; a truncated link without "@" still
+	// loses its token.
+	joinLinkRe       = regexp.MustCompile(`(?i)(dey://)[^@\s/"'\\#]+`)
+	joinLinkSecretRe = regexp.MustCompile(`(?i)(dey://[^@\s/"'\\#]*@[^\s/"'\\#?]*/)[^\s"'\\#?]+`)
 	// scheme://user:PASSWORD@host (mirror URLs, proxy URLs, gost/chisel);
 	// the password runs to the last "@" of the authority (it may contain "@").
 	userinfoRe = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://[^/\s:@"'\\]*:)[^/\s"'\\]+@`)
@@ -157,10 +159,10 @@ var (
 // Redact masks every registered secret and every known secret pattern in s
 // with "***": token=, key=, password=, passphrase=, secret= (plain, quoted,
 // JSON, escaped JSON, YAML and flag forms), Authorization/Bearer
-// credentials, passwords in URLs, Telegram bot tokens, the token of dey://
-// join links (the rest of the link is kept), PEM private-key blocks, age
-// identities, and 32+ character base64url strings following a token/key
-// word. Redact is idempotent.
+// credentials, passwords in URLs, Telegram bot tokens, the token and the
+// front path secret of dey:// join links (the rest of the link is kept), PEM
+// private-key blocks, age identities, and 32+ character base64url strings
+// following a token/key word. Redact is idempotent.
 func Redact(s string) string {
 	if s == "" {
 		return s
@@ -182,6 +184,7 @@ func Redact(s string) string {
 	lower := strings.ToLower(s)
 	if strings.Contains(lower, "dey://") {
 		s = joinLinkRe.ReplaceAllString(s, "${1}"+Mask)
+		s = joinLinkSecretRe.ReplaceAllString(s, "${1}"+Mask)
 	}
 	if strings.Contains(s, "://") && strings.IndexByte(s, '@') >= 0 {
 		s = userinfoRe.ReplaceAllString(s, "${1}"+Mask+"@")

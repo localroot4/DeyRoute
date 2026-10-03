@@ -1,7 +1,12 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/backend"
@@ -103,6 +108,32 @@ type Hello struct {
 	Kernel     string `json:"kernel,omitempty"`
 	CPUs       int    `json:"cpus,omitempty"` // runtime.NumCPU of the node (Waterwall workers)
 	Compatible bool   `json:"compatible"`     // hub → node: false = node must not run commands except self.update
+	// MemTotal is the node's RAM in bytes and Virt its container type
+	// ("" on a VM or bare metal), for the hub's plans and status.
+	MemTotal uint64 `json:"mem_total,omitempty"`
+	Virt     string `json:"virt,omitempty"`
+	// TuneProfile is the sysctl profile the node last applied and TuneHash
+	// the SysctlArgs.InputsHash of that apply ("" = none): the hub re-sends
+	// its tuning only when its own inputs hash differs.
+	TuneProfile string `json:"tune_profile,omitempty"`
+	TuneHash    string `json:"tune_hash,omitempty"`
+	// Features lists the optional commands this agent understands
+	// (Feature*). The hub gates them on this list, not on the version: an
+	// agent of the same major.minor may predate them.
+	Features []string `json:"features,omitempty"`
+}
+
+// Optional agent features announced in Hello.Features.
+const (
+	// FeatureTuneAuto: the agent knows the sysctl profile "auto",
+	// CmdTunePlan, CmdTuneCheck and the tuning fields of SysctlArgs and
+	// SysctlResult.
+	FeatureTuneAuto = "tune-auto"
+)
+
+// HasFeature reports whether the Hello announces feature f.
+func (h *Hello) HasFeature(f string) bool {
+	return h != nil && slices.Contains(h.Features, f)
 }
 
 // Heartbeat is sent every 5 seconds (section 3). UnitsUnknown is set while
@@ -169,7 +200,9 @@ const (
 	CmdEchoStart       = "echo.start"              // EchoArgs → EchoResult (canary loopback echo)
 	CmdEchoStop        = "echo.stop"               // EchoArgs → nil (stops the canary loopback echo on Port)
 	CmdNodeFirewall    = "firewall.apply"          // NodeFirewallArgs → nil (hysteria2 port hopping DNAT)
-	CmdSysctlApply     = "sysctl.apply"            // SysctlArgs → SysctlResult
+	CmdSysctlApply     = "sysctl.apply"            // SysctlArgs → SysctlResult (always a real apply)
+	CmdTunePlan        = "tune.plan"               // SysctlArgs → SysctlResult (plan only, changes nothing; FeatureTuneAuto)
+	CmdTuneCheck       = "tune.check"              // nil → TuneHostCheck (drift and findings; FeatureTuneAuto)
 	CmdSpeedServe      = "speed.serve"             // SpeedServeArgs → nil (built-in generator for diag speed)
 )
 
@@ -345,16 +378,52 @@ type NodeFirewallArgs struct {
 // SysctlArgs applies a sysctl profile on the node. BBR is the hub's
 // tuning.bbr (the hub config is the only source of truth, section 4); nil
 // (a hub before it was sent) makes the node read its own config.
+//
+// For the profile "auto" (sent only to agents with FeatureTuneAuto) the node
+// computes its own plan from its measured facts and these inputs; the same
+// arguments with CmdTunePlan only compute it. There is deliberately no "dry
+// run" field: an older agent would ignore it and apply.
 type SysctlArgs struct {
 	Profile   string `json:"profile"`
 	IPForward bool   `json:"ip_forward"`
 	BBR       *bool  `json:"bbr,omitempty"`
+	// Reserved are the port entries ("30000-31999", "44433") the node adds
+	// to net.ipv4.ip_local_reserved_ports (a set union with the live
+	// value; a revert removes only these).
+	Reserved []string `json:"reserved,omitempty"`
+	// PlanVersion is the version of the plan algorithm the hub expects
+	// (internal/sysctl); part of InputsHash.
+	PlanVersion int `json:"plan_version,omitempty"`
+}
+
+// InputsHash is the hash of the tuning inputs the hub sends (profile, plan
+// version, BBR, IP forwarding, reserved ports). The node stores it after an
+// apply and reports it in Hello.TuneHash; the hub, which can compute it
+// without the node's facts, re-sends its tuning only when it differs.
+func (a SysctlArgs) InputsHash() string {
+	bbr := "default"
+	if a.BBR != nil {
+		bbr = strconv.FormatBool(*a.BBR)
+	}
+	res := slices.Clone(a.Reserved)
+	slices.Sort(res)
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		"v1", a.Profile, strconv.Itoa(a.PlanVersion), bbr, strconv.FormatBool(a.IPForward), strings.Join(res, ","),
+	}, "\n")))
+	return hex.EncodeToString(sum[:8])
 }
 
 // SysctlResult reports what the node skipped (no tcp_bbr, keys its kernel
 // lacks, aggressive on less than 4 GB RAM) so the hub shows it to the owner.
+// For the profile "auto" it also carries the node's facts and plan: the
+// changes made (CmdSysctlApply) or planned (CmdTunePlan), the skipped items
+// and the plan hash.
 type SysctlResult struct {
-	Warnings []string `json:"warnings,omitempty"`
+	Warnings []string     `json:"warnings,omitempty"`
+	Facts    *TuneFacts   `json:"facts,omitempty"`
+	Changes  []TuneChange `json:"changes,omitempty"`
+	Skips    []TuneSkip   `json:"skips,omitempty"`
+	Hash     string       `json:"hash,omitempty"`
 }
 
 // SpeedServeArgs starts the built-in traffic generator behind a tunnel port.

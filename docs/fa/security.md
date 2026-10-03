@@ -24,7 +24,7 @@
 
 ## فایروال: `table inet deyroute`
 
-DEYROUTE فقط یک جدول nftables می‌سازد و مدیریت می‌کند و هیچ‌وقت به جدول‌ها یا قوانین دیگر دست نمی‌زند. روی Hubی با دو Node و یک تانل روی 443 و 2053 این شکلی است (خط‌های پنجره Join و IPv6 فقط وقتی لازم باشند می‌آیند):
+DEYROUTE دو جدول nftables می‌سازد و مدیریت می‌کند: `inet deyroute` (همین بخش) و روی Hub جدول شمارش ترافیک `inet deyroute_stats` (بخش بعد)، و هیچ‌وقت به جدول‌ها یا قوانین دیگر دست نمی‌زند. روی Hubی با دو Node و یک تانل روی 443 و 2053 جدول `inet deyroute` این شکلی است (خط‌های پنجره Join و IPv6 فقط وقتی لازم باشند می‌آیند):
 
 ```text
 table inet deyroute {
@@ -59,6 +59,54 @@ deyroute security firewall disable   # جدول را حذف کن؛ از آن ب�
 ```
 
 با `security.firewall_managed: false` در `config.yaml`، DEYROUTE چیزی اعمال نمی‌کند و فقط دستورهایی را که خودتان باید اجرا کنید چاپ می‌کند (`DEY-P031`). جدول `inet deyroute` که قبلاً اعمال شده بود حذف می‌شود، حتی اگر این تنظیم وقتی Hub خاموش بوده عوض شده باشد (ویرایش و بعد ری‌استارت، یا ریستور بکاپ). فایروال بیرونی (ufw، firewalld، پنل سرور) هیچ‌وقت بدون تأیید شما تغییر نمی‌کند؛ `deyroute port check` دستور دقیق را نشان می‌دهد و `deyroute port check <port> --open` (یا `Open it in the firewall` در منو) آن را فقط بعد از اینکه `yes` را تایپ کنید اجرا می‌کند. Hub هیچ‌وقت متنی را که دریافت می‌کند اجرا نمی‌کند: فایروال را دوباره چک می‌کند، دستور را از روی فایروال پیداشده و شماره و پروتکل پورت می‌سازد و اگر با دستوری که تأیید کردید فرق داشته باشد اجرا نمی‌کند (`DEY-P032`). این کار با `security.firewall_managed: false` هم انجام می‌شود، چون آن تنظیم فقط به جدول `inet deyroute` مربوط است. به فایروال پنل ارائه‌دهنده هیچ‌وقت دست زده نمی‌شود.
+
+## شمارش ترافیک: `table inet deyroute_stats`
+
+برای اینکه نشان دهد هر تانل چقدر ترافیک می‌برد (`deyroute stats`، داشبورد، `deyroute tunnel show`)، Hub یک جدول دوم و جدا نگه می‌دارد. این جدول فقط می‌شمارد: همه زنجیره‌هایش `policy accept` دارند و هیچ قانون accept، drop، reject، jump یا NAT در آن نیست، پس هیچ‌وقت ترافیکی را مسدود یا عوض نمی‌کند. برای تانل بالا این شکلی است:
+
+```text
+table inet deyroute_stats {
+	counter tun_main_in {
+		packets 0 bytes 0
+	}
+
+	counter tun_main_out {
+		packets 0 bytes 0
+	}
+
+	map acct_in {
+		type inet_proto . inet_service : counter
+		elements = { tcp . 443 : "tun_main_in", tcp . 2053 : "tun_main_in" }
+	}
+
+	map acct_out {
+		type inet_proto . inet_service : counter
+		elements = { tcp . 443 : "tun_main_out", tcp . 2053 : "tun_main_out" }
+	}
+
+	chain count_in {
+		type filter hook input priority 300; policy accept;
+		iif != "lo" counter name meta l4proto . th dport map @acct_in
+	}
+
+	chain count_out {
+		type filter hook output priority 300; policy accept;
+		oif != "lo" counter name meta l4proto . th sport map @acct_out
+	}
+}
+```
+
+- **فقط جمع هر تانل، نه چیز دیگر.** برای هر تانل یک جفت شمارنده هست (بایت و بسته به سمت پورت‌های listen آن و برگشت). هیچ آدرس IP کاربر، اتصال، مقصد یا زمان استفاده کاربری نه در کرنل ثبت می‌شود و نه در `state.db`. Hub این جمع‌ها را به شکل سری زمانی (نقطه‌های ۱ دقیقه‌ای برای یک روز، نیم‌ساعتی برای ۳۲ روز و یک جمع برای هر دوره سهمیه) در `/var/lib/deyroute/state.db` نگه می‌دارد.
+- **بدون conntrack.** شمارنده‌ها فقط پروتکل و پورت listen را بعد از زنجیره‌های فیلتر (priority 300) نگاه می‌کنند؛ پس بسته‌ای که فایروال دیگری دور می‌اندازد شمرده نمی‌شود و ترافیک loopback (پراب‌ها و عیب‌یابی) بیرون می‌ماند. فقط تانلی که پله NAT کرنلی دارد (WireGuard، AmneziaWG) یک زنجیره forward با conntrack اضافه می‌کند، که همان NAT به آن نیاز دارد.
+- **جهت‌ها از دید کاربرهاست:** «in» آپلود کاربرها به Hub است و «out» دانلود به کاربرها. بایت‌ها بایت لایه ۳ روی پورت‌های سمت کاربر هستند. ارائه‌دهنده معمولاً کارت شبکه Hub را حساب می‌کند که مسیر تانل تا Node را هم می‌برد، پس عدد او حدوداً دو برابر است: سهمیه (`advanced.monthly_quota_gib`) فقط ترافیک سمت کاربر را می‌شمارد.
+- این جدول از `inet deyroute` جداست، پس تغییرات فایروال شمارنده‌ها را صفر نمی‌کند، و با `security.firewall_managed: false` هم کار می‌کند. فقط وقتی مجموعه پورت‌های تانل‌ها عوض شود از نو ساخته می‌شود و مقدارهای آخر را مقدار شروع می‌گیرد؛ بعد از ری‌بوت یا `systemctl restart nftables` (یعنی `flush ruleset`) Hub آن را ظرف چند ثانیه از آخرین عدد ذخیره‌شده دوباره می‌سازد.
+- `monitoring.enabled: false` در `config.yaml` جدول را حذف می‌کند و شمارش را متوقف می‌کند؛ `deyroute uninstall` هم آن را حذف می‌کند. بدون nft یا nf_tables (مثلاً یک کانتینر بدون دسترسی) Hub خطای `DEY-X061` را گزارش می‌دهد و فقط تعداد اتصال‌ها را نشان می‌دهد و هیچ‌وقت حجم نامعلوم را `0 B` نشان نمی‌دهد.
+- حجم تانل‌ها (بایت‌های امروز و شمارنده‌ها از آخرین صفر شدن) در `deyroute stats --json` و در بسته doctor (`deyroute doctor --out FILE`) می‌آید، ولی هیچ‌وقت آدرس کاربرها.
+
+```bash
+nft list table inet deyroute_stats   # جدول شمارش و شمارنده‌هایش
+deyroute stats                       # جمع هر تانل
+```
 
 ## رازها
 

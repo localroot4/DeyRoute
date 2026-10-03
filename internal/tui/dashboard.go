@@ -23,6 +23,26 @@ type dashboard struct {
 	err     error
 	loading bool
 	seq     int
+	// tr is the last answer of TrafficBlockQuery (the sparklines of the
+	// TRAFFIC block), fetched at trAt; it is kept when a later call fails.
+	// trOff is set once the daemon answers that it has no traffic
+	// statistics (DEY-X008, DEY-X009): it is not asked again.
+	tr    *api.TrafficReport
+	trAt  time.Time
+	trOff bool
+}
+
+// dashTrafficEvery is how often the dashboard reloads its sparklines
+// (2-minute points); the rates come with every Status.
+const dashTrafficEvery = 30 * time.Second
+
+// dashData is one dashboard refresh: Status and, when it was due, the
+// sparklines (a failed Traffic call never hides the dashboard).
+type dashData struct {
+	st      api.Status
+	tr      *api.TrafficReport
+	trErr   error
+	fetched bool
 }
 
 func newDashboard(*app) screen {
@@ -31,10 +51,26 @@ func newDashboard(*app) screen {
 
 func (d *dashboard) start(a *app) tea.Cmd { return d.load(a) }
 
+// load fetches Status and, every dashTrafficEvery while a tunnel has
+// traffic numbers, the sparklines, in one operation (a second operation of
+// the screen would cancel the first).
 func (d *dashboard) load(a *app) tea.Cmd {
 	d.loading = true
+	traffic := !d.trOff && (d.trAt.IsZero() || a.opts.Now().Sub(d.trAt) >= dashTrafficEvery)
 	return a.call(d, callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
-		return l.Status(ctx)
+		st, err := l.Status(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := dashData{st: st}
+		if traffic && HasTraffic(st.Tunnels) {
+			rep, err := l.Traffic(ctx, TrafficBlockQuery())
+			out.fetched, out.trErr = true, err
+			if err == nil {
+				out.tr = &rep
+			}
+		}
+		return out, nil
 	})
 }
 
@@ -47,10 +83,20 @@ func (d *dashboard) update(a *app, msg tea.Msg) tea.Cmd {
 		}
 		d.loading = false
 		d.err = p.err
-		if st, ok := p.v.(api.Status); ok && p.err == nil {
+		if v, ok := p.v.(dashData); ok && p.err == nil {
+			st := v.st
 			d.st = &st
 			d.at = a.opts.Now()
 			a.applyStatus(st)
+			if v.fetched {
+				d.trAt = d.at
+				switch {
+				case v.trErr == nil:
+					d.tr = v.tr
+				case !retryable(v.trErr):
+					d.trOff, d.tr = true, nil
+				}
+			}
 		}
 		d.seq++
 		return a.opts.tick(a.opts.Refresh, tickMsg{sid: d.id, seq: d.seq})
@@ -68,6 +114,10 @@ func (d *dashboard) update(a *app, msg tea.Msg) tea.Cmd {
 				return d.load(a)
 			case "0":
 				return a.pop()
+			case "t":
+				if a.role() == roleHub {
+					return a.push(trafficPicker())
+				}
 			}
 		}
 	}
@@ -85,19 +135,55 @@ func (d *dashboard) view(a *app) string {
 		}
 		return b.String()
 	}
-	b.WriteString(renderStatus(a, *d.st, a.opts.Now()))
+	now := a.opts.Now()
+	rows := 0 // no limit
+	if a.sized && !a.lineMode && HasTraffic(d.st.Tunnels) {
+		rows = d.trafficRows(a, b.String(), now)
+	}
+	b.WriteString(renderDashboard(a, *d.st, d.tr, now, rows))
 	at := d.at.In(a.opts.Location).Format("15:04:05")
 	updated := i18n.T(i18n.TUIDashUpdated, at, int(a.opts.Refresh/time.Second))
 	if a.lineMode {
 		updated = i18n.T(i18n.TUIDashUpdatedManual, at)
 	}
+	if HasTraffic(d.st.Tunnels) && a.role() == roleHub {
+		updated += i18n.T(i18n.TUITrafficDashKey)
+	}
 	b.WriteString("\n" + a.paint(colGray, " "+updated) + "\n")
 	return b.String()
 }
 
+// dashChrome is the number of page lines around a screen body once fit
+// dropped the banner art: the status line, a blank line, the title, a
+// blank line, and the blank line and footer under the body.
+const dashChrome = 6
+
+// trafficRows is how many lines the TRAFFIC block may take on a window of
+// a.height lines (head is what the body shows above the dashboard): what
+// is left after everything else, so the events and the warnings stay on
+// screen. -1 leaves the block out (its title and one tunnel do not fit).
+func (d *dashboard) trafficRows(a *app, head string, now time.Time) int {
+	rest := renderDashboard(a, *d.st, nil, now, -1)
+	used := dashChrome + strings.Count(head, "\n") + strings.Count(rest, "\n") + 2 // blank line and "Updated"
+	free := a.height - used - 1                                                    // the block's title
+	if free < 1 {
+		return -1
+	}
+	return free
+}
+
 // renderStatus renders the dashboard body of the spec sample:
-// TUNNELS, NODES, LAST EVENTS and yellow warnings under the tables.
+// TUNNELS, NODES, LAST EVENTS and yellow warnings under the tables (and
+// the TRAFFIC block, without sparklines, when a tunnel has traffic
+// numbers).
 func renderStatus(a *app, st api.Status, now time.Time) string {
+	return renderDashboard(a, st, nil, now, 0)
+}
+
+// renderDashboard is renderStatus with the TRAFFIC block under TUNNELS: tr
+// holds its sparklines (nil = none yet) and trafficRows bounds its lines
+// (0 = no limit, -1 = left out; see TrafficBlock).
+func renderDashboard(a *app, st api.Status, tr *api.TrafficReport, now time.Time, trafficRows int) string {
 	var b strings.Builder
 	if st.NodeSelf != nil {
 		b.WriteString(" " + a.bold(i18n.T(i18n.TUIDashNode)) + "\n")
@@ -109,6 +195,13 @@ func renderStatus(a *app, st api.Status, now time.Time) string {
 			b.WriteString("  " + i18n.T(i18n.TUIDashNoTunnels) + "\n")
 		} else {
 			b.WriteString(renderTunnelTable(a, st.Tunnels, now))
+		}
+	}
+	if lines := TrafficBlock(a.caps, st.Tunnels, tr, trafficRows); len(lines) > 0 {
+		title, hint := TrafficBlockTitle(a.caps)
+		b.WriteString(clipANSI(a, " "+a.bold(title)+"  "+a.paint(colGray, hint)) + "\n")
+		for _, l := range lines {
+			b.WriteString(l + "\n")
 		}
 	}
 	if st.NodeSelf == nil {
@@ -408,6 +501,8 @@ var eventWords = map[string]i18n.Key{
 	state.EvRungSkipped:       i18n.TUIEvRungSkipped,
 	state.EvRungRestored:      i18n.TUIEvRungRestored,
 	state.EvConfigApplied:     i18n.TUIEvConfigApplied,
+	state.EvTrafficQuota:      i18n.TUIEvTrafficQuota,
+	state.EvTuneDrift:         i18n.TUIEvTuneDrift,
 	eventUpdateAvailable:      i18n.TUIEvUpdateAvailable,
 }
 
@@ -522,7 +617,11 @@ func renderNodeSelf(a *app, n api.NodeSelf) string {
 	if !n.Connected {
 		conn = a.paint(colRed, s.down+" "+i18n.T(i18n.TUIDashDisconnected))
 	}
-	line := "  " + n.ID + "  " + i18n.T(i18n.TUIDashHub, n.HubAddr) + "  " + conn
+	hub := n.HubAddr
+	if n.Front {
+		hub += " (" + i18n.T(i18n.CLIViaFront) + ")"
+	}
+	line := "  " + n.ID + "  " + i18n.T(i18n.TUIDashHub, hub) + "  " + conn
 	if !n.LastContact.IsZero() {
 		line += "  " + i18n.T(i18n.TUIDashLastContact, n.LastContact.In(a.opts.Location).Format("15:04:05"))
 	}

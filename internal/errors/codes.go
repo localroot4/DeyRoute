@@ -57,6 +57,7 @@ const (
 	C024 Code = "DEY-C024" // config.yaml changed during config edit {path} {copy}
 	C025 Code = "DEY-C025" // invalid command line {reason} {command}
 	C026 Code = "DEY-C026" // config.yaml holds an edit that is not applied {path}
+	C027 Code = "DEY-C027" // invalid traffic query (stats period or target) {field} {value} {allowed}
 	C050 Code = "DEY-C050" // telegram rejected token/chat id {status} {reason}
 )
 
@@ -77,6 +78,9 @@ const (
 	N013 Code = "DEY-N013" // control API request without a valid node certificate {path}
 	N014 Code = "DEY-N014" // command cancelled {node} {command}
 	N015 Code = "DEY-N015" // control channel protocol error {node} {reason}
+	N016 Code = "DEY-N016" // cannot reach the hub through the front {addr} {reason}
+	N017 Code = "DEY-N017" // the front did not accept this node {addr} {status} {reason}
+	N018 Code = "DEY-N018" // data-plane stream refused {port} {reason}
 	N020 Code = "DEY-N020" // hub join answer unusable {reason}
 	N050 Code = "DEY-N050" // node refused a hub command {node} {command} {reason}
 	N051 Code = "DEY-N051" // node could not download a file {node} {file}
@@ -128,6 +132,7 @@ const (
 	B009 Code = "DEY-B009" // key generation failed {backend}
 	B010 Code = "DEY-B010" // transport does not support tunnel protocol {transport} {proto}
 	B011 Code = "DEY-B011" // backend crashed, systemd restarted it {unit} {where} {restarts}
+	B012 Code = "DEY-B012" // transport cannot run through the front (skipped) {transport} {tunnel}
 	B040 Code = "DEY-B040" // waterwall json invalid {file}
 	B041 Code = "DEY-B041" // waterwall core.json missing {dir}
 	B042 Code = "DEY-B042" // no reachable decoy SNI {decoys}
@@ -164,6 +169,8 @@ const (
 	S007 Code = "DEY-S007" // no previous binary for rollback
 	S008 Code = "DEY-S008" // backup passphrase required
 	S009 Code = "DEY-S009" // secret file unreadable or damaged {path} {reason}
+	S010 Code = "DEY-S010" // update or rollback refused while the front is in use {action} {reason}
+	S011 Code = "DEY-S011" // rollback or downgrade refused while newer config keys are set {action} {keys} {reason}
 )
 
 // Internal (DEY-X0xx).
@@ -192,7 +199,14 @@ const (
 	X050 Code = "DEY-X050" // telegram message not delivered {reason}
 	X051 Code = "DEY-X051" // probe helper server stopped {service} {addr}
 	X052 Code = "DEY-X052" // speed test failed {addr} {phase} {reason}
+	X053 Code = "DEY-X053" // front listener stopped or could not bind {addr} {reason}
 	X060 Code = "DEY-X060" // doctor file refused: a secret survived redaction {file} {what}
+	X061 Code = "DEY-X061" // traffic accounting unavailable {reason}
+	X062 Code = "DEY-X062" // traffic counters could not be read {reason}
+	X063 Code = "DEY-X063" // state.db above its size budget {size} {budget}
+	X064 Code = "DEY-X064" // kernel tuning not possible in a container {virt}
+	X065 Code = "DEY-X065" // tuning plan changed since it was shown
+	X067 Code = "DEY-X067" // tuned value overridden or drifted {key} {where}
 )
 
 var catalog = map[Code]Info{
@@ -331,6 +345,9 @@ var catalog = map[Code]Info{
 	C026: {C026, "{path} has changes that are not applied",
 		"the file was edited after the running configuration was loaded and deyroute config apply was not run (or it refused the edit); deyroute changes nothing now, so that edit is neither overwritten nor taken over without the checks of config apply",
 		"apply the edit: deyroute config apply (it names any problem; correct it with deyroute config edit), or undo it; then try again"},
+	C027: {C027, "Invalid {field} for traffic statistics: '{value}'",
+		"traffic statistics accept {allowed}",
+		"use one of them, e.g. deyroute stats main --period 24h; list the tunnels with deyroute tunnel list and the nodes with deyroute node list"},
 	C050: {C050, "Telegram rejected the notification settings (HTTP {status})",
 		"Telegram answered '{reason}': the bot token is wrong, the chat id is unknown, or the bot is not a member of that chat",
 		"send /start to the bot (or add it to the group), then: deyroute notify telegram set --token-file F --chat-id C   and   deyroute notify telegram test"},
@@ -352,8 +369,8 @@ var catalog = map[Code]Info{
 		"the node did not answer in time",
 		"check deyroute node test {node}; see the node log with deyroute logs node"},
 	N006: {N006, "Invalid join link",
-		"expected dey://TOKEN@HUB_IP:PORT#SHA256_FINGERPRINT",
-		"copy the full line again from the hub (deyroute node join-command)"},
+		"expected dey://TOKEN@HUB_IP:PORT#sha256:FINGERPRINT, or for a hub behind the CDN front dey://TOKEN@HOST:PORT/SECRET#sha256:FINGERPRINT (the SECRET is 16 to 128 letters, digits, - or _; an optional ?tls=0 or ?tls=1 goes after it)",
+		"copy the full line again from the hub (deyroute node join-command) without adding spaces or line breaks, and quote it in the shell because of the # and ?"},
 	N007: {N007, "Too many failed join attempts from {ip}",
 		"more than 5 failures in an hour block the address for 1 hour",
 		"wait one hour, then use a fresh join command"},
@@ -362,7 +379,7 @@ var catalog = map[Code]Info{
 		"list nodes with: deyroute node list"},
 	N009: {N009, "Cannot reach the hub at {addr}",
 		"the control connection could not be opened",
-		"check that the hub is up and that {addr} is reachable from this server (firewall, IP)"},
+		"check that the hub is up and that {addr} is reachable from this server (firewall, IP); if the join link has a /SECRET path the hub is behind the front and the failure is reported as DEY-N016 or DEY-N017 instead"},
 	N010: {N010, "A node with id {node} already joined",
 		"node ids are unique per hub",
 		"use --name to pick another id, or remove the old node on the hub first"},
@@ -390,6 +407,16 @@ var catalog = map[Code]Info{
 	N051: {N051, "Node {node} could not download {file}",
 		"the node tried the source 3 times without success (no outbound HTTPS, DNS failure, or the server refused); the cause is shown below",
 		"check outbound HTTPS on the node (curl -I https://github.com), or set DEYROUTE_MIRROR on the hub to a reachable mirror"},
+
+	N016: {N016, "Cannot reach the hub through the front {addr}",
+		"the connection to the front could not be opened ({reason}): the domain does not resolve, the TCP connect timed out or was refused, or the outer TLS handshake failed (certificate, clock or a middlebox)",
+		"check from this server: the domain resolves (dig +short DOMAIN), the port is a Cloudflare proxied port (443, 2053, 2083, 2087, 2096, 8443 for https; 80, 8080, 8880, 2052, 2082, 2086, 2095 for http) and is reachable (curl -sI https://DOMAIN:PORT/), and the system clock is correct; if only DNS fails, set the node's front edge_ip to a Cloudflare address"},
+	N017: {N017, "The front {addr} did not accept this node",
+		"the front answered HTTP {status} instead of upgrading to a WebSocket ({reason}): 404 means the wrong secret path or the hub front is off; 301/302/307/308 a redirect rule; 403 a challenge or WAF; 429 a rate limit; 400 or 426 WebSockets are off; 520-527 the origin is down or the SSL mode does not match; 530 a Cloudflare 1xxx error",
+		"go through the Cloudflare checklist: the DNS record is proxied (orange cloud); Network -> WebSockets is on; SSL/TLS mode is Full (or Flexible when the hub front tls is off); the port is one Cloudflare proxies; no redirect, WAF, Bot Fight or Page rule matches the path; the hub front is enabled (deyroute front status); the secret in the join link matches the hub's (run deyroute node join-command again)"},
+	N018: {N018, "Data-plane stream refused for control port {port}",
+		"the hub refused the tunnel data stream through the front ({reason}): the port is not a reverse tunnel's control port, the tunnel is stopped, or the stream limit is reached",
+		"check the tunnel on the hub: deyroute tunnel status; restart it with deyroute tunnel restart <tunnel> if it is stopped; the node reconnects the stream by itself"},
 
 	// ---------------------------------------------------------------- P
 	P010: {P010, "Invalid port: {input}",
@@ -504,6 +531,9 @@ var catalog = map[Code]Info{
 	B011: {B011, "Backend {unit} crashed on {where}",
 		"the backend process exited and systemd restarted it (restarted {restarts} time(s) since it was started); connections through the tunnel were dropped",
 		"see the backend log: deyroute logs <tunnel>; if it keeps crashing the failover engine moves to the next rung, or run: deyroute tunnel restart <tunnel>"},
+	B012: {B012, "Transport {transport} cannot run through the front for tunnel {tunnel}",
+		"the front carries only reverse TCP transports (backhaul tcp/tcpmux, frp tcp, rathole noise/tcp); this rung needs UDP or its own TLS and is skipped",
+		"nothing to do, the failover engine uses the next rung; to use this transport, move the node to a direct address (deyroute front disable, then rejoin the node)"},
 	B040: {B040, "Waterwall config is not valid JSON: {file}",
 		"the rendered Waterwall file failed validation before start",
 		"report this with deyroute doctor; the rung is skipped"},
@@ -592,6 +622,12 @@ var catalog = map[Code]Info{
 	S009: {S009, "Cannot use secret file {path}",
 		"the file is missing, empty, unreadable or damaged: {reason}",
 		"check the file (ls -l {path}); restore it from a backup (deyroute restore FILE) or recreate it through the menu"},
+	S010: {S010, "Cannot {action} while the CDN front is in use",
+		"{reason}: an older deyroute does not know the front settings in config.yaml (the hub's hub.front, a node's node.front and route), so it refuses the file (DEY-C001) and a node that updates to it can no longer start; the nodes abroad cannot be repaired remotely",
+		"run deyroute front disable and move every front node back to a direct hub address (deyroute node set-hub HOST:PORT on each node, or join it again), then repeat the command"},
+	S011: {S011, "Cannot {action} while config.yaml uses newer settings: {keys}",
+		"{reason}: an older deyroute does not know these keys, so it refuses config.yaml (DEY-C001) and the hub would not start",
+		"undo them first (automatic tuning: deyroute optimize revert; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command"},
 
 	// ---------------------------------------------------------------- X
 	X000: {X000, "Unexpected error",
@@ -666,7 +702,28 @@ var catalog = map[Code]Info{
 	X052: {X052, "Speed test to {addr} failed during {phase}",
 		"{reason}",
 		"check the tunnel first: deyroute diag probe <tunnel>; then retry with a shorter test: deyroute diag speed <tunnel> --seconds 5"},
+	X053: {X053, "The front listener on {addr} stopped",
+		"{reason}; the hub keeps running but nodes in front mode cannot join or reconnect through the front",
+		"free the port or fix the cause, then: systemctl restart deyroute-hub; check the state with deyroute front status and the log with deyroute logs hub"},
 	X060: {X060, "Doctor file not written: {file} still contains {what}",
 		"the final check found secret material that the central filter did not remove, so no file was created (nothing leaked)",
 		"send the summary printed on the screen instead of the file and report this bug with the DEY code; logs are in /var/log/deyroute"},
+	X061: {X061, "Traffic accounting is not available",
+		"{reason}; deyroute shows connection counts only and never shows unknown traffic as 0 B",
+		"install nftables (apt install nftables) on a host whose kernel has nf_tables (not an unprivileged container), check monitoring.enabled in config.yaml, then: systemctl restart deyroute-hub"},
+	X062: {X062, "Traffic counters could not be read",
+		"{reason}; the samples of this interval are stored as a gap",
+		"check nftables: nft list table inet deyroute_stats; if the table is missing it is rebuilt at the next sample; if it repeats run deyroute doctor"},
+	X063: {X063, "state.db is above its size budget ({size} of {budget})",
+		"traffic history fills the database; 1-minute points are now kept for 6 hours instead of 24",
+		"check free space (df -h /var/lib/deyroute) and the number of tunnels and nodes; deyroute doctor shows which series use the space"},
+	X064: {X064, "Kernel tuning is not possible in a container ({virt})",
+		"the kernel belongs to the host: /proc/sys is read-only or shared, so deyroute leaves every kernel setting alone; service and backend items still apply",
+		"ask the provider for a KVM or bare-metal server to tune the kernel, or keep tuning.sysctl_profile off"},
+	X065: {X065, "The tuning plan changed since it was shown",
+		"a host, its facts or the configuration changed between the preview and the confirmation, so the confirmed list is no longer what would be applied",
+		"look at the new plan and confirm it: deyroute optimize auto"},
+	X067: {X067, "Tuned value {key} is not what deyroute set",
+		"{where} changed it after deyroute applied its tuning (a later sysctl.d file, a runtime write or another tool)",
+		"remove the other setting or keep it on purpose; apply deyroute's value again with: deyroute optimize auto; see deyroute optimize check"},
 }

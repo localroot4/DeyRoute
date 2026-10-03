@@ -75,7 +75,7 @@ func (h *fakeHub) Join(context.Context, api.JoinRequest, string) (api.JoinRespon
 	return api.JoinResponse{}, deyerr.New(deyerr.N001, nil)
 }
 
-func (h *fakeHub) Authenticate(string, string, string) error { return nil }
+func (h *fakeHub) Authenticate(context.Context, string, string, string) error { return nil }
 
 func (h *fakeHub) Session(s *api.Session) {
 	_ = s.SendHello(h.hello)

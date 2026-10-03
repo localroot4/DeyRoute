@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,6 +27,7 @@ import (
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
+	"github.com/localroot4/deyroute/internal/sysinfo"
 	"github.com/localroot4/deyroute/internal/systemd"
 )
 
@@ -356,9 +356,22 @@ func (h *Hub) planInput(cfg *config.Config, t config.Tunnel) render.Input {
 		CAPEM:    h.tunnelCAPEM(),
 		UDPProbe: h.udpProbe,
 		LookPath: exec.LookPath,
-		HubCPUs:  runtime.NumCPU(),
+		HubCPUs:  sysinfo.CPUs(h.o.Root),
 		NodeCPUs: func(node string) int { ns, _ := h.nodeState(node); return ns.CPUs },
+		// Sticky values from the config (optimize auto --backends), so the
+		// rendered files change only when the config changes.
+		HubTier:  cfg.BackendTier(""),
+		NodeTier: cfg.BackendTier,
+		WGMTU:    wgMTU(cfg),
 	}
+}
+
+// wgMTU is tuning.wg_mtu (0 = the backend default).
+func wgMTU(cfg *config.Config) int {
+	if cfg == nil || cfg.Tuning == nil {
+		return 0
+	}
+	return cfg.Tuning.WGMTU
 }
 
 // allocCtlPort allocates the stable control port of key. Ports another
@@ -457,6 +470,10 @@ func (h *Hub) ensureUDP(ctx context.Context, tunnel, node, rung string, notBefor
 	}
 	ns, _ := h.nodeState(node)
 	host := firstNonEmpty(n.PublicIP, ns.RemoteIP)
+	if host == "" {
+		// A front node whose address the CDN hides: nothing to probe.
+		return
+	}
 	tested, udpOK := false, false
 	if port, err := h.allocCtlPort(state.Key(tunnel, node, rung)); err == nil {
 		cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)

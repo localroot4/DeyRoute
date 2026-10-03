@@ -1,10 +1,12 @@
 package sysctl
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -350,11 +352,35 @@ func TestMissingAndUnwritableKeys(t *testing.T) {
 	require.Contains(t, string(conf), "net.ipv4.tcp_mtu_probing = 1\n")
 }
 
+// failWrites makes kernel writes to the given keys fail while the files
+// still read back what deyroute wrote; the returned func undoes it.
+func failWrites(t *testing.T, root string, keys ...string) func() {
+	t.Helper()
+	orig := writeKernel
+	bad := map[string]bool{}
+	for _, k := range keys {
+		p := k
+		if !strings.HasPrefix(k, "/") {
+			p = filepath.Join("proc", "sys", strings.ReplaceAll(k, ".", "/"))
+		}
+		bad[filepath.Join(root, p)] = true
+	}
+	writeKernel = func(p, v string) error {
+		if bad[p] {
+			return &fs.PathError{Op: "open", Path: p, Err: syscall.EACCES}
+		}
+		return orig(p, v)
+	}
+	undo := func() { writeKernel = orig }
+	t.Cleanup(undo)
+	return undo
+}
+
 func TestRestoreWarningOnProfileSwitch(t *testing.T) {
 	m, root := fakeRoot(t)
 	_, _, err := m.Apply(config.SysctlAggressive, false)
 	require.NoError(t, err)
-	readOnlyKey(t, root, KeyNotsentLowat)
+	failWrites(t, root, KeyNotsentLowat)
 	_, warnings, err := m.Apply(config.SysctlBalanced, false)
 	require.NoError(t, err)
 	require.Len(t, warnings, 1)
@@ -403,7 +429,7 @@ func TestRevertFailureKeepsBackup(t *testing.T) {
 	// A key that disappeared since apply is skipped.
 	require.NoError(t, os.Remove(filepath.Join(root, "proc/sys/net/core/somaxconn")))
 	// A key that cannot be written makes Revert fail and keep the backup.
-	readOnlyKey(t, root, "net.ipv4.tcp_fin_timeout")
+	undo := failWrites(t, root, "net.ipv4.tcp_fin_timeout")
 	err = m.Revert()
 	require.True(t, deyerr.HasCode(err, deyerr.X033), "%v", err)
 	require.Contains(t, deyerr.As(err).Message(), "net.ipv4.tcp_fin_timeout")
@@ -415,10 +441,9 @@ func TestRevertFailureKeepsBackup(t *testing.T) {
 	// Every other key was still restored.
 	require.Equal(t, "1024", get(t, m, "net.ipv4.tcp_max_syn_backlog"))
 
-	// Once the key is writable again, Revert completes and drops the backup.
-	p := filepath.Join(root, "proc/sys/net/ipv4/tcp_fin_timeout")
-	require.NoError(t, os.Remove(p))
-	require.NoError(t, os.WriteFile(p, []byte("15\n"), 0o600))
+	// Once the key is writable again, Revert completes and drops the backup
+	// (the conf is gone: the ledger of the backup says what deyroute wrote).
+	undo()
 	require.NoError(t, m.Revert())
 	require.Equal(t, "60", get(t, m, "net.ipv4.tcp_fin_timeout"))
 	_, err = os.Stat(m.BackupPath())

@@ -85,6 +85,7 @@ func (h *Hub) hubStatus(cfg *config.Config) *api.HubStatus {
 	if !firewallManaged(cfg) {
 		hs.Firewall = FirewallModeSuggestOnly
 	}
+	hs.Front = h.frontStatus(cfg)
 	hs.ACMEChallenge = acmeChallenge(cfg)
 	if a := cfg.Hub.ACME; a != nil {
 		hs.ACMEEmail = a.Email
@@ -117,6 +118,8 @@ func (h *Hub) nodeInfos(cfg *config.Config) []api.NodeInfo {
 			Tags:          append([]string(nil), n.Tags...),
 			Fingerprint:   n.CertFingerprint,
 			Tunnels:       cfg.TunnelsUsingNode(n.ID),
+			Route:         n.Route,
+			Via:           h.nodeVia(n.ID),
 			LastError:     ns.LastError,
 		})
 	}
@@ -184,6 +187,8 @@ func (h *Hub) tunnelInfo(cfg *config.Config, t *config.Tunnel) api.TunnelInfo {
 	if n, ok := cfg.NodeByID(ti.ActiveNode); ok {
 		ti.ActiveNodeName = n.Name
 	}
+	// From memory only: Status never reads state.db for traffic.
+	ti.Traffic = h.traffic.tunnelNow(t.ID, h.now())
 	if ti.ActiveTransport != "" {
 		ti.ClientIP = ClientIPMasked
 		if _, tr, err := backend.Lookup(ti.ActiveTransport); err == nil && tr.ClientIPPreserved &&

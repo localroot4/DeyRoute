@@ -6,6 +6,43 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — traffic monitoring, automatic tuning, screenshots
+
+- **Traffic monitoring:** the hub counts the bytes of every tunnel on its
+  listen ports in a second, verdict-free nftables table
+  (`inet deyroute_stats`: it only counts and never drops; no conntrack except
+  for the NAT rungs), keeps one hour in memory and minute, 30-minute and
+  monthly history in `state.db` (with a size guard), and the CPU and RAM of
+  the hub and every node. Shown in a TRAFFIC block on the dashboard and in
+  `deyroute status`, a Traffic and load screen (`6) Diagnostics`, or `t` on
+  the dashboard; 1h/24h/7d/30d, block or braille charts) and
+  `deyroute stats` (`--period`, `--watch`, `--json`). Download and upload are
+  always labelled; a hub that cannot count says why (`DEY-X061`) and never
+  shows 0. Optional monthly quota per tunnel with alerts at 80 % and 100 %.
+  `monitoring.enabled: false` removes the table.
+- **Automatic tuning:** `deyroute optimize auto` (also the setup wizard's last
+  question and `7) Optimize`) measures each server (RAM, CPUs, cgroup
+  limits, kernel, BBR and fq, conntrack, NIC, containers) and lists every
+  kernel and service change with its current value, new value, effect and
+  reason before one confirmation (`--dry-run`, `--yes`, `--backends`,
+  `--json`). Limit keys are only raised, conntrack is sized to the RAM,
+  backend control ports are reserved, backends get `OOMScoreAdjust=300` and
+  the hub a memory limit. Nodes follow the hub's plan when they connect.
+  `optimize check` reports drift and overrides, `optimize status` shows every
+  host, and `optimize revert` restores only the values nobody changed since.
+- **Screenshots:** the README files and the guides show the real screens
+  (setup wizard, menu, dashboard, adding a tunnel, nodes, traffic,
+  `deyroute stats`, `optimize auto --dry-run`, doctor) as light and dark SVG
+  pictures, drawn from a made-up demo deployment by `make screens`;
+  `make check-docs` and `go test ./...` fail when they are out of date.
+
+### Fixed — MSS clamping
+
+- The MSS clamp on WireGuard and AmneziaWG interfaces now also sets an
+  explicit size for packets entering the tunnel interface (its MTU minus 40)
+  and clamps on the node's interface too, so TCP connections through a
+  smaller tunnel MTU no longer stall on large packets.
+
 ### Added — the working system (phases 1–8)
 
 - **Install and lifecycle:** one-line installer (`install.sh`: GitHub

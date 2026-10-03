@@ -214,3 +214,39 @@ func TestStatusOverSocket(t *testing.T) {
 	errOut := e3.fail(2, "status")
 	require.Contains(t, errOut, "systemctl start deyroute-node")
 }
+
+func TestStatusFrontLine(t *testing.T) {
+	e := newEnv(t)
+	st := sampleStatus()
+	e.stub.StatusFn = func(context.Context) (api.Status, error) { return st, nil }
+	require.NotContains(t, e.ok("status"), "Front:", "no front line while front mode is off")
+
+	st.Hub.Front = &api.FrontStatus{Enabled: true, Domain: "front.example.com", Port: 2053, Listening: true, CFOnly: true, TLS: "auto"}
+	st.Nodes = append(st.Nodes, api.NodeInfo{ID: "fr-1", Name: "Behind CDN", Online: true, Route: "front", Via: "front", Version: "1.0.0", Compatible: true})
+	out := e.ok("status")
+	require.Contains(t, out, "Front: front.example.com:2053 (listening, Cloudflare only, tls auto)")
+	require.Contains(t, out, "via front", "a front node without an address says how it connects")
+
+	st.Hub.Front.Listening, st.Hub.Front.CFOnly, st.Hub.Front.TLS = false, false, "off"
+	out = e.ok("status")
+	require.Contains(t, out, "Front: front.example.com:2053 (NOT listening, DEY-X053: see deyroute logs hub, open to all, tls off)")
+
+	st.Hub.Front.Enabled = false
+	require.NotContains(t, e.ok("status"), "Front:")
+}
+
+func TestStatusJSONFront(t *testing.T) {
+	e := newEnv(t)
+	st := sampleStatus()
+	st.Hub.Front = &api.FrontStatus{Enabled: true, Domain: "front.example.com", Port: 2053, Listening: true, CFOnly: true, TLS: "auto"}
+	st.Nodes[1].Route, st.Nodes[1].Via = "front", "front"
+	e.stub.StatusFn = func(context.Context) (api.Status, error) { return st, nil }
+	var d map[string]any
+	require.NoError(t, json.Unmarshal([]byte(e.ok("status", "--json")), &d))
+	front := d["hub"].(map[string]any)["front"].(map[string]any)
+	require.Equal(t, map[string]any{"enabled": true, "domain": "front.example.com", "port": float64(2053), "listening": true, "cf_only": true, "tls": "auto"}, front)
+	node := d["nodes"].([]any)[1].(map[string]any)
+	require.Equal(t, "front", node["route"])
+	require.Equal(t, "front", node["via"])
+	require.NotContains(t, d["nodes"].([]any)[0].(map[string]any), "route")
+}

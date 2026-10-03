@@ -42,13 +42,14 @@ var (
 	TLSModes       = []string{TLSModeAuto, TLSModeACME, TLSModeCustom}
 	Protos         = []string{ProtoTCP, ProtoUDP}
 	ProbeKinds     = []string{ProbeAuto, ProbeTCP, ProbeTLS, ProbeHTTP}
-	SysctlProfiles = []string{SysctlOff, SysctlBalanced, SysctlAggressive}
+	SysctlProfiles = []string{SysctlOff, SysctlBalanced, SysctlAggressive, SysctlAuto}
 	// TelegramEventAliases are the short names allowed in
 	// hub.notify.telegram.events; internal/notify maps each alias to the
 	// event names of section 9 (e.g. switch → switch_transport + switch_node).
 	TelegramEventAliases = []string{
 		"down", "up", "degraded", "switch", "failback", "node_offline", "node_online",
 		"flapping", "service_down", "backend_crash", "probe_error", "update", "manual_switch",
+		"quota", "tuning",
 	}
 	// TelegramEventNames are the full event names (section 9, plus
 	// acme_failed of section 10 and the other internal/state event types)
@@ -60,7 +61,7 @@ var (
 		"failback", "failback_failed", "flapping", "node_online", "node_offline",
 		"service_down", "backend_crash", "probe_error", "update_applied", "update_rolled_back",
 		"backend_update_rolled_back", "node_ip_changed", "acme_failed", "rung_skipped",
-		"rung_restored", "config_applied",
+		"rung_restored", "config_applied", "traffic_quota", "tune_drift",
 	}
 )
 
@@ -209,6 +210,7 @@ func (c *Config) Validate(opt ValidateOptions) error {
 		return deyerr.New(deyerr.C016, deyerr.Params{"role": ""})
 	}
 	v := &validator{c: c, opt: opt, listen: map[ListenKey]string{}}
+	v.reserved = append(append([]int(nil), opt.ReservedPorts...), c.Hub.ReservedPorts()...)
 	if c.SchemaVersion != currentSchema {
 		v.add(deyerr.New(deyerr.C019, deyerr.Params{"version": c.SchemaVersion}))
 	}
@@ -221,8 +223,11 @@ func (c *Config) Validate(opt ValidateOptions) error {
 	for i := range c.Tunnels {
 		v.tunnel(i, &c.Tunnels[i])
 	}
-	if c.Tuning != nil && !contains(SysctlProfiles, c.Tuning.SysctlProfile) {
-		v.bad("tuning.sysctl_profile", c.Tuning.SysctlProfile, strings.Join(SysctlProfiles, ", "))
+	if c.Tuning != nil {
+		v.tuning(c.Tuning)
+	}
+	if c.Monitoring != nil {
+		v.monitoring(c.Monitoring)
 	}
 	if c.Node != nil {
 		v.nodeSelf(c.Node)
@@ -235,6 +240,8 @@ type validator struct {
 	opt    ValidateOptions
 	errs   []error
 	listen map[ListenKey]string // listen/proto → first tunnel id
+	// reserved is opt.ReservedPorts plus the front port of an enabled front.
+	reserved []int
 }
 
 // add records a DEY error with every string parameter made printable.
@@ -274,7 +281,7 @@ func (v *validator) role() {
 			v.add(deyerr.New(deyerr.C016, deyerr.Params{"role": c.Role}))
 		}
 	case RoleNode:
-		if c.Node == nil || c.Hub != nil || len(c.Nodes) > 0 || len(c.Tunnels) > 0 || len(c.Ladders) > 0 {
+		if c.Node == nil || c.Hub != nil || len(c.Nodes) > 0 || len(c.Tunnels) > 0 || len(c.Ladders) > 0 || c.Monitoring != nil {
 			v.add(deyerr.New(deyerr.C016, deyerr.Params{"role": c.Role}))
 		}
 	default:
@@ -368,6 +375,7 @@ func (v *validator) hub(h *Hub) {
 			v.bad("hub.mirror", h.Mirror, "an http(s) URL such as https://mirror.example.com/deyroute")
 		}
 	}
+	v.front(h)
 	tg := h.Notify.Telegram
 	v.secretPath("hub.notify.telegram.bot_token_file", tg.BotTokenFile, true)
 	if tg.ChatID != "" && !chatIDRe.MatchString(tg.ChatID) {
@@ -405,7 +413,12 @@ func (v *validator) nodes() {
 		}
 		seen[n.ID] = true
 		v.name(p+".name", n.Name, false)
-		if !validPublicIP(n.PublicIP) {
+		if n.Route != "" && n.Route != RouteFront {
+			v.bad(p+".route", n.Route, RouteFront+" (or empty for a direct node)")
+		}
+		// A front node's address is unknown to the hub (it sees the CDN),
+		// so public_ip may stay empty; a recorded one must still be valid.
+		if (n.Route != RouteFront || n.PublicIP != "") && !validPublicIP(n.PublicIP) {
 			v.bad(p+".public_ip", n.PublicIP, "the public IPv4 or IPv6 address of the node")
 		}
 		// Recorded by the hub at join (tlsutil.Fingerprint). Empty (not
@@ -421,6 +434,32 @@ func (v *validator) nodes() {
 				v.bad(fmt.Sprintf("%s.tags[%d]", p, j), tag, "a non-empty tag")
 			}
 		}
+		v.backendTier(p+".backend_tier", n.BackendTier)
+	}
+}
+
+// tuning checks the tuning: section.
+func (v *validator) tuning(t *Tuning) {
+	if !contains(SysctlProfiles, t.SysctlProfile) {
+		v.bad("tuning.sysctl_profile", t.SysctlProfile, strings.Join(SysctlProfiles, ", "))
+	}
+	v.backendTier("tuning.backend_tier", t.BackendTier)
+	if t.WGMTU != 0 {
+		v.intRange("tuning.wg_mtu", t.WGMTU, MinWGMTU, MaxWGMTU)
+	}
+}
+
+// backendTier checks an optional backend tier.
+func (v *validator) backendTier(field, tier string) {
+	if tier != "" && !contains(BackendTiers, tier) {
+		v.bad(field, tier, strings.Join(BackendTiers, ", ")+" (or empty for the defaults)")
+	}
+}
+
+// monitoring checks the monitoring: section (hub only, see role).
+func (v *validator) monitoring(m *Monitoring) {
+	if m.QuotaResetDay != 0 {
+		v.intRange("monitoring.quota_reset_day", m.QuotaResetDay, 1, MaxQuotaResetDay)
 	}
 }
 
@@ -551,7 +590,10 @@ func (v *validator) ports(p string, t *Tunnel) {
 			v.bad(pp+".listen", pm.Listen, "1-65535")
 		} else {
 			key := ListenKey{Port: pm.Listen, Proto: pm.Proto}
-			if reserved, why := ReservedListen(pm.Listen, v.controlPort(), v.opt.ReservedPorts); reserved {
+			if reserved, why := ReservedListen(pm.Listen, v.controlPort(), v.reserved); reserved {
+				if v.c.Hub.FrontPort() == pm.Listen {
+					why = fmt.Sprintf("port %d is the hub front port (hub.front.port)", pm.Listen)
+				}
 				v.add(deyerr.New(deyerr.C011, deyerr.Params{"port": key.String(), "reason": why}))
 			} else if protoOK {
 				if other, dup := v.listen[key]; dup {
@@ -652,6 +694,7 @@ func (v *validator) advanced(p string, a *Advanced) {
 	v.intRange(p+".connection_pool", a.ConnectionPool, 0, MaxConnectionPool)
 	v.intRange(p+".hysteria_up_mbps", a.HysteriaUpMbps, 0, MaxHysteriaMbps)
 	v.intRange(p+".hysteria_down_mbps", a.HysteriaDownMbps, 0, MaxHysteriaMbps)
+	v.intRange(p+".monthly_quota_gib", a.MonthlyQuotaGiB, 0, MaxMonthlyQuotaGiB)
 	if w := a.BackhaulWebPort; w != 0 {
 		// Spec 7.1 allows the Backhaul stats page only on 127.0.0.1. The
 		// pinned Backhaul (v0.7.2) serves it on every interface, which would
@@ -676,4 +719,5 @@ func (v *validator) nodeSelf(n *NodeSelf) {
 	if n.ControlSNI != "" && !ValidDomain(n.ControlSNI) {
 		v.bad("node.control_sni", n.ControlSNI, "a DNS name such as www.example.com (sent in the control channel's ClientHello)")
 	}
+	v.nodeFront(n)
 }

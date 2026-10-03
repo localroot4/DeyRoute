@@ -20,8 +20,10 @@ second=$(active_transport "$T")
 d1=$(tunnel_field "$T" .failback_delay)
 # Keep the block: the failback attempt fails and the tunnel stays on the second rung.
 wait_for $((FB + 60)) "failback attempted" has_event failback_failed "$T"
-[ "$(active_transport "$T")" = "$second" ] || fail "not back on $second after the failed failback"
-tunnel_up "$T" || fail "tunnel not UP after the failed failback"
+# The event marks the failure; the return to the second rung starts at once
+# and is UP once that rung passes its start probe (within StartWait, 15s).
+back() { tunnel_up "$T" && [ "$(active_transport "$T")" = "$second" ]; }
+wait_for 15 "UP on $second again after the failed failback" back
 d2=$(tunnel_field "$T" .failback_delay)
 log "failback delay ${d1}ns -> ${d2}ns"
 [ "$d2" -ge $((d1 * 2)) ] || fail "the failback delay did not double (${d1} -> ${d2})"

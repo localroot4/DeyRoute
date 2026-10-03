@@ -706,6 +706,32 @@ func TestManualSwitchFailureAndRevertFailure(t *testing.T) {
 	h.advanceUntil(time.Minute, isUpOn(r2))
 }
 
+// MoveTo goes to an exact candidate (node and rung) like a manual switch:
+// quarantine does not stop it, it is not counted, the event carries the
+// caller's reason, and a candidate outside the tunnel is refused.
+func TestMoveToCandidate(t *testing.T) {
+	ctx := context.Background()
+	st := upOn(r3, t0)
+	st.Quarantine = map[string]state.Quarantine{r1.Key(): {Until: t0.Add(time.Hour), Duration: time.Hour}}
+	h := newHarness(t, twoNodes(), st, func(f *fakeActions) { f.running[r3.Key()] = true }).run()
+	require.NoError(t, h.eng.MoveTo(ctx, r1, "x 2.0 rolled back: back to "+r1.Key()))
+	h.requireActive(r1, state.StateUp)
+	s := h.st()
+	require.Empty(t, s.SwitchTimes)
+	require.NotContains(t, s.Quarantine, r1.Key())
+	ev := h.act.eventsOf(state.EvSwitchTransport)
+	require.Len(t, ev, 1)
+	require.Equal(t, "x 2.0 rolled back: back to "+r1.Key(), ev[0].Reason)
+
+	nl := cand("nl-1", r1.Transport)
+	require.NoError(t, h.eng.MoveTo(ctx, nl, "move"))
+	h.requireActive(nl, state.StateUp)
+	require.Len(t, h.act.eventsOf(state.EvSwitchNode), 1)
+	require.NoError(t, h.eng.MoveTo(ctx, nl, "again"), "already there: no-op")
+	require.Equal(t, deyerr.F006, codeOf(h.eng.MoveTo(ctx, cand("xx-1", r1.Transport), "x")))
+	require.Equal(t, deyerr.F006, codeOf(h.eng.MoveTo(ctx, cand("de-1", "nope/x"), "x")))
+}
+
 func TestManualSwitchErrors(t *testing.T) {
 	ctx := context.Background()
 	st := state.TunnelState{Skipped: map[string]state.Skip{

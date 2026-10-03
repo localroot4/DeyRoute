@@ -157,6 +157,12 @@ func TestGolden(t *testing.T) {
 		in.ListenAddr = "::"
 		return in
 	}
+	// tuning.wg_mtu (optimize auto on a NIC with an MTU below 1500).
+	mtu := func(awg bool) backend.RenderInput {
+		in := fixture(t, awg)
+		in.WGMTU = 1380
+		return in
+	}
 	for _, awg := range []bool{false, true} {
 		name := Kernel
 		if awg {
@@ -170,6 +176,7 @@ func TestGolden(t *testing.T) {
 			{name + "_mixed", mixedFixture(t, awg)},
 			{name + "_canary", canaryFixture(t, awg)},
 			{name + "_long", long(awg)},
+			{name + "_mtu1380", mtu(awg)},
 		}
 		b := backendFor(awg)
 		for _, c := range cases {
@@ -591,3 +598,23 @@ func TestPostStartStop(t *testing.T) {
 }
 
 var errExit = errors.New("exit status 1")
+
+// TestTunnelMTU: RenderInput.WGMTU sets the interface MTU when it is within
+// [MinMTU, MTU]; 0 and out-of-range values keep the default.
+func TestTunnelMTU(t *testing.T) {
+	in := fixture(t, false)
+	for _, c := range []struct{ set, want int }{
+		{0, MTU}, {1380, 1380}, {MinMTU, MinMTU}, {MTU, MTU}, {1279, MTU}, {1500, MTU}, {-1, MTU},
+	} {
+		in.WGMTU = c.set
+		require.Equal(t, c.want, TunnelMTU(in), "wg_mtu %d", c.set)
+	}
+	in.WGMTU = 1380
+	for _, side := range []backend.Side{backend.SideHub, backend.SideNode} {
+		r, err := New().Render(in, side)
+		require.NoError(t, err)
+		c, err := ParseConfig(r.Files[ConfigFile], ConfigFile)
+		require.NoError(t, err)
+		require.Equal(t, 1380, c.MTU)
+	}
+}

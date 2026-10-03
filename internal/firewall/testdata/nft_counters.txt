@@ -1,0 +1,18 @@
+table inet deyroute_stats {
+	counter tun_games_in {
+		packets 12 bytes 3456
+	}
+	counter tun_games_out {
+		packets 0 bytes 0
+	}
+	counter tun_ir-de-1_in {
+		packets 1048576 bytes 18446744073709551615
+	}
+	counter tun_ir-de-1_out {
+		packets 7 bytes 1400
+		comment "kept by an operator"
+	}
+	counter other {
+		packets 99 bytes 99999
+	}
+}

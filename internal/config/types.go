@@ -86,6 +86,28 @@ const (
 	SysctlOff        = "off"
 	SysctlBalanced   = "balanced"
 	SysctlAggressive = "aggressive"
+	// SysctlAuto is the automatic profile: balanced plus values computed
+	// from the measured host facts (`deyroute optimize auto`).
+	SysctlAuto = "auto"
+
+	// Backend tiers (tuning.backend_tier, nodes[].backend_tier): sticky
+	// per host, set by `optimize auto --backends`, read by the renderer.
+	BackendTierSmall  = "small"
+	BackendTierMedium = "medium"
+	BackendTierLarge  = "large"
+)
+
+// Monitoring and tuning limits.
+const (
+	// DefaultQuotaResetDay is monitoring.quota_reset_day when unset.
+	DefaultQuotaResetDay = 1
+	// MaxQuotaResetDay keeps the reset day in every month.
+	MaxQuotaResetDay = 28
+	// MaxMonthlyQuotaGiB bounds advanced.monthly_quota_gib (1 PiB).
+	MaxMonthlyQuotaGiB = 1 << 20
+	// MinWGMTU and MaxWGMTU bound tuning.wg_mtu (0 = the backend default).
+	MinWGMTU = 1280
+	MaxWGMTU = 1420
 )
 
 // DefaultLadder is the ordered default ladder of section 8. It ends with
@@ -125,7 +147,21 @@ type Config struct {
 	Ladders       map[string][]string `yaml:"ladders,omitempty"`
 	Tuning        *Tuning             `yaml:"tuning,omitempty"`
 	Security      *Security           `yaml:"security,omitempty"`
-	Node          *NodeSelf           `yaml:"node,omitempty"`
+	// Monitoring is the hub's traffic monitoring; absent = the defaults
+	// (on, quota period from day 1). Hub only.
+	Monitoring *Monitoring `yaml:"monitoring,omitempty"`
+	Node       *NodeSelf   `yaml:"node,omitempty"`
+}
+
+// Monitoring is the monitoring: section (hub only). It is never added by
+// ApplyDefaults, so a config without it saves without it.
+type Monitoring struct {
+	// Enabled turns the traffic accounting table (inet deyroute_stats) and
+	// the sampler on; nil = true.
+	Enabled *bool `yaml:"enabled,omitempty"`
+	// QuotaResetDay is the hub-local day of the month (1-28) on which the
+	// quota period of advanced.monthly_quota_gib starts; 0 = 1.
+	QuotaResetDay int `yaml:"quota_reset_day,omitempty"`
 }
 
 // Hub is the hub: section.
@@ -144,6 +180,9 @@ type Hub struct {
 	Mirror      string   `yaml:"mirror,omitempty"`       // release base override (DEYROUTE_MIRROR wins)
 	UpdateCheck bool     `yaml:"update_check,omitempty"` // daily release check, default off (section 5)
 	ACME        *ACME    `yaml:"acme,omitempty"`
+
+	// Front is the CDN front listener (front mode); absent = off.
+	Front HubFront `yaml:"front,omitempty"`
 }
 
 // ACME holds optional ACME settings (section 10, tls.mode=acme).
@@ -175,6 +214,12 @@ type Node struct {
 	PublicIP        string   `yaml:"public_ip"`
 	CertFingerprint string   `yaml:"cert_fingerprint"`
 	Tags            []string `yaml:"tags,omitempty"`
+	// Route is how the node reaches the hub: "" = direct, "front" = through
+	// the CDN front (public_ip may then be empty, the hub cannot see it).
+	Route string `yaml:"route,omitempty"`
+	// BackendTier is the node's sticky backend tier (small|medium|large),
+	// set by `optimize auto --backends`; "" = the renderer's defaults.
+	BackendTier string `yaml:"backend_tier,omitempty"`
 }
 
 // PortMap maps listen on the hub to target on the node.
@@ -210,6 +255,10 @@ type Advanced struct {
 	HysteriaPortHopping bool `yaml:"hysteria_port_hopping,omitempty"` // node_ip:20000-20999
 	ProxyProtocol       bool `yaml:"proxy_protocol,omitempty"`        // direct/haproxy send-proxy
 	BackhaulWebPort     int  `yaml:"backhaul_web_port,omitempty"`     // refused: the pinned Backhaul cannot serve stats on 127.0.0.1 only
+	// MonthlyQuotaGiB is the tunnel's traffic quota per quota period
+	// (monitoring.quota_reset_day), in+out user-side bytes; 0 = none. The
+	// hub warns at 80 % and 100 % (event traffic_quota).
+	MonthlyQuotaGiB int `yaml:"monthly_quota_gib,omitempty"`
 }
 
 // Failover is tunnels[].failover.
@@ -236,6 +285,19 @@ type TLS struct {
 type Tuning struct {
 	SysctlProfile string `yaml:"sysctl_profile"`
 	BBR           bool   `yaml:"bbr"`
+
+	// Keys of the automatic profile (hub only; `optimize auto`).
+
+	// NodesAuto is the owner's consent that nodes follow the hub's
+	// automatic tuning, also when they connect or join later. Only used
+	// while sysctl_profile is auto.
+	NodesAuto bool `yaml:"nodes_auto,omitempty"`
+	// BackendTier is the hub's sticky backend tier (small|medium|large);
+	// a node's tier is nodes[].backend_tier. "" = the renderer's defaults.
+	BackendTier string `yaml:"backend_tier,omitempty"`
+	// WGMTU is the MTU of WireGuard/AmneziaWG tunnel interfaces (1280-1420);
+	// 0 = the backend default (1420).
+	WGMTU int `yaml:"wg_mtu,omitempty"`
 }
 
 // Security is the security: section.
@@ -255,6 +317,9 @@ type NodeSelf struct {
 	// the control channel (a cover name, never used to verify the hub);
 	// empty = tlsutil.DefaultCoverSNI (QUESTIONS.md C.43).
 	ControlSNI string `yaml:"control_sni,omitempty"`
+	// Front holds the front dial settings; the node is in front mode iff
+	// front.secret_file is set (hub_addr is then "<front domain>:<port>").
+	Front NodeFront `yaml:"front,omitempty"`
 }
 
 // HubInfo is the subset of hub data a backend renderer needs.

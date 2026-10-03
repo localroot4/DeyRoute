@@ -114,6 +114,14 @@ type Input struct {
 	// = unknown); backends size their workers with them (Waterwall).
 	HubCPUs  int
 	NodeCPUs func(node string) int
+	// HubTier and NodeTier are the sticky backend tiers of the hub and of
+	// a node (tuning.backend_tier, nodes[].backend_tier; "" = the
+	// defaults). They come from the config, never from live facts, so the
+	// rendered files change only when the config does. NodeTier nil = "".
+	HubTier  string
+	NodeTier func(node string) string
+	// WGMTU is tuning.wg_mtu (0 = the WireGuard default, 1420).
+	WGMTU int
 }
 
 // Side is one rendered half of a candidate, ready to be written.
@@ -487,7 +495,17 @@ func (p *planner) renderInput(b backend.Backend, tr backend.Transport, node conf
 		NetIndex:    p.netIndex,
 		HubCPUs:     p.in.HubCPUs,
 		NodeCPUs:    p.nodeCPUs(node.ID),
+		HubTier:     p.in.HubTier,
+		NodeTier:    p.nodeTier(node.ID),
+		WGMTU:       p.in.WGMTU,
 	}, nil
+}
+
+func (p *planner) nodeTier(node string) string {
+	if p.in.NodeTier == nil {
+		return ""
+	}
+	return p.in.NodeTier(node)
 }
 
 func (p *planner) nodeCPUs(node string) int {

@@ -15,6 +15,8 @@ x-server: &server
     - ${DEY_DIST:?set DEY_DIST to the release directory}:/dist:ro
   stop_signal: SIGRTMIN+3
   stop_grace_period: 20s
+  # The lab's own decoy site for the Reality transports (lib.sh lab_decoy).
+  extra_hosts: ["decoy.it.lab:10.77.0.30"]
 
 services:
   hub:

@@ -44,8 +44,8 @@ checklist (section 18) with the test that proves it. Three kinds of evidence:
 | 5 | 7 blocks in an hour → flapping, held on `direct/native` | lab S13 |
 | 5 | hub restart during failover → state recovered, no restart | lab S14, run |
 | 5 | Telegram message per event | unit `internal/notify`, `internal/daemon/hub` (no bot in the lab) |
-| 6 | Xray-Reality, Hysteria2, Waterwall in the ladder | lab S18 (Waterwall needs a real decoy certificate: the lab's TLS-intercepting egress makes its decoy check fail by design) |
-| 6 | node is not an open proxy (8.8.8.8:53 blocked) | lab S17, run: xray/reality, hysteria2/udp, awg/userspace and direct/native, each probed from outside (TCP and UDP listeners) and from inside with a client built from the hub's credentials; 0 packets left the node; unit per Forward backend |
+| 6 | Xray-Reality, Hysteria2, Waterwall in the ladder | lab S18 (Waterwall needs a real decoy certificate: its node side trusts only the CA list built into Waterwall, so neither a lab decoy nor a TLS-intercepting egress can stand in for a real site) |
+| 6 | node is not an open proxy (8.8.8.8:53 blocked) | lab S17, run: xray/reality (against the lab's own decoy site), hysteria2/udp, awg/userspace and direct/native, each probed from outside (TCP and UDP listeners) and from inside with a client built from the hub's credentials; 0 packets left the node; unit per Forward backend |
 | 6 | Hysteria2 skipped with UDP closed, yellow event | lab S16 |
 | 7 | WireGuard kernel and AWG userspace carry TCP and UDP | lab S33, run for awg/userspace (TCP 8443 and UDP 27015); wireguard/kernel: **pending** — the kernel of the lab host has no WireGuard module, S33 runs it where the kernel has one (CI); unit `internal/backend/wireguard` |
 | 7 | deleting a tunnel leaves no nft rules or interfaces | lab S33, run for awg/userspace (`nft list ruleset` and `ip link` of hub and node before the tunnel and after `tunnel delete`); unit `internal/daemon/hub` |

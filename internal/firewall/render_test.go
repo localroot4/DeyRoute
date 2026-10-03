@@ -2,7 +2,9 @@ package firewall
 
 import (
 	"flag"
+	"fmt"
 	"math/rand/v2"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +15,7 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/localroot4/deyroute/internal/backend"
+	"github.com/localroot4/deyroute/internal/cfnets"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 )
 
@@ -66,6 +69,14 @@ var goldenSpecs = map[string]Spec{
 		s.Masquerade = []string{"dey-main", "dey-games"}
 		return s
 	}(),
+	// WireGuard with tuning.wg_mtu 1380: SYNs from the tunnel interfaces
+	// are clamped to 1340.
+	"hub_wireguard_mtu1380": {
+		ControlPort: 44433,
+		NAT:         []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443}},
+		Masquerade:  []string{"dey-main"},
+		ClampMSS:    1340,
+	},
 	// No listen ports yet (fresh hub).
 	"hub_no_listen": func() Spec {
 		s := hubSpec()
@@ -84,6 +95,31 @@ var goldenSpecs = map[string]Spec{
 		s := hubSpec()
 		s.IPv6 = true
 		s.UnknownControlRate = "6/minute"
+		return s
+	}(),
+	// Front mode (CDN-fronted hub): the front port is open to the Cloudflare
+	// ranges only (interval set @cf4), and everyone else is dropped.
+	"hub_front_cf": func() Spec {
+		s := hubSpec()
+		s.FrontPort = 2053
+		s.ListenTCP = []int{443}
+		return s
+	}(),
+	// Same with IPv6: @cf6 and its rule are added.
+	"hub_front_cf_ipv6": func() Spec {
+		s := hubSpec()
+		s.IPv6 = true
+		s.NodeIPs6 = []string{"2001:db8::10"}
+		s.FrontPort = 8443
+		s.ListenTCP = []int{443}
+		return s
+	}(),
+	// Front port open to everyone (cf_only: false): a plain accept, no sets.
+	"hub_front_open": func() Spec {
+		s := hubSpec()
+		s.FrontPort = 2053
+		s.FrontOpen = true
+		s.ListenTCP = []int{443}
 		return s
 	}(),
 	// Unrestricted control port and no backend range: no drop rules, so no
@@ -311,4 +347,210 @@ func TestPortSet(t *testing.T) {
 	require.Equal(t, "443-445", portSet([]int{443, 444, 445}))
 	require.Equal(t, "{ 80, 443-445, 8443 }", portSet([]int{80, 443, 444, 445, 8443}))
 	require.Equal(t, "30000", portRange(30000, 30000))
+}
+
+// lineIndex returns the index of the trimmed line in the rendered lines.
+func lineIndex(lines []string, rule string) int {
+	for i, l := range lines {
+		if strings.TrimSpace(l) == rule {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestRenderFrontCloudflareOnly: the front port accepts only the sets filled
+// from the embedded Cloudflare ranges, then drops, after the conntrack and
+// loopback rules; no rate limit applies, and the port is not accepted a
+// second time through the tunnel listen ports.
+func TestRenderFrontCloudflareOnly(t *testing.T) {
+	s := hubSpec()
+	s.FrontPort = 2053 // also a tunnel listen port in hubSpec: the front rules win
+	require.NoError(t, s.Validate())
+	out := Render(s)
+	lines := strings.Split(out, "\n")
+
+	require.Contains(t, out, "\tset cf4 {\n\t\ttype ipv4_addr\n\t\tflags interval\n\t\telements = { 103.21.244.0/22, ")
+	for _, p := range cfnets.V4() {
+		require.Contains(t, out, p.String(), p)
+	}
+	require.NotContains(t, out, "cf6")
+	require.NotContains(t, out, "nodes6")
+	// Sets of node addresses stay plain.
+	require.Contains(t, out, "set nodes {\n\t\ttype ipv4_addr\n\t\telements = { 1.2.3.4, 9.8.7.6 }\n")
+
+	est := lineIndex(lines, ruleEstablished)
+	lo := lineIndex(lines, ruleLoopback)
+	acc := lineIndex(lines, "tcp dport 2053 ip saddr @cf4 accept")
+	drop := lineIndex(lines, "tcp dport 2053 drop")
+	require.True(t, est >= 0 && est < lo && lo < acc && acc+1 == drop, "order %d %d %d %d\n%s", est, lo, acc, drop, out)
+	require.Equal(t, 2, strings.Count(out, "dport 2053 "), "accept and drop only, no listen-port accept")
+	require.Contains(t, out, "tcp dport 443 accept")
+	require.NotContains(t, out, "limit rate")
+	require.NotContains(t, out, "ct state new")
+
+	// Only the front port: the drop still pulls in the conntrack rules.
+	only := Render(Spec{FrontPort: 8443})
+	require.Contains(t, only, ruleEstablished)
+	require.Contains(t, only, "tcp dport 8443 drop")
+	require.NotContains(t, only, "@nodes")
+}
+
+func TestRenderFrontIPv6(t *testing.T) {
+	s := hubSpec()
+	s.IPv6 = true
+	s.FrontPort = 8443
+	out := Render(s)
+	lines := strings.Split(out, "\n")
+	require.Contains(t, out, "\tset cf6 {\n\t\ttype ipv6_addr\n\t\tflags interval\n\t\telements = { 2400:cb00::/32, ")
+	for _, p := range cfnets.V6() {
+		require.Contains(t, out, p.String(), p)
+	}
+	v4 := lineIndex(lines, "tcp dport 8443 ip saddr @cf4 accept")
+	v6 := lineIndex(lines, "tcp dport 8443 ip6 saddr @cf6 accept")
+	drop := lineIndex(lines, "tcp dport 8443 drop")
+	require.True(t, v4 >= 0 && v6 == v4+1 && drop == v6+1, "%d %d %d", v4, v6, drop)
+	// Sets come in a fixed order: nodes, nodes6, cf4, cf6.
+	order := []string{"set nodes {", "set nodes6 {", "set cf4 {", "set cf6 {", "chain input {"}
+	for i := 1; i < len(order); i++ {
+		require.Less(t, strings.Index(out, order[i-1]), strings.Index(out, order[i]), order[i])
+	}
+
+	// A node with an IPv6 address also enables the family.
+	s.IPv6 = false
+	s.NodeIPs6 = []string{"2001:db8::1"}
+	require.Contains(t, Render(s), "tcp dport 8443 ip6 saddr @cf6 accept")
+}
+
+func TestRenderFrontOpen(t *testing.T) {
+	s := hubSpec()
+	s.IPv6 = true
+	s.FrontPort = 8443
+	s.FrontOpen = true
+	out := Render(s)
+	require.Contains(t, out, "\t\ttcp dport 8443 accept\n")
+	require.NotContains(t, out, "cf4")
+	require.NotContains(t, out, "cf6")
+	require.NotContains(t, out, "flags interval")
+	require.NotContains(t, out, "tcp dport 8443 drop")
+	require.NotContains(t, out, "tcp dport 8443 ip")
+
+	// An open front port alone adds no drop, so no conntrack rule either.
+	only := Render(Spec{FrontPort: 8443, FrontOpen: true})
+	require.Contains(t, only, "tcp dport 8443 accept")
+	require.NotContains(t, only, ruleEstablished)
+}
+
+// TestRenderFrontAbsent: no front port, no front rules, whatever FrontOpen
+// says, and an out-of-range or colliding port renders as if there were none.
+func TestRenderFrontAbsent(t *testing.T) {
+	base := Render(hubSpec())
+	for _, s := range []Spec{
+		func() Spec { s := hubSpec(); s.FrontOpen = true; return s }(),
+		func() Spec { s := hubSpec(); s.FrontPort = 70000; return s }(),
+		func() Spec { s := hubSpec(); s.FrontPort = -1; return s }(),
+		func() Spec { s := hubSpec(); s.FrontPort = s.ControlPort; return s }(),
+		func() Spec { s := hubSpec(); s.FrontPort = 30500; return s }(),
+	} {
+		require.Equal(t, base, Render(s), "%+v", s)
+	}
+	require.NotContains(t, base, "cf4")
+	require.NotContains(t, base, "flags interval")
+}
+
+func TestFrontValidate(t *testing.T) {
+	require.NoError(t, Spec{ControlPort: 44433, CtlLow: 30000, CtlHigh: 31999, FrontPort: 2053}.Validate())
+	require.NoError(t, Spec{FrontPort: 2053, FrontOpen: true}.Validate())
+	require.ErrorContains(t, Spec{FrontPort: 70000}.Validate(), "front port 70000 out of range")
+	require.ErrorContains(t, Spec{FrontPort: -5}.Validate(), "front port -5 out of range")
+	require.ErrorContains(t, Spec{ControlPort: 8443, FrontPort: 8443}.Validate(), "front port 8443 is the control port")
+	err := Spec{CtlLow: 30000, CtlHigh: 31999, FrontPort: 30001}.Validate()
+	require.ErrorContains(t, err, "front port 30001 is inside the backend control range 30000-31999")
+	require.Equal(t, deyerr.P019, deyerr.As(err).Code)
+	// An invalid range does not make every port collide.
+	require.NotContains(t, Spec{CtlLow: 31999, CtlHigh: 30000, FrontPort: 30001}.Validate().Error(), "front port")
+}
+
+// TestRenderFrontSetsAreDeterministic: the sets are sorted and independent
+// of the order cfnets lists them in, and no two elements overlap (nft
+// rejects overlapping intervals without auto-merge).
+func TestRenderFrontSetsAreDeterministic(t *testing.T) {
+	s := hubSpec()
+	s.IPv6 = true
+	s.FrontPort = 2053
+	require.Equal(t, Render(s), Render(s))
+	for _, list := range [][]netip.Prefix{sortedPrefixes(cfnets.V4()), sortedPrefixes(cfnets.V6())} {
+		require.True(t, slices.IsSortedFunc(list, func(a, b netip.Prefix) int { return a.Addr().Compare(b.Addr()) }))
+		for i := 1; i < len(list); i++ {
+			require.False(t, list[i-1].Overlaps(list[i]), "%s overlaps %s", list[i-1], list[i])
+		}
+	}
+	require.Equal(t, []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("10.0.0.0/16"), netip.MustParsePrefix("11.0.0.0/8")},
+		sortedPrefixes([]netip.Prefix{
+			netip.MustParsePrefix("11.0.0.0/8"), netip.MustParsePrefix("10.0.0.0/16"), netip.MustParsePrefix("10.0.0.0/8"),
+			netip.MustParsePrefix("10.0.0.0/8"), {},
+		}))
+}
+
+// TestRenderMSSClamp: both directions of every tunnel interface are clamped
+// (towards the tunnel to the route MTU, from it to ClampMSS), on the hub's
+// masqueraded interfaces and on the node's NAT interfaces, ahead of the
+// confinement; tables without a tunnel interface have no clamp at all.
+func TestRenderMSSClamp(t *testing.T) {
+	const (
+		out = "oifname %q tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu"
+		in  = "iifname %q tcp flags & (syn | rst) == syn tcp option maxseg size set %d"
+	)
+	hub := Spec{
+		NAT:        []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443}},
+		Masquerade: []string{"dey-main"},
+	}
+	lines := strings.Split(Render(hub), "\n")
+	require.GreaterOrEqual(t, lineIndex(lines, fmt.Sprintf(out, "dey-main")), 0)
+	require.GreaterOrEqual(t, lineIndex(lines, fmt.Sprintf(in, "dey-main", DefaultClampMSS)), 0, "0 = 1420 - 40")
+	require.NotContains(t, Render(hub), "iifname \"dey-main\" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu")
+
+	hub.ClampMSS = 1340
+	require.NoError(t, hub.Validate())
+	require.Contains(t, Render(hub), fmt.Sprintf(in, "dey-main", 1340))
+
+	// Out of range: reported, and the default is rendered.
+	for _, bad := range []int{-1, 100, MinClampMSS - 1, MaxClampMSS + 1} {
+		hub.ClampMSS = bad
+		require.ErrorContains(t, hub.Validate(), "clamp mss", bad)
+		require.Contains(t, Render(hub), fmt.Sprintf(in, "dey-main", DefaultClampMSS), bad)
+	}
+
+	// Node: every NAT interface is clamped once, before its confinement.
+	node := Spec{ClampMSS: 1340, NAT: []backend.NATRule{
+		{Proto: "tcp", DportLow: 443, ToAddr: "127.0.0.1", ToPort: 443, Iface: "dey-main"},
+		{Proto: "udp", DportLow: 27015, ToAddr: "127.0.0.1", ToPort: 27015, Iface: "dey-main"},
+		{Proto: "tcp", DportLow: 8443, ToAddr: "10.0.0.5", ToPort: 8443, Iface: "deyc-3"},
+	}}
+	got := Render(node)
+	lines = strings.Split(got, "\n")
+	for _, i := range []string{"dey-main", "deyc-3"} {
+		o := lineIndex(lines, fmt.Sprintf(out, i))
+		c := lineIndex(lines, fmt.Sprintf(in, i, 1340))
+		est := lineIndex(lines, "iifname "+quote(i)+" ct state established,related accept")
+		require.True(t, o >= 0 && c == o+1 && c < est, "%s: %d %d %d\n%s", i, o, c, est, got)
+		require.Equal(t, 1, strings.Count(got, fmt.Sprintf(out, i)))
+	}
+	// Every clamp precedes every verdict of the chain.
+	fwd := got[strings.Index(got, "chain forward"):]
+	require.Less(t, strings.LastIndex(fwd, "maxseg"), strings.Index(fwd, " ct state "))
+
+	// An interface both masqueraded and NAT-matched is clamped once.
+	both := Render(Spec{
+		NAT:        []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "127.0.0.1", ToPort: 443, Iface: "dey-main"}},
+		Masquerade: []string{"dey-main"},
+	})
+	require.Equal(t, 1, strings.Count(both, fmt.Sprintf(out, "dey-main")))
+
+	// No tunnel interface, no clamp.
+	for name, spec := range goldenSpecs {
+		if len(spec.Masquerade) == 0 && !slices.ContainsFunc(spec.NAT, func(r backend.NATRule) bool { return r.Iface != "" }) {
+			require.NotContains(t, Render(spec), "maxseg", name)
+		}
+	}
 }

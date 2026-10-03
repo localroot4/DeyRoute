@@ -63,7 +63,8 @@ func (l *local) DoctorCollect(ctx context.Context, node string) (api.DoctorData,
 			certFiles[t.ID] = t.TLS.CertFile
 		}
 	}
-	col := (&doctor.Collector{Root: h.o.Root, Runner: h.o.Runner, Now: h.o.Now, TunnelCertFiles: certFiles}).Collect(ctx)
+	col := (&doctor.Collector{Root: h.o.Root, Runner: h.o.Runner, Now: h.o.Now, TunnelCertFiles: certFiles,
+		Config: cfg, StateSize: h.st.LiveSize}).Collect(ctx)
 	st, err := l.Status(ctx)
 	if err != nil {
 		return api.DoctorData{}, err

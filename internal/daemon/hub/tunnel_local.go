@@ -163,7 +163,7 @@ func (h *Hub) checkNewPorts(ctx context.Context, cfg *config.Config, tunnel stri
 	}
 	for _, pm := range maps {
 		key := config.ListenKey{Port: pm.Listen, Proto: pm.Proto}
-		if reserved, why := ports.Reserved(pm.Listen, cfg.Hub.ControlPort); reserved {
+		if reserved, why := ports.Reserved(pm.Listen, cfg.Hub.ControlPort, cfg.Hub.ReservedPorts()...); reserved {
 			return deyerr.New(deyerr.P011, deyerr.Params{"port": key.String(), "reason": why})
 		}
 		if seen[key] {
@@ -345,6 +345,10 @@ func (h *Hub) newTunnel(ctx context.Context, cfg *config.Config, req api.TunnelA
 // of the active candidates) and reports it; with security.firewall_managed
 // false it is skipped (suggestions only, DEY-P031).
 func (h *Hub) firewallStep(ctx context.Context, rep *steps) error {
+	// The traffic accounting table follows the tunnels and ports before
+	// the command returns as well: a deleted tunnel or port leaves no
+	// counter behind (it does not depend on firewall_managed).
+	defer h.traffic.syncNow(ctx)
 	if !firewallManaged(h.Config()) {
 		rep.emit(api.Step{ID: stepFirewall, Status: api.StepSkipped, Detail: deyerr.New(deyerr.P031, nil).Message()})
 		h.requestFirewall()
@@ -667,6 +671,8 @@ func (l *local) TunnelShow(ctx context.Context, id string) (api.TunnelDetail, er
 	if m, ok, err := h.st.GetMetrics(t.ID); err == nil && ok {
 		d.Metrics = &m
 	}
+	// The byte counters are current; the stored record is up to 30 s old.
+	d.Metrics = h.traffic.overlayMetrics(t.ID, d.Metrics)
 	if evs, err := h.st.Events(state.EventFilter{Tunnel: t.ID, Limit: tunnelDetailEvents}); err == nil && evs != nil {
 		d.Events = evs
 	}

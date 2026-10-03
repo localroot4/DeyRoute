@@ -19,9 +19,12 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/config"
+	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/firewall"
+	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/sysctl"
+	"github.com/localroot4/deyroute/internal/sysinfo"
 	"github.com/localroot4/deyroute/internal/systemd"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 	"github.com/localroot4/deyroute/internal/version"
@@ -67,7 +70,28 @@ type Collector struct {
 	// fills it from the config. Only the certificate is parsed and nothing
 	// of the file is copied into the section.
 	TunnelCertFiles map[string]string
+	// Config is this server's configuration (role, monitoring, tunnels);
+	// nil reads Root/etc/deyroute/config.yaml (best effort: without one the
+	// monitoring checks are skipped).
+	Config *config.Config
+	// StateSize returns the size of state.db counted against
+	// state.SizeBudget. The hub passes Store.LiveSize (the data in use:
+	// bbolt never shrinks the file, so its size would stay high after the
+	// history is pruned); nil uses the file size.
+	StateSize func() (int64, error)
 }
+
+// Sections of the tuning and monitoring checks.
+const (
+	// SectionTuning holds the tuning facts, the drift of 99-deyroute.conf,
+	// the open-files limits, the state.db size and the files `optimize
+	// auto` writes besides 99-deyroute.conf (resource drop-ins,
+	// modules-load.d and modprobe.d).
+	SectionTuning = "tuning"
+	// SectionTraffic holds the state of `table inet deyroute_stats` and its
+	// per-tunnel counters (bytes and packets only).
+	SectionTraffic = "traffic"
+)
 
 // CertExpiry is one certificate found under /etc/deyroute/secrets.
 type CertExpiry struct {
@@ -89,8 +113,9 @@ type Collection struct {
 	BBRActive     bool
 	BBRAvailable  bool   // the kernel has tcp_bbr
 	BBRApplied    bool   // 99-deyroute.conf sets tcp_congestion_control = bbr
-	SysctlProfile string // off|balanced|aggressive; "" when unknown
+	SysctlProfile string // off|balanced|aggressive|auto; "" when unknown
 	Certs         []CertExpiry
+	Tune          TuneFacts // tuning and monitoring measurements (R11, R12)
 }
 
 // Apply copies the measurements into f and merges the sections (existing
@@ -113,6 +138,7 @@ func (col Collection) Apply(f *Facts) {
 	f.BBRApplied = col.BBRApplied
 	f.SysctlProfile = col.SysctlProfile
 	f.Certs = col.Certs
+	f.Tune = col.Tune
 }
 
 func (c *Collector) root() string {
@@ -157,10 +183,11 @@ func (c *Collector) statfs(p string) (uint64, uint64, error) {
 // It never fails: problems are written into the section they concern.
 func (c *Collector) Collect(ctx context.Context) Collection {
 	osText, disk, mem := c.osInfo()
-	unitsText, states, restarts := c.unitsInfo(ctx)
+	unitsText, states, restarts, pids := c.unitsInfo(ctx)
 	sysText, bbr, profile := c.sysctlInfo()
 	m := sysctl.Manager{Root: c.Root}
 	certText, certs := c.certsInfo()
+	tune, tuneText, trafficText := c.tuneInfo(ctx, states, pids)
 	sections := map[string]string{
 		SectionOS:       osText,
 		SectionVersions: c.Versions(),
@@ -169,6 +196,10 @@ func (c *Collector) Collect(ctx context.Context) Collection {
 		SectionSysctl:   sysText,
 		SectionPorts:    c.Ports(ctx),
 		SectionCerts:    certText,
+		SectionTuning:   tuneText,
+	}
+	if trafficText != "" {
+		sections[SectionTraffic] = trafficText
 	}
 	for k, v := range c.Logs() {
 		sections[k] = v
@@ -177,7 +208,7 @@ func (c *Collector) Collect(ctx context.Context) Collection {
 		Sections: sections, DiskFreePct: disk, MemAvailPct: mem,
 		UnitStates: states, UnitRestarts: restarts,
 		BBRActive: bbr, BBRAvailable: m.BBRAvailable(), BBRApplied: bbrApplied(m),
-		SysctlProfile: profile, Certs: certs,
+		SysctlProfile: profile, Certs: certs, Tune: tune,
 	}
 }
 
@@ -410,23 +441,28 @@ func (c *Collector) Versions() string {
 // Units returns the state of deyroute-hub, deyroute-node and every
 // deyroute-tun@ instance (systemctl show / list-units).
 func (c *Collector) Units(ctx context.Context) string {
-	s, _, _ := c.unitsInfo(ctx)
+	s, _, _, _ := c.unitsInfo(ctx)
 	return s
 }
 
 // UnitFacts returns ActiveState and NRestarts of the same units.
 func (c *Collector) UnitFacts(ctx context.Context) (states map[string]string, restarts map[string]int) {
-	_, states, restarts = c.unitsInfo(ctx)
+	_, states, restarts, _ = c.unitsInfo(ctx)
 	return states, restarts
 }
 
-func (c *Collector) unitsInfo(ctx context.Context) (string, map[string]string, map[string]int) {
+// unitsInfo returns the units section, ActiveState and NRestarts of every
+// unit and the main PID of the running ones.
+func (c *Collector) unitsInfo(ctx context.Context) (string, map[string]string, map[string]int, map[string]int) {
 	m := &systemd.Manager{Runner: c.runner(), Root: c.Root, Timeout: c.timeout()}
-	states, restarts := map[string]string{}, map[string]int{}
+	states, restarts, pids := map[string]string{}, map[string]int{}, map[string]int{}
 	var b strings.Builder
 	line := func(st systemd.UnitState) {
 		states[st.Unit] = st.ActiveState
 		restarts[st.Unit] = st.NRestarts
+		if st.MainPID > 0 {
+			pids[st.Unit] = st.MainPID
+		}
 		since := "-"
 		if !st.ActiveEnterTimestamp.IsZero() {
 			since = st.ActiveEnterTimestamp.Format(time.RFC3339)
@@ -468,7 +504,7 @@ func (c *Collector) unitsInfo(ctx context.Context) (string, map[string]string, m
 		}
 		line(st)
 	}
-	return redactText(b.String()), states, restarts
+	return redactText(b.String()), states, restarts, pids
 }
 
 // ---------------------------------------------------------------- logs
@@ -653,14 +689,49 @@ func (c *Collector) sysctlInfo() (string, bool, string) {
 }
 
 // SysctlKeys lists every key of the section 12 profiles (aggressive with
-// ip_forward is the superset) plus tcp_available_congestion_control.
+// ip_forward is the superset), every key the automatic profile may own,
+// the conntrack and file-handle usage and tcp_available_congestion_control.
 func SysctlKeys() []string {
 	kvs, _ := sysctl.Profile(config.SysctlAggressive, true) // a valid profile name never fails
-	keys := make([]string, 0, len(kvs)+1)
-	for _, kv := range kvs {
-		keys = append(keys, kv.Key)
+	keys := make([]string, 0, len(kvs)+24)
+	seen := map[string]bool{}
+	add := func(k string) {
+		if !seen[k] && !strings.HasPrefix(k, "/") {
+			seen[k] = true
+			keys = append(keys, k)
+		}
 	}
-	return append(keys, sysctl.KeyAvailableCC)
+	for _, kv := range kvs {
+		add(kv.Key)
+	}
+	for _, k := range autoKeys() {
+		add(k)
+	}
+	for _, k := range []string{sysctl.KeyFileMax, keyFileNr, sysctl.KeyConntrackCount, sysctl.KeyConntrackBuckets} {
+		add(k)
+	}
+	add(sysctl.KeyAvailableCC)
+	return keys
+}
+
+// autoKeys is the union of the keys of the automatic profile: the plan of
+// a host where everything applies (BBR, fq, conntrack, UDP rungs, reserved
+// ports) and no key has a live value, so every candidate shows up (as a
+// skip for a missing key).
+func autoKeys() []string {
+	p := sysctl.AutoPlan(sysinfo.Facts{MemBytes: 8 << 30, CPUs: 4, BBRAvailable: true, FQAvailable: true, ConntrackLoaded: true},
+		sysctl.AutoInputs{BBR: true, IPForward: true, UDPRungs: true, Conntrack: true, Reserved: []string{"30000-31999"}})
+	var out []string
+	for _, c := range p.Desired {
+		out = append(out, c.Key)
+	}
+	for _, c := range p.NotOwned {
+		out = append(out, c.Key)
+	}
+	for _, sk := range p.Skips {
+		out = append(out, sk.Key)
+	}
+	return out
 }
 
 func yesNo(b bool) string {
@@ -781,4 +852,329 @@ func readLimited(p string, limit int64) ([]byte, error) {
 	}
 	defer func() { _ = f.Close() }()
 	return io.ReadAll(io.LimitReader(f, limit))
+}
+
+// ---------------------------------------------------------------- tuning
+
+// keyFileNr is the file-handle usage: allocated, free, fs.file-max.
+const keyFileNr = "fs.file-nr"
+
+// maxTuneFileBytes bounds each file the tuning section copies.
+const maxTuneFileBytes = 64 << 10
+
+// udpBackends are the backends whose rungs need large UDP buffers (QUIC,
+// AmneziaWG).
+var udpBackends = map[string]bool{"hysteria2": true, "awg": true}
+
+// config returns Collector.Config, or the config file below Root; nil when
+// there is none or it cannot be read.
+func (c *Collector) config() *config.Config {
+	if c.Config != nil {
+		return c.Config
+	}
+	data, err := os.ReadFile(c.path(config.DefaultPath))
+	if err != nil {
+		return nil
+	}
+	cfg, err := config.Decode(data)
+	if err != nil {
+		return nil
+	}
+	return cfg
+}
+
+// Tuning returns the tuning section (see SectionTuning).
+func (c *Collector) Tuning(ctx context.Context) string {
+	_, states, _, pids := c.unitsInfo(ctx)
+	_, s, _ := c.tuneInfo(ctx, states, pids)
+	return s
+}
+
+// tuneInfo measures what the tuning and monitoring checks need and renders
+// the tuning section and, on a hub, the traffic section ("" otherwise).
+// states and pids are the units' ActiveState and main PIDs (unitsInfo).
+func (c *Collector) tuneInfo(ctx context.Context, states map[string]string, pids map[string]int) (TuneFacts, string, string) {
+	m := sysctl.Manager{Root: c.Root}
+	facts := sysinfo.Collect(c.Root)
+	cfg := c.config()
+	t := TuneFacts{Virt: facts.Virt, NIC: facts.NIC, Qdisc: facts.Qdisc, StateDBBudget: state.SizeBudget}
+	if facts.ConntrackLoaded {
+		t.ConntrackCount, t.ConntrackMax = facts.ConntrackCount, facts.ConntrackMax
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "virtualization: %s\n", orNone(facts.Virt))
+	fmt.Fprintf(&b, "default route: %s  mtu=%d  qdisc=%s\n", orNone(facts.NIC), facts.NICMTU, orNone(facts.Qdisc))
+	if facts.ConntrackLoaded {
+		fmt.Fprintf(&b, "conntrack: %d of %d entries\n", facts.ConntrackCount, facts.ConntrackMax)
+	} else {
+		b.WriteString("conntrack: not loaded\n")
+	}
+	if v, ok := m.Get(keyFileNr); ok {
+		if fl := strings.Fields(v); len(fl) == 3 {
+			t.FilesUsed, _ = strconv.ParseUint(fl[0], 10, 64)
+			t.FilesMax, _ = strconv.ParseUint(fl[2], 10, 64)
+		}
+		fmt.Fprintf(&b, "file handles: %d of %d\n", t.FilesUsed, t.FilesMax)
+	}
+	t.NROpen = sysctlUint(m, sysctl.KeyNROpen)
+	t.RmemMax = sysctlUint(m, sysctl.KeyRmemMax)
+
+	// 99-deyroute.conf: profile, drift, boot overrides, other findings.
+	if _, err := os.Stat(m.ConfPath()); err != nil {
+		fmt.Fprintf(&b, "%s: none (kernel tuning off)\n", config.SysctlConfPath)
+	} else {
+		t.Profile, _ = m.Current()
+		if kvs, err := m.Applied(); err == nil {
+			for _, kv := range kvs {
+				if kv.Key == sysctl.KeyDefaultQdisc && kv.Value == "fq" {
+					t.QdiscFQ = true
+				}
+			}
+		}
+		drift, findings, err := m.Check(facts)
+		switch {
+		case err != nil:
+			fmt.Fprintf(&b, "drift: cannot check: %v\n", err)
+		case len(drift) == 0:
+			b.WriteString("drift: none\n")
+		}
+		for _, d := range drift {
+			t.Drift = append(t.Drift, d.API())
+			fmt.Fprintf(&b, "drift: %s want=%q live=%q", d.Key, d.Want, d.Live)
+			if d.OverriddenBy != "" {
+				fmt.Fprintf(&b, " overridden at boot by %s", d.OverriddenBy)
+			}
+			b.WriteByte('\n')
+		}
+		for _, fd := range findings {
+			fmt.Fprintf(&b, "check %s (%s): %s\n", fd.Check, fd.Severity, fd.Message())
+		}
+	}
+
+	// Open-files limits against fs.nr_open.
+	fmt.Fprintf(&b, "fs.nr_open: %d\n", t.NROpen)
+	for _, unit := range []string{systemd.HubUnit, systemd.NodeUnit, systemd.TunTemplate} {
+		if n, ok := c.unitNofile(unit); ok {
+			t.Nofile = append(t.Nofile, NofileLimit{Unit: unit, Limit: n})
+			fmt.Fprintf(&b, "LimitNOFILE %s: %d\n", unit, n)
+		}
+	}
+	for _, unit := range sortedKeys(pids) {
+		if n, ok := c.processNofile(pids[unit]); ok {
+			t.Nofile = append(t.Nofile, NofileLimit{Unit: unit, PID: pids[unit], Limit: n})
+			fmt.Fprintf(&b, "open files %s (pid %d): %d\n", unit, pids[unit], n)
+		}
+	}
+
+	// UDP rungs: in the hub's ladders or running here.
+	t.UDPRungs = udpRungs(cfg, states)
+	fmt.Fprintf(&b, "udp rungs: %s  net.core.rmem_max: %d\n", yesNo(t.UDPRungs), t.RmemMax)
+
+	// state.db against its budget.
+	if size, how := c.stateSize(); size > 0 {
+		t.StateDBBytes = size
+		fmt.Fprintf(&b, "state.db: %s of %s (%s)\n", sizeIEC64(size), sizeIEC64(t.StateDBBudget), how)
+	}
+
+	// The files optimize auto writes besides 99-deyroute.conf.
+	files := append(systemd.AutoDropInPaths(), sysctl.PathModulesLoad, sysctl.PathModprobe)
+	copied := false
+	for _, p := range files {
+		data, err := readLimited(c.path(p), maxTuneFileBytes)
+		if err != nil {
+			continue
+		}
+		copied = true
+		fmt.Fprintf(&b, "--- %s\n%s", p, data)
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			b.WriteByte('\n')
+		}
+	}
+	if !copied {
+		b.WriteString("no resource drop-ins, modules-load.d or modprobe.d files of deyroute\n")
+	}
+
+	traffic := ""
+	if cfg != nil && cfg.Role == config.RoleHub {
+		traffic = c.trafficInfo(ctx, cfg, &t)
+	}
+	return t, redactText(b.String()), traffic
+}
+
+// sysctlUint reads a numeric sysctl key; 0 when it is missing or not a
+// number.
+func sysctlUint(m sysctl.Manager, key string) uint64 {
+	v, _ := m.Get(key)
+	n, _ := strconv.ParseUint(strings.TrimSpace(v), 10, 64)
+	return n
+}
+
+// trafficInfo checks table inet deyroute_stats on a hub and renders the
+// traffic section: the monitoring state and the per-tunnel counters.
+func (c *Collector) trafficInfo(ctx context.Context, cfg *config.Config, t *TuneFacts) string {
+	var b strings.Builder
+	t.Monitoring = cfg.MonitoringEnabled()
+	for _, tn := range cfg.Tunnels {
+		if tn.Enabled {
+			t.MonitoredTunnels++
+		}
+	}
+	if !t.Monitoring {
+		b.WriteString("monitoring: off (monitoring.enabled: false)\n")
+		return redactText(b.String())
+	}
+	fmt.Fprintf(&b, "monitoring: on, %d enabled tunnel(s)\n", t.MonitoredTunnels)
+	r := c.runner()
+	if err := firewall.StatsSupport(ctx, r); err != nil {
+		t.Stats, t.StatsReason = StatsUnavailable, errReason(err)
+		fmt.Fprintf(&b, "table %s: unavailable: %s\n", firewall.StatsTable, t.StatsReason)
+		return redactText(b.String())
+	}
+	counters, err := firewall.ReadCounters(ctx, r)
+	switch {
+	case errors.Is(err, firewall.ErrNoStatsTable):
+		t.Stats = StatsMissing
+		fmt.Fprintf(&b, "table %s: missing\n", firewall.StatsTable)
+	case err != nil:
+		t.Stats, t.StatsReason = StatsUnreadable, errReason(err)
+		fmt.Fprintf(&b, "table %s: unreadable: %s\n", firewall.StatsTable, t.StatsReason)
+	default:
+		t.Stats = StatsPresent
+		fmt.Fprintf(&b, "--- nft list counters table %s\n", firewall.StatsTable)
+		for _, name := range sortedKeys(counters) {
+			ct := counters[name]
+			fmt.Fprintf(&b, "%s  packets %d  bytes %d (%s)\n", name, ct.Packets, ct.Bytes, sizeIEC(ct.Bytes))
+		}
+		if len(counters) == 0 {
+			b.WriteString("(no counters)\n")
+		}
+	}
+	return redactText(b.String())
+}
+
+// errReason is the reason parameter of a DEY error (DEY-X061/X062), else
+// the error text.
+func errReason(err error) string {
+	if e := deyerr.As(err); e != nil {
+		if r, ok := e.Params["reason"]; ok {
+			return fmt.Sprint(r)
+		}
+	}
+	return err.Error()
+}
+
+// udpRungs reports whether Hysteria2 or AmneziaWG rungs are in the ladder
+// of an enabled tunnel (hub config) or run here (deyroute-tun@ units).
+func udpRungs(cfg *config.Config, states map[string]string) bool {
+	if cfg != nil && cfg.Role == config.RoleHub {
+		for i := range cfg.Tunnels {
+			tn := &cfg.Tunnels[i]
+			if !tn.Enabled {
+				continue
+			}
+			rungs, err := cfg.ResolveLadder(tn, nil)
+			if err != nil {
+				continue
+			}
+			for _, r := range rungs {
+				if b, _, _ := strings.Cut(r, "/"); udpBackends[b] {
+					return true
+				}
+			}
+		}
+	}
+	for unit, st := range states {
+		inst, ok := systemd.InstanceOf(unit)
+		if !ok || st != "active" {
+			continue
+		}
+		if in, err := systemd.ParseInstance(inst); err == nil {
+			if b, _, _ := strings.Cut(in.Transport, "/"); udpBackends[b] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// stateSize returns the size of state.db counted against its budget and
+// how it was measured; 0 when unknown.
+func (c *Collector) stateSize() (int64, string) {
+	if c.StateSize != nil {
+		if n, err := c.StateSize(); err == nil {
+			return n, "data in use"
+		}
+	}
+	st, err := os.Stat(c.path(config.StatePath))
+	if err != nil || !st.Mode().IsRegular() {
+		return 0, ""
+	}
+	return st.Size(), "file size"
+}
+
+// unitNofile returns the LimitNOFILE (hard limit) of an installed unit:
+// the unit file under /etc/systemd/system, then its drop-ins in name order
+// (the last setting wins; an empty one resets it). false when the unit is
+// not installed or sets none (or "infinity").
+func (c *Collector) unitNofile(unit string) (uint64, bool) {
+	main := c.path(path.Join(systemd.UnitDir, unit))
+	if _, err := os.Stat(main); err != nil {
+		return 0, false
+	}
+	drop, _ := filepath.Glob(filepath.Join(main+".d", "*.conf"))
+	sort.Strings(drop)
+	var limit uint64
+	found := false
+	for _, p := range append([]string{main}, drop...) {
+		data, err := readLimited(p, maxTuneFileBytes)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if !ok || strings.TrimSpace(k) != "LimitNOFILE" {
+				continue
+			}
+			limit, found = parseNofile(v)
+		}
+	}
+	return limit, found
+}
+
+// parseNofile parses a LimitNOFILE value ("N" or "soft:hard") and returns
+// the hard limit; false for "", "infinity" and anything else.
+func parseNofile(v string) (uint64, bool) {
+	v = strings.TrimSpace(v)
+	if _, hard, ok := strings.Cut(v, ":"); ok {
+		v = hard
+	}
+	n, err := strconv.ParseUint(v, 10, 64)
+	return n, err == nil
+}
+
+// processNofile returns the hard "Max open files" limit of a running
+// process (/proc/<pid>/limits).
+func (c *Collector) processNofile(pid int) (uint64, bool) {
+	data, err := readLimited(c.path("/proc/"+strconv.Itoa(pid)+"/limits"), maxTuneFileBytes)
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		rest, ok := strings.CutPrefix(line, "Max open files")
+		if !ok {
+			continue
+		}
+		if f := strings.Fields(rest); len(f) >= 2 {
+			n, err := strconv.ParseUint(f[1], 10, 64)
+			return n, err == nil
+		}
+	}
+	return 0, false
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
 }

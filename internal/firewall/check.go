@@ -147,7 +147,7 @@ func Blocks(ctx context.Context, r exec.Runner, port int, proto string) (blocked
 // iptables (only when neither front end is active) and every other
 // nftables table with an input filter chain — and reports the first one
 // that certainly drops a new IPv4 connection to port/proto. `inet deyroute`
-// itself is never considered. Firewalls that are absent or whose tools fail
+// and `inet deyroute_stats` themselves are never considered. Firewalls that are absent or whose tools fail
 // are skipped. The heuristics are conservative: a rule that is not
 // understood never produces "blocked"; it sets Uncertain instead.
 //
@@ -187,7 +187,9 @@ func Check(ctx context.Context, r exec.Runner, port int, proto string) (Verdict,
 		}
 		return nil
 	}
-	skip := map[string]bool{TableRef: true}
+	// deyroute's own tables: the firewall, and the verdict-free accounting
+	// table, which is never a foreign firewall.
+	skip := map[string]bool{TableRef: true, StatsTable: true}
 	frontEnd := false
 
 	// 1. ufw

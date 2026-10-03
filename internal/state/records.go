@@ -52,9 +52,10 @@ func (s *Store) ListNodes() ([]NodeState, error) {
 	return out, nil
 }
 
-// DeleteNode removes nodes/<id> together with the node's probe history and
-// its backend control-port allocations ("<tunnel>/<id>/<transport>" keys of
-// every tunnel), so a removed node frees its ports.
+// DeleteNode removes nodes/<id> together with the node's probe history, its
+// backend control-port allocations ("<tunnel>/<id>/<transport>" keys of
+// every tunnel), so a removed node frees its ports, and its traffic series
+// (traffic/n:<id>), in one transaction.
 func (s *Store) DeleteNode(id string) error {
 	if id == "" {
 		return s.fail("delete node", errEmptyKey)
@@ -71,7 +72,10 @@ func (s *Store) DeleteNode(id string) error {
 		if err := deleteSubBuckets(tx, BucketProbes, match); err != nil {
 			return err
 		}
-		return deleteKeys(tx, BucketCtlPorts, match)
+		if err := deleteKeys(tx, BucketCtlPorts, match); err != nil {
+			return err
+		}
+		return deleteTraffic(tx, NodeSeriesName(id))
 	})
 	if err != nil {
 		return s.fail("delete node", err)
@@ -150,8 +154,9 @@ func (s *Store) ListTunnels() ([]TunnelState, error) {
 
 // DeleteTunnel removes everything that belongs to tunnel id in one
 // transaction: tunnels/<id>, its probe histories (probes/<id>/…),
-// metrics/<id>, its control ports ("<id>/" prefix) and its network index.
-// The event history is kept.
+// metrics/<id>, its control ports ("<id>/" prefix), its network index and
+// its traffic series (traffic/t:<id> and its counter baseline). The event
+// history is kept.
 func (s *Store) DeleteTunnel(id string) error {
 	if id == "" {
 		return s.fail("delete tunnel", errEmptyKey)
@@ -171,7 +176,10 @@ func (s *Store) DeleteTunnel(id string) error {
 		if err := deleteSubBuckets(tx, BucketProbes, match); err != nil {
 			return err
 		}
-		return deleteKeys(tx, BucketCtlPorts, match)
+		if err := deleteKeys(tx, BucketCtlPorts, match); err != nil {
+			return err
+		}
+		return deleteTraffic(tx, TunnelSeriesName(id))
 	})
 	if err != nil {
 		return s.fail("delete tunnel", err)
@@ -186,6 +194,46 @@ func (s *Store) PutMetrics(tunnel string, m Metrics) error {
 	}
 	m.At = m.At.UTC()
 	return s.putJSON("put metrics", BucketMetrics, tunnel, m)
+}
+
+// PutMetricsBatch stores metrics/<tunnel> for every entry of ms in ONE
+// transaction (the hub's metrics pass over all tunnels). A zero At is set
+// to now (UTC).
+func (s *Store) PutMetricsBatch(ms map[string]Metrics) error {
+	if len(ms) == 0 {
+		return nil
+	}
+	data := make(map[string][]byte, len(ms))
+	for tunnel, m := range ms {
+		if tunnel == "" {
+			return s.fail("put metrics", errEmptyKey)
+		}
+		if m.At.IsZero() {
+			m.At = s.now()
+		}
+		m.At = m.At.UTC()
+		b, err := json.Marshal(m)
+		if err != nil {
+			return s.fail("put metrics", err)
+		}
+		data[tunnel] = b
+	}
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b, err := bucket(tx, BucketMetrics)
+		if err != nil {
+			return err
+		}
+		for _, tunnel := range sortedKeys(data) {
+			if err := b.Put([]byte(tunnel), data[tunnel]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return s.fail("put metrics", err)
+	}
+	return nil
 }
 
 // GetMetrics returns metrics/<tunnel>.

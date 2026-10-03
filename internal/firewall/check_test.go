@@ -333,6 +333,19 @@ func TestCheckNFTables(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, v.Blocked)
 
+	// The accounting table is ours too: its counting rules are never judged
+	// as a foreign firewall (not blocked, not uncertain), next to any table.
+	stats := RenderStats(StatsSpec{Tunnels: []StatsTunnel{{ID: "main", TCP: []int{443, 30500}, UDP: []int{443}, NAT: true}}})
+	for _, port := range []int{443, 30500} {
+		v, err = Check(ctx, bareFake().On("nft list ruleset", exec.OK(stats)), port, "tcp")
+		require.NoError(t, err)
+		require.False(t, v.Blocked, v.Detail)
+		require.False(t, v.Uncertain, v.Detail)
+	}
+	v, err = Check(ctx, bareFake().On("nft list ruleset", exec.OK(fixture(t, "nft_native.txt")+stats)), 9000, "tcp")
+	require.NoError(t, err)
+	require.Equal(t, "inet filter", v.Table)
+
 	// ip6 tables are ignored (IPv4 check).
 	v, err = Check(ctx, f, 443, "tcp")
 	require.NoError(t, err)
@@ -361,6 +374,39 @@ func TestCheckNFTables(t *testing.T) {
 	require.Equal(t, "INPUT", v.Chain)
 	require.Equal(t, []string{"nft insert rule ip filter INPUT tcp dport 9999 accept"}, v.Commands)
 	require.Equal(t, "nft insert rule ip filter INPUT tcp dport 9999 accept", v.Command())
+}
+
+// TestCheckNFTablesFrontSets: our own table (its front port is dropped for
+// non-Cloudflare clients on purpose) is never an external block, and a
+// foreign table is judged through its interval sets.
+func TestCheckNFTablesFrontSets(t *testing.T) {
+	ctx := context.Background()
+	f := bareFake().On("nft list ruleset", exec.OK(fixture(t, "nft_front.txt")))
+
+	// 8443 is dropped by inet deyroute for non-Cloudflare sources, which is
+	// not reported; the foreign table accepts it only from Cloudflare, so
+	// it is the one reported.
+	v, err := Check(ctx, f, 8443, "tcp")
+	require.NoError(t, err)
+	require.True(t, v.Blocked)
+	require.Equal(t, "inet other", v.Table)
+
+	// A set holding 0.0.0.0/0 accepts everyone.
+	v, err = Check(ctx, f, 2053, "tcp")
+	require.NoError(t, err)
+	require.False(t, v.Blocked, v.Detail)
+	require.False(t, v.Uncertain, v.Detail)
+
+	// Only our table with a Cloudflare-only front port: nothing external.
+	for _, name := range []string{"hub_front_cf", "hub_front_cf_ipv6", "hub_front_open"} {
+		spec := goldenSpecs[name]
+		g := bareFake().On("nft list ruleset", exec.OK(Render(spec)))
+		for _, port := range []int{spec.FrontPort, spec.ControlPort, 443} {
+			v, err = Check(ctx, g, port, "tcp")
+			require.NoError(t, err)
+			require.False(t, v.Blocked, "%s %d: %s", name, port, v.Detail)
+		}
+	}
 }
 
 // nft joins its arguments into one command line: a table or chain name that

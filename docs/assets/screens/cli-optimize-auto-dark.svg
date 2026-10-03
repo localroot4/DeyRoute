@@ -1,0 +1,245 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1123.2" height="529.6" viewBox="0 0 11232 5296" role="img" aria-labelledby="title">
+<title id="title">deyroute optimize auto --dry-run</title>
+<style>
+rect{shape-rendering:crispEdges}
+.w{fill:#161b22;stroke:#30363d;stroke-width:10;shape-rendering:auto}
+.l{fill:#30363d}
+.tt{fill:#9da7b3;font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace;font-size:120px}
+text{fill:#e6edf3;font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace;font-size:140px}
+.b{font-weight:700}
+.k{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.f2{fill:#3fb950}
+.f4{fill:#58a6ff}
+</style>
+<rect class="w" x="5" y="5" width="11222" height="5286" rx="120"/>
+<circle cx="240" cy="160" r="60" fill="#ff5f57"/>
+<circle cx="440" cy="160" r="60" fill="#febc2e"/>
+<circle cx="640" cy="160" r="60" fill="#28c840"/>
+<text class="tt" x="5616" y="202" text-anchor="middle">deyroute optimize auto --dry-run</text>
+<rect class="l" x="10" y="320" width="11212" height="10"/>
+<g xml:space="preserve">
+<text x="240" y="628" class="f2 b" textLength="756">root@ir-1</text>
+<text x="996" y="628">:</text>
+<text x="1080" y="628" class="f4 b">~</text>
+<text x="1164" y="628">#</text>
+<text x="1332" y="628" textLength="672">deyroute</text>
+<text x="2088" y="628" textLength="672">optimize</text>
+<text x="2844" y="628" textLength="336">auto</text>
+<text x="3264" y="628" textLength="756">--dry-run</text>
+<text x="240" y="804" textLength="756">Automatic</text>
+<text x="1080" y="804" textLength="504">tuning</text>
+<text x="1668" y="804" textLength="336">plan</text>
+<text x="240" y="1156" class="b" textLength="252">hub</text>
+<text x="576" y="1156" class="b">·</text>
+<text x="744" y="1156" class="b" textLength="252">2.0</text>
+<text x="1080" y="1156" class="b" textLength="252">GiB</text>
+<text x="1416" y="1156" class="b" textLength="252">RAM</text>
+<text x="1752" y="1156" class="b">·</text>
+<text x="1920" y="1156" class="b">2</text>
+<text x="2088" y="1156" class="b" textLength="252">CPU</text>
+<text x="2424" y="1156" class="b">·</text>
+<text x="2592" y="1156" class="b" textLength="504">kernel</text>
+<text x="3180" y="1156" class="b" textLength="1344">6.8.0-45-generic</text>
+<text x="4608" y="1156" class="b">·</text>
+<text x="4776" y="1156" class="b" textLength="336">eth0</text>
+<text x="5196" y="1156" class="b" textLength="252">MTU</text>
+<text x="5532" y="1156" class="b" textLength="336">1500</text>
+<text x="5952" y="1156" class="b">·</text>
+<text x="6120" y="1156" class="b" textLength="420">qdisc</text>
+<text x="6624" y="1156" class="b" textLength="168">fq</text>
+<text x="408" y="1332" textLength="252">KEY</text>
+<text x="3432" y="1332" textLength="252">NOW</text>
+<text x="4104" y="1332" textLength="252">NEW</text>
+<text x="4944" y="1332" textLength="504">EFFECT</text>
+<text x="5616" y="1332" textLength="252">WHY</text>
+<text x="408" y="1508" textLength="2604">net.ipv4.tcp_congestion_control</text>
+<text x="3432" y="1508" textLength="420">cubic</text>
+<text x="4104" y="1508" textLength="252">bbr</text>
+<text x="4944" y="1508" textLength="252">now</text>
+<text x="5616" y="1508" textLength="252">BBR</text>
+<text x="5952" y="1508" textLength="420">keeps</text>
+<text x="6456" y="1508" textLength="840">throughput</text>
+<text x="7380" y="1508" textLength="336">high</text>
+<text x="7800" y="1508" textLength="168">on</text>
+<text x="8052" y="1508" textLength="336">long</text>
+<text x="8472" y="1508" textLength="252">and</text>
+<text x="8808" y="1508" textLength="420">lossy</text>
+<text x="9312" y="1508" textLength="420">paths</text>
+<text x="9816" y="1508" textLength="336">(new</text>
+<text x="10236" y="1508" textLength="756">connectio</text>
+<text x="240" y="1684" textLength="252">ns)</text>
+<text x="408" y="1860" textLength="1428">net.core.rmem_max</text>
+<text x="3432" y="1860" textLength="504">212992</text>
+<text x="4104" y="1860" textLength="672">33554432</text>
+<text x="4944" y="1860" textLength="252">now</text>
+<text x="5616" y="1860" textLength="504">socket</text>
+<text x="6204" y="1860" textLength="588">buffers</text>
+<text x="6876" y="1860" textLength="168">up</text>
+<text x="7128" y="1860" textLength="168">to</text>
+<text x="7380" y="1860" textLength="168">32</text>
+<text x="7632" y="1860" textLength="336">MiB,</text>
+<text x="8052" y="1860" textLength="420">sized</text>
+<text x="8556" y="1860" textLength="252">for</text>
+<text x="8892" y="1860">2</text>
+<text x="9060" y="1860" textLength="252">GiB</text>
+<text x="9396" y="1860" textLength="168">of</text>
+<text x="9648" y="1860" textLength="252">RAM</text>
+<text x="408" y="2036" textLength="1428">net.core.wmem_max</text>
+<text x="3432" y="2036" textLength="504">212992</text>
+<text x="4104" y="2036" textLength="672">33554432</text>
+<text x="4944" y="2036" textLength="252">now</text>
+<text x="5616" y="2036" textLength="504">socket</text>
+<text x="6204" y="2036" textLength="588">buffers</text>
+<text x="6876" y="2036" textLength="168">up</text>
+<text x="7128" y="2036" textLength="168">to</text>
+<text x="7380" y="2036" textLength="168">32</text>
+<text x="7632" y="2036" textLength="336">MiB,</text>
+<text x="8052" y="2036" textLength="420">sized</text>
+<text x="8556" y="2036" textLength="252">for</text>
+<text x="8892" y="2036">2</text>
+<text x="9060" y="2036" textLength="252">GiB</text>
+<text x="9396" y="2036" textLength="168">of</text>
+<text x="9648" y="2036" textLength="252">RAM</text>
+<text x="408" y="2212" textLength="2856">net.ipv4.tcp_slow_start_after_idle</text>
+<text x="3432" y="2212">1</text>
+<text x="4104" y="2212">0</text>
+<text x="4944" y="2212" textLength="252">now</text>
+<text x="5616" y="2212" textLength="840">long-lived</text>
+<text x="6540" y="2212" textLength="504">tunnel</text>
+<text x="7128" y="2212" textLength="924">connections</text>
+<text x="8136" y="2212" textLength="336">keep</text>
+<text x="8556" y="2212" textLength="420">their</text>
+<text x="9060" y="2212" textLength="420">speed</text>
+<text x="9564" y="2212" textLength="420">after</text>
+<text x="10068" y="2212" textLength="168">an</text>
+<text x="10320" y="2212" textLength="336">idle</text>
+<text x="10740" y="2212" textLength="252">per</text>
+<text x="240" y="2388" textLength="252">iod</text>
+<text x="408" y="2564" textLength="588">skipped</text>
+<text x="1080" y="2564" textLength="2604">net.netfilter.nf_conntrack_max:</text>
+<text x="3768" y="2564" textLength="1008">nf_conntrack</text>
+<text x="4860" y="2564" textLength="168">is</text>
+<text x="5112" y="2564" textLength="252">not</text>
+<text x="5448" y="2564" textLength="504">loaded</text>
+<text x="6036" y="2564" textLength="252">and</text>
+<text x="6372" y="2564" textLength="168">no</text>
+<text x="6624" y="2564" textLength="504">tunnel</text>
+<text x="7212" y="2564" textLength="336">here</text>
+<text x="7632" y="2564" textLength="420">needs</text>
+<text x="8136" y="2564" textLength="168">it</text>
+<text x="240" y="2916" class="b" textLength="336">node</text>
+<text x="660" y="2916" class="b" textLength="336">de-1</text>
+<text x="1080" y="2916" class="b">·</text>
+<text x="1248" y="2916" class="b" textLength="252">1.0</text>
+<text x="1584" y="2916" class="b" textLength="252">GiB</text>
+<text x="1920" y="2916" class="b" textLength="252">RAM</text>
+<text x="2256" y="2916" class="b">·</text>
+<text x="2424" y="2916" class="b">1</text>
+<text x="2592" y="2916" class="b" textLength="252">CPU</text>
+<text x="2928" y="2916" class="b">·</text>
+<text x="3096" y="2916" class="b" textLength="504">kernel</text>
+<text x="3684" y="2916" class="b" textLength="1176">6.1.0-25-amd64</text>
+<text x="4944" y="2916" class="b">·</text>
+<text x="5112" y="2916" class="b" textLength="336">ens3</text>
+<text x="5532" y="2916" class="b" textLength="252">MTU</text>
+<text x="5868" y="2916" class="b" textLength="336">1500</text>
+<text x="6288" y="2916" class="b">·</text>
+<text x="6456" y="2916" class="b" textLength="420">qdisc</text>
+<text x="6960" y="2916" class="b" textLength="168">fq</text>
+<text x="408" y="3092" textLength="252">KEY</text>
+<text x="2004" y="3092" textLength="252">NOW</text>
+<text x="2676" y="3092" textLength="252">NEW</text>
+<text x="3516" y="3092" textLength="504">EFFECT</text>
+<text x="4188" y="3092" textLength="252">WHY</text>
+<text x="408" y="3268" textLength="1428">net.core.rmem_max</text>
+<text x="2004" y="3268" textLength="504">212992</text>
+<text x="2676" y="3268" textLength="672">16777216</text>
+<text x="3516" y="3268" textLength="252">now</text>
+<text x="4188" y="3268" textLength="504">socket</text>
+<text x="4776" y="3268" textLength="588">buffers</text>
+<text x="5448" y="3268" textLength="168">up</text>
+<text x="5700" y="3268" textLength="168">to</text>
+<text x="5952" y="3268" textLength="168">16</text>
+<text x="6204" y="3268" textLength="336">MiB,</text>
+<text x="6624" y="3268" textLength="420">sized</text>
+<text x="7128" y="3268" textLength="252">for</text>
+<text x="7464" y="3268">1</text>
+<text x="7632" y="3268" textLength="252">GiB</text>
+<text x="7968" y="3268" textLength="168">of</text>
+<text x="8220" y="3268" textLength="252">RAM</text>
+<text x="408" y="3444" textLength="1428">net.core.wmem_max</text>
+<text x="2004" y="3444" textLength="504">212992</text>
+<text x="2676" y="3444" textLength="672">16777216</text>
+<text x="3516" y="3444" textLength="252">now</text>
+<text x="4188" y="3444" textLength="504">socket</text>
+<text x="4776" y="3444" textLength="588">buffers</text>
+<text x="5448" y="3444" textLength="168">up</text>
+<text x="5700" y="3444" textLength="168">to</text>
+<text x="5952" y="3444" textLength="168">16</text>
+<text x="6204" y="3444" textLength="336">MiB,</text>
+<text x="6624" y="3444" textLength="420">sized</text>
+<text x="7128" y="3444" textLength="252">for</text>
+<text x="7464" y="3444">1</text>
+<text x="7632" y="3444" textLength="252">GiB</text>
+<text x="7968" y="3444" textLength="168">of</text>
+<text x="8220" y="3444" textLength="252">RAM</text>
+<text x="408" y="3620" textLength="588">skipped</text>
+<text x="1080" y="3620" textLength="2604">net.netfilter.nf_conntrack_max:</text>
+<text x="3768" y="3620" textLength="1008">nf_conntrack</text>
+<text x="4860" y="3620" textLength="168">is</text>
+<text x="5112" y="3620" textLength="252">not</text>
+<text x="5448" y="3620" textLength="504">loaded</text>
+<text x="6036" y="3620" textLength="252">and</text>
+<text x="6372" y="3620" textLength="168">no</text>
+<text x="6624" y="3620" textLength="504">tunnel</text>
+<text x="7212" y="3620" textLength="336">here</text>
+<text x="7632" y="3620" textLength="420">needs</text>
+<text x="8136" y="3620" textLength="168">it</text>
+<text x="240" y="3972" class="b" textLength="336">node</text>
+<text x="660" y="3972" class="b" textLength="336">nl-1</text>
+<text x="408" y="4148" textLength="672">offline:</text>
+<text x="1164" y="4148" textLength="168">it</text>
+<text x="1416" y="4148" textLength="588">applies</text>
+<text x="2088" y="4148" textLength="252">the</text>
+<text x="2424" y="4148" textLength="336">plan</text>
+<text x="2844" y="4148" textLength="336">when</text>
+<text x="3264" y="4148" textLength="168">it</text>
+<text x="3516" y="4148" textLength="840">reconnects</text>
+<text x="240" y="4500">6</text>
+<text x="408" y="4500" textLength="588">changes</text>
+<text x="1080" y="4500" textLength="168">on</text>
+<text x="1332" y="4500">3</text>
+<text x="1500" y="4500" textLength="672">servers.</text>
+<text x="408" y="4676">!</text>
+<text x="576" y="4676" textLength="336">node</text>
+<text x="996" y="4676" textLength="336">nl-1</text>
+<text x="1416" y="4676" textLength="168">is</text>
+<text x="1668" y="4676" textLength="672">offline:</text>
+<text x="2424" y="4676" textLength="168">it</text>
+<text x="2676" y="4676" textLength="588">applies</text>
+<text x="3348" y="4676" textLength="252">the</text>
+<text x="3684" y="4676" textLength="756">automatic</text>
+<text x="4524" y="4676" textLength="504">tuning</text>
+<text x="5112" y="4676" textLength="336">when</text>
+<text x="5532" y="4676" textLength="168">it</text>
+<text x="5784" y="4676" textLength="840">reconnects</text>
+<text x="240" y="4852" textLength="336">Undo</text>
+<text x="660" y="4852" textLength="252">any</text>
+<text x="996" y="4852" textLength="336">time</text>
+<text x="1416" y="4852" textLength="420">with:</text>
+<text x="1920" y="4852" textLength="672">deyroute</text>
+<text x="2676" y="4852" textLength="672">optimize</text>
+<text x="3432" y="4852" textLength="504">revert</text>
+<text x="240" y="5028" textLength="252">Dry</text>
+<text x="576" y="5028" textLength="336">run:</text>
+<text x="996" y="5028" textLength="588">nothing</text>
+<text x="1668" y="5028" textLength="252">was</text>
+<text x="2004" y="5028" textLength="672">changed.</text>
+<text x="2760" y="5028" textLength="420">Apply</text>
+<text x="3264" y="5028" textLength="168">it</text>
+<text x="3516" y="5028" textLength="420">with:</text>
+<text x="4020" y="5028" textLength="672">deyroute</text>
+<text x="4776" y="5028" textLength="672">optimize</text>
+<text x="5532" y="5028" textLength="336">auto</text>
+</g>
+</svg>

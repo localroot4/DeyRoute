@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,7 @@ func TestFirewallSpec(t *testing.T) {
 		ListenUDP:          []int{443, 27015},
 		NAT:                active.NAT,
 		Masquerade:         []string{"dey-main"},
+		ClampMSS:           1380,
 	}, s)
 	require.NoError(t, s.Validate())
 	out := firewall.Render(s)
@@ -88,6 +90,29 @@ func TestFirewallSpec(t *testing.T) {
 	require.Zero(t, bs.ControlPort)
 }
 
+// TestFirewallSpecClampMSS: tuning.wg_mtu sets the MSS that SYNs from the
+// WireGuard interfaces are clamped to (MTU - 40); unset is 1420 - 40.
+func TestFirewallSpecClampMSS(t *testing.T) {
+	cfg := fwConfig()
+	active := []Side{{
+		NAT:        []backend.NATRule{{Proto: "tcp", DportLow: 443, ToAddr: "10.77.0.2", ToPort: 443}},
+		Masquerade: []string{"dey-main"},
+	}}
+	cfg.Tuning = nil
+	require.Equal(t, 1380, FirewallSpec(cfg, active, false, "").ClampMSS)
+	cfg.Tuning = &config.Tuning{}
+	require.Equal(t, 1380, FirewallSpec(cfg, active, false, "").ClampMSS)
+	for mtu, mss := range map[int]int{1380: 1340, 1280: 1240, 1420: 1380} {
+		cfg.Tuning.WGMTU = mtu
+		s := FirewallSpec(cfg, active, false, "")
+		require.Equal(t, mss, s.ClampMSS, mtu)
+		require.NoError(t, s.Validate())
+		out := firewall.Render(s)
+		require.Contains(t, out, fmt.Sprintf(`iifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set %d`, mss))
+		require.Contains(t, out, `oifname "dey-main" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu`)
+	}
+}
+
 func TestNodePayload(t *testing.T) {
 	s := Side{
 		Instance:  "main.de-1.fwd-quic",
@@ -108,4 +133,42 @@ func TestNodePayload(t *testing.T) {
 	// Copies, not aliases.
 	p.Files["config.toml"][0] = 'y'
 	require.Equal(t, "x", string(s.Files["config.toml"]))
+}
+
+func TestFirewallSpecFront(t *testing.T) {
+	cfg := fwConfig()
+	cfg.Nodes = append(cfg.Nodes,
+		config.Node{ID: "via-1", PublicIP: "203.0.113.7", Route: config.RouteFront},
+		config.Node{ID: "via-2", Route: config.RouteFront}, // address unknown behind the CDN
+	)
+
+	// Front off: the spec is what it was, whatever the nodes' routes are,
+	// and front nodes stay out of @nodes.
+	off := FirewallSpec(cfg, nil, false, "")
+	require.Zero(t, off.FrontPort)
+	require.False(t, off.FrontOpen)
+	require.Equal(t, []string{"1.2.3.4", "9.8.7.6"}, off.NodeIPs4)
+	require.Equal(t, []string{"2001:db8::9"}, off.NodeIPs6)
+
+	// Front on, Cloudflare only (the default).
+	cfg.Hub.Front = config.HubFront{Enabled: true, Domain: "front.example.com", Port: 2053}
+	on := FirewallSpec(cfg, nil, false, "")
+	require.Equal(t, 2053, on.FrontPort)
+	require.False(t, on.FrontOpen)
+	require.NoError(t, on.Validate())
+	out := firewall.Render(on)
+	require.Contains(t, out, "@cf4")
+	require.NotContains(t, out, "203.0.113.7", "a front node is never opened in the control rules")
+
+	// cf_only false opens the port to everyone.
+	no := false
+	cfg.Hub.Front.CFOnly = &no
+	open := FirewallSpec(cfg, nil, false, "")
+	require.Equal(t, 2053, open.FrontPort)
+	require.True(t, open.FrontOpen)
+	require.NotContains(t, firewall.Render(open), "@cf4")
+
+	// A disabled front keeps its settings but opens nothing.
+	cfg.Hub.Front.Enabled = false
+	require.Zero(t, FirewallSpec(cfg, nil, false, "").FrontPort)
 }

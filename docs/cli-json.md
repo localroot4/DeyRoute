@@ -24,6 +24,10 @@ schema 1; new fields may be added. Types refer to the Local API DTOs in
   stdin is not a terminal.
 - Commands that report progress (tunnel add, delete, update, …) include the
   finished steps in `steps` (see **Step**). Running steps are not included.
+- Units: byte counts are bytes (`bytes_*`, `today_*`, `*_bytes`), rates are
+  bits per second (`rate_*_bit_s`), widths and durations ending in `_s` are
+  seconds. Traffic directions are seen from the users: `in` = upload from
+  users to the hub, `out` = download from the hub to users.
 
 ### Error document
 
@@ -94,12 +98,17 @@ The `Status` DTO itself: `{"schema", "role", "version", "generated_at",
 [Warning]?}`.
 
 - HubStatus: `{"name", "public_ip", "control_port", "domain", "ui_mode",
-  "language", "firewall", "acme_challenge", "acme_email", "telegram"}`
+  "language", "firewall", "acme_challenge", "acme_email", "telegram",
+  "front"?}`
   (`firewall`: `managed` | `suggest-only`; `acme_challenge`: how
   `tls.mode acme` proves the domain, `http-01` | `dns-01` (Cloudflare token
   set) | `none` (HTTP-01 disabled and no token); `telegram`: `{"enabled",
   "chat_id", "token_file", "events"}` from `hub.notify.telegram`, never the
-  token itself).
+  token itself; `front`: the CDN front listener, absent when front mode was
+  never configured: `{"enabled", "domain", "port", "listening" (the
+  listener is bound: false while disabled or after DEY-X053), "cf_only" (the
+  firewall opens the port to Cloudflare ranges only), "tls" (auto|custom|
+  off)}`, never the path secret).
 - NodeSelf: `{"id", "hub_addr", "connected", "last_contact", "hub_version",
   "compatible", "units"}`.
 - Warning: `{"code", "message", "tunnel", "node"}`.
@@ -116,20 +125,35 @@ PAUSED|DISABLED), "active_node", "active_node_name", "active_transport",
 "nodes": [primary, backups…], "ladder_name", "ladder": [rung], "policy",
 "paused", "service_down", "client_ip" (preserved|masked), "proxy_protocol"
 (advanced.proxy_protocol: direct/haproxy keeps the client IP only with it),
-"warnings"}`
+"warnings", "traffic"?}`
+
+- `traffic` (TrafficNow, absent while monitoring is off or before the first
+  sample): `{"at", "available" (false: bytes cannot be counted on this hub,
+  see DEY-X061), "rate_in_bit_s", "rate_out_bit_s" (bit/s over the last
+  10-second sample), "today_in", "today_out" (bytes since 00:00 hub-local)}`.
 
 ### NodeInfo
 
 `{"id", "name", "public_ip", "online", "control_rtt_ms", "version",
 "compatible", "cpu_percent", "ram_bytes", "last_heartbeat", "country",
 "udp_ok" (bool, absent when not tested), "tags", "cert_fingerprint",
-"tunnels", "last_error" (the node agent's last error, absent when none)}`
+"tunnels", "route" ("front" for a node that reaches the hub through the CDN
+front, absent when direct; its `public_ip` may then be empty), "via"
+(the transport of its current control stream: "front", absent for direct TCP or
+when offline), "last_error" (the node agent's last error, absent when
+none)}`
 
 ### Event
 
 `{"seq", "at", "level" (info|warn|error), "type" (tunnel_up, switch_transport,
 …), "tunnel", "node", "from_transport", "to_transport", "from_node",
 "to_node", "reason", "code", "message"}`
+
+`traffic_quota` (warn at 80 %, error at 100 % of a tunnel's
+`advanced.monthly_quota_gib`, once per quota period) and `tune_drift` (warn:
+a tuned kernel value was changed or overridden, DEY-X067) are event types
+too; Telegram sends them when `hub.notify.telegram.events` selects `quota`
+or `tuning` (or the full names).
 
 ## Nodes and hub
 
@@ -161,7 +185,9 @@ false when the node agent was down and `node.hub_addr` was written directly.
 
 ### `deyroute hub announce-move <ip:port>`
 
-`{"schema", "addr", "accepted": [node id], "offline": [node id]}`
+`{"schema", "addr", "accepted": [node id], "offline": [node id], "front":
+[node id]?}` (`front`: nodes behind the CDN front, which are never moved onto
+a direct address: "front: unchanged")
 
 ## Tunnels
 
@@ -182,8 +208,15 @@ The `TunnelDetail` DTO: every TunnelInfo field plus
 `"rungs": [{"node", "transport", "warm", "active", "control_port", "skipped",
 "quarantine_until", "unit", "unit_state"}]`, `"probes": [{"at", "ok", "rtt"
 (ns), "kind", "error"}]` (last 120 of the active candidate), `"metrics":
-{"at", "bytes_in", "bytes_out", "active_conns", "source"}?`,
+{"at", "bytes_in", "bytes_out", "active_conns", "source", "bytes_since"}?`,
 `"failback_delay"` (ns) and `"events": [Event]`.
+
+- `metrics.source` is `nft` when the hub counts bytes (traffic monitoring):
+  `bytes_in` / `bytes_out` are then the real byte counters of the tunnel's
+  listen ports since `bytes_since` (the last counter reset: a reboot or a
+  rebuild of the accounting table). With `ss` only `active_conns` is
+  measured and the byte fields are 0. For volumes per day or period use
+  `deyroute stats`.
 
 ### `deyroute tunnel edit <id>`
 
@@ -282,6 +315,38 @@ since the check is `DEY-P032`, a failing command `DEY-P033`.
 `{"schema", "tunnel", "probes": [{"tunnel", "port", "proto", "kind", "ok",
 "rtt_ms", "error"}]}`
 
+### `deyroute stats [<target>…] [--period 1h|24h|7d|30d] [--watch]`
+
+The `TrafficReport` DTO: `{"schema", "generated_at", "period", "available",
+"reason": ErrorDTO?, "timezone", "series": [TrafficSeries]}`. `--watch
+--json` prints one compact document per refresh. Never a drawn chart.
+
+- Targets: a tunnel id or `tunnel:<id>`, `node:<id>`, `hub`; none = every
+  tunnel. An unknown period or a malformed target is `DEY-C027` (exit 1).
+- `available` is false when the hub cannot count bytes (no nft, no
+  nf_tables, `monitoring.enabled: false`); `reason` is then `DEY-X061`.
+  Host series (CPU/RAM) keep working.
+- `timezone`: the hub-local zone of "today" and of the quota period (IANA
+  name, or `UTC+03:30` when the hub has none).
+- TrafficSeries: `{"id" (tunnel or node id, or "hub"), "kind"
+  (tunnel|node|hub), "name", "available", "reason": ErrorDTO?, "step_s"
+  (width of one point), "points": [TrafficPoint], "totals"?}`.
+- TrafficPoint: `{"at" (bucket start), "bytes_in", "bytes_out", "conns",
+  "cpu_percent", "ram_bytes", "gap"}`. Tunnel points carry bytes and
+  `conns` (maximum of established TCP connections; absent = unknown, e.g.
+  UDP), node and hub points `cpu_percent` and `ram_bytes`. A missing number
+  is 0. `gap: true` means no valid sample (hub stopped, tunnel not up,
+  counter reset, clock jump): draw it as missing, not as zero. Points are
+  downsampled to at most 120 (bytes summed, conns/CPU/RAM maximum).
+- Totals (tunnel series): `{"today_start", "today_in", "today_out",
+  "days30_in", "days30_out" (rolling 30 days), "period_start", "period_in",
+  "period_out" (since the start of the quota period,
+  `monitoring.quota_reset_day`), "quota_bytes" (advanced.monthly_quota_gib
+  in bytes, absent = no quota)}`.
+- Bytes are L3 bytes on the hub's user-facing listen ports: they differ
+  from payload, and the provider usually bills the hub's network interface,
+  which also carries the tunnel leg (about twice the user-side volume).
+
 ### `deyroute logs [<tunnel>|hub|node]`
 
 One compact document per log line: `{"schema": 1, "source": "hub"|"node",
@@ -304,8 +369,55 @@ until Ctrl-C.
 
 `{"schema", "profile", "bbr_available", "bbr_active", "applied": {key:
 value}, "warnings": [string], "mem_bytes" (the hub's RAM), "recommended"
-(balanced, or aggressive from 4 GB RAM)}` — a warning of a node starts with
-`node <id>: `.
+(balanced, or aggressive from 4 GB RAM), "facts": TuneFacts?, "nodes":
+[NodeTuneStatus]?}` — a warning of a node starts with `node <id>: `.
+`profile` may also be `auto`.
+
+- TuneFacts: `{"mem_bytes", "mem_available_bytes", "cpus", "kernel", "virt"
+  (openvz|lxc|docker|container, absent on a VM or bare metal),
+  "bbr_available", "fq_available", "qdisc", "conntrack_loaded",
+  "conntrack_max", "conntrack_count", "nic", "nic_mtu", "nic_speed_mbps"}`.
+- NodeTuneStatus: `{"node", "online", "profile", "hash", "pending" (the node
+  still has to apply the hub's tuning), "auto_capable" (false for an agent
+  too old for `auto`)}`.
+
+### `deyroute optimize auto [--dry-run] [--backends]`
+
+The `TunePlanReport` DTO: `{"schema", "hash", "hosts": [TuneHost],
+"applied" (true after the apply), "warnings"}`; after an apply also
+`"steps": [Step]`. With `--dry-run`, or when no host has a change and no node
+is pending, it is the plan and nothing changes; otherwise the plan is
+applied after one confirmation (`--yes` for scripts; without a terminal and
+without `--yes` the plan goes to stderr and the command exits 3). A plan
+that changed since it was shown is refused with `DEY-X065`; run the command
+again to see the new plan. `optimize apply --profile auto` is
+`optimize auto --yes`.
+
+- TuneHost: `{"host" ("hub" or the node id), "role" (hub|node), "facts":
+  TuneFacts?, "changes": [TuneChange], "skips": [TuneSkip], "hash",
+  "pending" (an offline node: it applies when it reconnects), "error":
+  ErrorDTO?}`.
+- TuneChange: `{"kind" (sysctl|sysfs|modules|dropin|backend|firewall),
+  "key", "from" ("" = absent), "to", "reason", "effect"
+  (now|next-start|reboot|restarts-tunnels), "raise_only"}`.
+  `restarts-tunnels` items are part of the plan only with `--backends`.
+- TuneSkip: `{"key", "reason", "code"}` (`DEY-X064` for kernel items in a
+  container).
+
+### `deyroute optimize check`
+
+The `TuneCheck` DTO: `{"schema", "clean", "hosts": [{"host", "role",
+"profile", "drift": [{"key", "want", "live", "overridden_by" (the file that
+sets the key later, absent for a runtime change)}], "findings": [{"check",
+"severity" (info|warn|error), "message", "code"}], "error": ErrorDTO?}]}`.
+Drift exits with code 2 (`DEY-X067`, for the first drifted key): the same
+document then also carries `"error"` (ErrorDTO) and `"exit_code": 2`, so
+stdout still holds one document. Findings alone are reported with exit 0.
+
+### `deyroute optimize status`
+
+The `OptimizeStatus` DTO, as `optimize apply|revert` prints it (with
+`facts` and one `nodes` row per node).
 
 ### `deyroute security rotate-tokens`
 

@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/localroot4/deyroute/internal/cfnets"
 )
 
 // Chain headers of the table. The input chain runs before the usual
@@ -33,10 +35,18 @@ type normalized struct {
 	tcp, udp        []int
 	nat             []natRule
 	masq            []string
+	// frontPort is the CDN front port (0 = none); frontOpen accepts it from
+	// everyone, otherwise cf4/cf6 (Cloudflare ranges, sorted) are its only
+	// accepted sources.
+	frontPort int
+	frontOpen bool
+	cf4, cf6  []netip.Prefix
+	// clampMSS is the MSS of SYNs arriving from a tunnel interface.
+	clampMSS int
 }
 
 func normalize(s Spec) normalized {
-	n := normalized{restrict: s.RestrictControl}
+	n := normalized{restrict: s.RestrictControl, clampMSS: s.clampMSS()}
 	if validRate(s.UnknownControlRate) {
 		n.unknownRate = s.UnknownControlRate
 	}
@@ -67,6 +77,21 @@ func normalize(s Spec) normalized {
 	n.tcp = uniquePorts(s.ListenTCP)
 	n.udp = uniquePorts(s.ListenUDP)
 
+	// A front port that collides with the control port or the backend
+	// control range is not rendered (Validate reports it): those rules own
+	// the port. A tunnel listen port on the same port yields to the front
+	// rules, which come first.
+	if validPort(s.FrontPort) && s.FrontPort != n.controlPort && !inCtlRange(s.FrontPort, n.ctlLow, n.ctlHigh) {
+		n.frontPort, n.frontOpen = s.FrontPort, s.FrontOpen
+		n.tcp = slices.DeleteFunc(n.tcp, func(p int) bool { return p == n.frontPort })
+		if !n.frontOpen {
+			n.cf4 = sortedPrefixes(cfnets.V4())
+			if n.withV6 {
+				n.cf6 = sortedPrefixes(cfnets.V6())
+			}
+		}
+	}
+
 	natSeen := map[natRule]bool{}
 	for _, r := range s.NAT {
 		nr, bad := normalizeNAT(r)
@@ -85,6 +110,23 @@ func normalize(s Spec) normalized {
 	}
 	slices.Sort(n.masq)
 	return n
+}
+
+// sortedPrefixes returns the masked, deduplicated prefixes in address order.
+func sortedPrefixes(in []netip.Prefix) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(in))
+	for _, p := range in {
+		if p.IsValid() {
+			out = append(out, p.Masked())
+		}
+	}
+	slices.SortFunc(out, func(a, b netip.Prefix) int {
+		if c := a.Addr().Compare(b.Addr()); c != 0 {
+			return c
+		}
+		return a.Bits() - b.Bits()
+	})
+	return slices.Compact(out)
 }
 
 func compareNAT(a, b natRule) int {
@@ -125,6 +167,12 @@ func Render(s Spec) string {
 	if n.withV6 {
 		blocks = append(blocks, renderSet(SetNodes6, "ipv6_addr", n.v6))
 	}
+	if len(n.cf4) > 0 {
+		blocks = append(blocks, renderIntervalSet(SetCF4, "ipv4_addr", n.cf4))
+	}
+	if len(n.cf6) > 0 {
+		blocks = append(blocks, renderIntervalSet(SetCF6, "ipv6_addr", n.cf6))
+	}
 	if rules := inputRules(n); len(rules) > 0 {
 		blocks = append(blocks, renderChain("input", hdrInput, rules))
 	}
@@ -141,18 +189,23 @@ func Render(s Spec) string {
 			blocks = append(blocks, renderChain("output", hdrOutput, out))
 		}
 	}
-	var fwd []string
 	if len(n.masq) > 0 {
 		var post []string
 		for _, m := range n.masq {
 			post = append(post, fmt.Sprintf("oifname %s masquerade", quote(m)))
 		}
-		for _, m := range n.masq {
-			fwd = append(fwd,
-				fmt.Sprintf("oifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu", quote(m)),
-				fmt.Sprintf("iifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu", quote(m)))
-		}
 		blocks = append(blocks, renderChain("postrouting", hdrPostrouting, post))
+	}
+	// MSS clamps on every tunnel interface (masqueraded on the hub,
+	// NAT-matched on the node), before the confinement: SYNs towards the
+	// tunnel get the route MTU, SYNs from the tunnel get ClampMSS (the
+	// route MTU of that direction is the outgoing interface's). The kernel
+	// only ever lowers an MSS, and a clamp is not a verdict.
+	var fwd []string
+	for _, i := range n.clampIfaces() {
+		fwd = append(fwd,
+			fmt.Sprintf("oifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu", quote(i)),
+			fmt.Sprintf("iifname %s tcp flags & (syn | rst) == syn tcp option maxseg size set %d", quote(i), n.clampMSS))
 	}
 	// An interface the NAT rules match on (the node side of a WireGuard
 	// tunnel) is confined: what arrives there is only DNATed to the rules'
@@ -213,6 +266,26 @@ func inputRules(n normalized) []string {
 		rules = append(rules, "tcp dport "+r+" drop", "udp dport "+r+" drop")
 		drops = true
 	}
+	if n.frontPort != 0 {
+		// The CDN edges reach the front port. Open: a plain accept. Cloudflare
+		// only: accept from @cf4/@cf6, then drop the rest like a restricted
+		// control port. Unlike the control port there is no ct-state-new rate
+		// limit for the others: the legitimate sources are all edge addresses,
+		// each carrying many clients' connections, so a limit would throttle
+		// real traffic, while a source outside the ranges has no business here
+		// and is dropped outright.
+		m := "tcp dport " + strconv.Itoa(n.frontPort)
+		if n.frontOpen {
+			rules = append(rules, m+" accept")
+		} else {
+			rules = append(rules, m+" ip saddr @"+SetCF4+" accept")
+			if len(n.cf6) > 0 {
+				rules = append(rules, m+" ip6 saddr @"+SetCF6+" accept")
+			}
+			rules = append(rules, m+" drop")
+			drops = true
+		}
+	}
 	if len(n.tcp) > 0 {
 		rules = append(rules, "tcp dport "+portSet(n.tcp)+" accept")
 	}
@@ -242,6 +315,19 @@ func (n normalized) natIfaces() []string {
 	for _, r := range n.nat {
 		if r.iface != "" && !slices.Contains(out, r.iface) {
 			out = append(out, r.iface)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// clampIfaces returns the sorted tunnel interfaces whose TCP MSS is
+// clamped: the masqueraded ones and the NAT rules' input interfaces.
+func (n normalized) clampIfaces() []string {
+	out := slices.Clone(n.masq)
+	for _, i := range n.natIfaces() {
+		if !slices.Contains(out, i) {
+			out = append(out, i)
 		}
 	}
 	slices.Sort(out)
@@ -280,15 +366,32 @@ func natRuleText(r natRule) string {
 }
 
 func renderSet(name, typ string, addrs []netip.Addr) string {
+	s := make([]string, len(addrs))
+	for i, a := range addrs {
+		s[i] = a.String()
+	}
+	return renderSetBody(name, typ, false, s)
+}
+
+// renderIntervalSet renders a set of CIDR prefixes: `flags interval` lets
+// nft store ranges (a plain set holds single addresses only).
+func renderIntervalSet(name, typ string, prefixes []netip.Prefix) string {
+	s := make([]string, len(prefixes))
+	for i, p := range prefixes {
+		s[i] = p.String()
+	}
+	return renderSetBody(name, typ, true, s)
+}
+
+func renderSetBody(name, typ string, interval bool, elems []string) string {
 	var b strings.Builder
 	b.WriteString("\tset " + name + " {\n")
 	b.WriteString("\t\ttype " + typ + "\n")
-	if len(addrs) > 0 {
-		s := make([]string, len(addrs))
-		for i, a := range addrs {
-			s[i] = a.String()
-		}
-		b.WriteString("\t\telements = { " + strings.Join(s, ", ") + " }\n")
+	if interval {
+		b.WriteString("\t\tflags interval\n")
+	}
+	if len(elems) > 0 {
+		b.WriteString("\t\telements = { " + strings.Join(elems, ", ") + " }\n")
 	}
 	b.WriteString("\t}\n")
 	return b.String()

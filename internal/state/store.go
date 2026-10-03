@@ -39,15 +39,16 @@ const (
 	// CorruptInfix names a corrupt file moved aside: <path>.corrupt-<unix>.
 	CorruptInfix = ".corrupt-"
 	// SizeBudget is the section 12 resource budget for state.db. The ring
-	// buffers keep the file far below it; doctor/security audit compare
-	// Size() against it.
+	// buffers and the traffic retention keep the file far below it;
+	// doctor/security audit compare Size() against it, and the traffic size
+	// guard (SizeGuard) compares the live data (LiveSize) against it.
 	SizeBudget int64 = 50 << 20
 )
 
 // allBuckets are created on every Open.
 var allBuckets = []string{
 	BucketNodes, BucketTunnels, BucketProbes, BucketEvents,
-	BucketMetrics, BucketCtlPorts, BucketNetIdx, BucketMeta,
+	BucketMetrics, BucketCtlPorts, BucketNetIdx, BucketMeta, BucketTraffic,
 }
 
 // BackupPath returns the snapshot path Open restores from ("<path>.bak").
@@ -55,7 +56,8 @@ func BackupPath(path string) string { return path + BackupSuffix }
 
 // Store is the bbolt-backed runtime state database. Every method is safe
 // for concurrent use; bbolt serialises writers and lets readers run in
-// parallel. Values are JSON documents.
+// parallel. Values are JSON documents, except the fixed-size binary records
+// of the traffic time series (traffic.go).
 type Store struct {
 	db        *bolt.DB
 	path      string      // absolute
@@ -428,8 +430,8 @@ func verify(db *bolt.DB) error {
 	})
 }
 
-// maxNesting bounds the recursion of walk. Today's layout nests one level
-// (probes/<key>); the generous bound keeps a newer layout readable after a
+// maxNesting bounds the recursion of walk. Today's layout nests up to two
+// levels (probes/<key>, traffic/<series>/<tier>); the generous bound keeps a newer layout readable after a
 // rollback while still stopping a cyclic page reference in a damaged file.
 const maxNesting = 16
 

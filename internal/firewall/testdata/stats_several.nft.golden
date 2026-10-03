@@ -1,0 +1,46 @@
+# Managed by deyroute. Traffic accounting only: no accept, drop or reject. Rebuilt when the tunnel listen ports change.
+table inet deyroute_stats {
+	counter tun_dns_in {
+		packets 0 bytes 0
+	}
+
+	counter tun_dns_out {
+		packets 0 bytes 0
+	}
+
+	counter tun_games_in {
+		packets 0 bytes 0
+	}
+
+	counter tun_games_out {
+		packets 0 bytes 0
+	}
+
+	counter tun_web_in {
+		packets 0 bytes 0
+	}
+
+	counter tun_web_out {
+		packets 0 bytes 0
+	}
+
+	map acct_in {
+		type inet_proto . inet_service : counter
+		elements = { tcp . 443 : "tun_web_in", tcp . 8443 : "tun_web_in", tcp . 27015 : "tun_games_in", udp . 53 : "tun_dns_in", udp . 27015 : "tun_games_in", udp . 27016 : "tun_games_in" }
+	}
+
+	map acct_out {
+		type inet_proto . inet_service : counter
+		elements = { tcp . 443 : "tun_web_out", tcp . 8443 : "tun_web_out", tcp . 27015 : "tun_games_out", udp . 53 : "tun_dns_out", udp . 27015 : "tun_games_out", udp . 27016 : "tun_games_out" }
+	}
+
+	chain count_in {
+		type filter hook input priority 300; policy accept;
+		iif != "lo" counter name meta l4proto . th dport map @acct_in
+	}
+
+	chain count_out {
+		type filter hook output priority 300; policy accept;
+		oif != "lo" counter name meta l4proto . th sport map @acct_out
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/localroot4/deyroute/internal/api"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/exec"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
 )
@@ -177,4 +179,33 @@ func TestStatusAndEventsSections(t *testing.T) {
 	require.Contains(t, ls[0], "2026-09-30T10:00:00Z  warn  switch_transport  tunnel=main  node=de-1  transport=backhaul/tcpmux->backhaul/wssmux  switch_node=de-1->nl-1  DEY-F001  switched now (probe ***)")
 	require.False(t, bytes.Contains([]byte(out), []byte(secret)))
 	require.True(t, strings.HasSuffix(out, "\n"))
+}
+
+// TestBundleHasTuningAndTraffic: the bundle of a tuned hub holds the
+// tuning section (drift, limits, the auto drop-ins) and the traffic
+// section (per-tunnel counters only), and redaction still applies.
+func TestBundleHasTuningAndTraffic(t *testing.T) {
+	c, f, root := newCollector(t)
+	tuneRoot(t, root)
+	f.On(statsListCmd, exec.OK(statsCounters))
+	c.Config = hubConfig(true)
+	// A secret in a drop-in must not survive.
+	writeFile(t, root, "/etc/systemd/system/deyroute-node.service.d/60-deyroute-auto.conf",
+		"[Service]\nEnvironment=TOKEN="+collectorSecret+"\n")
+	col := c.Collect(context.Background())
+
+	p, err := WriteBundle(t.TempDir(), testNow, SectionParts(col.Sections, ""), nil, "")
+	require.NoError(t, err)
+	m := readBundle(t, p)
+	top := "deyroute-doctor-20260930T100000Z/"
+	tuning, traffic := m[top+"tuning.txt"], m[top+"traffic.txt"]
+	require.Contains(t, tuning, "60-deyroute-auto.conf")
+	require.Contains(t, tuning, "OOMScoreAdjust=300")
+	require.Contains(t, tuning, "nf_conntrack")
+	require.Contains(t, tuning, "drift: net.core.somaxconn")
+	require.Contains(t, traffic, "tun_main_in  packets 12  bytes 3456")
+	require.Contains(t, traffic, "tun_main_out")
+	for name, text := range m {
+		require.NotContains(t, text, collectorSecret, name)
+	}
 }

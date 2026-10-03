@@ -1,0 +1,47 @@
+# frp/tcp hub side
+=== file frps.toml
+# Rendered by deyroute for tunnel main, node de-1, transport frp/tcp (hub side).
+# Regenerated from /etc/deyroute/config.yaml on every apply; do not edit.
+bindAddr = "0.0.0.0"
+bindPort = 30001
+proxyBindAddr = "0.0.0.0"
+allowPorts = [
+  { single = 443 },
+  { single = 2053 },
+]
+log.to = "console"
+log.level = "info"
+log.disablePrintColor = true
+auth.method = "token"
+auth.token = "tok-test"
+transport.maxPoolCount = 32
+transport.tcpMux = true
+transport.tls.force = true
+transport.tls.certFile = "/etc/deyroute/backends/frp/main/de-1/tcp/tls-cert.pem"
+transport.tls.keyFile = "/etc/deyroute/backends/frp/main/de-1/tcp/tls-key.pem"
+=== unit
+{
+  "ExecStart": [
+    "/var/lib/deyroute/bin/frp/v0.71.0/frps",
+    "-c",
+    "/etc/deyroute/backends/frp/main/de-1/tcp/frps.toml"
+  ],
+  "ExecStartPre": null,
+  "ExecStop": null,
+  "WorkingDirectory": "/etc/deyroute/backends/frp/main/de-1/tcp",
+  "Env": null,
+  "Type": "",
+  "RemainAfterExit": false,
+  "RunAsRoot": false,
+  "ExtraCaps": null,
+  "DropHardening": null,
+  "AddressFamilies": null,
+  "ReadWritePaths": null
+}
+=== binds
+tcp 0.0.0.0:30001 control
+tcp 0.0.0.0:443 user
+tcp 0.0.0.0:2053 user
+=== nat
+=== masquerade []
+=== ip_forward false

@@ -35,6 +35,8 @@ func TestAliases(t *testing.T) {
 		},
 		"probe_error": {"probe_error"},
 		"update":      {"update_applied", "update_rolled_back", "backend_update_rolled_back"},
+		"quota":       {"traffic_quota"},
+		"tuning":      {"tune_drift"},
 	}
 	assert.Equal(t, want, a)
 

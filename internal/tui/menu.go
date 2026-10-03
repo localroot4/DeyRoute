@@ -95,8 +95,10 @@ func RenderMenu(c Caps, items []MenuItem, advanced bool) string {
 	return b.String()
 }
 
-// ToASCII replaces the few non-ASCII symbols used in UI strings.
+// ToASCII replaces the few non-ASCII symbols used in UI strings (the
+// traffic arrows "↓" download and "↑" upload become "v" and "^").
 func ToASCII(s string) string {
-	r := strings.NewReplacer("·", "-", "…", "...", "→", "->", "●", "*", "◐", "~", "○", "o", "✔", "OK", "✖", "x", "—", "-")
+	r := strings.NewReplacer("·", "-", "…", "...", "→", "->", "●", "*", "◐", "~", "○", "o", "✔", "OK", "✖", "x", "—", "-",
+		"↓", "v", "↑", "^")
 	return r.Replace(s)
 }

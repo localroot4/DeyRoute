@@ -55,8 +55,14 @@ type HubOptions struct {
 	// ApplySysctl applies SysctlProfile (the owner confirmed; spec section
 	// 12). When false nothing is changed and tuning.sysctl_profile is off.
 	ApplySysctl bool
-	// SysctlProfile is balanced (default when empty) or aggressive.
+	// SysctlProfile is balanced (default when empty), aggressive or auto
+	// (the automatic profile: the kernel plan computed from this host's
+	// facts plus the resource drop-ins).
 	SysctlProfile string
+	// TunePlan is the automatic plan the wizard showed (PlanHostTune with
+	// HubReserved and tuning.bbr) and the owner confirmed; it is applied
+	// as shown. nil computes it at the sysctl step. Only for auto.
+	TunePlan *HostTune
 	// NoFirewall writes security.firewall_managed: false and skips the
 	// firewall step (suggestions only, spec section 11).
 	NoFirewall bool
@@ -247,7 +253,13 @@ func SetupHub(ctx context.Context, o HubOptions) (*HubResult, error) {
 	if !o.ApplySysctl {
 		e.rep.skip(StepSysctl, config.SysctlOff)
 	} else {
-		warnings, err := applySysctl(e.root, profile, cfg.Tuning.BBR, false)
+		var warnings []string
+		var err error
+		if profile == config.SysctlAuto {
+			warnings, err = e.applyAutoProfile(ctx, config.RoleHub, o.TunePlan, cfg.Tuning.BBR, HubReserved(cfg))
+		} else {
+			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false)
+		}
 		res.SysctlWarnings = warnings
 		switch {
 		case err != nil:

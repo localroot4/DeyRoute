@@ -81,10 +81,24 @@ type Local interface {
 	DiagProbe(ctx context.Context, tunnel string, allPorts bool) ([]ProbeReport, error)
 	DoctorCollect(ctx context.Context, node string) (DoctorData, error)
 
+	// Traffic returns the traffic and load series of tunnels, nodes and the
+	// hub (`deyroute stats`, the Traffic screen; docs/cli-json.md).
+	Traffic(ctx context.Context, q TrafficQuery) (TrafficReport, error)
+
 	// ---- optimize
 	OptimizeStatus(ctx context.Context) (OptimizeStatus, error)
 	OptimizeApply(ctx context.Context, profile string) (OptimizeStatus, error)
 	OptimizeRevert(ctx context.Context) (OptimizeStatus, error)
+	// OptimizeAutoPlan computes the automatic tuning plan of the hub and of
+	// every online node without changing anything (`optimize auto
+	// --dry-run`, and the list shown before the confirmation).
+	OptimizeAutoPlan(ctx context.Context, opts AutoOptions) (TunePlanReport, error)
+	// OptimizeAutoApply applies the plan the owner confirmed: it refuses
+	// with DEY-X065 when the plan's hash is no longer req.Hash.
+	OptimizeAutoApply(ctx context.Context, req AutoApply, progress func(Step)) (TunePlanReport, error)
+	// OptimizeCheck compares the tuned values with the live kernel on the
+	// hub and every online node (`optimize check`).
+	OptimizeCheck(ctx context.Context) (TuneCheck, error)
 
 	// ---- security
 	SecurityRotateTokens(ctx context.Context, tunnel string, progress func(Step)) error
@@ -187,6 +201,20 @@ type HubStatus struct {
 	// Telegram is hub.notify.telegram (Notifications menu); the bot token
 	// itself is never sent, only the file it is read from.
 	Telegram TelegramStatus `json:"telegram"`
+	// Front is the CDN front listener (hub.front); absent when front mode
+	// was never configured.
+	Front *FrontStatus `json:"front,omitempty"`
+}
+
+// FrontStatus is the front part of HubStatus. The path secret is never
+// part of it.
+type FrontStatus struct {
+	Enabled   bool   `json:"enabled"`
+	Domain    string `json:"domain,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	Listening bool   `json:"listening"` // the listener is bound (false while disabled or after DEY-X053)
+	CFOnly    bool   `json:"cf_only"`   // the firewall opens the port to Cloudflare ranges only
+	TLS       string `json:"tls"`       // auto|custom|off
 }
 
 // TelegramStatus is the Telegram part of HubStatus.
@@ -213,6 +241,9 @@ type NodeSelf struct {
 	HubVersion  string    `json:"hub_version,omitempty"`
 	Compatible  bool      `json:"compatible"`
 	Units       []string  `json:"units,omitempty"`
+	// Front is true when the node reaches the hub through the CDN front
+	// (HubAddr is then the front domain and port).
+	Front bool `json:"front,omitempty"`
 }
 
 // Warning is a yellow dashboard line.
@@ -254,6 +285,10 @@ type TunnelInfo struct {
 	// client IP (direct/haproxy) keep it only with it.
 	ProxyProtocol bool     `json:"proxy_protocol"`
 	Warnings      []string `json:"warnings,omitempty"`
+	// Traffic is the tunnel's current rate and today's volume, from the
+	// hub's memory (never state.db); absent while monitoring is off or the
+	// hub has no sample yet.
+	Traffic *TrafficNow `json:"traffic,omitempty"`
 }
 
 // RungStatus is one ladder rung on one node in TunnelDetail.
@@ -312,6 +347,11 @@ type NodeInfo struct {
 	Tags          []string  `json:"tags,omitempty"`
 	Fingerprint   string    `json:"cert_fingerprint"`
 	Tunnels       []string  `json:"tunnels,omitempty"`
+	// Route is how the node reaches the hub: "front" through the CDN front,
+	// absent for a direct node. Via is the transport of its current control
+	// stream ("front", or absent for direct TCP or when it is offline).
+	Route string `json:"route,omitempty"`
+	Via   string `json:"via,omitempty"`
 	// LastError is the last error the node agent reported in its
 	// heartbeat (section 3: "DEY-B003 …", redacted); "" when none.
 	LastError string `json:"last_error,omitempty"`
@@ -338,6 +378,10 @@ type NodeTestResult struct {
 type AnnounceResult struct {
 	Accepted []string `json:"accepted"`
 	Offline  []string `json:"offline"`
+	// Front lists the nodes that connect through the CDN front: they are not
+	// told the new address ("front: unchanged"), because a direct address
+	// would cut them off. Repoint the front domain if the hub moved.
+	Front []string `json:"front,omitempty"`
 }
 
 // PortSpec is one parsed port entry (see ports.ParseInput).
@@ -532,6 +576,287 @@ type OptimizeStatus struct {
 	Warnings     []string          `json:"warnings,omitempty"`
 	MemBytes     uint64            `json:"mem_bytes,omitempty"`
 	Recommended  string            `json:"recommended,omitempty"`
+	// Facts are the hub's measured host facts (automatic tuning); absent
+	// when they could not be read.
+	Facts *TuneFacts `json:"facts,omitempty"`
+	// Nodes is the tuning state of every node, as the hub last saw it.
+	Nodes []NodeTuneStatus `json:"nodes,omitempty"`
+}
+
+// NodeTuneStatus is one node row of OptimizeStatus.
+type NodeTuneStatus struct {
+	Node   string `json:"node"`
+	Online bool   `json:"online"`
+	// Profile and Hash are what the node reported in its last Hello
+	// (Hello.TuneProfile, Hello.TuneHash); "" when it never reported one.
+	Profile string `json:"profile,omitempty"`
+	Hash    string `json:"hash,omitempty"`
+	// Pending is true while the node still has to apply the hub's tuning
+	// (it was offline or runs other inputs than the hub's).
+	Pending bool `json:"pending,omitempty"`
+	// AutoCapable is false for an agent too old for the auto profile (it
+	// gets balanced, with a warning).
+	AutoCapable bool `json:"auto_capable"`
+}
+
+// ---------------------------------------------------------------- traffic
+
+// Traffic targets, kinds, periods and limits (TrafficQuery, TrafficSeries).
+// A target is "tunnel:<id>", "node:<id>" or "hub"; a bare id names a tunnel
+// (so a tunnel whose id is "hub" is "tunnel:hub").
+const (
+	TrafficTargetHub    = "hub"
+	TrafficTunnelPrefix = "tunnel:"
+	TrafficNodePrefix   = "node:"
+
+	TrafficKindTunnel = "tunnel"
+	TrafficKindNode   = "node"
+	TrafficKindHub    = "hub"
+
+	TrafficPeriod1h  = "1h"
+	TrafficPeriod24h = "24h"
+	TrafficPeriod7d  = "7d"
+	TrafficPeriod30d = "30d"
+
+	// DefaultTrafficPoints is TrafficQuery.MaxPoints when it is 0 or
+	// negative; MaxTrafficPoints caps it.
+	DefaultTrafficPoints = 120
+	MaxTrafficPoints     = 1440
+)
+
+// TrafficPeriods lists the periods TrafficQuery accepts, shortest first.
+var TrafficPeriods = []string{TrafficPeriod1h, TrafficPeriod24h, TrafficPeriod7d, TrafficPeriod30d}
+
+// TrafficQuery selects the series of Traffic.
+type TrafficQuery struct {
+	// Targets are "tunnel:<id>" (or a bare tunnel id), "node:<id>" and
+	// "hub"; empty = every tunnel. An unknown target or period is DEY-C027.
+	Targets []string `json:"targets,omitempty"`
+	// Period is 1h, 24h, 7d or 30d; "" = 1h.
+	Period string `json:"period,omitempty"`
+	// MaxPoints bounds the points of each series; 0 or less =
+	// DefaultTrafficPoints, more than MaxTrafficPoints = MaxTrafficPoints.
+	// The hub downsamples by summing bytes and taking the maximum of conns,
+	// CPU and RAM; a bucket with any gap is a gap.
+	MaxPoints int `json:"max_points,omitempty"`
+}
+
+// TrafficReport is the answer of Traffic (`deyroute stats --json`).
+type TrafficReport struct {
+	GeneratedAt time.Time `json:"generated_at"`
+	Period      string    `json:"period"`
+	// Available is false when the hub cannot count bytes (no nft, no
+	// nf_tables, or monitoring.enabled is false); Reason then says why
+	// (DEY-X061). Host series and connection counts may still be present.
+	Available bool      `json:"available"`
+	Reason    *ErrorDTO `json:"reason,omitempty"`
+	// Timezone is the hub-local zone that "today", the quota period and the
+	// month use (an IANA name, or "UTC+03:30" when the hub has no name for
+	// it); clients label ticks in their own zone.
+	Timezone string          `json:"timezone"`
+	Series   []TrafficSeries `json:"series"`
+}
+
+// TrafficSeries is one tunnel, node or the hub.
+type TrafficSeries struct {
+	// ID is the tunnel or node id, or "hub"; Kind is tunnel|node|hub.
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	Name string `json:"name,omitempty"`
+	// Available and Reason are per series: a tunnel series without byte
+	// counts says why here, while the hub and node series keep working.
+	Available bool      `json:"available"`
+	Reason    *ErrorDTO `json:"reason,omitempty"`
+	// StepS is the width of one point in seconds (after downsampling).
+	StepS  int            `json:"step_s"`
+	Points []TrafficPoint `json:"points"`
+	// Totals are the byte totals of a tunnel series (absent for hosts).
+	Totals *TrafficTotals `json:"totals,omitempty"`
+}
+
+// TrafficPoint is one bucket of a series. A tunnel point carries bytes and
+// connections, a node or hub point CPU and RAM; a missing number is 0.
+// Direction is seen from the users: in = upload from users to the hub,
+// out = download from the hub to users. Bytes are L3 bytes on the hub's
+// user-facing listen ports.
+type TrafficPoint struct {
+	At       time.Time `json:"at"` // bucket start, UTC
+	BytesIn  uint64    `json:"bytes_in,omitempty"`
+	BytesOut uint64    `json:"bytes_out,omitempty"`
+	// Conns is the maximum of established TCP connections in the bucket;
+	// absent when unknown (UDP has no connection state, or a gap).
+	Conns      *int    `json:"conns,omitempty"`
+	CPUPercent float64 `json:"cpu_percent,omitempty"`
+	RAMBytes   uint64  `json:"ram_bytes,omitempty"`
+	// Gap marks a bucket without a valid sample (hub stopped, tunnel not
+	// up, counter reset, clock jump): draw it as missing, not as zero.
+	Gap bool `json:"gap,omitempty"`
+}
+
+// TrafficTotals are the byte totals of one tunnel.
+type TrafficTotals struct {
+	// TodayStart is 00:00 hub-local of today (in UTC).
+	TodayStart time.Time `json:"today_start"`
+	TodayIn    uint64    `json:"today_in"`
+	TodayOut   uint64    `json:"today_out"`
+	// Days30* cover the last 30 days, rolling.
+	Days30In  uint64 `json:"days30_in"`
+	Days30Out uint64 `json:"days30_out"`
+	// PeriodStart is the start of the current quota period
+	// (monitoring.quota_reset_day, 00:00 hub-local, in UTC); Period* are
+	// the bytes since then.
+	PeriodStart time.Time `json:"period_start"`
+	PeriodIn    uint64    `json:"period_in"`
+	PeriodOut   uint64    `json:"period_out"`
+	// QuotaBytes is advanced.monthly_quota_gib in bytes; 0 = no quota.
+	// The quota counts in+out user-side bytes; the provider usually bills
+	// the hub's NIC, which also carries the tunnel leg (about twice as much).
+	QuotaBytes uint64 `json:"quota_bytes,omitempty"`
+}
+
+// TrafficNow is TunnelInfo.Traffic: the current rate and today's volume.
+type TrafficNow struct {
+	At        time.Time `json:"at"`
+	Available bool      `json:"available"`
+	// Rates are bits per second over the last sample interval.
+	RateInBitS  uint64 `json:"rate_in_bit_s"`
+	RateOutBitS uint64 `json:"rate_out_bit_s"`
+	TodayIn     uint64 `json:"today_in"`
+	TodayOut    uint64 `json:"today_out"`
+}
+
+// ---------------------------------------------------------------- tuning
+
+// Change kinds and effects of the automatic tuning plan (TuneChange).
+const (
+	TuneKindSysctl   = "sysctl"
+	TuneKindSysfs    = "sysfs"
+	TuneKindModules  = "modules"
+	TuneKindDropin   = "dropin"
+	TuneKindBackend  = "backend"
+	TuneKindFirewall = "firewall"
+
+	TuneEffectNow             = "now"
+	TuneEffectNextStart       = "next-start"
+	TuneEffectReboot          = "reboot"
+	TuneEffectRestartsTunnels = "restarts-tunnels"
+)
+
+// AutoOptions are the options of OptimizeAutoPlan. Backends includes the
+// backend tier items, which restart the active rung of the tunnels they
+// touch (users reconnect).
+type AutoOptions struct {
+	Backends bool `json:"backends,omitempty"`
+}
+
+// AutoApply is the confirmed plan: Hash is TunePlanReport.Hash as shown.
+type AutoApply struct {
+	Hash     string `json:"hash"`
+	Backends bool   `json:"backends,omitempty"`
+}
+
+// TunePlanReport is the automatic tuning plan of every host (`optimize
+// auto --json`). Hash covers every host's changes; OptimizeAutoApply
+// refuses another one (DEY-X065).
+type TunePlanReport struct {
+	Hash  string     `json:"hash"`
+	Hosts []TuneHost `json:"hosts"`
+	// Applied is true in the answer of OptimizeAutoApply.
+	Applied  bool     `json:"applied,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// TuneHost is the plan of one host.
+type TuneHost struct {
+	// Host is "hub" or the node id; Role is hub|node.
+	Host    string       `json:"host"`
+	Role    string       `json:"role"`
+	Facts   *TuneFacts   `json:"facts,omitempty"`
+	Changes []TuneChange `json:"changes"`
+	Skips   []TuneSkip   `json:"skips,omitempty"`
+	// Hash is this host's part of the plan.
+	Hash string `json:"hash,omitempty"`
+	// Pending is true for an offline node: it applies when it reconnects
+	// (its plan is reported then, as an event).
+	Pending bool      `json:"pending,omitempty"`
+	Error   *ErrorDTO `json:"error,omitempty"`
+}
+
+// TuneFacts are the measured facts a plan is computed from (internal/sysinfo).
+type TuneFacts struct {
+	MemBytes          uint64 `json:"mem_bytes"`
+	MemAvailableBytes uint64 `json:"mem_available_bytes,omitempty"`
+	CPUs              int    `json:"cpus"`
+	Kernel            string `json:"kernel,omitempty"`
+	// Virt is the container type ("openvz", "lxc", "docker", "container")
+	// or "" on a VM or bare metal; kernel items are skipped in a container.
+	Virt            string `json:"virt,omitempty"`
+	BBRAvailable    bool   `json:"bbr_available"`
+	FQAvailable     bool   `json:"fq_available"`
+	Qdisc           string `json:"qdisc,omitempty"` // root qdisc of the default-route interface
+	ConntrackLoaded bool   `json:"conntrack_loaded"`
+	ConntrackMax    int    `json:"conntrack_max,omitempty"`
+	ConntrackCount  int    `json:"conntrack_count,omitempty"`
+	NIC             string `json:"nic,omitempty"` // default-route interface
+	NICMTU          int    `json:"nic_mtu,omitempty"`
+	NICSpeedMbps    int    `json:"nic_speed_mbps,omitempty"` // 0 = unknown
+}
+
+// TuneChange is one item of a plan. From is the live value ("" = absent),
+// To the planned one; Reason and Effect are shown to the owner.
+type TuneChange struct {
+	Kind      string `json:"kind"` // sysctl|sysfs|modules|dropin|backend|firewall
+	Key       string `json:"key"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Reason    string `json:"reason"`
+	Effect    string `json:"effect"` // now|next-start|reboot|restarts-tunnels
+	RaiseOnly bool   `json:"raise_only,omitempty"`
+}
+
+// TuneSkip is an item the plan leaves out and why (Code is a DEY code when
+// one applies, e.g. DEY-X064 in a container).
+type TuneSkip struct {
+	Key    string `json:"key"`
+	Reason string `json:"reason"`
+	Code   string `json:"code,omitempty"`
+}
+
+// TuneCheck is `optimize check`: drift and findings per host. Clean is true
+// when no host has drift or a finding.
+type TuneCheck struct {
+	Clean bool            `json:"clean"`
+	Hosts []TuneHostCheck `json:"hosts"`
+}
+
+// TuneHostCheck is the check of one host.
+type TuneHostCheck struct {
+	Host     string        `json:"host"`
+	Role     string        `json:"role"`
+	Profile  string        `json:"profile"`
+	Drift    []TuneDrift   `json:"drift,omitempty"`
+	Findings []TuneFinding `json:"findings,omitempty"`
+	// Error is set when the host could not be checked (offline node).
+	Error *ErrorDTO `json:"error,omitempty"`
+}
+
+// TuneDrift is a tuned key whose live value is not what deyroute wrote.
+// OverriddenBy names the file that sets it later (sysctl.d order), "" when
+// the value was changed at runtime.
+type TuneDrift struct {
+	Key          string `json:"key"`
+	Want         string `json:"want"`
+	Live         string `json:"live"`
+	OverriddenBy string `json:"overridden_by,omitempty"`
+}
+
+// TuneFinding is one other result of the check (conntrack fill, nofile
+// margin, BBR or qdisc not active, a file changed after the apply).
+type TuneFinding struct {
+	Check    string `json:"check"`
+	Severity string `json:"severity"` // info|warn|error
+	Message  string `json:"message"`
+	Code     string `json:"code,omitempty"`
 }
 
 // RotateCAResult lists nodes re-issued and nodes that must re-join.

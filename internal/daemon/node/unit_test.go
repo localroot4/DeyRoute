@@ -33,32 +33,9 @@ func TestParseShowBlocks(t *testing.T) {
 	require.Equal(t, unitProps{}, got["c.service"])
 }
 
-func TestCPUSampler(t *testing.T) {
-	root := t.TempDir()
-	var c cpuSampler
-	require.Zero(t, c.sample(root), "no /proc/stat")
-	writeFile(t, root+"/proc/stat", "cpu  100 0 100 800 0 0 0 0 0 0\n", 0o644)
-	require.Zero(t, c.sample(root), "first sample")
-	writeFile(t, root+"/proc/stat", "cpu  150 0 150 900 0 0 0 0 0 0\n", 0o644)
-	require.InDelta(t, 50.0, c.sample(root), 0.01)
-	writeFile(t, root+"/proc/stat", "cpu  150 0 150 900 0 0 0 0 0 0\n", 0o644)
-	require.Zero(t, c.sample(root), "no progress")
-	writeFile(t, root+"/proc/stat", "intr 1\n", 0o644)
-	require.Zero(t, c.sample(root))
-	writeFile(t, root+"/proc/stat", "cpu 1 x 3 4\n", 0o644)
-	require.Zero(t, c.sample(root))
-}
-
+// The CPU sampler, os-release and RSS readers moved to internal/sysinfo
+// (TestCPUSampler, TestOSAndSelfRSS there).
 func TestSystemInfoHelpers(t *testing.T) {
-	root := t.TempDir()
-	require.Equal(t, "linux", osPrettyName(root))
-	writeFile(t, root+"/usr/lib/os-release", "PRETTY_NAME='Arch Linux'\n", 0o644)
-	require.Equal(t, "Arch Linux", osPrettyName(root))
-	require.Zero(t, selfRSS(root))
-	writeFile(t, root+"/proc/self/status", "VmRSS:\n", 0o644)
-	require.Zero(t, selfRSS(root))
-	writeFile(t, root+"/proc/self/status", "VmRSS: x kB\n", 0o644)
-	require.Zero(t, selfRSS(root))
 	require.Equal(t, []string{"a active", "b failed"}, unitList(map[string]string{"b": "failed", "a": "active"}))
 	require.True(t, validTarget("127.0.0.1:443"))
 	require.False(t, validTarget(":443"))

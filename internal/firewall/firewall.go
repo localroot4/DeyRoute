@@ -1,9 +1,12 @@
 // Package firewall manages deyroute's own nftables table and inspects the
 // other firewalls on the server (spec sections 10, 11 and 7.7).
 //
-// deyroute only ever creates, replaces and deletes `table inet deyroute`; it
-// never touches another table or another firewall on its own. The table is
-// rendered as text (Render, golden-tested) and applied with `nft -f -` in a
+// deyroute only ever creates, replaces and deletes its own two tables:
+// `table inet deyroute` (the firewall described here) and the verdict-free
+// traffic accounting table `table inet deyroute_stats` (stats.go: named
+// counters per tunnel, no accept, drop or reject anywhere); it never touches
+// another table or another firewall on its own. Each table is rendered as
+// text (Render, RenderStats, golden-tested) and applied with `nft -f -` in a
 // single transaction that deletes and recreates it (QUESTIONS.md C.7), so a
 // change is atomic: either the new table is live or the old one still is.
 //
@@ -28,6 +31,13 @@
 // reach these ports over 127.0.0.1 (the canary unit's loopback port of
 // section 9, local probes and diagnostics).
 //
+// Front mode: the CDN front port (Spec.FrontPort) is reached by the CDN
+// edges, not by the nodes. By default it is accepted only from the
+// Cloudflare ranges (the interval sets @cf4/@cf6, filled from
+// internal/cfnets) and dropped for every other source, so scanners cannot
+// reach the origin directly; Spec.FrontOpen accepts it from everyone (a lab,
+// another CDN).
+//
 // NAT (section 7.7 WireGuard/AmneziaWG on the hub, section 7.6 Hysteria2
 // port hopping on the node): a DNAT rule forwards a listen port to a
 // tunnel peer (10.77.n.2:<port>) and masquerade rewrites the source on the
@@ -44,14 +54,19 @@
 // deyroute does not enable it. The path probe of a NAT-based transport must
 // therefore dial a non-loopback local address (the hub's public IP or its
 // tunnel address 10.77.n.1), not 127.0.0.1. A forward filter chain clamps
-// the TCP MSS to the route MTU on masqueraded interfaces, because the
-// tunnel MTU is smaller than the clients' and ICMP "fragmentation needed"
-// is often filtered on the way. An interface that NAT rules match on (the
-// node side of WireGuard: DNAT of tunnel traffic to the local targets) is
-// confined in the same chain: traffic from it that would be routed onward
-// is dropped unless it was DNATed or belongs to an established flow, so a
-// node with net.ipv4.ip_forward already on (Docker, another VPN) never
-// routes for the hub (section 11, scenario S17).
+// the TCP MSS of SYNs on every tunnel interface (masqueraded on the hub,
+// NAT-matched on the node), because the tunnel MTU is smaller than the
+// clients' and ICMP "fragmentation needed" is often filtered on the way:
+// towards the tunnel (oifname) to the route MTU, and from the tunnel
+// (iifname) to Spec.ClampMSS, since the route MTU of that direction is the
+// outgoing interface's and would not lower anything. The kernel never
+// raises an MSS, and the clamps are not verdicts, so they come before the
+// confinement and change no accept or drop. An interface that NAT rules
+// match on (the node side of WireGuard: DNAT of tunnel traffic to the local
+// targets) is confined in the same chain: traffic from it that would be
+// routed onward is dropped unless it was DNATed or belongs to an
+// established flow, so a node with net.ipv4.ip_forward already on (Docker,
+// another VPN) never routes for the hub (section 11, scenario S17).
 //
 // A node's changed public IP (section 11) is handled by re-rendering the
 // Spec with the new address in NodeIPs4 and calling Apply again; the
@@ -93,6 +108,13 @@ const (
 	SetNodes6 = "nodes6"
 )
 
+// Names of the interval sets holding the Cloudflare edge ranges (rendered
+// only for a front port that is not open to everyone).
+const (
+	SetCF4 = "cf4"
+	SetCF6 = "cf6"
+)
+
 // Protocols of listen ports and NAT rules.
 const (
 	ProtoTCP = "tcp"
@@ -129,6 +151,48 @@ type Spec struct {
 	// reconnect with its certificate (section 11, QUESTIONS.md C.23). mTLS
 	// and the join limiter protect the port. "" = drop everyone else.
 	UnknownControlRate string
+	// FrontPort is the hub's CDN front listener port (front mode, 0 = none).
+	// It is reachable from the Internet side only, never through @nodes: the
+	// traffic comes from the CDN edges, not from the nodes.
+	FrontPort int
+	// FrontOpen opens FrontPort to everyone ("tcp dport P accept"); false
+	// (the default) accepts it only from the Cloudflare ranges embedded in
+	// internal/cfnets, declared as the interval sets @cf4/@cf6, and drops
+	// everything else to that port. No connection-rate limit is applied to
+	// the front port in either mode (see inputRules).
+	FrontOpen bool
+	// ClampMSS is the TCP MSS that SYNs arriving from a tunnel interface
+	// are clamped to: the tunnel MTU minus 40 (IPv4 and TCP headers).
+	// 0 = DefaultClampMSS (the WireGuard default MTU 1420 minus 40).
+	ClampMSS int
+}
+
+// MSS clamp bounds and default (Spec.ClampMSS).
+const (
+	// DefaultClampMSS is the WireGuard default MTU (1420) minus 40.
+	DefaultClampMSS = 1380
+	// MinClampMSS is the smallest MSS every IPv4 host must accept (RFC 879),
+	// MaxClampMSS that of a 9000-byte jumbo MTU.
+	MinClampMSS = 536
+	MaxClampMSS = 8960
+)
+
+// ClampMSSForMTU returns the MSS for a tunnel MTU: mtu minus 40 (IPv4 and
+// TCP headers), DefaultClampMSS for 0 (the backend default MTU).
+func ClampMSSForMTU(mtu int) int {
+	if mtu <= 0 {
+		return DefaultClampMSS
+	}
+	return mtu - 40
+}
+
+// clampMSS returns s.ClampMSS, or DefaultClampMSS when it is unset or out of
+// range (Validate reports the latter).
+func (s Spec) clampMSS() int {
+	if s.ClampMSS >= MinClampMSS && s.ClampMSS <= MaxClampMSS {
+		return s.ClampMSS
+	}
+	return DefaultClampMSS
 }
 
 // rateRe is an nft `limit rate` argument deyroute renders: packets per unit
@@ -149,6 +213,12 @@ func validIface(name string) bool {
 
 func validPort(p int) bool { return p >= 1 && p <= 65535 }
 
+// inCtlRange reports whether p lies in the valid backend control range
+// low-high.
+func inCtlRange(p, low, high int) bool {
+	return validPort(low) && validPort(high) && low <= high && p >= low && p <= high
+}
+
 // Validate reports every field Render would have to drop, as DEY-P019
 // wrapping the joined problems; nil when the Spec renders completely.
 func (s Spec) Validate() error {
@@ -163,6 +233,16 @@ func (s Spec) Validate() error {
 	if s.CtlLow != 0 || s.CtlHigh != 0 {
 		if !validPort(s.CtlLow) || !validPort(s.CtlHigh) || s.CtlLow > s.CtlHigh {
 			add("backend control range %d-%d invalid", s.CtlLow, s.CtlHigh)
+		}
+	}
+	if s.FrontPort != 0 {
+		switch {
+		case !validPort(s.FrontPort):
+			add("front port %d out of range", s.FrontPort)
+		case s.FrontPort == s.ControlPort:
+			add("front port %d is the control port", s.FrontPort)
+		case inCtlRange(s.FrontPort, s.CtlLow, s.CtlHigh):
+			add("front port %d is inside the backend control range %d-%d", s.FrontPort, s.CtlLow, s.CtlHigh)
 		}
 	}
 	for _, list := range [][]string{s.NodeIPs4, s.NodeIPs6} {
@@ -191,6 +271,9 @@ func (s Spec) Validate() error {
 		if !validIface(m) {
 			add("masquerade interface %q invalid", m)
 		}
+	}
+	if s.ClampMSS != 0 && (s.ClampMSS < MinClampMSS || s.ClampMSS > MaxClampMSS) {
+		add("clamp mss %d out of range %d-%d", s.ClampMSS, MinClampMSS, MaxClampMSS)
 	}
 	if len(probs) == 0 {
 		return nil

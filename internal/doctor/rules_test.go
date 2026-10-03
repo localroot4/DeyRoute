@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/firewall"
 	dlog "github.com/localroot4/deyroute/internal/log"
@@ -373,4 +374,215 @@ func TestRunOrderAndRedaction(t *testing.T) {
 		require.NotContains(t, fd.Message, "\n")
 	}
 	require.True(t, strings.Contains(fs[1].Message, "***"))
+}
+
+// ---------------------------------------------------------------- tuning and monitoring (R11, R12)
+
+func TestR11TuneOverride(t *testing.T) {
+	f := healthyHub()
+	f.Tune.Drift = []api.TuneDrift{
+		{Key: "net.core.rmem_max", Want: "16777216", Live: "16777216", OverriddenBy: "/etc/sysctl.conf"},
+		{Key: "net.core.wmem_max", Want: "16777216", Live: "16777216", OverriddenBy: "/etc/sysctl.conf"},
+		{Key: "net.core.somaxconn", Want: "65535", Live: "4096", OverriddenBy: "/etc/sysctl.d/99-zz-local.conf"},
+	}
+	fs := Run(f)
+	require.Equal(t, []string{RuleTuning, RuleTuning}, rulesOf(fs), "one finding per overriding file")
+	require.Equal(t, SevWarn, fs[0].Severity)
+	require.Contains(t, fs[0].Message, "/etc/sysctl.conf sets net.core.rmem_max, net.core.wmem_max again at boot")
+	require.Contains(t, fs[0].Fix, "remove these lines from /etc/sysctl.conf")
+	require.Contains(t, fs[0].Fix, "deyroute optimize check")
+	require.Contains(t, fs[1].Message, "/etc/sysctl.d/99-zz-local.conf sets net.core.somaxconn")
+}
+
+func TestR11TuneDrift(t *testing.T) {
+	f := healthyHub()
+	f.SysctlProfile = config.SysctlAuto
+	f.Tune.Profile = config.SysctlAuto
+	f.Tune.Drift = []api.TuneDrift{{Key: "net.ipv4.tcp_fin_timeout", Want: "15", Live: "60"}}
+	fd := only(t, Run(f), RuleTuning, SevWarn)
+	require.Contains(t, fd.Message, "1 tuned kernel setting(s) changed after deyroute applied them: net.ipv4.tcp_fin_timeout is 60, deyroute set 15")
+	require.Equal(t, "apply the tuning again: deyroute optimize auto; then check: deyroute optimize check", fd.Fix)
+
+	// A fixed profile names its own apply command.
+	f.Tune.Profile = config.SysctlBalanced
+	require.Contains(t, only(t, Run(f), RuleTuning, SevWarn).Fix, "deyroute optimize apply --profile balanced")
+
+	// A limit key lowered by someone else is drift; raised further is not.
+	f.Tune.Drift = []api.TuneDrift{{Key: "net.core.somaxconn", Want: "65535", Live: "4096"}}
+	require.Contains(t, only(t, Run(f), RuleTuning, SevWarn).Message, "net.core.somaxconn is 4096")
+	f.Tune.Drift = []api.TuneDrift{
+		{Key: "net.core.somaxconn", Want: "65535", Live: "131072"},
+		{Key: "net.ipv4.tcp_rmem", Want: "4096 131072 33554432", Live: "4096 262144 67108864"},
+	}
+	require.Empty(t, Run(f), "raise-only keys raised further are the owner's choice")
+	// tcp_rmem with one field lower is drift.
+	f.Tune.Drift = []api.TuneDrift{{Key: "net.ipv4.tcp_rmem", Want: "4096 131072 33554432", Live: "4096 87380 67108864"}}
+	only(t, Run(f), RuleTuning, SevWarn)
+
+	// Keys the kernel lacks and BBR (reported by R11 itself) are no drift.
+	f.Tune.Drift = []api.TuneDrift{
+		{Key: "net.netfilter.nf_conntrack_max", Want: "262144", Live: ""},
+		{Key: "net.ipv4.tcp_congestion_control", Want: "bbr", Live: "cubic"},
+	}
+	require.Empty(t, Run(f))
+
+	// Many keys: three are named, the rest counted.
+	f.Tune.Drift = nil
+	for _, k := range []string{"a.b", "c.d", "e.f", "g.h", "i.j"} {
+		f.Tune.Drift = append(f.Tune.Drift, api.TuneDrift{Key: "net." + k, Want: "1", Live: "0"})
+	}
+	fd = only(t, Run(f), RuleTuning, SevWarn)
+	require.Contains(t, fd.Message, "5 tuned kernel setting(s)")
+	require.Contains(t, fd.Message, "net.e.f is 0, deyroute set 1; and 2 more")
+	require.NotContains(t, fd.Message, "net.g.h")
+}
+
+func TestR11Nofile(t *testing.T) {
+	f := healthyHub()
+	f.Tune.NROpen = 524288
+	f.Tune.Nofile = []NofileLimit{
+		{Unit: systemd.TunTemplate, Limit: 1048576},
+		{Unit: systemd.HubUnit, Limit: 524288},
+		{Unit: systemd.HubUnit, PID: 812, Limit: 1048576},
+		{Unit: systemd.TunTemplate, Limit: 1048576},
+	}
+	fd := only(t, Run(f), RuleTuning, SevWarn)
+	require.Contains(t, fd.Message, "above fs.nr_open (524288)")
+	require.Contains(t, fd.Message, "deyroute-tun@.service LimitNOFILE=1048576")
+	require.Contains(t, fd.Message, "deyroute-hub.service (pid 812) runs with 1048576")
+	require.Equal(t, 1, strings.Count(fd.Message, "deyroute-tun@"), "one entry per unit")
+	require.Contains(t, fd.Fix, "deyroute optimize auto")
+
+	// Negative: at or below nr_open, or nr_open unknown.
+	f.Tune.NROpen = 1048576
+	require.Empty(t, Run(f))
+	f.Tune.NROpen = 0
+	require.Empty(t, Run(f))
+}
+
+func TestR11Qdisc(t *testing.T) {
+	f := healthyHub()
+	f.Tune.QdiscFQ, f.Tune.NIC, f.Tune.Qdisc = true, "eth0", "fq_codel"
+	fd := only(t, Run(f), RuleTuning, SevInfo)
+	require.Contains(t, fd.Message, "eth0 still uses the fq_codel queue")
+	require.Contains(t, fd.Message, "after the next reboot")
+	require.Contains(t, fd.Fix, "deyroute optimize check")
+
+	for _, q := range []string{"fq", "mq", "noqueue", ""} {
+		f.Tune.Qdisc = q
+		require.Empty(t, Run(f), q)
+	}
+	f.Tune.Qdisc, f.Tune.QdiscFQ = "pfifo_fast", false
+	require.Empty(t, Run(f), "fq is not deyroute's default here")
+}
+
+func TestR11UDPBuffers(t *testing.T) {
+	f := healthyHub()
+	f.Tune.UDPRungs, f.Tune.RmemMax = true, 212992
+	fd := only(t, Run(f), RuleTuning, SevWarn)
+	require.Contains(t, fd.Message, "net.core.rmem_max is only 208 KiB")
+	require.Equal(t, "raise the UDP buffers: deyroute optimize auto", fd.Fix)
+
+	f.Tune.RmemMax = 16 << 20
+	require.Empty(t, Run(f))
+	f.Tune.RmemMax = 7 << 20
+	require.Empty(t, Run(f), "7 MiB is enough")
+	f.Tune.UDPRungs, f.Tune.RmemMax = false, 212992
+	require.Empty(t, Run(f), "no UDP rungs")
+	f.Tune.UDPRungs, f.Tune.RmemMax = true, 0
+	require.Empty(t, Run(f), "unknown")
+
+	// In a container the provider decides.
+	f.Tune.RmemMax, f.Tune.Virt = 212992, "lxc"
+	fs := Run(f)
+	require.Equal(t, []string{RuleTuning, RuleTuning}, rulesOf(fs))
+	require.Contains(t, fs[0].Fix, "lxc container")
+	require.Equal(t, SevInfo, fs[1].Severity)
+}
+
+func TestR11Container(t *testing.T) {
+	f := healthyNode()
+	f.Tune.Virt = "openvz"
+	fd := only(t, Run(f), RuleTuning, SevInfo)
+	require.Contains(t, fd.Message, "openvz container: kernel tuning is skipped")
+	require.Contains(t, fd.Fix, "deyroute optimize auto")
+}
+
+func TestR12Conntrack(t *testing.T) {
+	f := healthyHub()
+	f.Tune.ConntrackMax = 1000
+	for _, tc := range []struct {
+		count int
+		sev   string
+	}{{800, ""}, {801, SevWarn}, {950, SevWarn}, {951, SevError}, {1000, SevError}} {
+		f.Tune.ConntrackCount = tc.count
+		if tc.sev == "" {
+			require.Empty(t, Run(f), tc.count)
+			continue
+		}
+		fd := only(t, Run(f), RuleResources, tc.sev)
+		require.Contains(t, fd.Message, "of 1000 entries")
+		require.Contains(t, fd.Fix, "deyroute optimize auto")
+	}
+	require.Contains(t, only(t, Run(f), RuleResources, SevError).Message, "100% full (1000 of 1000 entries)")
+	f.Tune.ConntrackMax = 0
+	require.Empty(t, Run(f), "not loaded")
+}
+
+func TestR12FileHandles(t *testing.T) {
+	f := healthyHub()
+	f.Tune.FilesUsed, f.Tune.FilesMax = 900, 1000
+	fd := only(t, Run(f), RuleResources, SevWarn)
+	require.Contains(t, fd.Message, "90% of the system's file handles are in use (900 of 1000)")
+	require.Contains(t, fd.Fix, "deyroute optimize auto")
+	f.Tune.FilesUsed = 500
+	require.Empty(t, Run(f))
+}
+
+func TestR12StateDB(t *testing.T) {
+	f := healthyHub()
+	f.Tune.StateDBBytes = 30 << 20 // default budget 50 MiB
+	require.Empty(t, Run(f))
+	f.Tune.StateDBBytes = 41 << 20
+	fd := only(t, Run(f), RuleResources, SevWarn)
+	require.Contains(t, fd.Message, "state.db uses 41 MiB of its 50 MiB budget (82%)")
+	require.Contains(t, fd.Fix, "deyroute tunnel delete")
+	f.Tune.StateDBBytes = 51 << 20
+	only(t, Run(f), RuleResources, SevError)
+	f.Tune.StateDBBudget = 100 << 20
+	require.Empty(t, Run(f), "an explicit budget")
+}
+
+func TestR12StatsTable(t *testing.T) {
+	f := healthyHub()
+	f.Tune.Monitoring, f.Tune.MonitoredTunnels, f.Tune.Stats = true, 1, StatsMissing
+	fd := only(t, Run(f), RuleResources, SevWarn)
+	require.Contains(t, fd.Message, "inet deyroute_stats is missing")
+	require.Contains(t, fd.Fix, "deyroute logs hub")
+
+	f.Tune.Stats, f.Tune.StatsReason = StatsUnreadable, "unexpected nft output on line 3"
+	require.Contains(t, only(t, Run(f), RuleResources, SevWarn).Message, "unexpected nft output on line 3")
+	f.Tune.Stats, f.Tune.StatsReason = StatsUnavailable, "nft is not installed"
+	fd = only(t, Run(f), RuleResources, SevInfo)
+	require.Contains(t, fd.Message, "not available on this server (nft is not installed)")
+	require.Contains(t, fd.Fix, "monitoring.enabled: false")
+
+	// Negatives: table present, no enabled tunnel (no table is built),
+	// monitoring off, a node.
+	f.Tune.Stats = StatsPresent
+	require.Empty(t, Run(f))
+	f.Tune.Stats, f.Tune.MonitoredTunnels = StatsMissing, 0
+	require.Empty(t, Run(f))
+	f.Tune.MonitoredTunnels, f.Tune.Monitoring = 1, false
+	require.Empty(t, Run(f))
+	n := healthyNode()
+	n.Tune = TuneFacts{Monitoring: true, MonitoredTunnels: 1, Stats: StatsMissing}
+	require.Empty(t, Run(n))
+}
+
+func TestSizeIEC(t *testing.T) {
+	for in, want := range map[uint64]string{0: "0 B", 512: "512 B", 2048: "2 KiB", 212992: "208 KiB", 7 << 20: "7 MiB",
+		47<<20 + 1<<19: "47.5 MiB", 3 << 30: "3 GiB"} {
+		require.Equal(t, want, sizeIEC(in))
+	}
 }

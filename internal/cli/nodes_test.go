@@ -165,6 +165,15 @@ func TestNodeSetHubAndAnnounce(t *testing.T) {
 	doc = e2.json("hub", "announce-move", "5.6.7.9:44433")
 	require.Equal(t, []any{"nl-1"}, doc["offline"])
 	require.Contains(t, e2.fail(1, "hub", "announce-move", "x"), "DEY-C013")
+	require.NotContains(t, doc, "front", "no front key without front nodes")
+
+	// Front nodes are reported separately and never moved.
+	e2.stub.HubAnnounceMoveFn = func(context.Context, string) (api.AnnounceResult, error) {
+		return api.AnnounceResult{Accepted: []string{"de-1"}, Front: []string{"fr-1"}}, nil
+	}
+	require.Contains(t, e2.ok("hub", "announce-move", "5.6.7.9:44433"), "front: unchanged (fr-1)")
+	doc = e2.json("hub", "announce-move", "5.6.7.9:44433")
+	require.Equal(t, []any{"fr-1"}, doc["front"])
 	// A group command without a subcommand prints its help.
 	require.Contains(t, e2.ok("hub"), "announce-move")
 }

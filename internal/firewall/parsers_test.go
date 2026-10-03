@@ -390,6 +390,106 @@ func TestNFTCommentsAndMaps(t *testing.T) {
 	require.Contains(t, detail, "ip saddr . tcp dport @allowed accept")
 }
 
+// TestNFTFrontSets: a listing with the front port and its interval sets
+// parses (flags line, CIDR elements wrapped over lines, both families), and
+// the rules evaluate as an arbitrary Internet client sees them.
+func TestNFTFrontSets(t *testing.T) {
+	tables := parseNFTRuleset(fixture(t, "nft_front.txt"))
+	require.Len(t, tables, 2)
+	other, dey := tables[0], tables[1]
+	require.Equal(t, "inet deyroute", dey.ref())
+
+	require.Len(t, dey.sets["cf4"], 15)
+	require.Len(t, dey.sets["cf6"], 7)
+	require.Equal(t, "103.21.244.0/22", dey.sets["cf4"][0])
+	require.Equal(t, "198.41.128.0/17", dey.sets["cf4"][14])
+	require.Equal(t, "2c0f:f248::/32", dey.sets["cf6"][6])
+	require.Equal(t, []string{"1.2.3.4", "9.8.7.6"}, dey.sets["nodes"])
+	require.Empty(t, dey.sets["nodes6"])
+	require.Equal(t, []string{"0.0.0.0/0"}, other.sets["world"])
+	require.Len(t, other.sets["cf4"], 8)
+	require.Len(t, dey.inputChains(), 1)
+	require.Equal(t, vAccept, dey.inputChains()[0].policy)
+	require.Contains(t, dey.inputChains()[0].rules, "tcp dport 8443 ip6 saddr @cf6 accept")
+	require.Contains(t, dey.inputChains()[0].rules, "tcp dport 8443 drop")
+
+	// Our table: a non-Cloudflare client is dropped on the front port only
+	// where the table says so; every other port is untouched.
+	cases := []portCase{
+		{8443, "tcp", true, false},
+		{44433, "tcp", true, false},
+		{443, "tcp", false, false},
+		{2053, "tcp", false, false},
+		{8443, "udp", false, false},
+	}
+	for _, c := range cases {
+		b, u, detail := dey.ruleset(c.port, c.proto).blocks("input")
+		require.Equal(t, c.blocked, b, "%d/%s %s", c.port, c.proto, detail)
+		require.Equal(t, c.uncertain, u, "%d/%s %s", c.port, c.proto, detail)
+	}
+	_, _, detail := dey.ruleset(8443, "tcp").blocks("input")
+	require.Contains(t, detail, "tcp dport 8443 drop")
+
+	// A foreign table: a set holding 0.0.0.0/0 opens the port for every
+	// client, a set of Cloudflare ranges only for some of them.
+	cases = []portCase{
+		{2053, "tcp", false, false},
+		{8443, "tcp", true, false},
+		{22, "tcp", true, false},
+	}
+	for _, c := range cases {
+		b, u, detail := other.ruleset(c.port, c.proto).blocks("input")
+		require.Equal(t, c.blocked, b, "%d/%s %s", c.port, c.proto, detail)
+		require.Equal(t, c.uncertain, u, "%d/%s %s", c.port, c.proto, detail)
+	}
+}
+
+// TestNFTFrontRendered: what Render writes for a front hub is read back by
+// the parser the way `nft list ruleset` prints it (same structure).
+func TestNFTFrontRendered(t *testing.T) {
+	for _, name := range []string{"hub_front_cf", "hub_front_cf_ipv6", "hub_front_open"} {
+		spec := goldenSpecs[name]
+		tables := parseNFTRuleset(Render(spec))
+		require.Len(t, tables, 1, name)
+		tb := tables[0]
+		require.Equal(t, "inet deyroute", tb.ref())
+		port := spec.FrontPort
+		b, u, detail := tb.ruleset(port, "tcp").blocks("input")
+		if spec.FrontOpen {
+			require.Empty(t, tb.sets["cf4"], name)
+			require.False(t, b || u, "%s %s", name, detail)
+			continue
+		}
+		require.Len(t, tb.sets["cf4"], 15, name)
+		require.Equal(t, spec.IPv6, len(tb.sets["cf6"]) == 7, name)
+		require.True(t, b, "%s %s", name, detail)
+		require.False(t, u, "%s %s", name, detail)
+		// Another TCP port stays open (the managed chain only drops what it lists).
+		b, _, _ = tb.ruleset(18080, "tcp").blocks("input")
+		require.False(t, b, name)
+	}
+}
+
+func TestNFTAnySourceSet(t *testing.T) {
+	sets := map[string][]string{"world": {"0.0.0.0/0"}, "cf": {"104.16.0.0/13"}, "mixed": {"10.0.0.0/8", "0.0.0.0/0"}}
+	cases := []struct {
+		rule  string
+		match tri
+	}{
+		{`tcp dport 443 ip saddr @world accept`, yes},
+		{`tcp dport 443 ip saddr @mixed accept`, yes},
+		{`tcp dport 443 ip saddr @cf accept`, no},
+		{`tcp dport 443 ip saddr @missing accept`, no},
+		{`tcp dport 443 ip saddr != @world accept`, maybe},
+		{`tcp dport 443 ip saddr { 10.0.0.0/8, 0.0.0.0/0 } accept`, yes},
+		{`tcp dport 443 ip saddr { 10.0.0.0/8, 192.0.2.0/24 } accept`, no},
+		{`tcp dport 443 ip6 saddr @cf6 accept`, no},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.match, nftRule(c.rule, sets, 443, "tcp").match, c.rule)
+	}
+}
+
 func TestNFTRuleForms(t *testing.T) {
 	sets := map[string][]string{"web": {"80", "https"}}
 	cases := []struct {

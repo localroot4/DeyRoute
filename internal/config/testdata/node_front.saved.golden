@@ -1,0 +1,18 @@
+schema_version: 1
+role: node
+tuning:
+  sysctl_profile: balanced
+  bbr: true
+security:
+  firewall_managed: true
+  restrict_control_to_nodes: true
+node:
+  id: de-1
+  hub_addr: front.example.com:8443
+  hub_ca_fingerprint: sha256:abababababababababababababababababababababababababababababababab
+  cert_file: /etc/deyroute/secrets/node.crt
+  key_file: /etc/deyroute/secrets/node.key
+  front:
+    secret_file: front.secret
+    scheme: wss
+    edge_ip: 104.16.0.1

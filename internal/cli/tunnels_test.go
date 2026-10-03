@@ -138,7 +138,7 @@ func TestTunnelListShow(t *testing.T) {
 		"main (Main)  ● UP", "de-1 (primary), nl-1 (backup)", "de-1 via backhaul/wssmux, 41ms, up 01:00:00",
 		"443/tcp → 127.0.0.1:443 (tls)", "default: backhaul/wssmux, rathole/noise", "transport_then_node  (failover paused: no)",
 		"port 443 · tunnel TLS auto · client IP masked", "failback after 600s", "quarantine 600s",
-		"in 1.5 KB · out 3.0 GB · 12 connections", "! certificate expires soon", "RUNGS", "● active", "30001",
+		"in 2 KiB · out 3.0 GiB · 12 connections", "! certificate expires soon", "RUNGS", "● active", "30001",
 		"! skipped: UDP blocked", "quarantined until", "warm", "not rendered", "PROBES", "3 probes: 2 ok, 1 failed, median RTT 42ms",
 		"last failure", "(timeout)", "✔✖✔", "LAST EVENTS",
 	} {

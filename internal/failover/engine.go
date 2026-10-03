@@ -550,6 +550,7 @@ const (
 	cmdReset
 	cmdSwitchTransport
 	cmdSwitchNode
+	cmdMoveTo
 	cmdTestLadder
 	cmdUpdate
 	cmdSetSkipped
@@ -562,6 +563,7 @@ var cmdNames = map[cmdKind]string{
 	cmdReset:           "reset",
 	cmdSwitchTransport: "switch transport",
 	cmdSwitchNode:      "switch node",
+	cmdMoveTo:          "move",
 	cmdTestLadder:      "test ladder",
 	cmdUpdate:          "configuration update",
 	cmdSetSkipped:      "skip rung",
@@ -649,6 +651,15 @@ func (e *Engine) SwitchNode(ctx context.Context, id string) error {
 	return e.send(ctx, &command{kind: cmdSwitchNode, arg: id}).err
 }
 
+// MoveTo moves the tunnel to candidate c (rung and node) like a manual
+// switch: always allowed, not counted by anti-flapping, back to the previous
+// candidate on failure. why is the reason of the switch event. The hub uses
+// it to return a tunnel to the candidate it had before a backend update
+// that was rolled back.
+func (e *Engine) MoveTo(ctx context.Context, c state.Candidate, why string) error {
+	return e.send(ctx, &command{kind: cmdMoveTo, cand: c, arg: why}).err
+}
+
 // TestLadder tries every rung on every node for up to TestLadderRungWait
 // each (start, probe, record RTT, stop), reports each row through onRung
 // (may be nil) and restores the original candidate. Automatic failover is
@@ -728,6 +739,8 @@ func (e *Engine) handle(ctx context.Context, c *command) {
 		c.respond(cmdResult{err: e.manualSwitchTransport(ctx, c.arg)})
 	case cmdSwitchNode:
 		c.respond(cmdResult{err: e.manualSwitchNode(ctx, c.arg)})
+	case cmdMoveTo:
+		c.respond(cmdResult{err: e.moveToCandidate(ctx, c.cand, c.arg)})
 	case cmdTestLadder:
 		rungs, err := e.testLadder(ctx, c.ctx, c.onRung)
 		c.respond(cmdResult{rungs: rungs, err: err})

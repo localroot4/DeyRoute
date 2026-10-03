@@ -17,6 +17,23 @@
 // the canary echo ports survive agent restarts in
 // /var/lib/deyroute/node-state.json.
 //
+// # Front mode
+//
+// A node whose config has node.front.secret_file reaches the hub through
+// the hub's CDN front (front.DialControl: a WebSocket to
+// wss://<domain>:<port>/<secret>/c) instead of a direct TCP connection; the
+// pinned mTLS control protocol runs unchanged inside it. The dial is built
+// from config.yaml on every (re)connect, so a new hub_addr, edge_ip or
+// secret applies without a restart; uploads and asset downloads (self.update)
+// use the same dial. A failed dial is DEY-N016 (the front is unreachable) or
+// DEY-N017 (it did not accept the node) and carries the front's Retry-After
+// and Permanent hints, so a 404 or a challenge backs off slowly and is
+// logged once. node.hub_addr is the front's domain:port; the status shows it
+// with a "via front" marker, and the doctor section "connectivity" reports
+// the last dial error code (never the path or the secret). A hub-originated
+// set_hub with a plain host:port is ignored while the node is in front mode;
+// only the owner's local "deyroute node set-hub" changes the mode.
+//
 // Security rules enforced here (section 11): backend.render only writes
 // below /etc/deyroute/backends/<backend>/<tunnel>/ with relative file names
 // and bounded sizes; unit commands may only run the instance backend's

@@ -81,6 +81,9 @@ type Options struct {
 	// ControlListen is the Control API listen address; "" =
 	// ":<hub.control_port>". Tests use "127.0.0.1:0".
 	ControlListen string
+	// FrontListen is the CDN front listen address; "" = ":<hub.front.port>".
+	// Tests use "127.0.0.1:0" (Hub.FrontAddr then reports the real port).
+	FrontListen string
 	// SocketPath is the Local API socket; "" = Root/run/deyroute/daemon.sock.
 	SocketPath string
 	// SelfBinary is the deyroute binary served to nodes of the hub's own
@@ -104,6 +107,17 @@ type Options struct {
 	// DisableFirewall computes the firewall specification but never runs
 	// nft (tests).
 	DisableFirewall bool
+	// DisableStats never installs the traffic accounting table (inet
+	// deyroute_stats) and never samples its counters (tests; production
+	// uses monitoring.enabled).
+	DisableStats bool
+	// DisableTuning never reasserts the tuned kernel values at start and
+	// never runs the periodic tuning check (tests).
+	DisableTuning bool
+	// Location is the hub-local zone of "today", the quota period and the
+	// month of the traffic totals; nil = time.Local. Tests pass a fixed zone
+	// instead of changing time.Local.
+	Location *time.Location
 	// OnReady is called once the Control API and the Local API accept
 	// connections (tests).
 	OnReady func(h *Hub)
@@ -129,8 +143,11 @@ type Options struct {
 	FirewallDebounce time.Duration
 	SnapshotInterval time.Duration
 	NodePersistEvery time.Duration
-	UploadGrace      time.Duration
-	FollowPoll       time.Duration
+	// RouteStable is how long a front node must stay connected directly
+	// before nodes[].route goes back to direct (30 s).
+	RouteStable time.Duration
+	UploadGrace time.Duration
+	FollowPoll  time.Duration
 
 	// Tunnel controller timings (tunnel_ctl.go): TunnelUpWait (60 s) is how
 	// long TunnelAdd waits for the new tunnel to come up, RecheckInterval
@@ -181,6 +198,15 @@ type Options struct {
 	// DiagReadyWait bounds how long diag speed waits until its temporary
 	// copy of the transport forwards (15 s, like a started rung).
 	DiagReadyWait time.Duration
+
+	// Monitoring and tuning (traffic.go, ops_tune.go): TrafficInterval
+	// (10 s) is how often the byte counters are read, TrafficFlush (60 s)
+	// how often the samples are folded into state.db, TuneCheckInterval
+	// (6 h) how often the tuned values are compared with the live kernel
+	// (it only reports).
+	TrafficInterval   time.Duration
+	TrafficFlush      time.Duration
+	TuneCheckInterval time.Duration
 }
 
 func (o Options) withDefaults() Options {
@@ -255,6 +281,12 @@ func (o Options) withDefaults() Options {
 	setDur(&o.RestartDelay, DefaultRestartDelay)
 	setDur(&o.NodeReconnectWait, DefaultNodeReconnectWait)
 	setDur(&o.DiagReadyWait, DefaultDiagReadyWait)
+	setDur(&o.TrafficInterval, DefaultTrafficInterval)
+	setDur(&o.TrafficFlush, DefaultTrafficFlush)
+	setDur(&o.TuneCheckInterval, DefaultTuneCheckInterval)
+	if o.Location == nil {
+		o.Location = time.Local
+	}
 	setDur(&o.TunnelUpWait, DefaultTunnelUpWait)
 	setDur(&o.RecheckInterval, DefaultRecheckInterval)
 	setDur(&o.ReportInterval, DefaultReportInterval)
@@ -267,6 +299,7 @@ func (o Options) withDefaults() Options {
 	setDur(&o.FirewallDebounce, DefaultFirewallDebounce)
 	setDur(&o.SnapshotInterval, DefaultSnapshotInterval)
 	setDur(&o.NodePersistEvery, DefaultNodePersistEvery)
+	setDur(&o.RouteStable, DefaultRouteStable)
 	setDur(&o.UploadGrace, DefaultUploadGrace)
 	setDur(&o.FollowPoll, DefaultFollowPoll)
 	return o

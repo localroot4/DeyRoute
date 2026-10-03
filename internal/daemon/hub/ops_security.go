@@ -155,10 +155,17 @@ type portProto struct {
 	proto string
 }
 
-// deyroutePorts returns the control port and every tunnel listen port.
+// deyroutePorts returns the control port, the CDN front port (configured and
+// bound, when front mode is on) and every tunnel listen port.
 func (h *Hub) deyroutePorts(cfg *config.Config) []portProto {
 	out := []portProto{{cfg.Hub.ControlPort, config.ProtoTCP}}
 	seen := map[portProto]bool{out[0]: true}
+	for _, p := range []int{cfg.Hub.FrontPort(), h.frontBoundPort()} {
+		if pp := (portProto{p, config.ProtoTCP}); p != 0 && !seen[pp] {
+			seen[pp] = true
+			out = append(out, pp)
+		}
+	}
 	for _, t := range cfg.Tunnels {
 		for _, pm := range t.Ports {
 			pp := portProto{pm.Listen, pm.Proto}

@@ -201,7 +201,7 @@ func (l *local) PortCheck(ctx context.Context, req api.PortCheckRequest) (api.Po
 	// 1. local bind.
 	b := h.o.BindCheck(ctx, req.Port, proto)
 	res.BindFree, res.BindProcess, res.BindAddr, res.BindByDey = b.Free, b.Process, b.Addr, b.Deyroute
-	if reserved, why := ports.Reserved(req.Port, cfg.Hub.ControlPort); reserved {
+	if reserved, why := ports.Reserved(req.Port, cfg.Hub.ControlPort, cfg.Hub.ReservedPorts()...); reserved {
 		notes = append(notes, why)
 	}
 
@@ -442,7 +442,7 @@ func (h *Hub) suggestPorts(ctx context.Context, n int) []int {
 		}
 		return !h.o.BindCheck(ctx, port, proto).Free
 	}
-	out := ports.Suggest(n, busy, cfg.Hub.ControlPort)
+	out := ports.Suggest(n, busy, cfg.Hub.ControlPort, cfg.Hub.ReservedPorts()...)
 	if out == nil {
 		out = []int{}
 	}

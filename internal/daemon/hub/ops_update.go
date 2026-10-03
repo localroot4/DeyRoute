@@ -184,6 +184,12 @@ func (l *local) UpdateApply(ctx context.Context, want string, progress func(api.
 	rep := &steps{progress: progress}
 	want = strings.TrimPrefix(strings.TrimSpace(want), "v")
 	info := api.UpdateInfo{Current: version.Version, Previous: h.previousVersion()}
+	if err := h.refuseOlderThanFront(want); err != nil {
+		return info, withLog(err)
+	}
+	if err := h.refuseOlderThanNewerKeys(want); err != nil {
+		return info, withLog(err)
+	}
 	var target string
 	if err := rep.run(stepResolve, func() (string, error) {
 		ref, err := h.latestRelease(ctx, want)
@@ -248,6 +254,13 @@ func (l *local) UpdateRollback(context.Context) (api.UpdateInfo, error) {
 	h := l.h
 	h.ops.updMu.Lock()
 	defer h.ops.updMu.Unlock()
+	if err := h.refuseWhileFrontInUse("roll back", "the previous binary may predate front mode"); err != nil {
+		return api.UpdateInfo{Current: version.Version}, withLog(err)
+	}
+	if err := h.refuseWhileNewerKeysInUse("roll back",
+		"the previous binary may predate traffic monitoring and automatic tuning"); err != nil {
+		return api.UpdateInfo{Current: version.Version}, withLog(err)
+	}
 	prev := h.previousVersion()
 	if err := (install.SelfUpdater{Root: h.o.Root}).Rollback(); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
@@ -266,6 +279,74 @@ func (l *local) UpdateRollback(context.Context) (api.UpdateInfo, error) {
 	return api.UpdateInfo{Current: prev, Previous: version.Version}, nil
 }
 
+// pushBlockedForFront reports whether hubVersion must not be pushed to node:
+// it is a front node and the build predates front mode.
+func (h *Hub) pushBlockedForFront(node, hubVersion string) bool {
+	n, ok := h.Config().NodeByID(node)
+	return ok && n.Route == config.RouteFront && olderThanFront(hubVersion)
+}
+
+// olderThanFront reports whether v is a release older than
+// FirstFrontVersion. An unparseable version ("dev") is a current build.
+func olderThanFront(v string) bool {
+	c, ok := install.CompareVersions(strings.TrimPrefix(v, "v"), FirstFrontVersion)
+	return ok && c < 0
+}
+
+// refuseWhileFrontInUse returns DEY-S010 while hub.front is enabled or a
+// node has route front: older binaries refuse the front keys of config.yaml
+// (strict decoding), and nodes abroad cannot be repaired remotely.
+func (h *Hub) refuseWhileFrontInUse(action, reason string) error {
+	cfg := h.Config()
+	if !frontInUse(cfg) {
+		return nil
+	}
+	detail := reason
+	if nodes := frontNodes(cfg); len(nodes) > 0 {
+		detail += " (front nodes: " + strings.Join(nodes, ", ") + ")"
+	}
+	return deyerr.New(deyerr.S010, deyerr.Params{"action": action, "reason": detail})
+}
+
+// refuseOlderThanFront refuses `update --version V` for a V older than the
+// first release with front mode while the front is in use.
+func (h *Hub) refuseOlderThanFront(want string) error {
+	if want == "" || !olderThanFront(want) {
+		return nil
+	}
+	return h.refuseWhileFrontInUse("install an older version",
+		"version "+want+" is older than "+FirstFrontVersion+", the first release with front mode")
+}
+
+// FirstTrafficVersion is the first release that knows the monitoring and
+// automatic tuning keys of config.yaml (config.NewerKeysInUse). An older
+// binary refuses them, so rollback and downgrades below it are refused
+// while any is set (DEY-S011).
+const FirstTrafficVersion = "0.3.0"
+
+// refuseWhileNewerKeysInUse returns DEY-S011 while config.yaml sets keys
+// that a release before FirstTrafficVersion refuses (strict decoding).
+func (h *Hub) refuseWhileNewerKeysInUse(action, reason string) error {
+	keys := h.Config().NewerKeysInUse()
+	if len(keys) == 0 {
+		return nil
+	}
+	return deyerr.New(deyerr.S011, deyerr.Params{"action": action, "keys": strings.Join(keys, ", "), "reason": reason})
+}
+
+// refuseOlderThanNewerKeys refuses `update --version V` for a V older than
+// FirstTrafficVersion while such keys are set.
+func (h *Hub) refuseOlderThanNewerKeys(want string) error {
+	if want == "" {
+		return nil
+	}
+	if c, ok := install.CompareVersions(want, FirstTrafficVersion); !ok || c >= 0 {
+		return nil
+	}
+	return h.refuseWhileNewerKeysInUse("install an older version",
+		"version "+want+" is older than "+FirstTrafficVersion+", the first release with traffic monitoring and automatic tuning")
+}
+
 // markNodesForUpdate records that every node must run the hub's version
 // and queues the nodes connected now; it returns a progress detail.
 func (h *Hub) markNodesForUpdate() string {
@@ -280,6 +361,13 @@ func (h *Hub) markNodesForUpdate() string {
 func (h *Hub) requestNodeUpdate(node, nodeVersion string) {
 	if strings.TrimPrefix(nodeVersion, "v") == strings.TrimPrefix(version.Version, "v") {
 		h.maybeFinishNodeUpdate()
+		return
+	}
+	if h.pushBlockedForFront(node, version.Version) {
+		// A build that does not know front mode would refuse the node's
+		// config.yaml (DEY-C001) and cut it off for good.
+		h.log.Warn("the hub's version predates front mode: it is not pushed to a front node",
+			dlog.Node(node), slog.String("version", version.Version), dlog.Code(deyerr.S010))
 		return
 	}
 	var rec nodeUpdateRecord

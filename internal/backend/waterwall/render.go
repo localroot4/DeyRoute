@@ -189,6 +189,30 @@ func CoreJSON(workers int) []byte { return CoreJSONFor(workers, false) }
 // logger at DEBUG on the first run (spec 7.4, Waterwall explains failures
 // only at that level) and INFO afterwards, and configs = [config.json].
 func CoreJSONFor(workers int, firstRun bool) []byte {
+	return coreJSON(workers, firstRun, RAMProfileServer)
+}
+
+// Waterwall ram-profile values used by deyroute. The pinned v1.46.94
+// accepts these names (core settings parser); every other name makes
+// Waterwall exit at start.
+const (
+	// RAMProfileServer is the spec's profile (section 7.4): the largest
+	// buffer pools.
+	RAMProfileServer = "server"
+	// RAMProfileClient is the smaller buffer pools Waterwall uses for
+	// client devices; rendered for the small backend tier.
+	RAMProfileClient = "client"
+)
+
+// RAMProfile returns the ram-profile of a backend tier: "client" for small,
+// "server" for medium, large and no tier ("server" is already Waterwall's
+// largest profile).
+func RAMProfile(tier string) string {
+	return backend.ByTier(tier, RAMProfileServer, RAMProfileClient, RAMProfileServer, RAMProfileServer)
+}
+
+// coreJSON renders core.json with the given ram-profile.
+func coreJSON(workers int, firstRun bool, ramProfile string) []byte {
 	if workers < 1 {
 		workers = 1
 	}
@@ -205,7 +229,7 @@ func CoreJSONFor(workers int, firstRun bool) []byte {
 			Network:  target("network.log"),
 			DNS:      target("dns.log"),
 		},
-		Misc:    coreMisc{Workers: workers, RAMProfile: "server", MTU: mtu},
+		Misc:    coreMisc{Workers: workers, RAMProfile: ramProfile, MTU: mtu},
 		Configs: []string{ConfigFile},
 	})
 	if err != nil {

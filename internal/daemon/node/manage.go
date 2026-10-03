@@ -4,16 +4,22 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/backend/hysteria2"
+	"github.com/localroot4/deyroute/internal/backend/wireguard"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	"github.com/localroot4/deyroute/internal/doctor"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/firewall"
+	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
@@ -23,27 +29,47 @@ import (
 	"github.com/localroot4/deyroute/internal/version"
 )
 
-// setHub stores a new hub address (set_hub, node set-hub, section 5 hub
-// move) and reconnects after delay.
-func (a *agent) setHub(ctx context.Context, addr string, delay time.Duration) error {
-	if !config.ValidHostPort(addr) {
-		return deyerr.New(deyerr.C013, deyerr.Params{"field": "node.hub_addr", "value": addr,
-			"allowed": "host:port of the hub, e.g. 5.6.7.8:44433"})
+// setHub stores a new hub target (set_hub, node set-hub, section 5 hub move)
+// and reconnects after delay. fromHub is true for the hub's set_hub command
+// (hub announce-move, a changed control port) and false for the owner's
+// local "deyroute node set-hub".
+//
+// The hub only knows its own direct address, which is cut on the paths that
+// need the front: a hub-originated plain host:port must never move a node
+// that is in front mode, so it is ignored with a warning and the node stays
+// on the front (answered with success: a retry would not help). The owner's
+// local command may do either: a plain host:port clears front mode
+// explicitly, a ws[s]://DOMAIN:PORT/SECRET target switches into it. A front
+// target from the hub (it knows the secret) is accepted like the owner's.
+func (a *agent) setHub(ctx context.Context, addr string, delay time.Duration, fromHub bool) error {
+	t, err := setup.ParseHubTarget(addr)
+	if err != nil {
+		return err
+	}
+	if fromHub && !t.Front && a.frontSettings().SecretFile != "" {
+		a.log.Warn("the hub asked this node to connect directly: ignored, the node is in front mode and stays on the front; "+
+			"run 'deyroute node set-hub' on this server to change it", slog.String("hub_asked", t.Addr))
+		return nil
+	}
+	if t.Front {
+		dlog.RegisterSecret(t.Secret)
 	}
 	set := a.o.SetHubAddr
 	if set == nil {
 		set = func(_ context.Context, addr string) error { return setup.SetHubAddr(a.o.Root, addr) }
 	}
 	a.cfgMu.Lock()
-	err := set(ctx, addr)
+	err = set(ctx, addr)
 	a.cfgMu.Unlock()
 	if err != nil {
 		return err
 	}
 	a.mu.Lock()
-	a.hubAddr = addr
+	a.hubAddr = t.Addr
+	a.dialFail = nil
 	a.mu.Unlock()
-	a.log.Info("hub address changed; reconnecting", slog.String("hub", addr))
+	a.frontSettings() // refresh the front block the status and the next dial use
+	a.logHubChange(t)
 	a.requestReconnect(delay)
 	return nil
 }
@@ -110,15 +136,32 @@ func (a *agent) uninstall(ctx context.Context) error {
 // does not send it leaves the choice to this node's config. The warnings
 // (BBR or keys skipped, aggressive on a small server) go back to the hub,
 // which shows them to the owner.
-func (a *agent) sysctlApply(args api.SysctlArgs) (api.SysctlResult, error) {
-	bbr := true
-	if args.BBR != nil {
-		bbr = *args.BBR
-	} else if cfg, err := config.Load(a.cfgPath); err == nil && cfg.Tuning != nil {
-		bbr = cfg.Tuning.BBR
+//
+// The profile auto (sent only to agents announcing api.FeatureTuneAuto)
+// computes this node's own plan from its measured facts and the hub's
+// inputs (tuneOptions), applies it with the node's resource drop-ins and
+// records the inputs hash for Hello.TuneHash; the answer carries the facts,
+// the changes made, the skipped items and the plan hash. Any other profile
+// removes the drop-ins and the recorded hash (the node left auto).
+func (a *agent) sysctlApply(ctx context.Context, args api.SysctlArgs) (api.SysctlResult, error) {
+	if args.Profile == config.SysctlAuto {
+		t := setup.PlanHostTune(a.o.Root, config.RoleNode, a.tuneOptions(args))
+		warnings, err := setup.ApplyHostTune(ctx, a.o.Root, a.sd, t)
+		for _, w := range warnings {
+			a.log.Warn("sysctl: "+w, slog.String("profile", args.Profile))
+		}
+		if err != nil {
+			return api.SysctlResult{}, err
+		}
+		if err := a.saveTuneHash(args.InputsHash()); err != nil {
+			a.log.Warn("cannot record the applied tuning", dlog.Err(err))
+		}
+		host := t.API(a.nodeID)
+		a.log.Info("automatic tuning applied", slog.Int("changes", len(host.Changes)), slog.String("plan", t.Hash))
+		return api.SysctlResult{Warnings: warnings, Facts: host.Facts, Changes: host.Changes, Skips: host.Skips, Hash: t.Hash}, nil
 	}
 	applied, warnings, err := sysctl.Manager{Root: a.o.Root}.ApplyWith(sysctl.ApplyOptions{
-		Profile: args.Profile, BBR: bbr, IPForward: args.IPForward,
+		Profile: args.Profile, BBR: a.tuneBBR(args), IPForward: args.IPForward,
 	})
 	for _, w := range warnings {
 		a.log.Warn("sysctl: "+w, slog.String("profile", args.Profile))
@@ -126,8 +169,114 @@ func (a *agent) sysctlApply(args api.SysctlArgs) (api.SysctlResult, error) {
 	if err != nil {
 		return api.SysctlResult{}, err
 	}
+	if err := setup.RemoveAutoTune(ctx, a.sd); err != nil {
+		warnings = append(warnings, i18n.T(i18n.TuneWarnDropins, deyerr.As(err).Message()))
+	}
+	if err := a.saveTuneHash(""); err != nil {
+		a.log.Warn("cannot record the applied tuning", dlog.Err(err))
+	}
 	a.log.Info("sysctl profile applied", slog.String("profile", args.Profile), slog.Int("keys", len(applied)))
 	return api.SysctlResult{Warnings: warnings}, nil
+}
+
+// tunePlan answers tune.plan: this node's automatic plan for the hub's
+// inputs, without changing anything (the list the owner confirms). It is a
+// command of its own, not a flag of sysctl.apply, so an agent that does not
+// know it refuses instead of applying.
+func (a *agent) tunePlan(args api.SysctlArgs) (api.SysctlResult, error) {
+	if args.Profile != config.SysctlAuto {
+		return api.SysctlResult{}, a.refuse(api.CmdTunePlan, "only the profile auto has a plan")
+	}
+	t := setup.PlanHostTune(a.o.Root, config.RoleNode, a.tuneOptions(args))
+	host := t.API(a.nodeID)
+	return api.SysctlResult{Facts: host.Facts, Changes: host.Changes, Skips: host.Skips, Hash: t.Hash}, nil
+}
+
+// tuneCheck answers tune.check: drift and findings of this node's tuning.
+func (a *agent) tuneCheck() (api.TuneHostCheck, error) {
+	return setup.CheckHost(a.o.Root, a.nodeID, config.RoleNode)
+}
+
+// tuneBBR is the hub's tuning.bbr; only a hub that does not send it leaves
+// the choice to this node's config.
+func (a *agent) tuneBBR(args api.SysctlArgs) bool {
+	if args.BBR != nil {
+		return *args.BBR
+	}
+	if cfg, err := config.Load(a.cfgPath); err == nil && cfg.Tuning != nil {
+		return cfg.Tuning.BBR
+	}
+	return true
+}
+
+// tuneOptions are the inputs of this node's automatic plan: the hub's
+// (BBR, IP forwarding, reserved ports) plus what runs here: UDP rungs
+// (Hysteria2, AmneziaWG) and NAT, which needs connection tracking.
+func (a *agent) tuneOptions(args api.SysctlArgs) sysctl.ApplyOptions {
+	udp, nat := false, false
+	a.instMu.Lock()
+	for _, inst := range a.st.Instances {
+		udp = udp || inst.Backend == hysteria2.Name || inst.Backend == wireguard.AWGName
+		nat = nat || len(inst.NAT) > 0 || inst.IPForward
+	}
+	nat = nat || len(a.st.HubNAT) > 0
+	a.instMu.Unlock()
+	return sysctl.ApplyOptions{Profile: config.SysctlAuto, BBR: a.tuneBBR(args), IPForward: args.IPForward,
+		UDPRungs: udp, Conntrack: nat || args.IPForward, Reserved: args.Reserved}
+}
+
+// TuneHashFile holds SysctlArgs.InputsHash of the hub's last automatic
+// tuning this node applied (Hello.TuneHash); absent when the node is not on
+// the profile auto through the hub.
+const TuneHashFile = config.LibDir + "/tune-inputs"
+
+// saveTuneHash records hash ("" removes the record).
+func (a *agent) saveTuneHash(hash string) error {
+	p := a.path(TuneHashFile)
+	if hash == "" {
+		if err := os.Remove(p); err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil { //nolint:gosec // G301: /var/lib/deyroute stays traversable
+		return err
+	}
+	return os.WriteFile(p, []byte(hash+"\n"), 0o600)
+}
+
+// tuneState returns the profile of 99-deyroute.conf and, for auto, the
+// recorded inputs hash (Hello.TuneProfile and TuneHash).
+func (a *agent) tuneState() (profile, hash string) {
+	profile, err := sysctl.Manager{Root: a.o.Root}.Current()
+	if err != nil {
+		return "", ""
+	}
+	if profile != config.SysctlAuto {
+		return profile, ""
+	}
+	data, err := os.ReadFile(a.path(TuneHashFile))
+	if err != nil {
+		return profile, ""
+	}
+	return profile, strings.TrimSpace(string(data))
+}
+
+// reassertTuning runs at start after the NAT table is restored: conntrack
+// keys of 99-deyroute.conf that systemd-sysctl could not set at boot
+// (nf_conntrack loaded later) and that nobody changed since are set again
+// (sysctl.Manager.Reassert). Every key set is logged.
+func (a *agent) reassertTuning() {
+	kvs, warnings, err := sysctl.Manager{Root: a.o.Root}.Reassert()
+	for _, kv := range kvs {
+		a.log.Info("tuned kernel value set again after the boot", slog.String("key", kv.Key), slog.String("value", kv.Value))
+	}
+	for _, w := range warnings {
+		a.log.Warn("sysctl: " + w)
+	}
+	if err != nil {
+		a.log.Warn("cannot set the tuned kernel values again", dlog.Err(err))
+	}
 }
 
 // doctorData collects this node's doctor sections and findings (doctor
@@ -140,6 +289,9 @@ func (a *agent) doctorData(ctx context.Context) api.DoctorData {
 		Status:   st,
 		Now:      a.o.Now(),
 		Sections: map[string]string{doctor.SectionStatus: doctor.StatusSection(st)},
+	}
+	if c := a.connectivitySection(); c != "" {
+		f.Sections[ConnectivitySection] = c
 	}
 	for _, err := range tlsutil.CheckSecretPerms(a.path(config.SecretsDir)) {
 		e := deyerr.As(err)
@@ -165,7 +317,9 @@ func (a *agent) status() api.Status {
 		Connected:   a.connected && a.helloSeen,
 		LastContact: a.lastContact,
 		Units:       unitList(a.snap.units),
+		Front:       a.front.SecretFile != "",
 	}
+	dialFail := a.dialFail
 	if a.hubHello != nil {
 		ns.HubVersion = a.hubHello.Version
 		ns.Compatible = a.hubHello.Compatible
@@ -184,7 +338,13 @@ func (a *agent) status() api.Status {
 		Nodes:       []api.NodeInfo{},
 		Events:      []state.Event{},
 	}
-	if !ns.Connected {
+	switch {
+	case ns.Connected:
+	case ns.Front && dialFail != nil:
+		// The front itself is the problem: N016/N017 name it (the reason has
+		// neither the path nor the secret).
+		st.Warnings = append(st.Warnings, dialFail.warning(a.nodeID))
+	default:
 		e := deyerr.New(deyerr.N009, deyerr.Params{"addr": ns.HubAddr})
 		st.Warnings = append(st.Warnings, api.Warning{Code: string(e.Code), Message: e.Message(), Node: a.nodeID})
 	}

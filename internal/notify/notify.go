@@ -40,6 +40,8 @@ var aliases = map[string][]string{
 	"backend_crash": {state.EvBackendCrash},
 	"probe_error":   {state.EvProbeError},
 	"update":        {state.EvUpdateApplied, state.EvUpdateRolledBack, state.EvBackendRolledBack},
+	"quota":         {state.EvTrafficQuota},
+	"tuning":        {state.EvTuneDrift},
 }
 
 // eventNames are the event types that may also be selected by full name.
@@ -51,6 +53,7 @@ var eventNames = []string{
 	state.EvProbeError, state.EvUpdateApplied, state.EvUpdateRolledBack,
 	state.EvBackendRolledBack, state.EvNodeIPChanged, state.EvACMEFailed,
 	state.EvRungSkipped, state.EvRungRestored, state.EvConfigApplied,
+	state.EvTrafficQuota, state.EvTuneDrift,
 }
 
 // Aliases returns a copy of the alias → event types mapping:
@@ -58,7 +61,7 @@ var eventNames = []string{
 // switch → switch_transport + switch_node, failback → failback +
 // failback_failed, node_offline, node_online, flapping, service_down,
 // backend_crash, probe_error, update → update_applied + update_rolled_back +
-// backend_update_rolled_back.
+// backend_update_rolled_back, quota → traffic_quota, tuning → tune_drift.
 func Aliases() map[string][]string {
 	out := make(map[string][]string, len(aliases))
 	for k, v := range aliases {

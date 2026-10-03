@@ -44,9 +44,10 @@ to a log.
 
 ## Firewall: `table inet deyroute`
 
-DEYROUTE creates and manages exactly one nftables table and never touches other
-tables or rules. On a hub with two nodes and a tunnel on 443 and 2053 it looks
-like this (the join-window and IPv6 lines appear only when needed):
+DEYROUTE creates and manages two nftables tables, `inet deyroute` (below) and,
+on the hub, the traffic counting table `inet deyroute_stats` (next section),
+and never touches other tables or rules. On a hub with two nodes and a tunnel
+on 443 and 2053 `inet deyroute` looks like this (the join-window and IPv6 lines appear only when needed):
 
 ```text
 table inet deyroute {
@@ -94,6 +95,82 @@ and the port number and protocol, and refuses (`DEY-P032`) when that differs
 from the command you confirmed. This also works with
 `security.firewall_managed: false`, which concerns only table `inet deyroute`.
 A provider's firewall panel is never touched.
+
+## Traffic counting: `table inet deyroute_stats`
+
+To show how much each tunnel carries (`deyroute stats`, the dashboard,
+`deyroute tunnel show`) the hub keeps a second, separate table. It only
+counts: every chain has `policy accept` and there is no accept, drop,
+reject, jump or NAT rule in it, so it can never block or change traffic. For
+the tunnel above it is:
+
+```text
+table inet deyroute_stats {
+	counter tun_main_in {
+		packets 0 bytes 0
+	}
+
+	counter tun_main_out {
+		packets 0 bytes 0
+	}
+
+	map acct_in {
+		type inet_proto . inet_service : counter
+		elements = { tcp . 443 : "tun_main_in", tcp . 2053 : "tun_main_in" }
+	}
+
+	map acct_out {
+		type inet_proto . inet_service : counter
+		elements = { tcp . 443 : "tun_main_out", tcp . 2053 : "tun_main_out" }
+	}
+
+	chain count_in {
+		type filter hook input priority 300; policy accept;
+		iif != "lo" counter name meta l4proto . th dport map @acct_in
+	}
+
+	chain count_out {
+		type filter hook output priority 300; policy accept;
+		oif != "lo" counter name meta l4proto . th sport map @acct_out
+	}
+}
+```
+
+- **Totals per tunnel, nothing else.** There is one pair of counters per
+  tunnel (bytes and packets towards its listen ports and back). No client
+  IP address, connection, destination or time of day of a user is recorded,
+  in the kernel or in `state.db`. The hub stores the totals as a time
+  series (1-minute points for a day, half-hour points for 32 days, one total
+  per quota period) in `/var/lib/deyroute/state.db`.
+- **No connection tracking.** The counters match the protocol and the
+  listen port only, after the filter chains (priority 300), so a packet
+  another firewall drops is not counted and loopback traffic (probes,
+  diagnostics) is left out. Only a tunnel with a kernel NAT rung (WireGuard,
+  AmneziaWG) adds a forward chain that uses conntrack, which that NAT
+  already needs.
+- **Directions are seen from the users:** "in" is upload from users to the
+  hub, "out" is download to users. The bytes are layer-3 bytes on the
+  user-facing ports. A provider usually bills the hub's network card, which
+  also carries the tunnel to the node, so its count is about twice as high:
+  a quota (`advanced.monthly_quota_gib`) counts user-side traffic only.
+- The table is separate from `inet deyroute`, so firewall changes never
+  reset the counters, and it works with `security.firewall_managed: false`.
+  It is rebuilt only when the set of tunnel ports changes, with the last
+  values as start values; after a reboot or `systemctl restart nftables`
+  (`flush ruleset`) the hub rebuilds it within seconds from the last stored
+  reading.
+- `monitoring.enabled: false` in `config.yaml` removes the table and stops
+  the counting; `deyroute uninstall` removes it too. Without nft or
+  nf_tables (an unprivileged container) the hub reports `DEY-X061` and shows
+  connection counts only, never an unknown volume as `0 B`.
+- Tunnel volumes (today's bytes, the counters since their last reset) appear
+  in `deyroute stats --json` and in doctor bundles (`deyroute doctor --out
+  FILE`), never addresses of users.
+
+```bash
+nft list table inet deyroute_stats   # the counting table and its counters
+deyroute stats                       # the totals per tunnel
+```
 
 ## Secrets
 
