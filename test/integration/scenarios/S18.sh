@@ -15,7 +15,17 @@ res=$(dey tunnel test-ladder "$T" --yes --json) || { echo "$res" >&2; fail "test
 jq -r '.results[] | "\(.transport) ok=\(.ok) rtt=\(.rtt_ms)ms skipped=\(.skipped) \(.error.code // "")"' <<<"$res" >&2
 jq -e '[.results[] | select(.skipped | not or . == "")] | length > 0' <<<"$res" >/dev/null || fail "no rung was tested"
 bad=$(jq -r '[.results[] | select((.skipped | not or . == "") and (.ok | not)) | .transport] | join(" ")' <<<"$res")
-[ -z "$bad" ] || fail "rungs failed: $bad"$'\n'"$(jq -r '.results[] | select(.ok | not) | .error.detail // empty' <<<"$res")"
+if [ -n "$bad" ]; then
+  # The runner prints only the tail of this log: the decoy chosen by the
+  # hub and the last lines of the failing rungs' backend logs go last.
+  {
+    sh_on hub "grep -h -i 'decoy' /var/log/deyroute/hub.log | tail -n 3"
+    for s in hub node1; do
+      sh_on "$s" "for f in /var/log/deyroute/tunnels/*.log; do grep -h -i -E 'reality|xray|waterwall|error|fail' \"\$f\" | tail -n 3 | sed \"s|^|$s \$(basename \$f): |\"; done" | cut -c1-220 | tail -n 6
+    done
+  } >&2 || true
+  fail "rungs failed: $bad"$'\n'"$(jq -r '.results[] | select(.ok | not) | .error.detail // empty' <<<"$res")"
+fi
 jq -e 'all(.results[] | select(.ok); .rtt_ms > 0)' <<<"$res" >/dev/null || fail "a passing rung has no RTT"
 tunnel_up "$T" || wait_tunnel_up "$T" 60
 pass
