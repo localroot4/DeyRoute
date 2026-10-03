@@ -19,10 +19,13 @@ if [ -n "$bad" ]; then
   # The runner prints only the tail of this log: the decoy chosen by the
   # hub and the last lines of the failing rungs' backend logs go last.
   {
-    sh_on hub "grep -h -i 'decoy' /var/log/deyroute/hub.log | tail -n 3"
     for s in hub node1; do
-      sh_on "$s" "for f in /var/log/deyroute/tunnels/*.log; do grep -h -i -E 'reality|xray|waterwall|error|fail' \"\$f\" | tail -n 3 | sed \"s|^|$s \$(basename \$f): |\"; done" | cut -c1-220 | tail -n 6
+      sh_on "$s" "grep -h -a -E '\\[(Warning|Error)\\]|REALITY' /var/log/deyroute/tunnels/*.log | tail -n 5" | sed "s|^|$s xray: |" | cut -c1-200
     done
+    sh_on hub "grep -rho '\"serverName\": *\"[^\"]*\"' /etc/deyroute/backends/xray 2>/dev/null | sort -u | head -n 2"
+    sh_on node1 "d=\$(grep -rho '\"dest\": *\"[^\"]*\"' /etc/deyroute/backends/xray 2>/dev/null | head -n 1 | cut -d'\"' -f4)
+      echo \"dest=\$d\"; [ -n \"\$d\" ] && timeout 8 openssl s_client -connect \"\$d\" -servername \"\${d%:*}\" -tls1_3 </dev/null 2>&1 |
+      grep -a -E 'Protocol|Cipher is|Server Temp Key|Negotiated TLS1.3 group|errno|error' | head -n 5"
   } >&2 || true
   fail "rungs failed: $bad"$'\n'"$(jq -r '.results[] | select(.ok | not) | .error.detail // empty' <<<"$res")"
 fi
