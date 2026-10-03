@@ -19,13 +19,29 @@ if [ -n "$bad" ]; then
   # The runner prints only the tail of this log: the decoy chosen by the
   # hub and the last lines of the failing rungs' backend logs go last.
   {
-    for s in hub node1; do
-      sh_on "$s" "grep -h -a -E '\\[(Warning|Error)\\]|REALITY' /var/log/deyroute/tunnels/*.log | tail -n 5" | sed "s|^|$s xray: |" | cut -c1-200
-    done
-    sh_on hub "grep -rho '\"serverName\": *\"[^\"]*\"' /etc/deyroute/backends/xray 2>/dev/null | sort -u | head -n 2"
-    sh_on node1 "d=\$(grep -rho '\"dest\": *\"[^\"]*\"' /etc/deyroute/backends/xray 2>/dev/null | head -n 1 | cut -d'\"' -f4)
-      echo \"dest=\$d\"; [ -n \"\$d\" ] && timeout 8 openssl s_client -connect \"\$d\" -servername \"\${d%:*}\" -tls1_3 </dev/null 2>&1 |
-      grep -a -E 'Protocol|Cipher is|Server Temp Key|Negotiated TLS1.3 group|errno|error' | head -n 5"
+    sh_on hub "grep -rho '\"serverName\": *\"[^\"]*\"' /etc/deyroute/backends/xray 2>/dev/null | sort -u | head -n 1"
+    sh_on node1 "timeout 8 openssl s_client -connect www.microsoft.com:443 -servername www.microsoft.com -tls1_3 -alpn h2 </dev/null 2>&1 |
+      grep -a -E 'Negotiated TLS1.3 group|Server Temp Key|ALPN|Cipher is' | head -n 3" | sed 's/^/decoy from node1: /'
+    # Which decoys can carry xray/reality here: the rung again with each one.
+    if [[ " $bad " == *" xray/reality "* ]]; then
+      for d in dl.google.com www.speedtest.net; do
+        sh_on hub "python3 - <<'PY'
+import re
+p = '/etc/deyroute/config.yaml'
+s = re.sub(r'(?m)^  decoy_snis:.*\n(?:    - .*\n)*', '', open(p).read())
+open(p, 'w').write(re.sub(r'(?m)^hub:\n', 'hub:\n  decoy_snis: [$d]\n', s, count=1))
+PY"
+        dey config apply --json >/dev/null 2>&1
+        r=FAILED
+        if dey tunnel switch "$T" --transport xray/reality --json >/dev/null 2>&1; then
+          for _ in $(seq 45); do
+            if tunnel_up "$T" && [ "$(active_transport "$T")" = xray/reality ]; then r=UP; break; fi
+            sleep 1
+          done
+        fi
+        echo "xray/reality with decoy $d: $r"
+      done
+    fi
   } >&2 || true
   fail "rungs failed: $bad"$'\n'"$(jq -r '.results[] | select(.ok | not) | .error.detail // empty' <<<"$res")"
 fi
