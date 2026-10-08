@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S34: front mode: with its direct path to the hub's ports cut, the node reaches the hub through a Cloudflare-like edge and a tunnel carries 20 MB intact
+# S34: front mode: with its direct path to the hub's ports cut, the node reaches the hub through a Cloudflare-like edge and its tunnel carries 20 MB intact
 # The owner's commands: `deyroute front enable` on the hub, `deyroute node
 # set-hub '<target>'` on the node. The edge is the fake Cloudflare of
 # internal/front/fronttest (dist/it-fakecdn) on the node's loopback, reached
@@ -15,6 +15,9 @@ FRONT=front.it.lab
 
 setup_pair client
 serve_http node1 443 20
+# A tunnel that already works directly, as on a real hub before the cut.
+T=$(add_tunnel "$NODE1" 443)
+wait_tunnel_up "$T" 180
 
 dey front enable --domain "$FRONT" --json >/dev/null || fail "front enable failed"
 # The firewall opens the front port to Cloudflare's ranges only; the lab
@@ -48,16 +51,27 @@ via_front() {
 }
 wait_for 90 "node $NODE1 online through the front" via_front
 
-T=$(add_tunnel "$NODE1" 443)
-wait_tunnel_up "$T" 180
+# Its rungs are rendered again for the front and the active one restarts
+# under the shim (a short outage, as when a rung switches); then the
+# download works through the edge.
+WANT=$(blob_sha node1)
+through_front() {
+  tunnel_up "$T" && sh_on node1 "ss -Hltn 'src 127.0.0.1' | grep -q ." &&
+    [ "$(fetch_via_hub 443 2>/dev/null)" = "$WANT" ]
+}
+wait_for 180 "tunnel $T carrying traffic through the front" through_front
 tr=$(active_transport "$T")
 case $tr in backhaul/* | rathole/* | frp/*) ;; *) fail "a front node must use a reverse TCP rung, got $tr" ;; esac
 log "tunnel $T is UP through the front via $tr"
-skipped=$(dey tunnel show "$T" --json | jq -r '[.. | objects | select(.code? == "DEY-B012")] | length')
-[ "$skipped" -gt 0 ] || log "note: no rung reported DEY-B012 in tunnel show"
+# The rungs the front cannot carry are skipped for this node (DEY-B012).
+for r in xray/reality hysteria2/udp direct/native; do
+  dey tunnel show "$T" --json | jq -e --arg r "$r" \
+    '.rungs[] | select(.transport == $r) | .skipped | test("through the front")' >/dev/null ||
+    fail "$r is not skipped for the front node"
+done
 
 got=$(fetch_via_hub 443)
-[ "$got" = "$(blob_sha node1)" ] || fail "the 20 MB download through the front is corrupt"
+[ "$got" = "$WANT" ] || fail "the 20 MB download through the front is corrupt"
 direct=$(sh_on node1 "ss -Htn state established dst $HUB_IP | awk '{print \$4}' | grep -vc ':2053\$' || true")
 [ "${direct:-0}" = 0 ] || fail "the node holds $direct direct connection(s) to the hub besides the edge's"
 log "cut packets: $(on node1 nft -j list counter inet it_cut cut | jq '.nftables[] | select(.counter) | .counter.packets')"
