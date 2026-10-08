@@ -509,3 +509,68 @@ func TestFrontSecretIsRegisteredWithTheRedactor(t *testing.T) {
 	fe.run()
 	eventually(t, func() bool { return !strings.Contains(dlog.Redact("x "+other), other) }, "the secret is masked by the redactor")
 }
+
+// shimArgs is a front node's backend.render payload as the hub's planner
+// produces it: the client under the shim, the hub part of the shim file.
+func shimArgs(self string) api.BackendRenderArgs {
+	args := renderArgs("main", "backhaul", "tcpmux")
+	f := front.ShimFile{Port: 30001, Tunnel: "main", Node: testNode, Token: "tunnel-token", CA: "CA PEM"}
+	data, _ := f.Marshal()
+	args.Files[front.ShimFileName] = data
+	args.Unit.ExecStart = front.ShimArgv(self, args.ConfigDir, args.Unit.ExecStart)
+	return args
+}
+
+// A front node accepts the shim wrapper of its own config directory only and
+// fills in the shim file from its own config: the front address and the path
+// secret never come from the hub.
+func TestFrontShimRenderIsCompletedByTheNode(t *testing.T) {
+	fe := newFrontEnv(t, fronttest.Options{})
+	cfg, err := config.Load(fe.path(config.DefaultPath))
+	require.NoError(t, err)
+	o := fe.opts.withDefaults()
+	a := newAgent(o, cfg, fe.path(config.DefaultPath), o.Logger)
+	a.frontSettings()
+
+	args := shimArgs(o.SelfBinary)
+	require.NoError(t, a.checkCommands(api.CmdBackendRender, "backhaul", args.ConfigDir, args.Unit))
+	require.NoError(t, a.completeShimFile(api.CmdBackendRender, &args))
+	f, err := front.ParseShimFile(args.Files[front.ShimFileName])
+	require.NoError(t, err)
+	require.True(t, f.Complete())
+	require.Equal(t, fe.frontAddr(), f.Hub)
+	require.Equal(t, frontTestSecret, f.Secret)
+	require.Equal(t, "tunnel-token", f.Token, "the hub part is kept")
+	_, err = f.Target()
+	require.NoError(t, err)
+
+	// Another config directory, another subcommand or the shim alone are not
+	// allowed in a unit.
+	other := shimArgs(o.SelfBinary)
+	other.Unit.ExecStart = front.ShimArgv(o.SelfBinary, "/etc/deyroute/backends/backhaul/x/de-1/tcpmux", []string{backhaulBin, "-c", "x"})
+	require.Error(t, a.checkCommands(api.CmdBackendRender, "backhaul", other.ConfigDir, other.Unit))
+	relay := shimArgs(o.SelfBinary)
+	relay.Unit.ExecStart = []string{o.SelfBinary, "pair", o.SelfBinary, "relay", "--config", "x", "--", backhaulBin, "-c", "x"}
+	require.Error(t, a.checkCommands(api.CmdBackendRender, "backhaul", relay.ConfigDir, relay.Unit))
+	alone := shimArgs(o.SelfBinary)
+	alone.Unit.ExecStart = []string{o.SelfBinary, front.ShimCommand, "--config", alone.ConfigDir + "/" + front.ShimFileName}
+	require.Error(t, a.checkCommands(api.CmdBackendRender, "backhaul", alone.ConfigDir, alone.Unit))
+
+	// A shim file for another node or tunnel is refused.
+	wrong := shimArgs(o.SelfBinary)
+	wf := front.ShimFile{Port: 30001, Tunnel: "main", Node: "other", Token: "t", CA: "c"}
+	wrong.Files[front.ShimFileName], _ = wf.Marshal()
+	require.Error(t, a.completeShimFile(api.CmdBackendRender, &wrong))
+}
+
+// A direct node refuses a tunnel the hub wants to run through the front.
+func TestDirectNodeRefusesTheShim(t *testing.T) {
+	e := newEnv(t)
+	s := e.start()
+	args := shimArgs(e.opts.withDefaults().SelfBinary)
+	_, err := call[json.RawMessage](t, s, api.CmdBackendRender, args)
+	require.Error(t, err)
+	require.Contains(t, deyerr.As(err).Why(), "not in front mode")
+	_, err = os.Stat(e.path(args.ConfigDir))
+	require.True(t, os.IsNotExist(err), "nothing is written")
+}

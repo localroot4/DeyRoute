@@ -239,3 +239,46 @@ func (a *agent) logHubChange(t setup.HubTarget) {
 	}
 	a.log.Info("hub address changed; reconnecting", slog.String("hub", t.Addr))
 }
+
+// completeShimFile fills in the node part of a front shim file the hub
+// rendered for this instance (internal/front.ShimFile): the front address,
+// scheme, edge IP and path secret come from this node's own config, so the
+// hub never sends them and the unit (user deyroute) never reads the secrets
+// directory. A shim file for another tunnel or node, or on a node that is
+// not in front mode, is refused.
+func (a *agent) completeShimFile(command string, args *api.BackendRenderArgs) error {
+	data, ok := args.Files[front.ShimFileName]
+	if !ok {
+		return nil
+	}
+	f, err := front.ParseShimFile(data)
+	if err != nil {
+		return a.refuse(command, err.Error())
+	}
+	if f.Tunnel != args.Tunnel || f.Node != a.nodeID {
+		return a.refuse(command, "the front shim file belongs to another tunnel or node")
+	}
+	fs := a.frontSettings()
+	if fs.SecretFile == "" {
+		return a.refuse(command, "the hub runs this tunnel through its front, but this node is not in front mode; join it again with the hub's front join link")
+	}
+	secret, err := a.readFrontSecret(fs.SecretFile)
+	if err != nil {
+		return err
+	}
+	f.Hub, f.Scheme, f.EdgeIP, f.Secret = a.hubAddress(), fs.Scheme, fs.EdgeIP, secret
+	if _, err := f.Target(); err != nil {
+		return a.refuse(command, "the front address in config.yaml is not usable: "+err.Error())
+	}
+	out, err := f.Marshal()
+	if err != nil {
+		return err
+	}
+	files := make(map[string][]byte, len(args.Files))
+	for k, v := range args.Files {
+		files[k] = v
+	}
+	files[front.ShimFileName] = out
+	args.Files = files
+	return nil
+}

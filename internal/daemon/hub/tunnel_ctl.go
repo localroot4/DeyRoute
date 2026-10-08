@@ -363,6 +363,11 @@ func (h *Hub) planInput(cfg *config.Config, t config.Tunnel) render.Input {
 		HubTier:  cfg.BackendTier(""),
 		NodeTier: cfg.BackendTier,
 		WGMTU:    wgMTU(cfg),
+		FrontNode: func(node string) bool {
+			n, ok := nodes[node]
+			return ok && n.Route == config.RouteFront
+		},
+		TrustPEM: h.trustPEM(),
 	}
 }
 

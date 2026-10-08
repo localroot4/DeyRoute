@@ -6,7 +6,9 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,9 +20,11 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/node"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
+	"github.com/localroot4/deyroute/internal/front"
 	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/tlsutil"
 	"github.com/localroot4/deyroute/internal/tui"
 )
 
@@ -228,6 +232,54 @@ func newRelayCmd(g *Globals) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&tunnel, "tunnel", "", i18n.T(i18n.CLIFlagRelayTunnel))
 	cmd.Flags().StringVar(&cfgPath, "config", "", i18n.T(i18n.CLIFlagRelayConfig))
+	return cmd
+}
+
+// newFrontShimCmd is `deyroute front-shim --config <dir>/front-shim.json`:
+// on a node that reaches the hub through the front, it listens on
+// 127.0.0.1:<control port> next to the backend client (both run under
+// `deyroute pair`) and carries each connection through the CDN to the hub.
+func newFrontShimCmd(g *Globals) *cobra.Command {
+	var cfgPath string
+	cmd := &cobra.Command{
+		Use:    front.ShimCommand + " --config <file>",
+		Short:  i18n.T(i18n.CLIFrontShimShort),
+		Hidden: true,
+		Args:   noArgs(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cfgPath == "" {
+				return usageErr(i18n.T(i18n.CLIWantFlag, "--config"))
+			}
+			f, err := front.ReadShimFile(cfgPath)
+			if err != nil {
+				return deyerr.Wrap(deyerr.B060, err, deyerr.Params{"path": cfgPath, "reason": err.Error()})
+			}
+			dlog.RegisterSecret(f.Token)
+			dlog.RegisterSecret(f.Secret)
+			target, err := f.Target()
+			if err != nil {
+				return deyerr.Wrap(deyerr.B060, err, deyerr.Params{"path": cfgPath, "reason": err.Error()})
+			}
+			inner, err := tlsutil.ClientTLSConfig([]byte(f.CA), nil, nil, "")
+			if err != nil {
+				return deyerr.Wrap(deyerr.B060, err, deyerr.Params{"path": cfgPath, "reason": "the CA in the file is not usable"})
+			}
+			level := slog.LevelInfo
+			if g.Debug || dlog.DebugFromEnv() {
+				level = slog.LevelDebug
+			}
+			logger := slog.New(dlog.NewHandler(g.Err, level, "front-shim"))
+			ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(f.Port)))
+			if err != nil {
+				return deyerr.Wrap(deyerr.P012, err, deyerr.Params{"port": strconv.Itoa(f.Port), "process": "another process", "addr": "127.0.0.1:" + strconv.Itoa(f.Port)})
+			}
+			logger.Info("front shim listening", "port", f.Port, "front", target.Addr())
+			return front.RunShim(cmd.Context(), ln, front.ShimConfig{
+				Target: target, Port: f.Port, Node: f.Node, Token: f.Token, InnerTLS: inner, Logger: logger,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", "", i18n.T(i18n.CLIFlagFrontShimConfig))
 	return cmd
 }
 

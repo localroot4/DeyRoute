@@ -1920,6 +1920,8 @@ const (
 	CLIDaemonHubShort            Key = "cli.daemon_hub_short"
 	CLIDaemonNodeShort           Key = "cli.daemon_node_short"
 	CLIRelayShort                Key = "cli.relay_short"
+	CLIFrontShimShort            Key = "cli.front_shim_short"
+	CLIFlagFrontShimConfig       Key = "cli.flag_front_shim_config"
 	CLIWGShort                   Key = "cli.wg_short"
 	CLIPairShort                 Key = "cli.pair_short"
 )
@@ -2471,6 +2473,8 @@ var cliEN = map[Key]string{
 	CLIDaemonHubShort:            "Run the hub daemon (deyroute-hub.service)",
 	CLIDaemonNodeShort:           "Run the node agent (deyroute-node.service)",
 	CLIRelayShort:                "Run one half of a direct/native relay (deyroute-tun@ unit)",
+	CLIFrontShimShort:            "Carry a node's tunnel connections through the hub's front (deyroute-tun@ unit)",
+	CLIFlagFrontShimConfig:       "front-shim.json of this tunnel instance",
 	CLIWGShort:                   "Configure a WireGuard interface (deyroute-tun@ unit)",
 	CLIPairShort:                 "Run a backend and its UDP companion process together (deyroute-tun@ unit)",
 }

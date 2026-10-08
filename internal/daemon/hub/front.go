@@ -21,6 +21,7 @@ import (
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/front"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 )
 
@@ -293,7 +294,13 @@ func (h *Hub) startFront(cfg *config.Config) {
 		fail(err)
 		return
 	}
+	data := front.NewDataHandler(front.DataHandlerConfig{
+		TLS:       h.tlsCfg,
+		Authorize: h.frontAuthorize,
+		Logger:    h.log,
+	})
 	srv, err := front.NewServer(ln, front.ServerOptions{
+		Data:           data.Serve,
 		Secret:         secret,
 		TLSMode:        f.TLSMode(),
 		CertFile:       h.pathIf(f.CertFile),
@@ -554,4 +561,57 @@ func frontNodes(cfg *config.Config) []string {
 // frontInUse reports whether the front is enabled or any node uses it.
 func frontInUse(cfg *config.Config) bool {
 	return cfg.Hub != nil && cfg.Hub.Front.Enabled || len(frontNodes(cfg)) > 0
+}
+
+// errNoDataPort refuses a data connection to a port that is not the
+// control port of a front node's rung.
+var errNoDataPort = stderrors.New("not the control port of a rung of this node")
+
+// frontAuthorize implements front.DataAuthorizer: port must be the control
+// port of a rung of node ('<tunnel>/<node>/<backend>/<transport>') or the
+// canary control port of a tunnel whose primary node is node, and node must
+// be a front node. Companion and loopback ports, the hub's own ports and
+// anything else are refused. It returns the tunnel token.
+func (h *Hub) frontAuthorize(port int, node string) (string, error) {
+	ports, err := h.st.CtlPorts()
+	if err != nil {
+		return "", err
+	}
+	cfg := h.Config()
+	if n, ok := cfg.NodeByID(node); !ok || n.Route != config.RouteFront {
+		return "", errNoDataPort
+	}
+	for key, p := range ports {
+		if p != port {
+			continue
+		}
+		tunnel, owner, ok := dataKeyOwner(key)
+		if !ok {
+			return "", errNoDataPort
+		}
+		t, ok := cfg.Tunnel(tunnel)
+		if !ok || len(t.Nodes) == 0 || !slices.Contains(t.Nodes, node) {
+			return "", errNoDataPort
+		}
+		if (owner == "" && t.Nodes[0] != node) || (owner != "" && owner != node) {
+			return "", errNoDataPort
+		}
+		return h.secretStore().Token(tunnel)
+	}
+	return "", errNoDataPort
+}
+
+// dataKeyOwner returns the tunnel and node of a control-port key a data
+// connection may use: a rung's key, or the canary control key (node "",
+// meaning the tunnel's primary node). Companion ("/udp") and canary
+// loopback keys are not data ports.
+func dataKeyOwner(key string) (tunnel, node string, ok bool) {
+	if t, found := strings.CutSuffix(key, "/canary/ctl"); found && config.ValidID(t) {
+		return t, "", true
+	}
+	tunnel, node, transport, ok := state.SplitKey(key)
+	if !ok || node == "canary" || strings.HasSuffix(transport, "/udp") || strings.Count(transport, "/") != 1 {
+		return "", "", false
+	}
+	return tunnel, node, true
 }

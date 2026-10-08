@@ -75,7 +75,7 @@ func NewRoot(g *Globals) *cobra.Command {
 	add(groupDiag, newDiagCmd(g), newLogsCmd(g), newEventsCmd(g), newDoctorCmd(g), newStatsCmd(g))
 	add(groupSystem, newOptimizeCmd(g), newSecurityCmd(g), newNotifyCmd(g), newBackupCmd(g), newRestoreCmd(g),
 		newUpdateCmd(g), newConfigCmd(g), newSettingsCmd(g), newUninstallCmd(g), newCompletionCmd(g))
-	root.AddCommand(newMenuCmd(g), newDaemonCmd(g), newRelayCmd(g), newWGCmd(g), newPairCmd(g))
+	root.AddCommand(newMenuCmd(g), newDaemonCmd(g), newRelayCmd(g), newWGCmd(g), newPairCmd(g), newFrontShimCmd(g))
 	root.InitDefaultHelpCmd()
 	for _, c := range root.Commands() {
 		if c.Name() == "help" {
