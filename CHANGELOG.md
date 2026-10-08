@@ -6,6 +6,13 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed — downloads that hang
+
+- A download that receives no data for 2 minutes (a stalled connection,
+  common towards GitHub from Iran) is given up and the next path or source
+  is tried at once, instead of waiting up to 10 minutes per attempt
+  (`deyroute update`, backend installs, the release check).
+
 ### Fixed — stale "node is offline" line
 
 - A node that was busy during a tunnel sync (for example while installing an
@@ -30,8 +37,9 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 - `deyroute optimize status` is laid out like `status`: a line of labelled
   facts (profile, BBR, nodes in sync) with coloured marks, the server in a
-  frame (memory and free memory, cores, kernel, network, queue, and a fill
-  meter for the connection table), the settings in effect as a table, every
+  frame (cores, kernel, network, queue, and fill bars for memory and the
+  connection table with the percentage in the bar's colour and used, free
+  and total after it), the settings in effect as a table, every
   key and value in its own table per group with `--details`, and the nodes
   with their state and whether the tuning is applied or waiting.
 - `deyroute status` opens with the name in large block letters and the

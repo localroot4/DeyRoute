@@ -112,12 +112,15 @@ func (g *Globals) tuneServerRows(f *api.TuneFacts) [][]string {
 			rows = append(rows, []string{label, value})
 		}
 	}
-	if f.MemBytes > 0 {
-		mem := tui.FormatBytes(f.MemBytes)
-		if f.MemAvailableBytes > 0 {
-			mem = i18n.T(i18n.CLITuneSrvMemoryVal, mem, tui.FormatBytes(f.MemAvailableBytes))
-		}
-		add(i18n.T(i18n.CLITuneSrvMemory), mem)
+	switch {
+	case f.MemBytes > 0 && f.MemAvailableBytes > 0 && f.MemAvailableBytes <= f.MemBytes:
+		used := f.MemBytes - f.MemAvailableBytes
+		add(i18n.T(i18n.CLITuneSrvMemory), g.meterLine(float64(used)/float64(f.MemBytes),
+			i18n.T(i18n.CLITuneSrvUsed, tui.FormatBytes(used)),
+			i18n.T(i18n.CLITuneSrvFree, tui.FormatBytes(f.MemAvailableBytes)),
+			i18n.T(i18n.CLITuneSrvTotal, tui.FormatBytes(f.MemBytes))))
+	case f.MemBytes > 0:
+		add(i18n.T(i18n.CLITuneSrvMemory), tui.FormatBytes(f.MemBytes))
 	}
 	if f.CPUs > 0 {
 		cores := i18n.T(i18n.CLITuneSrvCores, f.CPUs)
@@ -141,9 +144,10 @@ func (g *Globals) tuneServerRows(f *api.TuneFacts) [][]string {
 	switch {
 	case f.ConntrackLoaded && f.ConntrackMax > 0:
 		frac := float64(f.ConntrackCount) / float64(f.ConntrackMax)
-		add(i18n.T(i18n.CLITuneSrvConntrack), g.meter(frac)+"  "+
-			i18n.T(i18n.CLITuneSrvCTVal, thousands(f.ConntrackCount), thousands(f.ConntrackMax))+
-			" ("+strconv.Itoa(int(frac*100+0.5))+"%)")
+		add(i18n.T(i18n.CLITuneSrvConntrack), g.meterLine(frac,
+			i18n.T(i18n.CLITuneSrvCTUsed, thousands(f.ConntrackCount)),
+			i18n.T(i18n.CLITuneSrvFree, thousands(f.ConntrackMax-f.ConntrackCount)),
+			i18n.T(i18n.CLITuneSrvTotal, thousands(f.ConntrackMax))))
 	case !f.ConntrackLoaded:
 		add(i18n.T(i18n.CLITuneSrvConntrack), i18n.T(i18n.CLITuneSrvCTOff))
 	}
@@ -151,10 +155,19 @@ func (g *Globals) tuneServerRows(f *api.TuneFacts) [][]string {
 	return rows
 }
 
-// meter is a 10-cell fill bar, green below 60 %, yellow below 85 %, red
-// above.
-func (g *Globals) meter(frac float64) string {
-	const cells = 10
+// meterLine is a fill bar with its percentage in the bar's color and the
+// figures after it, separated in gray: "████░░░░  27%  used · free · total".
+func (g *Globals) meterLine(frac float64, figures ...string) string {
+	bar, style := g.meter(frac)
+	pct := padLeft(strconv.Itoa(int(min(max(frac, 0), 1)*100+0.5))+"%", 4)
+	sep := "  " + g.styleOut(styleGray, g.sym().sep) + "  "
+	return bar + " " + g.styleOut(style, pct) + "   " + strings.Join(figures, sep)
+}
+
+// meter is a 16-cell fill bar and its style: green below 60 %, yellow below
+// 85 %, red above.
+func (g *Globals) meter(frac float64) (string, string) {
+	const cells = 16
 	frac = min(max(frac, 0), 1)
 	n := int(frac*cells + 0.5)
 	if frac > 0 && n == 0 {
@@ -171,7 +184,7 @@ func (g *Globals) meter(frac float64) string {
 	case frac >= 0.6:
 		style = styleYellow
 	}
-	return g.styleOut(style, strings.Repeat(full, n)) + g.styleOut(styleGray, strings.Repeat(empty, cells-n))
+	return g.styleOut(style, strings.Repeat(full, n)) + g.styleOut(styleGray, strings.Repeat(empty, cells-n)), style
 }
 
 // thousands writes n with thousands separators: 65,536.

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	deyerr "github.com/localroot4/deyroute/internal/errors"
@@ -32,7 +33,19 @@ const (
 	DefaultBackoff = time.Second
 	// DefaultAttemptTimeout bounds one download attempt.
 	DefaultAttemptTimeout = 10 * time.Minute
+	// DefaultStallTimeout ends a download that delivers no byte for this
+	// long (a stalled connection, common towards GitHub from Iran), so the
+	// next path or source is tried instead of waiting for the attempt
+	// timeout. A node downloads the whole file before it uploads it, so this
+	// also bounds the first byte through a node.
+	DefaultStallTimeout = 2 * time.Minute
 )
+
+// StallTimeout is DefaultStallTimeout; tests shorten it.
+var StallTimeout = DefaultStallTimeout
+
+// errStalled is the cause of a download ended by the stall watch.
+var errStalled = stderrors.New("no data received for a while: the connection stalled")
 
 // Fetcher downloads url and streams the body into w. Implementations: the
 // direct HTTPFetcher, the daemon's "via node" fetcher (fetch.proxy over the
@@ -211,6 +224,82 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// stallWriter records when the last byte arrived.
+type stallWriter struct {
+	w    io.Writer
+	last atomic.Int64 // unix nanoseconds
+}
+
+func (s *stallWriter) Write(p []byte) (int, error) {
+	n, err := s.w.Write(p)
+	if n > 0 {
+		s.last.Store(time.Now().UnixNano())
+	}
+	return n, err
+}
+
+// Truncate and Seek pass through, so a ChainFetcher below can rewind.
+func (s *stallWriter) Truncate(size int64) error {
+	if r, ok := s.w.(resettable); ok {
+		return r.Truncate(size)
+	}
+	return nil
+}
+
+func (s *stallWriter) Seek(offset int64, whence int) (int64, error) {
+	if r, ok := s.w.(resettable); ok {
+		return r.Seek(offset, whence)
+	}
+	return 0, nil
+}
+
+// watchedFetch is f.Fetch that is ended (transient errStalled) when no
+// byte arrives for StallTimeout, from the start or since the last byte.
+func watchedFetch(ctx context.Context, f Fetcher, url string, w io.Writer) error {
+	idle := StallTimeout
+	switch f.(type) {
+	case ChainFetcher, *ChainFetcher:
+		// It watches each of its paths, so a stalled one gives way to the
+		// next instead of ending the whole attempt.
+		return f.Fetch(ctx, url, w)
+	}
+	if idle <= 0 {
+		return f.Fetch(ctx, url, w)
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	var sw io.Writer = &stallWriter{w: w}
+	st := sw.(*stallWriter)
+	st.last.Store(time.Now().UnixNano())
+	if _, ok := w.(resettable); !ok {
+		sw = struct{ io.Writer }{st} // keep the target's own (non-)resettability
+	}
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		t := time.NewTicker(min(time.Second, idle/4+1))
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case now := <-t.C:
+				if now.Sub(time.Unix(0, st.last.Load())) >= idle {
+					cancel(errStalled)
+					return
+				}
+			}
+		}
+	}()
+	err := f.Fetch(ctx, url, sw)
+	if err != nil && stderrors.Is(context.Cause(ctx), errStalled) {
+		return fmt.Errorf("%w (%s)", errStalled, idle)
+	}
+	return err
+}
+
 // ChainFetcher tries each Fetcher in order until one succeeds. On the hub
 // the daemon puts the via-node fetcher first (after the first join every hub
 // download goes through a node, spec section 5) and the direct HTTPFetcher
@@ -240,7 +329,7 @@ func (c ChainFetcher) Fetch(ctx context.Context, url string, w io.Writer) error 
 			}
 		}
 		cw := &countingWriter{w: w}
-		err := f.Fetch(ctx, url, cw)
+		err := watchedFetch(ctx, f, url, cw)
 		if err == nil {
 			return nil
 		}
@@ -443,7 +532,7 @@ func FetchVerified(ctx context.Context, f Fetcher, urls []string, sha256hex stri
 		if err := resetFile(target); err != nil {
 			return Permanent(err)
 		}
-		if err := f.Fetch(actx, u, target); err != nil {
+		if err := watchedFetch(actx, f, u, target); err != nil {
 			return err
 		}
 		got, err := hashOpenFile(tmp)
@@ -491,7 +580,7 @@ func FetchBytes(ctx context.Context, f Fetcher, urls []string, opt RetryOptions)
 	var buf limitedBuffer
 	idx, err := retryURLs(ctx, urls, o, file, func(actx context.Context, u string) error {
 		buf = limitedBuffer{max: o.MaxBytes}
-		return f.Fetch(actx, u, &buf)
+		return watchedFetch(actx, f, u, &buf)
 	})
 	if err != nil {
 		return nil, -1, err
@@ -530,6 +619,17 @@ type limitedBuffer struct {
 	b   []byte
 	max int64
 }
+
+// Truncate and Seek make the buffer rewindable, so ChainFetcher can try
+// another path after one failed mid-stream.
+func (l *limitedBuffer) Truncate(size int64) error {
+	if size < int64(len(l.b)) {
+		l.b = l.b[:size]
+	}
+	return nil
+}
+
+func (l *limitedBuffer) Seek(int64, int) (int64, error) { return int64(len(l.b)), nil }
 
 func (l *limitedBuffer) Write(p []byte) (int, error) {
 	if int64(len(l.b))+int64(len(p)) > l.max {
