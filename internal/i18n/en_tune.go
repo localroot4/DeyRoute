@@ -28,29 +28,48 @@ const (
 	CLIColProfile   Key = "cli.col.profile"
 	CLIColPending   Key = "cli.col.pending"
 
-	CLITunePlanTitle   Key = "cli.tune.plan_title"
-	CLITuneHostHub     Key = "cli.tune.host_hub"
-	CLITuneHostNode    Key = "cli.tune.host_node"
-	CLITuneHostNothing Key = "cli.tune.host_nothing"
-	CLITuneHostSkipped Key = "cli.tune.host_skipped"
-	CLITuneHostPending Key = "cli.tune.host_pending"
-	CLITuneHostError   Key = "cli.tune.host_error"
-	CLITuneSummary     Key = "cli.tune.summary"
-	CLITuneUndo        Key = "cli.tune.undo"
-	CLITuneNothing     Key = "cli.tune.nothing"
-	CLITuneLost        Key = "cli.tune.lost"
-	CLITuneLostPending Key = "cli.tune.lost_pending"
-	CLITuneRestarts    Key = "cli.tune.restarts"
-	CLITuneApplied     Key = "cli.tune.applied"
-	CLITuneDryRun      Key = "cli.tune.dry_run"
-	CLITuneCheckClean  Key = "cli.tune.check_clean"
-	CLITuneCheckHost   Key = "cli.tune.check_host"
-	CLITuneCheckError  Key = "cli.tune.check_error"
-	CLITuneCheckOK     Key = "cli.tune.check_ok"
-	CLITuneRuntime     Key = "cli.tune.runtime"
-	CLITuneCheckFound  Key = "cli.tune.check_found"
-	CLITuneNodesTitle  Key = "cli.tune.nodes_title"
-	CLITuneOldAgent    Key = "cli.tune.old_agent"
+	CLITunePlanTitle       Key = "cli.tune.plan_title"
+	CLITuneHostHub         Key = "cli.tune.host_hub"
+	CLITuneHostNode        Key = "cli.tune.host_node"
+	CLITuneHostNothing     Key = "cli.tune.host_nothing"
+	CLITuneHostSkipped     Key = "cli.tune.host_skipped"
+	CLITuneHostPending     Key = "cli.tune.host_pending"
+	CLITuneHostError       Key = "cli.tune.host_error"
+	CLITuneSummary         Key = "cli.tune.summary"
+	CLITuneUndo            Key = "cli.tune.undo"
+	CLITuneNothing         Key = "cli.tune.nothing"
+	CLITuneLost            Key = "cli.tune.lost"
+	CLITuneLostPending     Key = "cli.tune.lost_pending"
+	CLITuneRestarts        Key = "cli.tune.restarts"
+	CLITuneApplied         Key = "cli.tune.applied"
+	CLITuneDryRun          Key = "cli.tune.dry_run"
+	CLITuneCheckClean      Key = "cli.tune.check_clean"
+	CLITuneCheckHost       Key = "cli.tune.check_host"
+	CLITuneCheckError      Key = "cli.tune.check_error"
+	CLITuneCheckOK         Key = "cli.tune.check_ok"
+	CLITuneRuntime         Key = "cli.tune.runtime"
+	CLITuneCheckFound      Key = "cli.tune.check_found"
+	CLITuneNodesTitle      Key = "cli.tune.nodes_title"
+	CLITuneOldAgent        Key = "cli.tune.old_agent"
+	CLITuneGroupSpeed      Key = "cli.tune.group_speed"
+	CLITuneGroupBuffers    Key = "cli.tune.group_buffers"
+	CLITuneGroupConns      Key = "cli.tune.group_conns"
+	CLITuneGroupKeepalive  Key = "cli.tune.group_keepalive"
+	CLITuneGroupConntrack  Key = "cli.tune.group_conntrack"
+	CLITuneGroupServices   Key = "cli.tune.group_services"
+	CLITuneGroupOther      Key = "cli.tune.group_other"
+	CLITuneNoLimit         Key = "cli.tune.no_limit"
+	CLIBBRValActive        Key = "cli.tune.bbr_active"
+	CLIBBRValInactive      Key = "cli.tune.bbr_inactive"
+	CLIBBRValMissing       Key = "cli.tune.bbr_missing"
+	CLITuneStatusSection   Key = "cli.tune.status_section"
+	CLITuneSettingsSection Key = "cli.tune.settings_section"
+	CLITuneTotalSection    Key = "cli.tune.total_section"
+	CLITuneLabelProfile    Key = "cli.tune.label_profile"
+	CLITuneLabelBBR        Key = "cli.tune.label_bbr"
+	CLITuneLabelServer     Key = "cli.tune.label_server"
+	CLITuneHostHubTitle    Key = "cli.tune.host_hub_title"
+	CLITuneHostNodeTitle   Key = "cli.tune.host_node_title"
 
 	// Measured facts ("2.0 GiB RAM · 2 CPUs · kernel 6.1.0 · eth0 MTU 1500").
 	TuneFactRAM       Key = "tune.fact.ram"
@@ -129,29 +148,48 @@ var tuneEN = map[Key]string{
 	CLIColProfile:   "PROFILE",
 	CLIColPending:   "PENDING",
 
-	CLITunePlanTitle:   "Automatic tuning plan",
-	CLITuneHostHub:     "hub",
-	CLITuneHostNode:    "node %s",
-	CLITuneHostNothing: "  nothing to change",
-	CLITuneHostSkipped: "  skipped %s: %s",
-	CLITuneHostPending: "  offline: it applies the plan when it reconnects",
-	CLITuneHostError:   "  could not compute a plan: %s",
-	CLITuneSummary:     "%d changes on %d servers.",
-	CLITuneUndo:        "Undo any time with: deyroute optimize revert",
-	CLITuneNothing:     "Nothing to change: automatic tuning is already in effect.",
-	CLITuneLost:        "The %d changes listed above are applied now.",
-	CLITuneLostPending: "Offline nodes (%s) apply their plan when they reconnect.",
-	CLITuneRestarts:    "Items marked \"restarts tunnels\" restart the active transport of the tunnels they name (users reconnect).",
-	CLITuneApplied:     "Automatic tuning applied (profile auto).",
-	CLITuneDryRun:      "Dry run: nothing was changed. Apply it with: deyroute optimize auto",
-	CLITuneCheckClean:  "Every tuned value is in effect.",
-	CLITuneCheckHost:   "%s · profile %s",
-	CLITuneCheckError:  "  not checked: %s",
-	CLITuneCheckOK:     "  every tuned value is in effect",
-	CLITuneRuntime:     "a runtime write",
-	CLITuneCheckFound:  "%d tuned values differ from what deyroute set.",
-	CLITuneNodesTitle:  "Nodes:",
-	CLITuneOldAgent:    "too old for auto (gets balanced)",
+	CLITunePlanTitle:       "Automatic tuning plan",
+	CLITuneHostHub:         "hub",
+	CLITuneHostNode:        "node %s",
+	CLITuneHostNothing:     "  nothing to change",
+	CLITuneHostSkipped:     "  skipped %s: %s",
+	CLITuneHostPending:     "  offline: it applies the plan when it reconnects",
+	CLITuneHostError:       "  could not compute a plan: %s",
+	CLITuneSummary:         "%d changes on %d servers.",
+	CLITuneUndo:            "Undo any time with: deyroute optimize revert",
+	CLITuneNothing:         "Nothing to change: automatic tuning is already in effect.",
+	CLITuneLost:            "The %d changes listed above are applied now.",
+	CLITuneLostPending:     "Offline nodes (%s) apply their plan when they reconnect.",
+	CLITuneRestarts:        "Items marked \"restarts tunnels\" restart the active transport of the tunnels they name (users reconnect).",
+	CLITuneApplied:         "Automatic tuning applied (profile auto).",
+	CLITuneDryRun:          "Dry run: nothing was changed. Apply it with: deyroute optimize auto",
+	CLITuneCheckClean:      "Every tuned value is in effect.",
+	CLITuneCheckHost:       "%s · profile %s",
+	CLITuneCheckError:      "  not checked: %s",
+	CLITuneCheckOK:         "  every tuned value is in effect",
+	CLITuneRuntime:         "a runtime write",
+	CLITuneCheckFound:      "%d tuned values differ from what deyroute set.",
+	CLITuneNodesTitle:      "Nodes:",
+	CLITuneOldAgent:        "too old for auto (gets balanced)",
+	CLITuneGroupSpeed:      "Speed and queues",
+	CLITuneGroupBuffers:    "Buffers (memory per connection)",
+	CLITuneGroupConns:      "Connections and ports",
+	CLITuneGroupKeepalive:  "Dead connections (keepalive)",
+	CLITuneGroupConntrack:  "Connection tracking",
+	CLITuneGroupServices:   "Services and memory limits",
+	CLITuneGroupOther:      "Other",
+	CLITuneNoLimit:         "no limit",
+	CLIBBRValActive:        "active",
+	CLIBBRValInactive:      "available, not active",
+	CLIBBRValMissing:       "not available in this kernel (skipped)",
+	CLITuneStatusSection:   "AUTOMATIC TUNING",
+	CLITuneSettingsSection: "SETTINGS IN EFFECT · %s",
+	CLITuneTotalSection:    "TOTAL",
+	CLITuneLabelProfile:    "Profile",
+	CLITuneLabelBBR:        "BBR",
+	CLITuneLabelServer:     "This server",
+	CLITuneHostHubTitle:    "HUB",
+	CLITuneHostNodeTitle:   "NODE %s",
 
 	TuneFactRAM:       "%s RAM",
 	TuneFactCPUs:      "%d CPU",

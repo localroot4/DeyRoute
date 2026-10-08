@@ -80,6 +80,7 @@ func screenEnv(t *testing.T, cols int) *env {
 		return demo.Traffic(testNow, q), nil
 	}
 	e.stub.OptimizeAutoPlanFn = func(context.Context, api.AutoOptions) (api.TunePlanReport, error) { return demo.TunePlan(), nil }
+	e.stub.OptimizeStatusFn = func(context.Context) (api.OptimizeStatus, error) { return demo.OptimizeStatus(), nil }
 	e.stub.DoctorCollectFn = func(context.Context, string) (api.DoctorData, error) {
 		return api.DoctorData{Role: "hub", Sections: map[string]string{"os": "Ubuntu 24.04"}, Findings: demo.DoctorFindings()}, nil
 	}
@@ -136,8 +137,14 @@ func cliScreens() []cliScreen {
 			e := screenEnv(t, 80)
 			return e.shoot(nil, "stats") + "\n" + e.shoot(nil, "stats", "main", "--period", "24h")
 		}},
-		{"optimize-auto", "deyroute optimize auto --dry-run", 128, func(t *testing.T) string {
-			return screenEnv(t, 128).shoot(nil, "optimize", "auto", "--dry-run")
+		{"status", "deyroute status", 100, func(t *testing.T) string {
+			return screenEnv(t, 100).shoot(nil, "status")
+		}},
+		{"optimize-auto", "deyroute optimize auto --dry-run", 100, func(t *testing.T) string {
+			return screenEnv(t, 100).shoot(nil, "optimize", "auto", "--dry-run")
+		}},
+		{"optimize-status", "deyroute optimize status", 100, func(t *testing.T) string {
+			return screenEnv(t, 100).shoot(nil, "optimize", "status")
 		}},
 		{"doctor", "deyroute doctor", 80, func(t *testing.T) string {
 			return screenEnv(t, 80).shoot(nil, "doctor")

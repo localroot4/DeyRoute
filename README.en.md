@@ -164,6 +164,16 @@ Type `deyroute` (or just `dey`) to open the menu. Press a number, then
   </picture>
 </p>
 
+The same screen without the menu is `deyroute status` (it stays tidy on a
+phone's narrow terminal too):
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-status-dark.svg">
+    <img src="docs/assets/screens/cli-status-light.svg" alt="deyroute status: a header with the version, the hub and how many nodes and tunnels are up; separate titled sections for tunnels, traffic, nodes and the last events.">
+  </picture>
+</p>
+
 Everything in the menu is also a command, handy for scripts (add `--json`):
 
 | I want to… | Run |
@@ -221,7 +231,14 @@ last question.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-optimize-auto-dark.svg">
-    <img src="docs/assets/screens/cli-optimize-auto-light.svg" alt="deyroute optimize auto --dry-run: for the hub and node de-1, a table of keys with their current and new values, when each takes effect and why; node nl-1 is offline and applies the plan when it reconnects; nothing was changed.">
+    <img src="docs/assets/screens/cli-optimize-auto-light.svg" alt="deyroute optimize auto --dry-run: a section for the hub and for node de-1; the settings in groups (speed, buffers) with their current and new values and the reasons under each group; node nl-1 is offline and applies the plan when it reconnects; the total at the end.">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-optimize-status-dark.svg">
+    <img src="docs/assets/screens/cli-optimize-status-light.svg" alt="deyroute optimize status: the profile, BBR and the measured server; the settings in effect on the hub in groups; the nodes and their tuning state.">
   </picture>
 </p>
 

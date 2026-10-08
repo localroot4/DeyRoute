@@ -132,7 +132,8 @@ func TestOptimizeCommands(t *testing.T) {
 	}
 	out := e.ok("optimize", "apply", "--profile", "balanced")
 	require.Equal(t, "balanced", profile)
-	for _, want := range []string{"Kernel profile balanced applied.", "BBR: active", "net.core.default_qdisc = fq", "net.core.somaxconn = 65535", "! w1"} {
+	for _, want := range []string{"Kernel profile balanced applied.", "  BBR       active\n", "  Speed and queues\n    default_qdisc   fq\n",
+		"  Connections and ports\n    somaxconn   65535\n", "! w1"} {
 		require.Contains(t, out, want)
 	}
 	doc := e.json("optimize", "apply", "--profile", "aggressive")
@@ -144,11 +145,11 @@ func TestOptimizeCommands(t *testing.T) {
 	}
 	out = e.ok("optimize", "revert")
 	require.Contains(t, out, "Kernel settings restored (profile now: off).")
-	require.Contains(t, out, "BBR: not available")
+	require.Contains(t, out, "  BBR       not available in this kernel")
 	e.stub.OptimizeRevertFn = func(context.Context) (api.OptimizeStatus, error) {
 		return api.OptimizeStatus{Profile: "off", BBRAvailable: true}, nil
 	}
-	require.Contains(t, e.ok("optimize", "revert"), "BBR: available, not active")
+	require.Contains(t, e.ok("optimize", "revert"), "  BBR       available, not active\n")
 }
 
 // samplePlan is an automatic tuning plan of the hub, an online node with a
@@ -217,15 +218,14 @@ func TestOptimizeAuto(t *testing.T) {
 	require.Empty(t, applied)
 	for _, want := range []string{
 		"Automatic tuning plan\n",
-		"\nhub · 2.0 GiB RAM · 2 CPU · kernel 6.1.0-21-amd64 · eth0 MTU 1500 · qdisc fq_codel\n",
-		"  KEY                     NOW       NEW                EFFECT        WHY\n",
-		"  net.core.rmem_max       212992    33554432           now           larger buffers for 2 GiB RAM\n",
-		"  net.core.default_qdisc  fq_codel  fq                 after reboot  fq paces every flow\n",
-		"  deyroute-hub.service    -         GOMEMLIMIT=256MiB  next start    keeps the hub's memory bounded\n",
-		"\nnode de-1 · 1.0 GiB RAM · 1 CPU · kernel 5.15.0 · container: lxc\n  nothing to change\n",
-		"  skipped net.core.rmem_max, net.core.wmem_max: DEY-X064 kernel tuning is not possible in a container (lxc)\n",
-		"\nnode nl-1\n  offline: it applies the plan when it reconnects\n",
-		"\n3 changes on 3 servers.\nUndo any time with: deyroute optimize revert\n",
+		"\n── HUB ──", "\n  2.0 GiB RAM · 2 CPU · kernel 6.1.0-21-amd64 · eth0 MTU 1500 · qdisc fq_codel\n",
+		"\n  Speed and queues\n    default_qdisc   fq_codel → fq  (after reboot)\n      · fq paces every flow\n",
+		"\n  Buffers (memory per connection)\n    rmem_max   208 KiB → 32 MiB\n      · larger buffers for 2 GiB RAM\n",
+		"\n  Services and memory limits\n    deyroute-hub.service   - → GOMEMLIMIT=256MiB  (next start)\n      · keeps the hub's memory bounded\n",
+		"\n── NODE de-1 ──", "\n  1.0 GiB RAM · 1 CPU · kernel 5.15.0 · container: lxc\n  nothing to change\n",
+		"  – skipped rmem_max, wmem_max: DEY-X064 kernel tuning is not possible in a container (lxc)\n",
+		"\n── NODE nl-1 ──", "  offline: it applies the plan when it reconnects\n",
+		"\n── TOTAL ──", "\n  3 changes on 3 servers.\n  Undo any time with: deyroute optimize revert\n",
 		"Dry run: nothing was changed. Apply it with: deyroute optimize auto\n",
 	} {
 		require.Contains(t, out, want)
@@ -236,7 +236,7 @@ func TestOptimizeAuto(t *testing.T) {
 	// printed, nothing is applied, exit 3.
 	errOut := e.fail(deyerr.ExitNeedConfirm, "optimize", "auto")
 	require.Contains(t, errOut, "The 3 changes listed above are applied now. Offline nodes (nl-1) apply their plan when they reconnect.")
-	require.Contains(t, e.out.String(), "net.core.rmem_max")
+	require.Contains(t, e.out.String(), "rmem_max   208 KiB → 32 MiB")
 	require.Empty(t, applied)
 
 	// A declined confirmation applies nothing.
@@ -303,7 +303,7 @@ func TestOptimizeAuto(t *testing.T) {
 		return api.TunePlanReport{Hash: "h2", Hosts: []api.TuneHost{{Host: "hub", Role: "hub", Changes: []api.TuneChange{}}}}, nil
 	}
 	out = e.ok("optimize", "auto")
-	require.Contains(t, out, "hub\n  nothing to change\n")
+	require.Contains(t, out, "── HUB ──")
 	require.Contains(t, out, "Nothing to change: automatic tuning is already in effect.")
 	doc = e.json("optimize", "auto")
 	require.Equal(t, "h2", doc["hash"])
@@ -315,7 +315,7 @@ func TestOptimizeAuto(t *testing.T) {
 	}
 	require.Contains(t, e.fail(deyerr.ExitNeedConfirm, "optimize", "auto", "--backends"),
 		`Items marked "restarts tunnels" restart the active transport of the tunnels they name (users reconnect).`)
-	require.Contains(t, e.out.String(), "restarts tunnels  restarts main")
+	require.Contains(t, e.out.String(), "  Services and memory limits\n    tuning.backend_tier   - → medium  (restarts tunnels)\n      · restarts main\n")
 
 	// Errors of the plan are shown as they are.
 	e.stub.OptimizeAutoPlanFn = nil
@@ -385,8 +385,8 @@ func TestOptimizeStatus(t *testing.T) {
 	}
 	out := e.ok("optimize", "status")
 	for _, want := range []string{
-		"Kernel profile: auto\n", "  BBR: active\n", "  hub: 4.0 GiB RAM · 4 CPU · kernel 6.8.0\n",
-		"Nodes:\n  NODE  ONLINE  PROFILE   PENDING\n",
+		"── AUTOMATIC TUNING ──", "  Profile       auto\n", "  BBR           active\n", "  This server   4.0 GiB RAM · 4 CPU · kernel 6.8.0\n",
+		"── NODES ──", "\n  NODE  ONLINE  PROFILE   PENDING\n",
 		"  de-1  yes     auto      no\n",
 		"  nl-1  no      -         yes\n",
 		"  fr-1  yes     balanced  no\n",

@@ -9,6 +9,7 @@ package demo
 import (
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
@@ -306,5 +307,26 @@ func DoctorFindings() []api.DoctorFinding {
 		{Rule: "R08", Severity: "warn", Message: i18n.T(i18n.DoctorR08MsgSoon, "of tunnel panel", 12, "2026-10-12"),
 			Fix: i18n.T(i18n.DoctorR08FixTunnel, "panel")},
 		{Rule: "R10", Severity: "info", Message: i18n.T(i18n.DoctorR10Msg, "de-1"), Fix: i18n.T(i18n.DoctorR10Fix)},
+	}
+}
+
+// OptimizeStatus is `deyroute optimize status` on the demo hub after
+// `optimize auto`: what the plan of TunePlan set on the hub, BBR active,
+// de-1 tuned and nl-1 still to apply it.
+func OptimizeStatus() api.OptimizeStatus {
+	plan := TunePlan()
+	hub := plan.Hosts[0]
+	applied := map[string]string{}
+	for _, c := range hub.Changes {
+		if !strings.Contains(c.Key, " ") && !strings.HasPrefix(c.Key, "/") {
+			applied[c.Key] = c.To
+		}
+	}
+	return api.OptimizeStatus{
+		Profile: "auto", BBRAvailable: true, BBRActive: true, Applied: applied, Facts: hub.Facts,
+		Nodes: []api.NodeTuneStatus{
+			{Node: "de-1", Online: true, Profile: "auto", AutoCapable: true},
+			{Node: "nl-1", Online: false, Profile: "auto", Pending: true, AutoCapable: true},
+		},
 	}
 }

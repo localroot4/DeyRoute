@@ -1921,6 +1921,13 @@ const (
 	CLIDaemonNodeShort           Key = "cli.daemon_node_short"
 	CLIRelayShort                Key = "cli.relay_short"
 	CLIFrontShimShort            Key = "cli.front_shim_short"
+	CLIStatusNodesOnline         Key = "cli.status.nodes_online"
+	CLIStatusTunnelsUp           Key = "cli.status.tunnels_up"
+	CLIStatusWarnings            Key = "cli.status.warnings"
+	CLIColAddress                Key = "cli.col.address"
+	CLIColControl                Key = "cli.col.control"
+	CLINodeCPUValue              Key = "cli.node.cpu_value"
+	CLINodeRAMValue              Key = "cli.node.ram_value"
 	CLIFlagFrontShimConfig       Key = "cli.flag_front_shim_config"
 	CLIFrontShort                Key = "cli.front_short"
 	CLIFrontLong                 Key = "cli.front_long"
@@ -2494,6 +2501,13 @@ var cliEN = map[Key]string{
 	CLIDaemonNodeShort:           "Run the node agent (deyroute-node.service)",
 	CLIRelayShort:                "Run one half of a direct/native relay (deyroute-tun@ unit)",
 	CLIFrontShimShort:            "Carry a node's tunnel connections through the hub's front (deyroute-tun@ unit)",
+	CLIStatusNodesOnline:         "nodes %d/%d online",
+	CLIStatusTunnelsUp:           "tunnels %d/%d UP",
+	CLIStatusWarnings:            "WARNINGS",
+	CLIColAddress:                "ADDRESS",
+	CLIColControl:                "CONTROL",
+	CLINodeCPUValue:              "%.0f%%",
+	CLINodeRAMValue:              "%d MB",
 	CLIFlagFrontShimConfig:       "front-shim.json of this tunnel instance",
 	CLIFrontShort:                "Reach the hub through Cloudflare when the direct path is cut",
 	CLIFrontLong:                 "Front mode puts the hub behind a Cloudflare record: nodes whose direct path to the hub is filtered connect, and carry their tunnels, through Cloudflare instead. Turn it on here, then point each such node at it with the command this prints.",

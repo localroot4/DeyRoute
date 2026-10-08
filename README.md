@@ -218,6 +218,19 @@ UUID یا رمز، SNI، مسیر) را دقیقاً مثل قبل نگه دار
 
 <div dir="rtl">
 
+همین صفحه بدون منو، با `deyroute status` (در ترمینال باریک موبایل هم مرتب می‌ماند):
+
+</div>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-status-dark.svg">
+    <img src="docs/assets/screens/cli-status-light.svg" alt="دستور deyroute status: سرتیتر با نسخه، هاب و تعداد نودها و تانل‌های فعال؛ بخش‌های جدا با خط عنوان برای تانل‌ها، ترافیک، نودها و آخرین رویدادها.">
+  </picture>
+</p>
+
+<div dir="rtl">
+
 هر کاری که در منو می‌شود با یک دستور هم می‌شود؛ برای اسکریپت‌ها هم مناسب است (با `--json`):
 
 | می‌خواهم… | این را بزنم |
@@ -282,7 +295,14 @@ UUID یا رمز، SNI، مسیر) را دقیقاً مثل قبل نگه دار
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-optimize-auto-dark.svg">
-    <img src="docs/assets/screens/cli-optimize-auto-light.svg" alt="دستور deyroute optimize auto --dry-run: برای هاب و نود de-1 جدول کلیدها با مقدار فعلی و جدید، زمان اثر و دلیل هر کدام؛ نود nl-1 آفلاین است و وقتی وصل شود برنامه را اجرا می‌کند؛ چیزی عوض نشده است.">
+    <img src="docs/assets/screens/cli-optimize-auto-light.svg" alt="دستور deyroute optimize auto --dry-run: برای هاب و نود de-1 بخش جدا؛ تنظیم‌ها در گروه‌های سرعت و بافرها با مقدار فعلی و جدید و دلیل هر گروه؛ نود nl-1 آفلاین است و وقتی وصل شود برنامه را اجرا می‌کند؛ در آخر جمع تغییرها.">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screens/cli-optimize-status-dark.svg">
+    <img src="docs/assets/screens/cli-optimize-status-light.svg" alt="دستور deyroute optimize status: پروفایل، وضعیت BBR و مشخصات سرور؛ تنظیم‌های فعال هاب در گروه‌های جدا؛ جدول نودها با وضعیت تنظیم هر کدام.">
   </picture>
 </p>
 

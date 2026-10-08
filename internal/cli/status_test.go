@@ -58,13 +58,14 @@ func TestStatusHuman(t *testing.T) {
 	e.stub.StatusFn = func(context.Context) (api.Status, error) { return sampleStatus(), nil }
 	out := e.ok("status")
 	for _, want := range []string{
-		"DEYROUTE Tunnel Manager", "Hub: ir-1 (5.6.7.8)", "Mode: Simple", "2 nodes", "2 tunnels UP",
-		"TUNNELS", "NAME", "NODE (active)", "TRANSPORT", "STATE", "RTT", "UP-TIME", "PORTS",
+		"DEYROUTE Tunnel Manager", "Hub: ir-1 (5.6.7.8)", "Mode: Simple", "nodes 1/2 online", "tunnels 2/8 UP",
+		"── TUNNELS ──", "NAME", "NODE (active)", "TRANSPORT", "STATE", "RTT", "UP-TIME", "PORTS",
 		"Main 443/2053", "de-1 Germany 1", "backhaul/wssmux", "● UP", "41ms", "3d 04:12", "443,2053",
 		"◐ DEGR", "00:03:10", "27015/udp", "DISABLED", "PAUSED", "SWITCHING", "STARTING", "○ DOWN", "INIT", "WEIRD",
-		"NODES", "● online", "ctl 39ms", "v1.0.0", "cpu 3%", "ram 121MB", "○ offline", "v0.9.0!",
-		"LAST EVENTS", "switch", "down", "probe failed 3x", "node offline", "degraded",
-		"! games: DEY-B007 UDP blocked", "! nl-1: old version", "! plain", "! main: TLS certificate expires",
+		"── NODES ──", "  NODE  NAME           ADDRESS  STATE      CONTROL  VERSION  CPU  RAM\n",
+		"  de-1  Germany 1      1.2.3.4  ● online   39ms     v1.0.0   3%   121 MB\n", "○ offline", "v0.9.0!",
+		"── LAST EVENTS ──", "switch", "down", "probe failed 3x", "node offline", "degraded",
+		"── WARNINGS ──", "! games: DEY-B007 UDP blocked", "! nl-1: old version", "! plain", "! main: TLS certificate expires",
 	} {
 		require.Contains(t, out, want)
 	}
@@ -73,11 +74,24 @@ func TestStatusHuman(t *testing.T) {
 	e.g.Caps = func() tui.Caps { return tui.Caps{Unicode: false, Width: 80} }
 	out = e.ok("status")
 	require.NotContains(t, out, "UP-TIME")
-	require.NotContains(t, out, "ctl 39ms")
+	require.NotContains(t, out, "CONTROL")
 	require.Contains(t, out, "* UP")
+	require.Contains(t, out, "-- TUNNELS ---")
+	// No line is wider than the terminal.
+	for _, l := range strings.Split(out, "\n") {
+		require.LessOrEqual(t, len(l), 80, l)
+	}
+
 	for _, r := range out {
 		require.Less(t, r, rune(128), "non-ASCII in %q", out)
 	}
+	// A phone: 60 columns, still every line fits, the node id only.
+	e.g.Caps = func() tui.Caps { return tui.Caps{Unicode: true, Width: 60} }
+	out = e.ok("status")
+	for _, l := range strings.Split(out, "\n") {
+		require.LessOrEqual(t, width(l), 60, l)
+	}
+	require.Contains(t, out, " nodes 1/2 online")
 }
 
 func TestStatusNodeAndEmpty(t *testing.T) {
@@ -259,6 +273,6 @@ func TestStatusLongNodeVersion(t *testing.T) {
 	st.Nodes[0].Version = "v0.3.0-edge.18"
 	e.stub.StatusFn = func(context.Context) (api.Status, error) { return st, nil }
 	out := e.ok("status")
-	require.Regexp(t, `v0\.3\.0-edge\.18 +cpu`, out)
-	require.Regexp(t, `v0\.9\.0! +cpu`, out)
+	require.Regexp(t, `v0\.3\.0-edge\.18 +3% +121 MB`, out)
+	require.Regexp(t, `v0\.9\.0! +0% +0 MB`, out)
 }

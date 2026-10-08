@@ -117,16 +117,21 @@ func (g *Globals) sparklines(ctx context.Context, l api.Local, st api.Status) *a
 // the TUI.
 func (g *Globals) dashboard(st api.Status, tr *api.TrafficReport) string {
 	var b strings.Builder
-	b.WriteString(g.statusLine(st) + "\n")
+	for _, l := range g.statusLines(st) {
+		b.WriteString(l + "\n")
+	}
 	if line := frontLine(st); line != "" {
-		b.WriteString(" " + line + "\n")
+		b.WriteString(" " + g.fit(line) + "\n")
+	}
+	section := func(title, hint string) {
+		b.WriteString("\n" + g.sectionHead(title, hint) + "\n")
 	}
 	if st.NodeSelf != nil {
-		b.WriteString(" " + i18n.T(i18n.TUIDashNode) + "\n")
+		section(i18n.T(i18n.TUIDashNode), "")
 		b.WriteString(g.nodeSelfLines(*st.NodeSelf))
 	}
 	if st.NodeSelf == nil || len(st.Tunnels) > 0 {
-		b.WriteString(" " + i18n.T(i18n.TUIDashTunnels) + "\n")
+		section(i18n.T(i18n.TUIDashTunnels), "")
 		if len(st.Tunnels) == 0 {
 			b.WriteString("  " + i18n.T(i18n.CLIStatusNoTunnels) + "\n")
 		} else {
@@ -135,26 +140,29 @@ func (g *Globals) dashboard(st api.Status, tr *api.TrafficReport) string {
 	}
 	if lines := tui.TrafficBlock(g.outCaps(), st.Tunnels, tr, 0); len(lines) > 0 {
 		title, hint := tui.TrafficBlockTitle(g.outCaps())
-		b.WriteString(" " + title + "  " + hint + "\n")
+		section(strings.TrimSpace(title), strings.TrimSpace(hint))
 		for _, l := range lines {
 			b.WriteString(l + "\n")
 		}
 	}
 	if st.NodeSelf == nil {
-		b.WriteString(" " + i18n.T(i18n.TUIDashNodes) + "\n")
+		section(i18n.T(i18n.TUIDashNodes), "")
 		if len(st.Nodes) == 0 {
 			b.WriteString("  " + i18n.T(i18n.CLIStatusNoNodes) + "\n")
 		} else {
 			b.WriteString(g.nodeTable(st.Nodes))
 		}
 	}
-	b.WriteString(" " + i18n.T(i18n.TUIDashEvents) + "\n")
+	section(i18n.T(i18n.TUIDashEvents), "")
 	if len(st.Events) == 0 {
 		b.WriteString("  " + i18n.T(i18n.TUIDashNoEvents) + "\n")
 	} else {
 		b.WriteString(g.eventLines(st.Events))
 	}
-	b.WriteString(g.warningLines(st))
+	if w := g.warningLines(st); w != "" {
+		section(i18n.T(i18n.CLIStatusWarnings), "")
+		b.WriteString(w)
+	}
 	return g.text(b.String())
 }
 
@@ -177,11 +185,13 @@ func frontLine(st api.Status) string {
 	return i18n.T(i18n.CLIStatusFront, f.Domain, f.Port, up, who, f.TLS)
 }
 
-// statusLine is the line under the banner: "DEYROUTE Tunnel Manager  v1.0.0
-// · Hub: ir-1 (5.6.7.8) · Mode: Simple · 2 nodes · 1 tunnel UP".
-func (g *Globals) statusLine(st api.Status) string {
+// statusLines are the two lines on top of the dashboard: the product and
+// version, then the server and the counts ("Hub: ir-1 (5.6.7.8) · Mode:
+// Simple · nodes 2/2 online · tunnels 1/1 UP").
+func (g *Globals) statusLines(st api.Status) []string {
 	sep := "  " + g.sym().sep + "  "
-	parts := []string{i18n.T(i18n.BannerProduct) + "  " + version.Display()}
+	head := " " + g.styleOut(styleBold, i18n.T(i18n.BannerProduct)) + "  " + version.Display()
+	var parts []string
 	switch {
 	case st.Hub != nil:
 		parts = append(parts, i18n.T(i18n.BannerHub, st.Hub.Name, st.Hub.PublicIP))
@@ -189,20 +199,33 @@ func (g *Globals) statusLine(st api.Status) string {
 		if st.Hub.UIMode == "advanced" {
 			mode = i18n.T(i18n.ModeAdvanced)
 		}
-		parts = append(parts, i18n.T(i18n.BannerMode, mode), i18n.T(i18n.BannerNodes, len(st.Nodes)))
+		online := 0
+		for _, n := range st.Nodes {
+			if n.Online {
+				online++
+			}
+		}
+		parts = append(parts, i18n.T(i18n.BannerMode, mode), i18n.T(i18n.CLIStatusNodesOnline, online, len(st.Nodes)))
 	case st.NodeSelf != nil:
 		parts = append(parts, i18n.T(i18n.BannerNode, st.NodeSelf.ID, hubLabel(*st.NodeSelf)))
 	}
-	up := 0
-	for _, t := range st.Tunnels {
-		if t.Enabled && t.State == state.StateUp {
-			up++
-		}
-	}
 	if st.NodeSelf == nil {
-		parts = append(parts, i18n.T(i18n.BannerTunnelsUp, up))
+		up, enabled := 0, 0
+		for _, t := range st.Tunnels {
+			if t.Enabled {
+				enabled++
+				if t.State == state.StateUp {
+					up++
+				}
+			}
+		}
+		parts = append(parts, i18n.T(i18n.CLIStatusTunnelsUp, up, enabled))
 	}
-	return " " + strings.Join(parts, sep)
+	lines := []string{head}
+	for _, l := range joinWrap(parts, sep, g.lineWidth()-1) {
+		lines = append(lines, " "+l)
+	}
+	return lines
 }
 
 // stateCell is "● UP": the word is always there, never only a color.
@@ -253,19 +276,32 @@ func (g *Globals) tunnelTable(ts []api.TunnelInfo) string {
 	ell := g.sym().ell
 	now := g.Now()
 	num := len(strconv.Itoa(len(ts)))
-	header := []string{i18n.T(i18n.TUIColName), i18n.T(i18n.TUIColNode), i18n.T(i18n.TUIColTransport), i18n.T(i18n.TUIColState)}
+	tight := g.lineWidth() < 80 // a phone: the node id only, shorter names
+	nodeCol := i18n.T(i18n.TUIColNode)
+	if tight {
+		nodeCol = i18n.T(i18n.CLIColNode)
+	}
+	header := []string{i18n.T(i18n.TUIColName), nodeCol, i18n.T(i18n.TUIColTransport), i18n.T(i18n.TUIColState)}
 	if !narrow {
 		header = append(header, i18n.T(i18n.TUIColRTT), i18n.T(i18n.TUIColUptime))
 	}
 	minW := []int{16, 16, 19, 8, 7, 11}
 	caps := []int{16, 16, 0, 0, 0, 0}
+	if tight {
+		minW = []int{8, 6, 10, 6, 7, 11}
+		caps = []int{12, 10, 17, 0, 0, 0}
+	}
 	rows := make([][]string, len(ts))
 	for i, t := range ts {
 		name := t.Name
 		if name == "" {
 			name = t.ID
 		}
-		node := orDash(strings.TrimSpace(t.ActiveNode + " " + t.ActiveNodeName))
+		node := t.ActiveNode
+		if !tight && t.ActiveNodeName != "" && t.ActiveNodeName != t.ActiveNode {
+			node += " " + t.ActiveNodeName
+		}
+		node = orDash(strings.TrimSpace(node))
 		if t.ActiveNode == "" {
 			node = orDash("")
 		}
@@ -304,51 +340,63 @@ func (g *Globals) tunnelTable(ts []api.TunnelInfo) string {
 		for c, cell := range r {
 			line += pad(trunc(cell, widths[c]-2, ell), widths[c])
 		}
-		b.WriteString(strings.TrimRight(line+portsText(ts[i].Ports), " ") + "\n")
+		b.WriteString(g.fit(strings.TrimRight(line+portsText(ts[i].Ports), " ")) + "\n")
 	}
 	return b.String()
 }
 
-// nodeTable renders the NODES table of the dashboard.
+// nodeTable renders the NODES table of the dashboard with a header row;
+// the NAME column only when a name differs from its id, and below 100
+// columns without CONTROL.
 func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 	s := g.sym()
-	idW, nameW, ipW := 0, 0, 0
+	named := false
 	for _, n := range ns {
-		idW = max(idW, width(n.ID))
-		nameW = max(nameW, width(n.Name))
-		ipW = max(ipW, width(nodeAddr(n)))
-	}
-	verOf := func(n api.NodeInfo) string {
-		if n.Version == "" {
-			return orDash("")
+		if g.lineWidth() < 80 {
+			break // a phone: the id is enough
 		}
-		ver := i18n.T(i18n.TUINodeVersion, strings.TrimPrefix(n.Version, "v"))
-		if !n.Compatible {
-			ver += "!"
-		}
-		return ver
+		named = named || (n.Name != "" && n.Name != n.ID)
 	}
-	// A pre-release version (0.3.0-edge.18) is longer than the usual 9.
-	verW := 9
-	for _, n := range ns {
-		verW = max(verW, width(verOf(n))+1)
+	header := []string{i18n.T(i18n.CLIColNode)}
+	if named {
+		header = append(header, i18n.T(i18n.TUIColName))
 	}
-	var b strings.Builder
+	header = append(header, i18n.T(i18n.CLIColAddress), i18n.T(i18n.TUIColState))
+	if !g.narrow() {
+		header = append(header, i18n.T(i18n.CLIColControl))
+	}
+	header = append(header, i18n.T(i18n.CLIColVersion), i18n.T(i18n.CLIColCPU), i18n.T(i18n.CLIColRAM))
+	rows := make([][]string, 0, len(ns))
 	for _, n := range ns {
 		st := s.up + " " + i18n.T(i18n.TUIOnline)
 		if !n.Online {
 			st = s.down + " " + i18n.T(i18n.TUIOffline)
 		}
-		line := "  " + pad(n.ID, idW+2) + pad(n.Name, nameW+2) + pad(nodeAddr(n), ipW+3) + pad(st, 11)
+		row := []string{n.ID}
+		if named {
+			row = append(row, orDash(n.Name))
+		}
+		row = append(row, orDash(nodeAddr(n)), st)
 		if !g.narrow() {
 			ctl := orDash("")
 			if n.Online && n.ControlRTTms > 0 {
 				ctl = ms(n.ControlRTTms)
 			}
-			line += pad(i18n.T(i18n.TUINodeCtl, ctl), 11)
+			row = append(row, ctl)
 		}
-		line += pad(verOf(n), verW) + pad(i18n.T(i18n.TUINodeCPU, n.CPUPercent), 8) + i18n.T(i18n.TUINodeRAM, n.RAMBytes/(1<<20))
-		b.WriteString(line + "\n")
+		ver := orDash("")
+		if n.Version != "" {
+			ver = i18n.T(i18n.TUINodeVersion, strings.TrimPrefix(n.Version, "v"))
+			if !n.Compatible {
+				ver += "!"
+			}
+		}
+		row = append(row, ver, i18n.T(i18n.CLINodeCPUValue, n.CPUPercent), i18n.T(i18n.CLINodeRAMValue, n.RAMBytes/(1<<20)))
+		rows = append(rows, row)
+	}
+	var b strings.Builder
+	for _, l := range tableLines(header, rows) {
+		b.WriteString(g.fit(l) + "\n")
 	}
 	return b.String()
 }
@@ -396,7 +444,7 @@ func (g *Globals) eventLines(evs []state.Event) string {
 	for _, e := range evs {
 		who, typ := trunc(eventWho(e), whoW, ell), trunc(eventWord(e.Type), typW, ell)
 		line := "  " + localTime(e.At, "15:04:05") + "  " + pad(who, whoW+3) + pad(typ, typW+3) + eventMessage(e)
-		b.WriteString(strings.TrimRight(line, " ") + "\n")
+		b.WriteString(g.fit(strings.TrimRight(line, " ")) + "\n")
 	}
 	return b.String()
 }
@@ -426,9 +474,8 @@ func (g *Globals) warningLines(st api.Status) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n")
 	for _, l := range lines {
-		b.WriteString("  " + g.sym().warn + " " + l + "\n")
+		b.WriteString(g.fit("  "+g.sym().warn+" "+l) + "\n")
 	}
 	return b.String()
 }
