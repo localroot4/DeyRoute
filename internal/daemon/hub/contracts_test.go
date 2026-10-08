@@ -25,6 +25,11 @@ func TestRollbackRefusedWithNewerKeys(t *testing.T) {
 	require.Equal(t, deyerr.S011, codeOf(err))
 	_, err = env.h.Local().UpdateApply(ctxT(t), "0.2.0-edge.1", nil)
 	require.Equal(t, deyerr.S011, codeOf(err))
+	_, err = env.h.Local().UpdateApply(ctxT(t), "0.3.0-edge.14", nil)
+	require.Equal(t, deyerr.S011, codeOf(err), "an edge build before the keys existed")
+	// A newer edge build of 0.3.0 knows the keys: never refused for them.
+	_, err = env.h.Local().UpdateApply(ctxT(t), "0.3.0-edge.34", nil)
+	require.NotEqual(t, deyerr.S011, codeOf(err))
 
 	_, err = env.h.mutate(func(c *config.Config) error {
 		c.Monitoring = nil

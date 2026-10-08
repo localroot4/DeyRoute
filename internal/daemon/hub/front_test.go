@@ -588,7 +588,8 @@ func TestUpdateGuardsWithoutFront(t *testing.T) {
 
 func TestOlderThanFront(t *testing.T) {
 	for v, want := range map[string]bool{
-		"0.1.0": true, "0.2.9": true, "v0.2.9": true, "0.3.0-rc.1": true,
+		"0.1.0": true, "0.2.9": true, "v0.2.9": true, "0.3.0-edge.14": true, "0.3.0-edge.2": true,
+		"0.3.0-edge.15": false, "0.3.0-edge.34": false, "v0.3.0-edge.100": false, "0.3.0-rc.1": false,
 		"0.3.0": false, "0.3.1": false, "1.0.0": false, "dev": false, "": false,
 	} {
 		require.Equal(t, want, olderThanFront(v), v)

@@ -321,8 +321,11 @@ func (h *Hub) refuseOlderThanFront(want string) error {
 // FirstTrafficVersion is the first release that knows the monitoring and
 // automatic tuning keys of config.yaml (config.NewerKeysInUse). An older
 // binary refuses them, so rollback and downgrades below it are refused
-// while any is set (DEY-S011).
-const FirstTrafficVersion = "0.3.0"
+// while any is set (DEY-S011). It is the first edge build that has them:
+// every later 0.3.0-edge.N, the 0.3.0 pre-releases after it and 0.3.0
+// itself know them (a plain "0.3.0" here made every edge build of 0.3.0
+// look older, so `deyroute update` refused the newest edge build).
+const FirstTrafficVersion = "0.3.0-edge.15"
 
 // refuseWhileNewerKeysInUse returns DEY-S011 while config.yaml sets keys
 // that a release before FirstTrafficVersion refuses (strict decoding).
