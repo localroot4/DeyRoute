@@ -51,6 +51,8 @@ for v in "$DEY_VERSION" "$DEY_OLD_VERSION"; do
   rm -rf "$d"
 done
 cp "$ROOT/installer/install.sh" "$ROOT/internal/backend/backends.yaml" "$ROOT/CHANGELOG.md" "$DEY_DIST/"
+# The fake Cloudflare edge of scenario S34 (not part of a release).
+(cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH go build -trimpath -o "$DEY_DIST/it-fakecdn" ./test/integration/fakecdn)
 (cd "$DEY_DIST" && sha256sum deyroute_*.tar.gz install.sh backends.yaml CHANGELOG.md >SHA256SUMS)
 
 if [ -n "${SCENARIOS:-}" ]; then

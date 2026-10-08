@@ -42,6 +42,8 @@ const DefaultIdleCut = 100 * time.Second
 type Options struct {
 	// OriginAddr is the host:port the CDN forwards to (the hub front listener).
 	OriginAddr string
+	// Listen is the address the edge listens on ("" = 127.0.0.1:0).
+	Listen string
 	// OriginTLS makes the origin leg TLS with the certificate not verified, like
 	// Cloudflare's "Full" SSL mode. False is plain HTTP ("Flexible", HTTP ports).
 	OriginTLS bool
@@ -170,7 +172,11 @@ func NewCDN(o Options) (*CDN, error) {
 			},
 		}
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	listen := o.Listen
+	if listen == "" {
+		listen = "127.0.0.1:0"
+	}
+	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +199,15 @@ func (c *CDN) CAPool() *x509.CertPool {
 		return x509.NewCertPool()
 	}
 	return c.certs.Pool
+}
+
+// CAPEM returns the PEM of the CA that issued the edge certificate (nil when
+// the CDN was given its own Cert or serves plain clients).
+func (c *CDN) CAPEM() []byte {
+	if c.certs == nil {
+		return nil
+	}
+	return c.certs.CAPEM
 }
 
 // Configure changes the options of a running CDN.
