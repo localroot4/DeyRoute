@@ -132,8 +132,8 @@ func TestOptimizeCommands(t *testing.T) {
 	}
 	out := e.ok("optimize", "apply", "--profile", "balanced")
 	require.Equal(t, "balanced", profile)
-	for _, want := range []string{"Kernel profile balanced applied.", "  BBR       active\n", "  ✔ Speed and queues        fq\n",
-		"  ✔ Connections and ports   queue 65535\n", "! w1", "deyroute optimize status --details"} {
+	for _, want := range []string{"Kernel profile balanced applied.", "BBR ● active", "│ ✔ Speed and queues      │ fq          │\n",
+		"│ ✔ Connections and ports │ queue 65535 │\n", "! w1", "deyroute optimize status --details"} {
 		require.Contains(t, out, want)
 	}
 	doc := e.json("optimize", "apply", "--profile", "aggressive")
@@ -145,11 +145,11 @@ func TestOptimizeCommands(t *testing.T) {
 	}
 	out = e.ok("optimize", "revert")
 	require.Contains(t, out, "Kernel settings restored (profile now: off).")
-	require.Contains(t, out, "  BBR       not available in this kernel")
+	require.Contains(t, out, "BBR ○ not available in this kernel")
 	e.stub.OptimizeRevertFn = func(context.Context) (api.OptimizeStatus, error) {
 		return api.OptimizeStatus{Profile: "off", BBRAvailable: true}, nil
 	}
-	require.Contains(t, e.ok("optimize", "revert"), "  BBR       available, not active\n")
+	require.Contains(t, e.ok("optimize", "revert"), "BBR ◐ available, not active\n")
 }
 
 // samplePlan is an automatic tuning plan of the hub, an online node with a
@@ -385,12 +385,13 @@ func TestOptimizeStatus(t *testing.T) {
 	}
 	out := e.ok("optimize", "status")
 	for _, want := range []string{
-		"── AUTOMATIC TUNING ──", "  Profile       auto\n", "  BBR           active\n", "  This server   4.0 GiB RAM · 4 CPU · kernel 6.8.0\n",
-		"── NODES ──", "  │ NODE │ ONLINE │ PROFILE  │ PENDING │\n",
-		"  │ de-1 │ yes    │ auto     │ no      │\n",
-		"  │ nl-1 │ no     │ -        │ yes     │\n",
-		"  │ fr-1 │ yes    │ balanced │ no      │\n",
-		"  ! node fr-1: too old for auto (gets balanced)\n",
+		"── AUTOMATIC TUNING ──", " Profile ● auto   │   BBR ● active   │   Nodes ◐ 2/3 in sync\n",
+		"── THIS SERVER ──", "│ Memory      │ 4.0 GiB", "│ CPU         │ 4 cores", "│ Kernel      │ 6.8.0",
+		"│ Connections │ not tracked (conntrack not loaded) │",
+		"── NODES ──", "  │ NODE │ STATE     │ PROFILE  │ TUNING                 │\n",
+		"  │ de-1 │ ● online  │ auto     │ ✔ applied              │\n",
+		"  │ nl-1 │ ○ offline │ -        │ ◐ waiting              │\n",
+		"  │ fr-1 │ ● online  │ balanced │ ! balanced (old agent) │\n",
 	} {
 		require.Contains(t, out, want)
 	}
@@ -670,4 +671,21 @@ func TestUpdateCommands(t *testing.T) {
 		return deyerr.New(deyerr.S003, deyerr.Params{"component": "deyroute", "reason": "no deyroute.prev"})
 	}
 	require.Contains(t, e.fail(1, "update", "--rollback", "--yes"), "DEY-S003")
+}
+
+// optimize status --details lists every key of each group in a table under
+// the group's summary and explanation.
+func TestOptimizeStatusDetails(t *testing.T) {
+	e := newEnv(t)
+	e.stub.OptimizeStatusFn = func(context.Context) (api.OptimizeStatus, error) {
+		return api.OptimizeStatus{Profile: "auto", BBRAvailable: true, BBRActive: true,
+			Applied: map[string]string{"net.core.somaxconn": "65535", "net.core.rmem_max": "33554432"},
+			Facts:   &api.TuneFacts{MemBytes: 1 << 30, CPUs: 1, ConntrackLoaded: true, ConntrackMax: 65536, ConntrackCount: 60000}}, nil
+	}
+	out := e.ok("optimize", "status", "--details")
+	for _, want := range []string{"│ KEY", "│ VALUE", "│ rmem_max", "32 MiB", "│ somaxconn", "65535", "│ CPU         │ 1 core",
+		"60,000 of 65,536 tracked (92%)", "█████████░"} {
+		require.Contains(t, out, want)
+	}
+	require.NotContains(t, out, "--details\n", "no hint when the details are shown")
 }

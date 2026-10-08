@@ -325,6 +325,7 @@ func OptimizeStatus() api.OptimizeStatus {
 		}
 	}
 	facts := api.TuneFacts(f)
+	facts.MemAvailableBytes, facts.ConntrackCount = 1288<<20, 2068 // live values, not plan inputs
 	return api.OptimizeStatus{
 		Profile: "auto", BBRAvailable: true, BBRActive: true, Applied: applied, Facts: &facts,
 		Nodes: []api.NodeTuneStatus{
