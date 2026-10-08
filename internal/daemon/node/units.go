@@ -25,6 +25,7 @@ import (
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/firewall"
+	"github.com/localroot4/deyroute/internal/front"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/sysctl"
 	"github.com/localroot4/deyroute/internal/systemd"
@@ -234,7 +235,7 @@ func (a *agent) checkConfigDir(command, dir string, in systemd.Instance) (string
 // (/var/lib/deyroute/bin/<b>/<version>/<binary>) and the deyroute binary itself
 // with its data-plane subcommands (built-in relay, WireGuard setup). The
 // environment may not redirect the dynamic loader.
-func (a *agent) checkCommands(command, b string, u backend.UnitSpec) error {
+func (a *agent) checkCommands(command, b, dir string, u backend.UnitSpec) error {
 	if len(u.ExecStart) == 0 {
 		return a.refuse(command, "the unit has no ExecStart")
 	}
@@ -244,7 +245,7 @@ func (a *agent) checkCommands(command, b string, u backend.UnitSpec) error {
 		if len(argv) == 0 {
 			return a.refuse(command, "empty unit command")
 		}
-		if !a.allowedCommand(b, argv) {
+		if !a.allowedCommand(b, dir, argv) {
 			// Only the program is named: arguments may carry settings.
 			return a.refuse(command, fmt.Sprintf("unit command %q is not a %s binary or a deyroute relay/wg command", argv[0], b))
 		}
@@ -261,7 +262,7 @@ func (a *agent) checkCommands(command, b string, u backend.UnitSpec) error {
 }
 
 // allowedCommand reports whether argv may run in a unit of backend b.
-func (a *agent) allowedCommand(b string, argv []string) bool {
+func (a *agent) allowedCommand(b, dir string, argv []string) bool {
 	p := argv[0]
 	if path.Clean(p) != p {
 		return false
@@ -275,7 +276,14 @@ func (a *agent) allowedCommand(b string, argv []string) bool {
 				return false
 			}
 			for _, c := range cmds {
-				if c[0] == a.o.SelfBinary || !a.allowedCommand(b, c) {
+				if c[0] == a.o.SelfBinary {
+					// Only the front shim of this very config directory.
+					if !front.IsShimArgv(a.o.SelfBinary, dir, c) {
+						return false
+					}
+					continue
+				}
+				if !a.allowedCommand(b, dir, c) {
 					return false
 				}
 			}
@@ -403,7 +411,10 @@ func (a *agent) backendRender(ctx context.Context, args api.BackendRenderArgs) e
 	if err := a.checkFiles(cmd, args.Files); err != nil {
 		return err
 	}
-	if err := a.checkCommands(cmd, b, args.Unit); err != nil {
+	if err := a.checkCommands(cmd, b, args.ConfigDir, args.Unit); err != nil {
+		return err
+	}
+	if err := a.completeShimFile(cmd, &args); err != nil {
 		return err
 	}
 	if wd := args.Unit.WorkingDirectory; wd != "" && wd != args.ConfigDir {

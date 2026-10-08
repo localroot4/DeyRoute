@@ -25,6 +25,8 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/secrets"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/exec"
+	"github.com/localroot4/deyroute/internal/front"
 	"github.com/localroot4/deyroute/internal/install"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/systemd"
@@ -122,7 +124,29 @@ type Input struct {
 	NodeTier func(node string) string
 	// WGMTU is tuning.wg_mtu (0 = the WireGuard default, 1420).
 	WGMTU int
+	// FrontNode reports whether a node reaches the hub through the front
+	// (nodes[].route: front). Such a node gets only the rungs the front can
+	// carry (FrontEligible; the others are skipped with DEY-B012), and its
+	// side dials 127.0.0.1, where the shim listens (see internal/front).
+	// nil = no front node.
+	FrontNode func(node string) bool
+	// TrustPEM is the CA bundle a node trusts for the hub's control
+	// certificate (both CAs during rotate-ca); the shim verifies the hub
+	// with it. nil = CAPEM.
+	TrustPEM []byte
 }
+
+// FrontEligible reports whether transport tr can run through the front: a
+// reverse transport (the node dials the hub's control port) that needs no
+// UDP between the hosts and no companion process, and whose hub side does
+// not filter the node's address (Waterwall whitelists it, but through the
+// front every connection comes from the hub's loopback).
+func FrontEligible(tr backend.Transport, companion, needsUDP bool) bool {
+	return tr.Direction == backend.Reverse && !needsUDP && !companion && tr.Backend != "waterwall"
+}
+
+// frontNode reports whether node goes through the front.
+func (p *planner) frontNode(node string) bool { return p.in.FrontNode != nil && p.in.FrontNode(node) }
 
 // Side is one rendered half of a candidate, ready to be written.
 type Side struct {
@@ -372,6 +396,10 @@ func (p *planner) candidate(node config.Node, rung string) (Candidate, *SkippedC
 		}
 		needsUDP = needsUDP || ctr.NeedsUDP
 	}
+	if p.frontNode(node.ID) && !FrontEligible(tr, companion, needsUDP) {
+		e := deyerr.New(deyerr.B012, deyerr.Params{"transport": rung, "tunnel": t.ID})
+		return Candidate{}, skipped(node.ID, rung, e, deyerr.B012)
+	}
 	if needsUDP && p.in.UDPProbe != nil {
 		if passed, tested := p.in.UDPProbe(node.ID); !passed {
 			e := deyerr.New(deyerr.B007, deyerr.Params{"transport": rung, "tunnel": t.ID})
@@ -416,7 +444,16 @@ func (p *planner) renderCandidate(b backend.Backend, tr backend.Transport, ri ba
 	if err != nil {
 		return Candidate{}, err
 	}
-	nodeSide, err := p.side(b, tr, ri, backend.SideNode, instance)
+	nri := ri
+	if p.frontNode(ri.Node.ID) {
+		if !FrontEligible(tr, ri.UsesCompanion(), backend.NeedsUDPFor(tr, ri.Tunnel.Protos())) {
+			return Candidate{}, deyerr.New(deyerr.B012, deyerr.Params{"transport": tr.ID(), "tunnel": ri.Tunnel.ID})
+		}
+		// The node's client dials the shim on its own loopback; the shim
+		// carries each connection through the front to the hub.
+		nri.Hub.PublicIP, nri.Hub.PublicIP6 = "127.0.0.1", ""
+	}
+	nodeSide, err := p.side(b, tr, nri, backend.SideNode, instance)
 	if err != nil {
 		return Candidate{}, err
 	}
@@ -550,6 +587,11 @@ func (p *planner) side(b backend.Backend, tr backend.Transport, ri backend.Rende
 		}
 		return Side{}, err
 	}
+	if s == backend.SideNode && p.frontNode(ri.Node.ID) {
+		if err := p.wrapShim(&r, ri); err != nil {
+			return Side{}, err
+		}
+	}
 	if err := systemd.ValidateUnitSpec(r.Unit); err != nil {
 		return Side{}, err
 	}
@@ -581,6 +623,41 @@ func (p *planner) side(b backend.Backend, tr backend.Transport, ri backend.Rende
 		Masquerade: append([]string(nil), r.Masquerade...),
 		IPForward:  r.IPForward,
 	}, nil
+}
+
+// wrapShim runs the node side of a front node under the shim: the unit
+// becomes `deyroute pair deyroute front-shim --config <dir>/front-shim.json
+// -- <client>` and the shim file gets the hub's part (port, tunnel, node,
+// token, CA); the node fills in how it reaches the front.
+func (p *planner) wrapShim(r *backend.Rendered, ri backend.RenderInput) error {
+	argv := r.Unit.ExecStart
+	if len(argv) == 0 || (len(argv) > 1 && argv[0] == ri.Paths.SelfBinary && argv[1] == exec.PairCommand) {
+		return deyerr.New(deyerr.B012, deyerr.Params{"transport": ri.Transport.ID(), "tunnel": ri.Tunnel.ID})
+	}
+	f := front.ShimFile{
+		Port: ri.ControlPort, Tunnel: ri.Tunnel.ID, Node: ri.Node.ID,
+		Token: ri.Secrets.Token, CA: string(p.trustPEM()),
+	}
+	data, err := f.Marshal()
+	if err != nil {
+		return err
+	}
+	files := make(map[string][]byte, len(r.Files)+1)
+	for k, v := range r.Files {
+		files[k] = v
+	}
+	files[front.ShimFileName] = data
+	r.Files = files
+	r.Unit.ExecStart = front.ShimArgv(ri.Paths.SelfBinary, ri.Paths.ConfigDir, argv)
+	return nil
+}
+
+// trustPEM is Input.TrustPEM, else Input.CAPEM.
+func (p *planner) trustPEM() []byte {
+	if len(p.in.TrustPEM) > 0 {
+		return p.in.TrustPEM
+	}
+	return p.in.CAPEM
 }
 
 // caBundle is the content of ca.crt for transport tr: the internal CA

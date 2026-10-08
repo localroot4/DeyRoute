@@ -14,6 +14,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/secrets"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/front"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/systemd"
 	"github.com/localroot4/deyroute/internal/tlsutil"
@@ -562,4 +563,63 @@ func TestPlanBackendTiers(t *testing.T) {
 	}
 	_, nl2 := files(again, "nl-1")
 	require.Contains(t, string(nl2), `tier = "large"`)
+}
+
+// A node that reaches the hub through the front gets only the rungs the
+// front carries (reverse, no UDP, no companion); its side dials the shim on
+// 127.0.0.1 and runs under it, with the hub's part of the shim file. Other
+// nodes and the hub side are unchanged.
+func TestPlanFrontNode(t *testing.T) {
+	e := newEnv(t)
+	e.fakes["rev"].render = func(in backend.RenderInput, side backend.Side) (backend.Rendered, error) {
+		r := defaultRender(in, side)
+		r.Files["hub.txt"] = []byte(in.Hub.PublicIP + "|" + in.Hub.PublicIP6)
+		return r, nil
+	}
+	in := e.input()
+	in.FrontNode = func(node string) bool { return node == "de-1" }
+	in.TrustPEM = []byte("TRUST BUNDLE\n")
+	plan, err := Plan(in)
+	require.NoError(t, err)
+
+	codes := skippedCodes(plan)
+	for _, id := range []string{"de-1|fwd/quic", "de-1|nat/wg", "de-1|native/relay"} {
+		require.Equal(t, deyerr.B012, codes[id], id)
+	}
+	for id, c := range codes {
+		if strings.HasPrefix(id, "nl-1|") {
+			require.NotEqual(t, deyerr.B012, c, "a direct node is not limited: %s", id)
+		}
+	}
+	ids := candidateIDs(plan)
+	require.Contains(t, ids, "de-1|rev/plain")
+	require.Contains(t, ids, "de-1|rev/tls")
+	require.Contains(t, ids, "nl-1|native/relay")
+
+	tok, err := e.sec.Token("main")
+	require.NoError(t, err)
+	for _, c := range plan.Candidates {
+		hubFile := string(c.Hub.Files["hub.txt"])
+		nodeFile := string(c.NodeSide.Files["hub.txt"])
+		_, shim := c.NodeSide.Files[front.ShimFileName]
+		if c.Node != "de-1" {
+			require.False(t, shim, c.TransportID)
+			continue
+		}
+		if c.Backend == "rev" {
+			require.Equal(t, "5.6.7.8|", hubFile, "the hub side keeps the hub's address")
+			require.Equal(t, "127.0.0.1|", nodeFile, "the node side dials the shim")
+		}
+		require.True(t, shim, c.TransportID)
+		f, err := front.ParseShimFile(c.NodeSide.Files[front.ShimFileName])
+		require.NoError(t, err)
+		require.Equal(t, front.ShimFile{Port: c.ControlPort, Tunnel: "main", Node: "de-1", Token: tok, CA: "TRUST BUNDLE\n"}, f)
+		require.False(t, f.Complete(), "the node fills in the front address and secret")
+		dir := c.NodeSide.ConfigDir
+		argv := c.NodeSide.Unit.ExecStart
+		require.Equal(t, front.ShimArgv(config.BinaryPath, dir, argv[7:]), argv)
+		require.True(t, front.IsShimArgv(config.BinaryPath, dir, argv[2:6]))
+		require.Contains(t, string(c.NodeSide.DropIn), "front-shim", "the drop-in runs the wrapped command")
+		require.NotContains(t, strings.Join(c.Hub.Unit.ExecStart, " "), "front-shim")
+	}
 }

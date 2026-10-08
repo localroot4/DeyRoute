@@ -58,6 +58,17 @@ func DialControl(ctx context.Context, t Target) (net.Conn, error) {
 
 // DialControl is the method form of the package-level DialControl.
 func (d *Dialer) DialControl(ctx context.Context, t Target) (net.Conn, error) {
+	return d.dial(ctx, t, controlPath)
+}
+
+// DialData opens a data-plane connection for the backend control port port:
+// GET /<secret>/t/<port> (see Shim). Failures are *DialError.
+func (d *Dialer) DialData(ctx context.Context, t Target, port int) (net.Conn, error) {
+	return d.dial(ctx, t, dataPath(port))
+}
+
+// dial connects to the front t and upgrades GET /<secret>/<path>.
+func (d *Dialer) dial(ctx context.Context, t Target, path string) (net.Conn, error) {
 	fail := func(class, reason string, err error) error {
 		return &DialError{Class: class, Reason: reason, Addr: t.Addr(), Err: err}
 	}
@@ -116,7 +127,7 @@ func (d *Dialer) DialControl(ctx context.Context, t Target) (net.Conn, error) {
 		}
 		conn = tc
 	}
-	br, derr := upgrade(conn, t)
+	br, derr := upgrade(conn, t, path)
 	if derr != nil {
 		return nil, conclude(derr.Class, derr)
 	}
@@ -147,12 +158,12 @@ func (d *Dialer) dialTCP(ctx context.Context, t Target) (net.Conn, error) {
 
 // upgrade performs the HTTP/1.1 WebSocket upgrade on conn and returns the
 // reader that holds whatever followed the answer head.
-func upgrade(conn net.Conn, t Target) (*bufio.Reader, *DialError) {
+func upgrade(conn net.Conn, t Target, path string) (*bufio.Reader, *DialError) {
 	fail := func(class string, status int, reason string, err error) *DialError {
 		return &DialError{Class: class, Status: status, Reason: reason, Addr: t.Addr(), Err: err}
 	}
 	key := wsconn.NewKey()
-	if _, err := io.WriteString(conn, upgradeRequest(t, key)); err != nil {
+	if _, err := io.WriteString(conn, upgradeRequest(t, path, key)); err != nil {
 		return nil, fail(ClassDial, 0, ioReason(err), err)
 	}
 	cr := &capReader{r: conn, n: maxResponseHead}
@@ -197,9 +208,9 @@ func upgrade(conn net.Conn, t Target) (*bufio.Reader, *DialError) {
 // upgradeRequest renders the request. It is written by hand so the bytes are
 // exactly what a browser-like client sends and nothing else: no
 // Sec-WebSocket-Extensions or -Protocol, no cf-* headers.
-func upgradeRequest(t Target, key string) string {
+func upgradeRequest(t Target, path, key string) string {
 	var b strings.Builder
-	b.WriteString("GET /" + t.Secret + "/c HTTP/1.1\r\n")
+	b.WriteString("GET /" + t.Secret + "/" + path + " HTTP/1.1\r\n")
 	b.WriteString("Host: " + t.hostHeader() + "\r\n")
 	b.WriteString("User-Agent: " + userAgent + "\r\n")
 	b.WriteString("Upgrade: websocket\r\n")

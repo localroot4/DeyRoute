@@ -43,6 +43,23 @@ All notable changes to DEYROUTE are documented here. The format follows
   and clamps on the node's interface too, so TCP connections through a
   smaller tunnel MTU no longer stall on large packets.
 
+### Added — tunnels through Cloudflare (front mode)
+
+- When the direct path between the hub and a node is filtered, the node can
+  reach the hub through a Cloudflare record, and now its **tunnels** go that
+  way too, not only the control channel. `deyroute front enable --domain
+  <record>` on the hub (port 2053 by default) prints the Cloudflare settings
+  and the `deyroute node set-hub 'wss://…'` line for the node; `front status`
+  and `front disable` complete it. Guide: docs/fa/front.md, docs/en/front.md.
+- On such a node every backend client dials a local shim
+  (`deyroute front-shim`, run next to it by `deyroute pair`), which opens one
+  WebSocket through Cloudflare per connection, with the hub's own TLS inside
+  and a signed preface; the hub accepts it only for a control port of that
+  node's rungs. Transports that need UDP, a direct connection to the node or
+  the node's real address are skipped for it (DEY-B012).
+- Lab scenario S34: with the node's direct path to the hub cut, a tunnel
+  carries 20 MB intact through a Cloudflare-like edge.
+
 ### Fixed — Reality decoys
 
 - With the first built-in decoy, `www.microsoft.com`, `xray/reality` failed

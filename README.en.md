@@ -256,6 +256,11 @@ your own: `deyroute ladder create NAME --rungs a,b,c`, then
 - Keep your service's own TLS settings (Reality, WebSocket, and so on). DEYROUTE does not replace them, it carries them.
 - Optional: choose three decoy sites for the Reality rungs (real HTTPS sites with TLS 1.3, open from your hub and not blocked in Iran). Run `deyroute config edit` and under `hub:` set `decoy_snis: [site1.com, site2.com, site3.com]`.
 - Keep a backup node in another provider or country.
+- When the direct path between the hub and a node is filtered (a connection
+  opens, then is cut after a few exchanges), send the node and its tunnels
+  through **Cloudflare**: `deyroute front enable --domain t1.example.com` on
+  the hub, then the command it prints on the node. Guide:
+  [through Cloudflare](docs/en/front.md).
 - No tool can promise to be invisible. DEYROUTE's job is to make recognising and blocking you expensive, and to recover quickly when it happens.
 
 ## Keeping it safe
@@ -325,6 +330,7 @@ More: [troubleshooting](docs/en/troubleshooting.md).
 | [Traffic and load](docs/en/monitoring.md) | what is counted, charts, history, monthly quota |
 | [Automatic tuning](docs/en/tuning.md) | what is measured and changed, and how to undo it |
 | [Filtering FAQ](docs/en/faq-filtering.md) | the ladder, skipped methods, decoy sites |
+| [Through Cloudflare](docs/en/front.md) | when the direct path between hub and node is filtered |
 | [Troubleshooting](docs/en/troubleshooting.md) | doctor, logs, common codes |
 | [Security](docs/en/security.md) | control channel, tokens, firewall, rotation |
 | Reference | [error codes](docs/ERRORS.md) · [`--json` output](docs/cli-json.md) · [backends](docs/backends/) |

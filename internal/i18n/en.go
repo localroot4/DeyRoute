@@ -1920,6 +1920,28 @@ const (
 	CLIDaemonHubShort            Key = "cli.daemon_hub_short"
 	CLIDaemonNodeShort           Key = "cli.daemon_node_short"
 	CLIRelayShort                Key = "cli.relay_short"
+	CLIFrontShimShort            Key = "cli.front_shim_short"
+	CLIFlagFrontShimConfig       Key = "cli.flag_front_shim_config"
+	CLIFrontShort                Key = "cli.front_short"
+	CLIFrontLong                 Key = "cli.front_long"
+	CLIFrontEnableShort          Key = "cli.front_enable_short"
+	CLIFrontEnableExample        Key = "cli.front_enable_example"
+	CLIFlagFrontDomain           Key = "cli.flag_front_domain"
+	CLIFlagFrontPort             Key = "cli.flag_front_port"
+	CLIFlagFrontTLS              Key = "cli.flag_front_tls"
+	CLIFrontStatusShort          Key = "cli.front_status_short"
+	CLIFrontStatusExample        Key = "cli.front_status_example"
+	CLIFrontDisableShort         Key = "cli.front_disable_short"
+	CLIFrontDisableExample       Key = "cli.front_disable_example"
+	CLIFrontDisabledNode         Key = "cli.front_disabled_node"
+	CLIFrontHubOnly              Key = "cli.front_hub_only"
+	CLIFrontListening            Key = "cli.front_listening"
+	CLIFrontNotListening         Key = "cli.front_not_listening"
+	CLIFrontOff                  Key = "cli.front_off"
+	CLIFrontOn                   Key = "cli.front_on"
+	CLIFrontNodes                Key = "cli.front_nodes"
+	CLIFrontCloudflare           Key = "cli.front_cloudflare"
+	CLIFrontNodeCommand          Key = "cli.front_node_command"
 	CLIWGShort                   Key = "cli.wg_short"
 	CLIPairShort                 Key = "cli.pair_short"
 )
@@ -2471,6 +2493,28 @@ var cliEN = map[Key]string{
 	CLIDaemonHubShort:            "Run the hub daemon (deyroute-hub.service)",
 	CLIDaemonNodeShort:           "Run the node agent (deyroute-node.service)",
 	CLIRelayShort:                "Run one half of a direct/native relay (deyroute-tun@ unit)",
+	CLIFrontShimShort:            "Carry a node's tunnel connections through the hub's front (deyroute-tun@ unit)",
+	CLIFlagFrontShimConfig:       "front-shim.json of this tunnel instance",
+	CLIFrontShort:                "Reach the hub through Cloudflare when the direct path is cut",
+	CLIFrontLong:                 "Front mode puts the hub behind a Cloudflare record: nodes whose direct path to the hub is filtered connect, and carry their tunnels, through Cloudflare instead. Turn it on here, then point each such node at it with the command this prints.",
+	CLIFrontEnableShort:          "Turn the Cloudflare front on (hub)",
+	CLIFrontEnableExample:        "  deyroute front enable --domain t1.example.com\n  deyroute front enable --domain t1.example.com --port 8443",
+	CLIFlagFrontDomain:           "the Cloudflare record (orange cloud) that points to this hub",
+	CLIFlagFrontPort:             "a port Cloudflare proxies (default 2053; 2053 2083 2087 2096 8443 are HTTPS, 8080 8880 2052 2082 2086 2095 plain HTTP)",
+	CLIFlagFrontTLS:              "origin TLS: auto (Cloudflare SSL Full or Flexible), off (Flexible only), custom",
+	CLIFrontStatusShort:          "Show the Cloudflare front and the command for the nodes (hub)",
+	CLIFrontStatusExample:        "  deyroute front status",
+	CLIFrontDisableShort:         "Turn the Cloudflare front off (hub)",
+	CLIFrontDisableExample:       "  deyroute front disable",
+	CLIFrontDisabledNode:         "! node %s used the front: on it run  deyroute node set-hub %s",
+	CLIFrontHubOnly:              "deyroute front runs on the hub; on a node use: deyroute node set-hub '<target the hub printed>'",
+	CLIFrontListening:            "listening",
+	CLIFrontNotListening:         "NOT listening (see: deyroute logs hub)",
+	CLIFrontOff:                  "Cloudflare front: off. Turn it on with: deyroute front enable --domain <your Cloudflare record>",
+	CLIFrontOn:                   "Cloudflare front: on · %s:%d · %s · tls %s",
+	CLIFrontNodes:                "Nodes through the front: %s",
+	CLIFrontCloudflare:           "In Cloudflare (once):\n   1. DNS: an A record %s -> %s with the orange cloud (Proxied) on\n   2. SSL/TLS -> Overview: mode %s\n   3. Network: WebSockets on\nIn the firewall panel of this server's provider: allow TCP port %d (deyroute opens it to Cloudflare's addresses only).",
+	CLIFrontNodeCommand:          "On each node that should go through Cloudflare, run (keep it private, it holds the front's secret path):",
 	CLIWGShort:                   "Configure a WireGuard interface (deyroute-tun@ unit)",
 	CLIPairShort:                 "Run a backend and its UDP companion process together (deyroute-tun@ unit)",
 }

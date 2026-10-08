@@ -60,6 +60,12 @@ type ServerOptions struct {
 	// minute; a negative FailLimit turns the limiter off.
 	FailLimit  int
 	FailWindow time.Duration
+	// Data serves an upgraded data connection GET /<secret>/t/<port> (see
+	// DataHandler); it owns the connection and returns when it ended. Nil
+	// answers those paths with the decoy.
+	Data func(c net.Conn, port int)
+	// MaxData bounds the concurrent data connections (0 = DefaultMaxDataConns).
+	MaxData int
 
 	// trust overrides peerTrusted (tests: a peer that is not loopback).
 	trust func(netip.Addr) bool
@@ -101,6 +107,9 @@ type Server struct {
 	wsIdle        time.Duration
 	pingEvery     time.Duration
 
+	data      func(net.Conn, int)
+	dataSlots chan struct{}
+
 	slots     chan struct{}
 	maxUntrst int32
 	untrusted atomic.Int32
@@ -110,6 +119,7 @@ type Server struct {
 
 	mu     sync.Mutex
 	active map[net.Conn]struct{} // connections in the pre-auth phase
+	dataC  map[net.Conn]struct{} // data connections being served
 	closed bool
 
 	done      chan struct{}
@@ -140,6 +150,8 @@ func NewServer(ln net.Listener, o ServerOptions) (*Server, error) {
 		pingEvery:     o.PingInterval,
 		out:           make(chan *Conn),
 		active:        map[net.Conn]struct{}{},
+		dataC:         map[net.Conn]struct{}{},
+		data:          o.Data,
 		done:          make(chan struct{}),
 		failed:        make(chan struct{}),
 	}
@@ -174,6 +186,11 @@ func NewServer(ln net.Listener, o ServerOptions) (*Server, error) {
 		window = defaultFailWindow
 	}
 	s.fails = newFailLimiter(limit, window)
+	maxData := o.MaxData
+	if maxData <= 0 {
+		maxData = DefaultMaxDataConns
+	}
+	s.dataSlots = make(chan struct{}, maxData)
 
 	switch o.TLSMode {
 	case "", config.FrontTLSAuto:
@@ -242,6 +259,9 @@ func (s *Server) Close() error {
 		s.mu.Lock()
 		s.closed = true
 		for c := range s.active {
+			_ = c.Close()
+		}
+		for c := range s.dataC {
 			_ = c.Close()
 		}
 		s.mu.Unlock()
@@ -470,7 +490,11 @@ func (s *Server) handle(raw net.Conn, trustedPeer bool, release func()) {
 		}
 		s.fails.fail(failKey)
 	}
-	if !secretOK || !isControlPath(segs) || !validUpgrade(req) || br.Buffered() != 0 {
+	port := 0
+	if s.data != nil {
+		port = dataPort(segs)
+	}
+	if !secretOK || (!isControlPath(segs) && port == 0) || !validUpgrade(req) || br.Buffered() != 0 {
 		s.writeDecoy(conn, req.Method, req.RequestURI)
 		closeConn()
 		return
@@ -489,6 +513,11 @@ func (s *Server) handle(raw net.Conn, trustedPeer bool, release func()) {
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
+	if port != 0 {
+		s.serveData(raw, conn, port, remote, release)
+		handed = true
+		return
+	}
 	wc := wsconn.New(conn, nil, wsconn.Config{
 		PingInterval: s.pingEvery,
 		IdleTimeout:  s.wsIdle,
@@ -507,6 +536,42 @@ func (s *Server) handle(raw net.Conn, trustedPeer bool, release func()) {
 	case <-s.done:
 		_ = fc.Close()
 	}
+}
+
+// serveData runs an upgraded data connection: it leaves the pre-auth set
+// (and gives its slot back) and is tracked as a data connection until the
+// handler returns. Over the data limit the connection is closed.
+func (s *Server) serveData(raw, conn net.Conn, port int, remote net.Addr, release func()) {
+	s.untrack(raw)
+	release()
+	select {
+	case s.dataSlots <- struct{}{}:
+	default:
+		s.log.Warn("front: too many data connections; one was closed", "limit", cap(s.dataSlots))
+		_ = conn.Close()
+		return
+	}
+	defer func() { <-s.dataSlots }()
+	wc := wsconn.New(conn, nil, wsconn.Config{
+		PingInterval: s.pingEvery,
+		IdleTimeout:  s.wsIdle,
+		RemoteAddr:   remote,
+		Via:          ViaFront,
+	})
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		_ = wc.Close()
+		return
+	}
+	s.dataC[wc] = struct{}{}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.dataC, wc)
+		s.mu.Unlock()
+	}()
+	s.data(wc, port)
 }
 
 // outer returns the connection the HTTP request is read from: raw itself, or
