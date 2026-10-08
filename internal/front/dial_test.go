@@ -133,7 +133,7 @@ func TestSchemeFollowsConfigPorts(t *testing.T) {
 func TestUpgradeRequestBytes(t *testing.T) {
 	tg, err := NewTarget("front.example.com:2053", "", "", testSecret)
 	require.NoError(t, err)
-	got := upgradeRequest(tg, "dGhlIHNhbXBsZSBub25jZQ==")
+	got := upgradeRequest(tg, controlPath, "dGhlIHNhbXBsZSBub25jZQ==")
 	want := "GET /" + testSecret + "/c HTTP/1.1\r\n" +
 		"Host: front.example.com:2053\r\n" +
 		"User-Agent: " + userAgent + "\r\n" +
@@ -150,9 +150,9 @@ func TestUpgradeRequestBytes(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(userAgent), "dey")
 
 	tg, _ = NewTarget("front.example.com:443", "", "", testSecret)
-	assert.Contains(t, upgradeRequest(tg, "k"), "Host: front.example.com\r\n")
+	assert.Contains(t, upgradeRequest(tg, controlPath, "k"), "Host: front.example.com\r\n")
 	tg, _ = NewTarget("[2001:db8::1]:8443", "", "", testSecret)
-	got = upgradeRequest(tg, "k")
+	got = upgradeRequest(tg, controlPath, "k")
 	assert.Contains(t, got, "Host: [2001:db8::1]:8443\r\n")
 	assert.Contains(t, got, "Origin: https://[2001:db8::1]\r\n")
 }
