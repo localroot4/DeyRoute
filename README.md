@@ -8,6 +8,16 @@
 
 **فارسی** · [English](README.en.md)
 
+<p>
+<a href="https://github.com/localroot4/DeyRoute/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/localroot4/DeyRoute?include_prereleases&label=release&color=0e8a16"></a>
+<a href="https://github.com/localroot4/DeyRoute/actions/workflows/ci.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/localroot4/DeyRoute/ci.yml?branch=main&label=tests"></a>
+<a href="https://github.com/localroot4/DeyRoute/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/localroot4/DeyRoute/total?color=1f6feb"></a>
+<a href="https://github.com/localroot4/DeyRoute/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/localroot4/DeyRoute?color=e3b341"></a>
+<img alt="Ubuntu and Debian, amd64 and arm64" src="https://img.shields.io/badge/Ubuntu%20%7C%20Debian-amd64%20%7C%20arm64-555">
+</p>
+
+اگر DEYROUTE به کارتان آمد، با یک ⭐ کمک کنید دیگران هم پیدایش کنند.
+
 [شروع سریع](#شروع-سریع-۵-دقیقه) ·
 [کار روزمره](#کار-روزمره) ·
 [پایش ترافیک](#پایش-ترافیک) ·
@@ -24,6 +34,8 @@
 <div dir="rtl">
 
 ## DEYROUTE چیست؟
+
+یک مدیر تانل (تونل) کامل برای اتصال سرور ایران به سرور خارج: به‌جای اینکه Backhaul، Rathole، FRP، Xray Reality، Hysteria2 یا Waterwall را دستی و جدا جدا راه بیندازید و هر بار که فیلتر شد دستی عوضش کنید، DEYROUTE همه را با یک دستور نصب می‌کند، سالم بودنشان را مدام آزمایش می‌کند و وقتی یکی بسته شد، خودکار سراغ بعدی می‌رود.
 
 DEYROUTE دو نوع سرور را به هم وصل می‌کند:
 

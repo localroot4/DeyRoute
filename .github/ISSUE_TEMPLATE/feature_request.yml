@@ -1,0 +1,15 @@
+name: "Idea or request · پیشنهاد"
+description: "A new feature, transport or improvement · قابلیت، روش تانل یا بهبود تازه"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: "What do you need, and why? · چه چیزی لازم دارید و چرا؟"
+      description: "Describe the situation (for example a filtering pattern you see) · وضعیت را توضیح دهید (مثلاً الگوی فیلترینگی که می‌بینید)"
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: "How could DEYROUTE help? · DEYROUTE چطور می‌تواند کمک کند؟"

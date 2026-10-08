@@ -111,11 +111,39 @@ jobs:
             flags=(--prerelease --latest=false)
             install="bash <(curl -fsSL ${url}/download/v${VERSION}/install.sh) --version ${VERSION}"
           fi
+          title="DEYROUTE ${VERSION}"
+          if [ "$LATEST" != true ]; then title="${title} (development build)"; fi
+          repo="https://github.com/${GITHUB_REPOSITORY}"
+          key=$(grep -o 'RW[A-Za-z0-9+/=]*' internal/install/keys.go)
+          {
+            echo "**Install on the hub (Iran server)** — نصب روی هاب (سرور ایران):"
+            echo
+            echo '```bash'
+            echo "${install}"
+            echo '```'
+            echo
+            echo "Already installed? Run \`deyroute update\` on the hub (the nodes follow), or let the automatic update install it at 04:00 server time."
+            echo "قبلاً نصب کرده‌اید؟ روی هاب \`deyroute update\` بزنید (نودها خودشان دنبال می‌کنند)، یا بگذارید آپدیت خودکار ساعت ۴ صبح نصبش کند."
+            echo
+            echo "## What's new"
+            echo
+            # The newest three sections of the changelog; the rest is linked.
+            awk '/^## \[Unreleased\]/{on=1; next} on && /^## \[/{exit} on' CHANGELOG.md |
+              awk 'NR==1 && /^$/ {next} /^### /{n++} n>3{exit} {print}'
+            echo
+            echo "[Full changelog](${repo}/blob/${GITHUB_SHA}/CHANGELOG.md) · [راهنمای فارسی](${repo}/blob/main/docs/fa/index.md) · [English guides](${repo}/blob/main/docs/en/index.md)"
+            echo
+            echo "## Verify"
+            echo
+            echo "\`SHA256SUMS\` is signed with minisign; the installer and \`deyroute update\` check it before anything is installed. Public key: \`${key}\`"
+            echo
+            echo "Built from \`${GITHUB_SHA::7}\` (Linux amd64 and arm64, static binary)."
+          } > dist/NOTES.md
           gh release create "v${VERSION}" dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.minisig \
             dist/install.sh dist/backends.yaml dist/backends.yaml.minisig dist/CHANGELOG.md \
             --target "$GITHUB_SHA" "${flags[@]}" \
-            --title "DEYROUTE ${VERSION} (development build)" \
-            --notes "Development build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install: ${install}"
+            --title "$title" \
+            --notes-file dist/NOTES.md
           # Keep only the 5 newest edge releases.
           gh release list --limit 100 --json tagName,createdAt \
             --jq '[.[] | select(.tagName | test("-edge\\."))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
