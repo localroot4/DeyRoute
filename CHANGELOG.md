@@ -37,8 +37,9 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 - `deyroute optimize status` is laid out like `status`: a line of labelled
   facts (profile, BBR, nodes in sync) with coloured marks, the server in a
-  frame (memory and free memory, cores, kernel, network, queue, and a fill
-  meter for the connection table), the settings in effect as a table, every
+  frame (cores, kernel, network, queue, and fill bars for memory and the
+  connection table with the percentage in the bar's colour and used, free
+  and total after it), the settings in effect as a table, every
   key and value in its own table per group with `--details`, and the nodes
   with their state and whether the tuning is applied or waiting.
 - `deyroute status` opens with the name in large block letters and the

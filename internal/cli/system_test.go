@@ -680,11 +680,11 @@ func TestOptimizeStatusDetails(t *testing.T) {
 	e.stub.OptimizeStatusFn = func(context.Context) (api.OptimizeStatus, error) {
 		return api.OptimizeStatus{Profile: "auto", BBRAvailable: true, BBRActive: true,
 			Applied: map[string]string{"net.core.somaxconn": "65535", "net.core.rmem_max": "33554432"},
-			Facts:   &api.TuneFacts{MemBytes: 1 << 30, CPUs: 1, ConntrackLoaded: true, ConntrackMax: 65536, ConntrackCount: 60000}}, nil
+			Facts:   &api.TuneFacts{MemBytes: 1 << 30, MemAvailableBytes: 256 << 20, CPUs: 1, ConntrackLoaded: true, ConntrackMax: 65536, ConntrackCount: 60000}}, nil
 	}
 	out := e.ok("optimize", "status", "--details")
-	for _, want := range []string{"│ KEY", "│ VALUE", "│ rmem_max", "32 MiB", "│ somaxconn", "65535", "│ CPU         │ 1 core",
-		"60,000 of 65,536 tracked (92%)", "█████████░"} {
+	for _, want := range []string{"│ KEY", "│ VALUE", "│ rmem_max", "32 MiB", "│ somaxconn", "65535", "│ CPU         │ 1 core", "████████████░░░░  75%   768.0 MiB used  ·  256.0 MiB free  ·  1.0 GiB total",
+		"███████████████░  92%   60,000 tracked  ·  5,536 free  ·  65,536 total"} {
 		require.Contains(t, out, want)
 	}
 	require.NotContains(t, out, "--details\n", "no hint when the details are shown")

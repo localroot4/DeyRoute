@@ -8,7 +8,6 @@ const (
 	CLITuneHeadInSync   Key = "cli.tune.head.in_sync"
 	CLITuneServerTitle  Key = "cli.tune.server_title"
 	CLITuneSrvMemory    Key = "cli.tune.srv.memory"
-	CLITuneSrvMemoryVal Key = "cli.tune.srv.memory_val"
 	CLITuneSrvCPU       Key = "cli.tune.srv.cpu"
 	CLITuneSrvCores     Key = "cli.tune.srv.cores"
 	CLITuneSrvCore      Key = "cli.tune.srv.core"
@@ -18,8 +17,11 @@ const (
 	CLITuneSrvSpeed     Key = "cli.tune.srv.speed"
 	CLITuneSrvQdisc     Key = "cli.tune.srv.qdisc"
 	CLITuneSrvConntrack Key = "cli.tune.srv.conntrack"
-	CLITuneSrvCTVal     Key = "cli.tune.srv.ct_val"
 	CLITuneSrvCTOff     Key = "cli.tune.srv.ct_off"
+	CLITuneSrvCTUsed    Key = "cli.tune.srv.ct_used"
+	CLITuneSrvUsed      Key = "cli.tune.srv.used"
+	CLITuneSrvFree      Key = "cli.tune.srv.free"
+	CLITuneSrvTotal     Key = "cli.tune.srv.total"
 	CLITuneSrvVirt      Key = "cli.tune.srv.virt"
 	CLITuneColGroup     Key = "cli.tune.col.group"
 	CLITuneColNow       Key = "cli.tune.col.now"
@@ -39,7 +41,6 @@ var tuneViewEN = map[Key]string{
 	CLITuneHeadInSync:   "%d/%d in sync",
 	CLITuneServerTitle:  "THIS SERVER",
 	CLITuneSrvMemory:    "Memory",
-	CLITuneSrvMemoryVal: "%s (%s free)",
 	CLITuneSrvCPU:       "CPU",
 	CLITuneSrvCores:     "%d cores",
 	CLITuneSrvCore:      "1 core",
@@ -49,8 +50,11 @@ var tuneViewEN = map[Key]string{
 	CLITuneSrvSpeed:     "%s · %d Mb/s",
 	CLITuneSrvQdisc:     "Queue",
 	CLITuneSrvConntrack: "Connections",
-	CLITuneSrvCTVal:     "%s of %s tracked",
 	CLITuneSrvCTOff:     "not tracked (conntrack not loaded)",
+	CLITuneSrvCTUsed:    "%s tracked",
+	CLITuneSrvUsed:      "%s used",
+	CLITuneSrvFree:      "%s free",
+	CLITuneSrvTotal:     "%s total",
 	CLITuneSrvVirt:      "Container",
 	CLITuneColGroup:     "SETTING",
 	CLITuneColNow:       "NOW",
