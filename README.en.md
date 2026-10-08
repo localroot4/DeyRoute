@@ -11,6 +11,7 @@
 <a href="https://github.com/localroot4/DeyRoute/actions/workflows/ci.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/localroot4/DeyRoute/ci.yml?branch=main&label=tests"></a>
 <a href="https://github.com/localroot4/DeyRoute/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/localroot4/DeyRoute/total?color=1f6feb"></a>
 <a href="https://github.com/localroot4/DeyRoute/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/localroot4/DeyRoute?color=e3b341"></a>
+<a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/localroot4/DeyRoute?color=555"></a>
 <img alt="Ubuntu and Debian, amd64 and arm64" src="https://img.shields.io/badge/Ubuntu%20%7C%20Debian-amd64%20%7C%20arm64-555">
 </p>
 
@@ -378,3 +379,7 @@ make test lint    # unit tests and linters
 
 Integration scenarios run in systemd containers: `test/integration/run.sh`
 (see the header of the script). Issues and pull requests are welcome.
+
+## License
+
+DEYROUTE is released under the [MIT license](LICENSE).
