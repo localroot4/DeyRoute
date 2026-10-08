@@ -23,10 +23,13 @@ func TestNodeCleanupWaitsForTheUnitList(t *testing.T) {
 	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port}},
 		Rungs: []string{trAlpha, trBeta}, Failover: fastFailover(false)})
 	beta := systemd.InstanceName(info.ID, "de-1", trBeta)
-	before, _ := te.h.nodeState("de-1")
-	require.NotEmpty(t, before.Units)
 
 	n.stop()
+	// The list to keep is the last one the hub got: a beat may still land
+	// between the tunnel coming up and the stop.
+	require.Eventually(t, func() bool { return !te.h.Online("de-1") }, testWait, 10*time.Millisecond)
+	before, _ := te.h.nodeState("de-1")
+	require.NotEmpty(t, before.Units)
 	n.setUnit(beta, "active")
 	n.unitsUnknown.Store(true)
 	reconnected := time.Now()
