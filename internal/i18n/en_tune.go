@@ -51,6 +51,22 @@ const (
 	CLITuneCheckFound      Key = "cli.tune.check_found"
 	CLITuneNodesTitle      Key = "cli.tune.nodes_title"
 	CLITuneOldAgent        Key = "cli.tune.old_agent"
+	TUIOpSettings          Key = "tui.op.settings"
+	TUIOpSettingsIntro     Key = "tui.op.settings_intro"
+	TuneHelpSpeed          Key = "tune.help.speed"
+	TuneHelpBuffers        Key = "tune.help.buffers"
+	TuneHelpConns          Key = "tune.help.conns"
+	TuneHelpKeepalive      Key = "tune.help.keepalive"
+	TuneHelpConntrack      Key = "tune.help.conntrack"
+	TuneHelpServices       Key = "tune.help.services"
+	CLIFlagDetails         Key = "cli.flag.details"
+	CLITuneDetailsHint     Key = "cli.tune.details_hint"
+	TuneSumBuffers         Key = "tune.sum.buffers"
+	TuneSumQueue           Key = "tune.sum.queue"
+	TuneSumPorts           Key = "tune.sum.ports"
+	TuneSumKeepalive       Key = "tune.sum.keepalive"
+	TuneSumConntrack       Key = "tune.sum.conntrack"
+	TuneSumCount           Key = "tune.sum.count"
 	CLITuneGroupSpeed      Key = "cli.tune.group_speed"
 	CLITuneGroupBuffers    Key = "cli.tune.group_buffers"
 	CLITuneGroupConns      Key = "cli.tune.group_conns"
@@ -130,7 +146,7 @@ var tuneEN = map[Key]string{
 	CLIOptimizeCheckLong:      "Report every tuned key whose live value is no longer what deyroute set (a later sysctl.d\nfile, a runtime write or another tool), and findings such as a conntrack table close to full.\nIt changes nothing. Drift exits with code 2 (DEY-X067).",
 	CLIOptimizeCheckExample:   "  deyroute optimize check\n  deyroute optimize check --json",
 	CLIOptimizeStatusShort:    "Show the kernel profile of the hub and every node",
-	CLIOptimizeStatusExample:  "  deyroute optimize status\n  deyroute optimize status --json",
+	CLIOptimizeStatusExample:  "  deyroute optimize status\n  deyroute optimize status --json\n  deyroute optimize status --details",
 	CLIOptimizeStatusLine:     "Kernel profile: %s",
 	CLIOptimizeApplyAutoAlias: "--profile auto is the same as: deyroute optimize auto --yes",
 	CLIFlagDryRun:             "show the plan only; change nothing",
@@ -171,6 +187,22 @@ var tuneEN = map[Key]string{
 	CLITuneCheckFound:      "%d tuned values differ from what deyroute set.",
 	CLITuneNodesTitle:      "Nodes:",
 	CLITuneOldAgent:        "too old for auto (gets balanced)",
+	TUIOpSettings:          "Settings in effect",
+	TUIOpSettingsIntro:     "The kernel and service settings deyroute set on the hub, in groups. Choose a group to see what it is for and every value in it.",
+	TuneHelpSpeed:          "How fast data moves: BBR keeps the speed up on long and lossy paths (Iran to abroad), fq paces each connection, and connections keep their speed after a pause.",
+	TuneHelpBuffers:        "How much memory one connection may use for data in flight. Larger buffers mean higher speed on long paths; the size follows the server's RAM.",
+	TuneHelpConns:          "How many new connections the server accepts at once and how many local ports it may use, so many users connecting together are not refused.",
+	TuneHelpKeepalive:      "How fast a connection whose other end vanished (a phone that lost signal) is noticed and closed, so it does not hold memory and ports.",
+	TuneHelpConntrack:      "The kernel's table of tracked connections used by the firewall and NAT; it is sized to the RAM so it never fills up and drops new connections.",
+	TuneHelpServices:       "Limits of deyroute's own services: a runaway transport is stopped first when memory runs out, and all transports together have a memory ceiling.",
+	CLIFlagDetails:         "show every setting and its value, not only the group summaries",
+	CLITuneDetailsHint:     "Every setting and its value: deyroute optimize status --details",
+	TuneSumBuffers:         "up to %s per connection",
+	TuneSumQueue:           "queue %d",
+	TuneSumPorts:           "ports %s-%s",
+	TuneSumKeepalive:       "dead connections found in about %d min",
+	TuneSumConntrack:       "room for %d connections",
+	TuneSumCount:           "%d settings",
 	CLITuneGroupSpeed:      "Speed and queues",
 	CLITuneGroupBuffers:    "Buffers (memory per connection)",
 	CLITuneGroupConns:      "Connections and ports",

@@ -66,21 +66,88 @@ func optimizeMenu(a *app) screen {
 			return a.push(t)
 		}},
 		{label: i18n.TUIOpCheck, act: func(a *app) tea.Cmd { return a.push(checkTuning()) }},
-		{label: i18n.TUIOpLimits, adv: true, act: func(a *app) tea.Cmd {
-			t := newTask(itemName(i18n.TUIOpLimits), callTimeout, loadOptimize, func(a *app, v any) string {
-				o, _ := v.(api.OptimizeStatus)
-				if len(o.Applied) == 0 {
-					return indent(i18n.T(i18n.TUIOpNoValues)) + "\n"
-				}
-				return renderKV(o.Applied, " = ")
-			})
-			t.refreshable = true
-			return a.push(t)
-		}},
+		{label: i18n.TUIOpSettings, act: func(a *app) tea.Cmd { return a.push(settingsGroups()) }},
 	})
 	m.load = loadOptimize
 	m.header = renderOptimize
 	return m
+}
+
+// settingsGroups lists the tuning settings in effect on the hub as groups,
+// one line each with what the group means now; Enter opens a group with
+// what it is for and every value in it.
+func settingsGroups() *listScreen {
+	title := i18n.T(i18n.TUIOpSettings)
+	l := &listScreen{screenBase: screenBase{title: title}, intro: i18n.T(i18n.TUIOpSettingsIntro), load: loadOptimize,
+		empty: i18n.T(i18n.TUIOpNoValues)}
+	l.derive = func(_ *app, v any) []choice {
+		o, _ := v.(api.OptimizeStatus)
+		keys := make([]string, 0, len(o.Applied))
+		for k := range o.Applied {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		groups := TuneGroups(keys)
+		w := 0
+		for _, g := range groups {
+			w = max(w, width(g.Title))
+		}
+		out := make([]choice, 0, len(groups))
+		for _, g := range groups {
+			out = append(out, choice{label: pad(g.Title, w+3) + TuneGroupSummary(g, o.Applied), value: g})
+		}
+		return out
+	}
+	l.pick = func(a *app, c choice) tea.Cmd {
+		g, _ := c.value.(TuneKeyGroup)
+		o, _ := l.data.(api.OptimizeStatus)
+		t := newTask(g.Title, callTimeout, func(context.Context, api.Local, func(api.Step)) (any, error) { return o, nil },
+			func(a *app, _ any) string { return renderTuneGroup(a, g, o.Applied) })
+		return a.push(t)
+	}
+	return l
+}
+
+// renderTuneGroup is one group of the settings in effect: what it is for,
+// its summary, then every setting with its value.
+func renderTuneGroup(a *app, g TuneKeyGroup, values map[string]string) string {
+	var b strings.Builder
+	if help := TuneGroupHelp(g.ID); help != "" {
+		for _, l := range wrapWords(help, max(20, a.caps.Width-4)) {
+			b.WriteString(indent(l) + "\n")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(indent(a.paint(colGreen, TuneGroupSummary(g, values))) + "\n\n")
+	w := 0
+	for _, k := range g.Keys {
+		w = max(w, width(TuneShortKey(k)))
+	}
+	for _, k := range g.Keys {
+		b.WriteString("    " + pad(TuneShortKey(k), w+3) + orDashTUI(TuneValue(k, values[k])) + "\n")
+	}
+	return b.String()
+}
+
+// wrapWords breaks s into lines of at most w columns at spaces.
+func wrapWords(s string, w int) []string {
+	var out []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		switch {
+		case line == "":
+			line = word
+		case width(line)+1+width(word) <= w:
+			line += " " + word
+		default:
+			out = append(out, line)
+			line = word
+		}
+	}
+	if line != "" {
+		out = append(out, line)
+	}
+	return out
 }
 
 // renderKV lists a map sorted by key.

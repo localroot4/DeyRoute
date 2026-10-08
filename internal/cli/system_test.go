@@ -132,8 +132,8 @@ func TestOptimizeCommands(t *testing.T) {
 	}
 	out := e.ok("optimize", "apply", "--profile", "balanced")
 	require.Equal(t, "balanced", profile)
-	for _, want := range []string{"Kernel profile balanced applied.", "  BBR       active\n", "  Speed and queues\n    default_qdisc   fq\n",
-		"  Connections and ports\n    somaxconn   65535\n", "! w1"} {
+	for _, want := range []string{"Kernel profile balanced applied.", "  BBR       active\n", "  ✔ Speed and queues        fq\n",
+		"  ✔ Connections and ports   queue 65535\n", "! w1", "deyroute optimize status --details"} {
 		require.Contains(t, out, want)
 	}
 	doc := e.json("optimize", "apply", "--profile", "aggressive")

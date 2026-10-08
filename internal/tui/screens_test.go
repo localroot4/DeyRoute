@@ -60,6 +60,7 @@ func demoStub() *apitest.Stub {
 		TrafficFn: func(_ context.Context, q api.TrafficQuery) (api.TrafficReport, error) {
 			return demo.Traffic(testNow, q), nil
 		},
+		OptimizeStatusFn: func(context.Context) (api.OptimizeStatus, error) { return demo.OptimizeStatus(), nil },
 		PortCheckFn: func(_ context.Context, r api.PortCheckRequest) (api.PortCheckResult, error) {
 			return api.PortCheckResult{Port: r.Port, Proto: r.Proto, BindFree: true}, nil
 		},
@@ -101,6 +102,20 @@ func tuiScreens() []tuiScreen {
 			h := demoHarness(t, demoStub())
 			h.choose("3")
 			waitFor(t, h, "198.51.100.21")
+			return h.view()
+		}},
+		{"settings", "deyroute — 7) Optimize → 6) Settings in effect", func(t *testing.T) string {
+			h := demoHarness(t, demoStub())
+			h.choose("7").choose("6")
+			waitFor(t, h, "Buffers")
+			return h.view()
+		}},
+		{"settings-group", "deyroute — 7) Optimize → 6) Settings in effect → Buffers", func(t *testing.T) string {
+			h := demoHarness(t, demoStub())
+			h.choose("7").choose("6")
+			waitFor(t, h, "Buffers")
+			h.choose("2")
+			waitFor(t, h, "rmem_max")
 			return h.view()
 		}},
 		{"traffic", "deyroute — 6) Diagnostics → Traffic and load", func(t *testing.T) string {

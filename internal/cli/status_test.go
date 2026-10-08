@@ -65,7 +65,8 @@ func TestStatusHuman(t *testing.T) {
 		"── NODES ──", "  NODE  NAME           ADDRESS  STATE      CONTROL  VERSION  CPU  RAM\n",
 		"  de-1  Germany 1      1.2.3.4  ● online   39ms     v1.0.0   3%   121 MB\n", "○ offline", "v0.9.0!",
 		"── LAST EVENTS ──", "switch", "down", "probe failed 3x", "node offline", "degraded",
-		"── WARNINGS ──", "! games: DEY-B007 UDP blocked", "! nl-1: old version", "! plain", "! main: TLS certificate expires",
+		"── NEEDS ATTENTION (11) ──", "! tunnel Games UDP is DEGRADED: it works, but the health probes fail now and then",
+		"! tunnel Down is DOWN: no rung works", "! node nl-1 is offline", "! games: DEY-B007 UDP blocked", "! nl-1: old version", "! plain", "! main: TLS certificate expires",
 	} {
 		require.Contains(t, out, want)
 	}

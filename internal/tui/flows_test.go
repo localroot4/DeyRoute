@@ -868,7 +868,7 @@ func TestOptimizeSecurityNotifyUpdate(t *testing.T) {
 	h := newHarness(t, Options{Caps: Caps{Unicode: true}, Local: stub})
 
 	h.choose("7")
-	h.must("Profile: balanced   BBR: active", "1) Automatic tuning (recommended)", "5) Check tuning", "6) Limits *")
+	h.must("Profile: balanced   BBR: active", "1) Automatic tuning (recommended)", "5) Check tuning", "6) Settings in effect")
 	h.choose("2").choose("2")
 	h.must("The aggressive sysctl profile is written")
 	h.press("enter")
@@ -883,7 +883,7 @@ func TestOptimizeSecurityNotifyUpdate(t *testing.T) {
 	h.must("BBR is switched on by automatic tuning")
 	h.press("esc")
 	h.choose("6")
-	h.must("net.core.rmem_max               = 16777216")
+	h.must("Buffers (memory per connection)", "up to 16 MiB per connection")
 	h.press("esc", "esc")
 
 	h.choose("8")

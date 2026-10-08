@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"strconv"
 	"strings"
 )
 
@@ -146,19 +145,4 @@ func wrapText(s string, w int) []string {
 		out = append(out, line)
 	}
 	return out
-}
-
-// tuneBytes renders a byte count the way the tuning keys are thought of:
-// "16 MiB", "128 KiB"; a count that is no whole KiB stays in bytes
-// ("87380 B").
-func tuneBytes(n int64) string {
-	switch {
-	case n >= 1<<30 && n%(1<<30) == 0:
-		return strconv.FormatInt(n>>30, 10) + " GiB"
-	case n >= 1<<20 && n%(1<<20) == 0:
-		return strconv.FormatInt(n>>20, 10) + " MiB"
-	case n >= 1<<10 && n%(1<<10) == 0:
-		return strconv.FormatInt(n>>10, 10) + " KiB"
-	}
-	return strconv.FormatInt(n, 10) + " B"
 }

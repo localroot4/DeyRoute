@@ -70,6 +70,15 @@ All notable changes to DEYROUTE are documented here. The format follows
   group. The node table has a header row; the top line wraps instead of
   running off the screen; every line fits the terminal, also a phone's
   60 columns. `--json` is unchanged.
+- `deyroute status` on the hub starts with what needs attention: tunnels that
+  are not UP, nodes offline and the warnings, in red or yellow and in plain
+  words; one green line when everything works. Tunnel and node states and
+  the event types are coloured (green, yellow, red).
+- `deyroute optimize status` shows one line per group with what it means now
+  ("BBR · fq", "up to 32 MiB per connection", "dead connections found in
+  about 8 min"); `--details` lists every value with a short explanation of
+  the group. In the menu, `7) Optimize` → `6) Settings in effect` opens each
+  group on its own.
 
 ### Fixed — update refused between edge builds
 

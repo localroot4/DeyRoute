@@ -20,18 +20,18 @@ func TestTuneValueAndKeys(t *testing.T) {
 		"net.ipv4.ip_local_reserved_ports":     {"2082,30000-31999", "2082,30000-31999"},
 		"deyroute-tun@.service OOMScoreAdjust": {"300", "300"},
 	} {
-		require.Equal(t, c[1], tuneValue(key, c[0]), key)
+		require.Equal(t, c[1], tui.TuneValue(key, c[0]), key)
 	}
-	require.Equal(t, "tcp_rmem", shortKey("net.ipv4.tcp_rmem"))
-	require.Equal(t, "nr_open", shortKey("fs.nr_open"))
-	require.Equal(t, "/etc/modprobe.d/deyroute.conf", shortKey("/etc/modprobe.d/deyroute.conf"))
-	require.Equal(t, "deyroute-tun@.service Slice", shortKey("deyroute-tun@.service Slice"))
+	require.Equal(t, "tcp_rmem", tui.TuneShortKey("net.ipv4.tcp_rmem"))
+	require.Equal(t, "nr_open", tui.TuneShortKey("fs.nr_open"))
+	require.Equal(t, "/etc/modprobe.d/deyroute.conf", tui.TuneShortKey("/etc/modprobe.d/deyroute.conf"))
+	require.Equal(t, "deyroute-tun@.service Slice", tui.TuneShortKey("deyroute-tun@.service Slice"))
 
-	groups := groupKeys([]string{"net.core.rmem_max", "deyroute-tun@.service Slice", "net.ipv4.tcp_congestion_control",
+	groups := tui.TuneGroups([]string{"net.core.rmem_max", "deyroute-tun@.service Slice", "net.ipv4.tcp_congestion_control",
 		"net.netfilter.nf_conntrack_max", "net.ipv4.tcp_keepalive_time", "net.core.somaxconn", "vm.swappiness"})
 	var titles []string
 	for _, g := range groups {
-		titles = append(titles, g.title)
+		titles = append(titles, g.Title)
 	}
 	require.Equal(t, []string{i18n.T(i18n.CLITuneGroupSpeed), i18n.T(i18n.CLITuneGroupBuffers), i18n.T(i18n.CLITuneGroupConns),
 		i18n.T(i18n.CLITuneGroupKeepalive), i18n.T(i18n.CLITuneGroupConntrack), i18n.T(i18n.CLITuneGroupServices),

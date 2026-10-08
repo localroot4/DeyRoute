@@ -1924,6 +1924,16 @@ const (
 	CLIStatusNodesOnline         Key = "cli.status.nodes_online"
 	CLIStatusTunnelsUp           Key = "cli.status.tunnels_up"
 	CLIStatusWarnings            Key = "cli.status.warnings"
+	CLIAttnTitle                 Key = "cli.attn.title"
+	CLIAttnTunnel                Key = "cli.attn.tunnel"
+	CLIAttnNodeOffline           Key = "cli.attn.node_offline"
+	CLIAttnAllGood               Key = "cli.attn.all_good"
+	CLIAttnDegraded              Key = "cli.attn.degraded"
+	CLIAttnServiceDown           Key = "cli.attn.service_down"
+	CLIAttnSwitching             Key = "cli.attn.switching"
+	CLIAttnStarting              Key = "cli.attn.starting"
+	CLIAttnDown                  Key = "cli.attn.down"
+	CLIAttnInit                  Key = "cli.attn.init"
 	CLIColAddress                Key = "cli.col.address"
 	CLIColControl                Key = "cli.col.control"
 	CLINodeCPUValue              Key = "cli.node.cpu_value"
@@ -2504,6 +2514,16 @@ var cliEN = map[Key]string{
 	CLIStatusNodesOnline:         "nodes %d/%d online",
 	CLIStatusTunnelsUp:           "tunnels %d/%d UP",
 	CLIStatusWarnings:            "WARNINGS",
+	CLIAttnTitle:                 "NEEDS ATTENTION (%d)",
+	CLIAttnTunnel:                "tunnel %s is %s",
+	CLIAttnNodeOffline:           "node %s is offline",
+	CLIAttnAllGood:               "Everything works: %d tunnels UP, %d nodes online",
+	CLIAttnDegraded:              "DEGRADED: it works, but the health probes fail now and then",
+	CLIAttnServiceDown:           "DEGRADED: the VPN service on the node does not answer",
+	CLIAttnSwitching:             "switching to another rung",
+	CLIAttnStarting:              "starting",
+	CLIAttnDown:                  "DOWN: no rung works (see deyroute logs tunnel)",
+	CLIAttnInit:                  "not started yet",
 	CLIColAddress:                "ADDRESS",
 	CLIColControl:                "CONTROL",
 	CLINodeCPUValue:              "%.0f%%",

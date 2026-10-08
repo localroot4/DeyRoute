@@ -126,6 +126,9 @@ func (g *Globals) dashboard(st api.Status, tr *api.TrafficReport) string {
 	section := func(title, hint string) {
 		b.WriteString("\n" + g.sectionHead(title, hint) + "\n")
 	}
+	if st.NodeSelf == nil {
+		b.WriteString("\n" + g.attention(st))
+	}
 	if st.NodeSelf != nil {
 		section(i18n.T(i18n.TUIDashNode), "")
 		b.WriteString(g.nodeSelfLines(*st.NodeSelf))
@@ -159,7 +162,7 @@ func (g *Globals) dashboard(st api.Status, tr *api.TrafficReport) string {
 	} else {
 		b.WriteString(g.eventLines(st.Events))
 	}
-	if w := g.warningLines(st); w != "" {
+	if w := g.warningLines(st); w != "" && st.NodeSelf != nil {
 		section(i18n.T(i18n.CLIStatusWarnings), "")
 		b.WriteString(w)
 	}
@@ -337,10 +340,19 @@ func (g *Globals) tunnelTable(ts []api.TunnelInfo) string {
 	b.WriteString(h + i18n.T(i18n.TUIColPorts) + "\n")
 	for i, r := range rows {
 		line := "  " + padLeft(strconv.Itoa(i+1), num) + "  "
+		stateCell := ""
 		for c, cell := range r {
-			line += pad(trunc(cell, widths[c]-2, ell), widths[c])
+			cell = pad(trunc(cell, widths[c]-2, ell), widths[c])
+			if c == 3 {
+				stateCell = strings.TrimRight(cell, " ")
+			}
+			line += cell
 		}
-		b.WriteString(g.fit(strings.TrimRight(line+portsText(ts[i].Ports), " ")) + "\n")
+		line = g.fit(strings.TrimRight(line+portsText(ts[i].Ports), " "))
+		if stateCell != "" {
+			line = strings.Replace(line, stateCell, g.styleOut(g.stateStyle(ts[i]), stateCell), 1)
+		}
+		b.WriteString(line + "\n")
 	}
 	return b.String()
 }
@@ -395,8 +407,12 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 		rows = append(rows, row)
 	}
 	var b strings.Builder
+	on, off := s.up+" "+i18n.T(i18n.TUIOnline), s.down+" "+i18n.T(i18n.TUIOffline)
 	for _, l := range tableLines(header, rows) {
-		b.WriteString(g.fit(l) + "\n")
+		l = g.fit(l)
+		l = strings.Replace(l, on, g.styleOut(styleGreen, on), 1)
+		l = strings.Replace(l, off, g.styleOut(styleRed, off), 1)
+		b.WriteString(l + "\n")
 	}
 	return b.String()
 }
@@ -443,14 +459,30 @@ func (g *Globals) eventLines(evs []state.Event) string {
 	var b strings.Builder
 	for _, e := range evs {
 		who, typ := trunc(eventWho(e), whoW, ell), trunc(eventWord(e.Type), typW, ell)
-		line := "  " + localTime(e.At, "15:04:05") + "  " + pad(who, whoW+3) + pad(typ, typW+3) + eventMessage(e)
-		b.WriteString(g.fit(strings.TrimRight(line, " ")) + "\n")
+		head := "  " + localTime(e.At, "15:04:05") + "  " + pad(who, whoW+3)
+		msg := trunc(eventMessage(e), max(10, g.lineWidth()-width(head)-typW-3), ell)
+		line := head + g.styleOut(eventStyle(e), pad(typ, typW+3)) + msg
+		b.WriteString(strings.TrimRight(line, " ") + "\n")
 	}
 	return b.String()
 }
 
-// warningLines renders the dashboard warnings ("! main: …").
+// warningLines renders the dashboard warnings ("! main: …") on a node
+// (the hub shows them in its attention section).
 func (g *Globals) warningLines(st api.Status) string {
+	lines := g.warningTexts(st)
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString(g.fit("  "+g.sym().warn+" "+l) + "\n")
+	}
+	return b.String()
+}
+
+// warningTexts are the dashboard warnings as text ("main: …").
+func (g *Globals) warningTexts(st api.Status) []string {
 	var lines []string
 	for _, x := range st.Warnings {
 		msg := clean(x.Message)
@@ -470,14 +502,7 @@ func (g *Globals) warningLines(st api.Status) string {
 			lines = append(lines, t.ID+": "+clean(m))
 		}
 	}
-	if len(lines) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, l := range lines {
-		b.WriteString(g.fit("  "+g.sym().warn+" "+l) + "\n")
-	}
-	return b.String()
+	return lines
 }
 
 // hubLabel is the hub as shown on a node: its address (the front domain and
@@ -510,4 +535,107 @@ func (g *Globals) nodeSelfLines(n api.NodeSelf) string {
 		out += "  " + i18n.T(i18n.TUIDashUnits, strings.Join(units, ", ")) + "\n"
 	}
 	return out
+}
+
+// stateStyle colors a tunnel state: green when it carries traffic, yellow
+// while it is degraded or changing, red when it is down; plain when it was
+// turned off on purpose.
+func (g *Globals) stateStyle(t api.TunnelInfo) string {
+	switch {
+	case !t.Enabled || t.State == state.StateDisabled || t.Paused || t.State == state.StatePaused:
+		return ""
+	case t.State == state.StateUp:
+		return styleGreen
+	case t.State == state.StateDegraded || t.State == state.StateSwitching || t.State == state.StateStarting:
+		return styleYellow
+	}
+	return styleRed
+}
+
+// eventStyle colors the type of an event: red for errors and losses,
+// yellow for warnings and switches, green when something came up.
+func eventStyle(e state.Event) string {
+	switch {
+	case e.Level == state.LevelError || e.Type == state.EvTunnelDown || e.Type == state.EvNodeOffline:
+		return styleRed
+	case e.Level == state.LevelWarn || e.Type == state.EvTunnelDegraded || e.Type == state.EvSwitchTransport ||
+		e.Type == state.EvSwitchNode:
+		return styleYellow
+	case e.Type == state.EvTunnelUp || e.Type == state.EvNodeOnline || e.Type == state.EvFailback:
+		return styleGreen
+	}
+	return ""
+}
+
+// attention is the first section of the hub dashboard: what needs the
+// owner now (tunnels not UP, nodes offline, the warnings), each line in red
+// or yellow; or one green line when everything works.
+func (g *Globals) attention(st api.Status) string {
+	s := g.sym()
+	type item struct{ style, text string }
+	var items []item
+	for _, t := range st.Tunnels {
+		if !t.Enabled || t.Paused || t.State == state.StateUp {
+			continue
+		}
+		name := t.Name
+		if name == "" {
+			name = t.ID
+		}
+		style := g.stateStyle(t)
+		items = append(items, item{style, i18n.T(i18n.CLIAttnTunnel, name, attnState(t))})
+	}
+	online := 0
+	for _, n := range st.Nodes {
+		if n.Online {
+			online++
+			continue
+		}
+		items = append(items, item{styleRed, i18n.T(i18n.CLIAttnNodeOffline, n.ID)})
+	}
+	for _, l := range g.warningTexts(st) {
+		items = append(items, item{styleYellow, l})
+	}
+	var b strings.Builder
+	if len(items) == 0 {
+		up := 0
+		for _, t := range st.Tunnels {
+			if t.Enabled && t.State == state.StateUp {
+				up++
+			}
+		}
+		b.WriteString(" " + g.styleOut(styleGreen, s.ok+" "+i18n.T(i18n.CLIAttnAllGood, up, online)) + "\n")
+		return b.String()
+	}
+	b.WriteString(g.sectionHead(i18n.T(i18n.CLIAttnTitle, len(items)), "") + "\n")
+	for _, it := range items {
+		for i, l := range wrapText(it.text, g.lineWidth()-4) {
+			lead := "  " + g.styleOut(it.style, s.warn) + " "
+			if i > 0 {
+				lead = "    "
+			}
+			b.WriteString(lead + g.styleOut(it.style, l) + "\n")
+		}
+	}
+	return b.String()
+}
+
+// attnState says in words what is wrong with a tunnel that is not UP.
+func attnState(t api.TunnelInfo) string {
+	switch t.State {
+	case state.StateDegraded:
+		if t.ServiceDown {
+			return i18n.T(i18n.CLIAttnServiceDown)
+		}
+		return i18n.T(i18n.CLIAttnDegraded)
+	case state.StateSwitching:
+		return i18n.T(i18n.CLIAttnSwitching)
+	case state.StateStarting:
+		return i18n.T(i18n.CLIAttnStarting)
+	case state.StateDown:
+		return i18n.T(i18n.CLIAttnDown)
+	case state.StateInit, "":
+		return i18n.T(i18n.CLIAttnInit)
+	}
+	return strings.ToLower(t.State)
 }
