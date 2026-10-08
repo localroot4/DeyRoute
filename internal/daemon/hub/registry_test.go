@@ -70,3 +70,21 @@ func TestNodeLastErrorReachesTheOwner(t *testing.T) {
 	n.lastError.Store("")
 	require.Eventually(t, func() bool { return lastError() == "" }, testWait, 10*time.Millisecond)
 }
+
+// A node marked pending during a sync (busy, e.g. installing an update)
+// that is online again without a new stream is synced by the next report
+// tick, and the dashboard line about it goes away.
+func TestPendingNodeIsRetried(t *testing.T) {
+	te := startTunnelHub(t)
+	te.tunnelNode("de-1")
+	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: freePort(t)}},
+		Rungs: []string{trAlpha}, Failover: fastFailover(false)})
+	c := te.h.tun.lookup(info.ID)
+	require.NotNil(t, c)
+	c.mu.Lock()
+	c.pending["de-1"] = true
+	c.mu.Unlock()
+	require.Contains(t, strings.Join(c.warnings(), "\n"), "node de-1 is offline")
+	c.retryPending(ctxT(t))
+	require.Empty(t, c.warnings())
+}

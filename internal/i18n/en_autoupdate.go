@@ -61,3 +61,35 @@ func init() {
 		en[k] = v
 	}
 }
+
+// The head of `deyroute status` (cli/status_head.go).
+const (
+	CLIHeadTagline Key = "cli.head.tagline"
+	CLIHeadHub     Key = "cli.head.hub"
+	CLIHeadNode    Key = "cli.head.node"
+	CLIHeadHubOf   Key = "cli.head.hub_of"
+	CLIHeadMode    Key = "cli.head.mode"
+	CLIHeadNodes   Key = "cli.head.nodes"
+	CLIHeadTunnels Key = "cli.head.tunnels"
+	CLIHeadOnline  Key = "cli.head.online"
+	CLIHeadUp      Key = "cli.head.up"
+)
+
+var statusHeadEN = map[Key]string{
+	CLIHeadTagline: "Tunnel Manager · %s",
+	CLIHeadHub:     "Hub",
+	CLIHeadNode:    "Node",
+	CLIHeadHubOf:   "Hub",
+	CLIHeadMode:    "Mode",
+	CLIHeadNodes:   "Nodes",
+	CLIHeadTunnels: "Tunnels",
+	CLIHeadOnline:  "%d/%d online",
+	CLIHeadUp:      "%d/%d UP",
+}
+
+// status head — merge the strings above into the English table.
+func init() {
+	for k, v := range statusHeadEN {
+		en[k] = v
+	}
+}

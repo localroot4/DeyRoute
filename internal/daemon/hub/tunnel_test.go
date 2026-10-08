@@ -541,9 +541,11 @@ func TestReconcileAfterRestartAdoptsRunningUnit(t *testing.T) {
 	var ts state.TunnelState
 	require.Eventually(t, func() bool {
 		ts, _ = env2.h.tunnelState(id)
-		return ts.State == state.StateUp && ts.Active.Transport == trAlpha && ts.LastRTTms >= 0 && env2.h.tun.lookup(id) != nil
-	}, testWait, 20*time.Millisecond)
-	require.Contains(t, ts.TransitionCause, "reconciled after hub restart")
+		// The state saved before the stop is UP on alpha too: wait for
+		// the reconcile's own record.
+		return ts.State == state.StateUp && ts.Active.Transport == trAlpha && ts.LastRTTms >= 0 && env2.h.tun.lookup(id) != nil &&
+			strings.Contains(ts.TransitionCause, "reconciled after hub restart")
+	}, testWait, 20*time.Millisecond, "last state %+v", ts)
 	require.Equal(t, startsBefore, te.sd.count("start", alpha))
 	require.Zero(t, te.sd.count("restart", alpha))
 	require.Equal(t, nodeStartsBefore, n.startedCount(id+".de-1.tfa-alpha"))

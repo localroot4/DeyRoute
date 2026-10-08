@@ -1506,12 +1506,37 @@ func (c *tunnelCtl) loop(ctx context.Context) {
 			c.recheck(ctx)
 			recheck.Reset(h.o.RecheckInterval)
 		case <-report.C:
+			c.retryPending(ctx)
 			c.report(ctx)
 		case <-crash.C:
 			c.checkCrash(ctx)
 		case <-c.canKick:
 			c.canaryWork(ctx)
 		}
+	}
+}
+
+// retryPending syncs again when a node marked pending (offline, or busy
+// during the last sync: a node installing an update answers nothing for a
+// while) is online now without having attached again, so its rungs are
+// rendered and the dashboard line goes away.
+func (c *tunnelCtl) retryPending(ctx context.Context) {
+	c.mu.Lock()
+	var due []string
+	for _, n := range sortedKeys(c.pending) {
+		if c.pending[n] {
+			due = append(due, n)
+		}
+	}
+	c.mu.Unlock()
+	for _, n := range due {
+		if !c.h.Online(n) {
+			continue
+		}
+		if err := c.update(ctx, updateOpts{restartActive: true}); err != nil && ctx.Err() == nil {
+			c.h.log.Info("tunnel sync of a pending node finished with errors", dlog.Tunnel(c.id), dlog.Node(n), dlog.Err(err))
+		}
+		return // one sync covers every node
 	}
 }
 

@@ -6,6 +6,13 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed — stale "node is offline" line
+
+- A node that was busy during a tunnel sync (for example while installing an
+  update) stayed marked as offline on the dashboard until it reconnected,
+  although it was online. The hub now syncs such a node again within a
+  minute, and the line goes away.
+
 ### Added — automatic update
 
 - **Automatic update, on by default:** once a day at 04:00 server time the
@@ -21,6 +28,11 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ### Changed — clearer status and tuning output
 
+- `deyroute status` opens with the name in large block letters and the
+  version small under it, then one line of labelled facts (hub and address,
+  mode, nodes online, tunnels UP): labels in gray, values in bold, the
+  counts green when everything is up, yellow when part of it is, red when
+  nothing is.
 - Tables are drawn in boxes: every cell sits in a frame and the column
   headers are set apart in color (`deyroute status`, `stats`, `node list`,
   `tunnel list`, `optimize status`, …). They still fit the terminal, down
