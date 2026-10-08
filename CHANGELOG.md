@@ -60,6 +60,15 @@ All notable changes to DEYROUTE are documented here. The format follows
 - Lab scenario S34: with the node's direct path to the hub cut, a tunnel
   carries 20 MB intact through a Cloudflare-like edge.
 
+### Fixed — update refused between edge builds
+
+- `deyroute update` refused a newer edge build (DEY-S011, "older than
+  0.3.0") on a hub that uses automatic tuning or monitoring: every
+  0.3.0-edge.N sorts before 0.3.0. The guards now start at 0.3.0-edge.15,
+  the first build with those keys and with front mode. A hub on an older
+  edge build still runs the old guard: undo the tuning once
+  (`deyroute optimize revert`), update, then `deyroute optimize auto` again.
+
 ### Fixed — Reality decoys
 
 - With the first built-in decoy, `www.microsoft.com`, `xray/reality` failed
