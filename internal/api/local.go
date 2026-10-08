@@ -117,6 +117,8 @@ type Local interface {
 	UpdateCheck(ctx context.Context) (UpdateInfo, error)
 	UpdateApply(ctx context.Context, version string, progress func(Step)) (UpdateInfo, error)
 	UpdateRollback(ctx context.Context) (UpdateInfo, error)
+	// UpdateAuto shows the automatic update (mode "") or turns it on|off.
+	UpdateAuto(ctx context.Context, mode string) (AutoUpdateInfo, error)
 	UpdateBackends(ctx context.Context, name string, progress func(Step)) ([]BackendUpdate, error)
 	UpdateManifest(ctx context.Context) (ManifestInfo, error)
 
@@ -906,6 +908,23 @@ type UpdateInfo struct {
 	Available bool   `json:"available"`
 	Changelog string `json:"changelog,omitempty"`
 	Previous  string `json:"previous,omitempty"`
+}
+
+// AutoUpdateInfo is the automatic update of the hub (`update auto`): once a
+// day at Hour (server time) the newest release that has been out for at
+// least MinAgeHours is installed; when the tunnels do not come back it is
+// rolled back and skipped.
+type AutoUpdateInfo struct {
+	Enabled     bool      `json:"enabled"`
+	Hour        int       `json:"hour"`
+	MinAgeHours int       `json:"min_age_hours"`
+	Current     string    `json:"current"`
+	Next        string    `json:"next,omitempty"`    // release waiting for its turn
+	NextAt      time.Time `json:"next_at,omitzero"`  // earliest automatic install of Next
+	Pending     string    `json:"pending,omitempty"` // installed, being verified
+	Last        string    `json:"last,omitempty"`    // outcome of the last automatic update
+	LastAt      time.Time `json:"last_at,omitzero"`
+	Skipped     []string  `json:"skipped,omitempty"` // rolled back; never installed automatically
 }
 
 // BackendUpdate is one backend's update outcome.

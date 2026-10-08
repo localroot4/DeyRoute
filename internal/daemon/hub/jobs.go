@@ -65,6 +65,7 @@ func (h *Hub) startJobs(ctx context.Context, run func(func())) {
 	run(func() { h.decoyLoop(ctx) })
 	run(func() { h.tlsRenewLoop(ctx) })
 	run(func() { h.updateCheckLoop(ctx) })
+	run(func() { h.autoUpdateLoop(ctx) })
 	run(func() { h.metricsLoop(ctx) })
 	run(func() { h.nodeUpdateLoop(ctx) })
 	run(func() { h.restartLoop(ctx) })

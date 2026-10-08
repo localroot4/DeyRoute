@@ -198,6 +198,19 @@ type Options struct {
 	// DiagReadyWait bounds how long diag speed waits until its temporary
 	// copy of the transport forwards (15 s, like a started rung).
 	DiagReadyWait time.Duration
+	// Automatic update timings; zero values take the defaults of
+	// ops_autoupdate.go: the job looks every 15 min (AutoUpdateInterval),
+	// checks for a release every 6 h, installs at AutoUpdateHour (04:00 in
+	// Location), only a release seen at least AutoUpdateMinAge (24 h) ago,
+	// and after the restart gives the tunnels AutoUpdateSettle (3 min) to
+	// settle and AutoUpdateVerify (10 min) in all to come back.
+	AutoUpdateInterval time.Duration
+	AutoUpdateMinAge   time.Duration
+	AutoUpdateSettle   time.Duration
+	AutoUpdateVerify   time.Duration
+	// AutoUpdateHour is the local hour of the automatic update, 1-24 (24
+	// is midnight); 0 = DefaultAutoUpdateHour.
+	AutoUpdateHour int
 
 	// Monitoring and tuning (traffic.go, ops_tune.go): TrafficInterval
 	// (10 s) is how often the byte counters are read, TrafficFlush (60 s)
@@ -281,6 +294,13 @@ func (o Options) withDefaults() Options {
 	setDur(&o.RestartDelay, DefaultRestartDelay)
 	setDur(&o.NodeReconnectWait, DefaultNodeReconnectWait)
 	setDur(&o.DiagReadyWait, DefaultDiagReadyWait)
+	setDur(&o.AutoUpdateInterval, DefaultAutoUpdateInterval)
+	setDur(&o.AutoUpdateMinAge, DefaultAutoUpdateMinAge)
+	setDur(&o.AutoUpdateSettle, DefaultAutoUpdateSettle)
+	setDur(&o.AutoUpdateVerify, DefaultAutoUpdateVerify)
+	if o.AutoUpdateHour <= 0 || o.AutoUpdateHour > 24 {
+		o.AutoUpdateHour = DefaultAutoUpdateHour
+	}
 	setDur(&o.TrafficInterval, DefaultTrafficInterval)
 	setDur(&o.TrafficFlush, DefaultTrafficFlush)
 	setDur(&o.TuneCheckInterval, DefaultTuneCheckInterval)

@@ -1124,7 +1124,7 @@ func newUpdateCmd(g *Globals) *cobra.Command {
 	f.StringVar(&ver, "version", "", i18n.T(i18n.CLIFlagVersion))
 	f.BoolVar(&rollback, "rollback", false, i18n.T(i18n.CLIFlagRollback))
 	f.BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
-	cmd.AddCommand(newUpdateBackendsCmd(g), newUpdateManifestCmd(g))
+	cmd.AddCommand(newUpdateBackendsCmd(g), newUpdateManifestCmd(g), newUpdateAutoCmd(g))
 	return cmd
 }
 

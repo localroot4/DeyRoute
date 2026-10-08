@@ -233,49 +233,17 @@ func trunc(s string, w int, ell string) string {
 	return b.String() + ell
 }
 
-// table prints rows under a header, columns separated by two spaces and
-// indented by two, the last column unpadded.
+// table prints a boxed table (box.go) indented by two spaces; the last
+// column gives way first when the line is too short.
 func (g *Globals) table(header []string, rows [][]string) {
-	for _, l := range tableLines(header, rows) {
-		g.println(g.text(l))
-	}
-}
-
-// tableLines lays out a table like table does, one string per line.
-func tableLines(header []string, rows [][]string) []string {
-	w := make([]int, len(header))
+	cols := make([]boxCol, len(header))
 	for i, h := range header {
-		w[i] = width(h)
+		// The last column (usually free text) gives way first.
+		cols[i] = boxCol{title: h, flex: i == len(header)-1, min: min(10, width(h))}
 	}
-	for _, r := range rows {
-		for i := range header {
-			if i < len(r) {
-				w[i] = max(w[i], width(r[i]))
-			}
-		}
+	for _, l := range g.boxTable(cols, rows, nil) {
+		g.println(l)
 	}
-	line := func(cells []string) string {
-		var b strings.Builder
-		b.WriteString("  ")
-		for i := range header {
-			c := ""
-			if i < len(cells) {
-				c = cells[i]
-			}
-			if i == len(header)-1 {
-				b.WriteString(c)
-			} else {
-				b.WriteString(pad(c, w[i]+2))
-			}
-		}
-		return strings.TrimRight(b.String(), " ")
-	}
-	out := make([]string, 0, len(rows)+1)
-	out = append(out, line(header))
-	for _, r := range rows {
-		out = append(out, line(r))
-	}
-	return out
 }
 
 // ms formats milliseconds ("41ms"); "-" for zero.

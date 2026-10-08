@@ -62,8 +62,9 @@ func TestStatusHuman(t *testing.T) {
 		"── TUNNELS ──", "NAME", "NODE (active)", "TRANSPORT", "STATE", "RTT", "UP-TIME", "PORTS",
 		"Main 443/2053", "de-1 Germany 1", "backhaul/wssmux", "● UP", "41ms", "3d 04:12", "443,2053",
 		"◐ DEGR", "00:03:10", "27015/udp", "DISABLED", "PAUSED", "SWITCHING", "STARTING", "○ DOWN", "INIT", "WEIRD",
-		"── NODES ──", "  NODE  NAME           ADDRESS  STATE      CONTROL  VERSION  CPU  RAM\n",
-		"  de-1  Germany 1      1.2.3.4  ● online   39ms     v1.0.0   3%   121 MB\n", "○ offline", "v0.9.0!",
+		"── NODES ──", "│ NODE │ NAME          │ ADDRESS │ STATE     │ CONTROL │ VERSION │ CPU │    RAM │",
+		"│ de-1 │ Germany 1     │ 1.2.3.4 │ ● online  │    39ms │ v1.0.0  │  3% │ 121 MB │", "○ offline", "v0.9.0!",
+		"┌───┬", "├───┼", "└───┴", "│ # │ NAME",
 		"── LAST EVENTS ──", "switch", "down", "probe failed 3x", "node offline", "degraded",
 		"── NEEDS ATTENTION (11) ──", "! tunnel Games UDP is DEGRADED: it works, but the health probes fail now and then",
 		"! tunnel Down is DOWN: no rung works", "! node nl-1 is offline", "! games: DEY-B007 UDP blocked", "! nl-1: old version", "! plain", "! main: TLS certificate expires",
@@ -78,6 +79,8 @@ func TestStatusHuman(t *testing.T) {
 	require.NotContains(t, out, "CONTROL")
 	require.Contains(t, out, "* UP")
 	require.Contains(t, out, "-- TUNNELS ---")
+	require.Contains(t, out, "| # | NAME")
+	require.Contains(t, out, "+---+")
 	// No line is wider than the terminal.
 	for _, l := range strings.Split(out, "\n") {
 		require.LessOrEqual(t, len(l), 80, l)
@@ -117,8 +120,8 @@ func TestStatusNodeAndEmpty(t *testing.T) {
 		}}, nil
 	}
 	out = e.ok("status")
-	require.Contains(t, out, "  a-very-long…   rolled back    backhaul rolled back\n")
-	require.Contains(t, out, "  nl-1           node offline   no heartbeat\n")
+	require.Contains(t, out, "│ a-very-long… │ rolled back  │ backhaul rolled back │\n")
+	require.Contains(t, out, "│ nl-1         │ node offline │ no heartbeat         │\n")
 	require.NotContains(t, out, "backend_update_rolled_back")
 
 	e.stub.StatusFn = func(context.Context) (api.Status, error) {
@@ -274,6 +277,6 @@ func TestStatusLongNodeVersion(t *testing.T) {
 	st.Nodes[0].Version = "v0.3.0-edge.18"
 	e.stub.StatusFn = func(context.Context) (api.Status, error) { return st, nil }
 	out := e.ok("status")
-	require.Regexp(t, `v0\.3\.0-edge\.18 +3% +121 MB`, out)
-	require.Regexp(t, `v0\.9\.0! +0% +0 MB`, out)
+	require.Regexp(t, `│ v0\.3\.0-edge\.18 │ +3% │ 121 MB │`, out)
+	require.Regexp(t, `│ v0\.9\.0! +│ +0% │ +0 MB │`, out)
 }

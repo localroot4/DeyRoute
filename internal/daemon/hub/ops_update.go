@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -177,8 +178,24 @@ func (l *local) UpdateCheck(ctx context.Context) (api.UpdateInfo, error) {
 // connects with another version it is told to install the hub's binary
 // (self.update from GET /v1/assets), until every node runs it. Without a
 // version and without a newer release nothing changes (Available false).
+//
+// An update by the owner ends a pending automatic update and lets the
+// automatic update install the chosen release again.
 func (l *local) UpdateApply(ctx context.Context, want string, progress func(api.Step)) (api.UpdateInfo, error) {
 	h := l.h
+	info, err := h.updateApply(ctx, want, progress, false)
+	if err == nil && info.Previous != "" {
+		_ = os.Remove(h.path(AutoPendingPath))
+		h.editAutoRecord(func(r *autoUpdateRecord) {
+			r.Skipped = slices.DeleteFunc(r.Skipped, func(v string) bool { return sameVersion(v, info.Current) })
+		})
+	}
+	return info, err
+}
+
+// updateApply is UpdateApply; auto marks the automatic update in the log
+// and the event.
+func (h *Hub) updateApply(ctx context.Context, want string, progress func(api.Step), auto bool) (api.UpdateInfo, error) {
 	h.ops.updMu.Lock()
 	defer h.ops.updMu.Unlock()
 	rep := &steps{progress: progress}
@@ -238,9 +255,13 @@ func (l *local) UpdateApply(ctx context.Context, want string, progress func(api.
 		h.log.Warn("cannot record the replaced version", dlog.Err(err))
 	}
 	_ = rep.run(stepNodes, func() (string, error) { return h.markNodesForUpdate(), nil })
-	h.log.Info("deyroute updated; restarting the hub", slog.String("from", version.Version), slog.String("to", rel.Version))
+	how := "deyroute updated"
+	if auto {
+		how = "deyroute updated automatically"
+	}
+	h.log.Info(how+"; restarting the hub", slog.String("from", version.Version), slog.String("to", rel.Version))
 	h.Emit(state.Event{Type: state.EvUpdateApplied, Level: state.LevelInfo,
-		Message: "deyroute updated from " + version.Version + " to " + rel.Version + "; the hub restarts and the nodes follow"})
+		Message: how + " from " + version.Version + " to " + rel.Version + "; the hub restarts and the nodes follow"})
 	rep.emit(api.Step{ID: stepRestart2, Status: api.StepOK, Detail: ServiceName + " restarts now; tunnels keep running"})
 	h.scheduleRestart()
 	return api.UpdateInfo{Current: rel.Version, Latest: rel.Version, Previous: version.Version, Changelog: releaseURL(rel.Version)}, nil
@@ -270,6 +291,8 @@ func (l *local) UpdateRollback(context.Context) (api.UpdateInfo, error) {
 		h.log.Warn("cannot record the replaced version", dlog.Err(err))
 	}
 	h.markNodesForUpdate()
+	// The automatic update does not install the release the owner left.
+	h.editAutoRecord(func(r *autoUpdateRecord) { r.skip(version.Version) })
 	target := firstNonEmpty(prev, "the previous version")
 	e := deyerr.New(deyerr.S003, deyerr.Params{"component": "deyroute", "reason": "rolled back by the owner"})
 	h.log.Warn("deyroute rolled back; restarting the hub", slog.String("from", version.Version), slog.String("to", target), dlog.Code(e.Code))

@@ -130,7 +130,7 @@ func TestStatsTable(t *testing.T) {
 	e.g.Caps = func() tui.Caps { return tui.Caps{Width: 80} }
 	out = e.ok("stats", "--period", "7d")
 	statsGolden(t, "stats_table_ascii_80.golden", out)
-	require.Equal(t, api.TrafficQuery{Period: "7d", MaxPoints: 16}, queries()[1])
+	require.Equal(t, api.TrafficQuery{Period: "7d", MaxPoints: 8}, queries()[1])
 	for _, r := range out {
 		require.Less(t, r, rune(128), "non-ASCII in %q", out)
 	}
@@ -138,7 +138,7 @@ func TestStatsTable(t *testing.T) {
 
 	// The tunnel list failing only empties NOW.
 	e.stub.TunnelListFn = func(context.Context) ([]api.TunnelInfo, error) { return nil, deyerr.New(deyerr.X042, nil) }
-	require.Contains(t, e.ok("stats"), "main    -          4.3 GiB")
+	require.Contains(t, e.ok("stats"), "| main   | -         | 4.3 GiB |")
 }
 
 func TestStatsTargets(t *testing.T) {
@@ -297,7 +297,7 @@ func TestStatsUnavailable(t *testing.T) {
 		return api.TrafficReport{Period: q.Period, Reason: reason, Series: []api.TrafficSeries{s}}, nil
 	}
 	out := e.ok("stats")
-	require.Contains(t, out, "main    —          —      —        —")
+	require.Contains(t, out, "│ main   │ —         │ —     │ —       │ —     │ —       │")
 	require.Contains(t, out, "DEY-X061")
 	require.Contains(t, out, "nft is not installed")
 	require.NotContains(t, out, "0 B ")

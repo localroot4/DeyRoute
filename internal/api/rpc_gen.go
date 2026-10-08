@@ -374,6 +374,13 @@ func (c *localClient) UpdateRollback(ctx context.Context) (UpdateInfo, error) {
 	return out, err
 }
 
+// UpdateAuto implements Local.UpdateAuto by calling the daemon over the unix socket.
+func (c *localClient) UpdateAuto(ctx context.Context, mode string) (AutoUpdateInfo, error) {
+	var out AutoUpdateInfo
+	err := c.call(ctx, "UpdateAuto", []any{mode}, &out)
+	return out, err
+}
+
 // UpdateBackends implements Local.UpdateBackends by calling the daemon over the unix socket.
 func (c *localClient) UpdateBackends(ctx context.Context, name string, progress func(Step)) ([]BackendUpdate, error) {
 	var out []BackendUpdate
@@ -803,6 +810,13 @@ func NewLocalHandler(impl Local, logger *slog.Logger) http.Handler {
 		}},
 		"UpdateRollback": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
 			return impl.UpdateRollback(ctx)
+		}},
+		"UpdateAuto": {arity: 1, stream: false, call: func(ctx context.Context, args []json.RawMessage, _ *rpcCallbacks) (any, error) {
+			var a0 string
+			if err := decodeArg(args, 0, &a0); err != nil {
+				return nil, err
+			}
+			return impl.UpdateAuto(ctx, a0)
 		}},
 		"UpdateBackends": {arity: 1, stream: true, call: func(ctx context.Context, args []json.RawMessage, cb *rpcCallbacks) (any, error) {
 			var a0 string

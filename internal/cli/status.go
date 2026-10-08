@@ -272,28 +272,28 @@ func portsText(ps []api.PortMapDTO) string {
 // narrow reports whether low-priority columns must go (< 100 columns).
 func (g *Globals) narrow() bool { return g.caps().Narrow() }
 
-// tunnelTable renders the TUNNELS table; below 100 columns RTT and UP-TIME
-// are dropped instead of breaking lines.
+// tunnelTable renders the TUNNELS table as a boxed table; below 100
+// columns RTT and UP-TIME are dropped, and on a phone the node column holds
+// the id only.
 func (g *Globals) tunnelTable(ts []api.TunnelInfo) string {
 	narrow := g.narrow()
-	ell := g.sym().ell
 	now := g.Now()
-	num := len(strconv.Itoa(len(ts)))
-	tight := g.lineWidth() < 80 // a phone: the node id only, shorter names
+	tight := g.lineWidth() < 80
 	nodeCol := i18n.T(i18n.TUIColNode)
 	if tight {
 		nodeCol = i18n.T(i18n.CLIColNode)
 	}
-	header := []string{i18n.T(i18n.TUIColName), nodeCol, i18n.T(i18n.TUIColTransport), i18n.T(i18n.TUIColState)}
+	cols := []boxCol{
+		{title: i18n.T(i18n.TUIColNum), right: true},
+		{title: i18n.T(i18n.TUIColName), min: 4, max: 20, flex: true},
+		{title: nodeCol, min: 6, max: 28, flex: true},
+		{title: i18n.T(i18n.TUIColTransport), min: 8, flex: true},
+		{title: i18n.T(i18n.TUIColState), min: 4},
+	}
 	if !narrow {
-		header = append(header, i18n.T(i18n.TUIColRTT), i18n.T(i18n.TUIColUptime))
+		cols = append(cols, boxCol{title: i18n.T(i18n.TUIColRTT), right: true}, boxCol{title: i18n.T(i18n.TUIColUptime), right: true})
 	}
-	minW := []int{16, 16, 19, 8, 7, 11}
-	caps := []int{16, 16, 0, 0, 0, 0}
-	if tight {
-		minW = []int{8, 6, 10, 6, 7, 11}
-		caps = []int{12, 10, 17, 0, 0, 0}
-	}
+	cols = append(cols, boxCol{title: i18n.T(i18n.TUIColPorts), min: 4, flex: true})
 	rows := make([][]string, len(ts))
 	for i, t := range ts {
 		name := t.Name
@@ -308,7 +308,7 @@ func (g *Globals) tunnelTable(ts []api.TunnelInfo) string {
 		if t.ActiveNode == "" {
 			node = orDash("")
 		}
-		row := []string{name, node, orDash(t.ActiveTransport), g.stateCell(t)}
+		row := []string{strconv.Itoa(i + 1), name, node, orDash(t.ActiveTransport), g.stateCell(t)}
 		if !narrow {
 			live := t.Enabled && (t.State == state.StateUp || t.State == state.StateDegraded)
 			r, u := orDash(""), orDash("")
@@ -320,44 +320,18 @@ func (g *Globals) tunnelTable(ts []api.TunnelInfo) string {
 			}
 			row = append(row, r, u)
 		}
-		rows[i] = row
+		rows[i] = append(row, orDash(portsText(t.Ports)))
 	}
-	widths := make([]int, len(header))
-	for c := range header {
-		widths[c] = max(minW[c], width(header[c])+2)
-		for _, r := range rows {
-			widths[c] = max(widths[c], width(r[c])+2)
+	lines := g.boxTable(cols, rows, func(r, c int) string {
+		if c == 4 {
+			return g.stateStyle(ts[r])
 		}
-		if caps[c] > 0 {
-			widths[c] = min(widths[c], caps[c])
-		}
-	}
-	var b strings.Builder
-	h := "  " + padLeft(i18n.T(i18n.TUIColNum), num) + "  "
-	for c, t := range header {
-		h += pad(t, widths[c])
-	}
-	b.WriteString(h + i18n.T(i18n.TUIColPorts) + "\n")
-	for i, r := range rows {
-		line := "  " + padLeft(strconv.Itoa(i+1), num) + "  "
-		stateCell := ""
-		for c, cell := range r {
-			cell = pad(trunc(cell, widths[c]-2, ell), widths[c])
-			if c == 3 {
-				stateCell = strings.TrimRight(cell, " ")
-			}
-			line += cell
-		}
-		line = g.fit(strings.TrimRight(line+portsText(ts[i].Ports), " "))
-		if stateCell != "" {
-			line = strings.Replace(line, stateCell, g.styleOut(g.stateStyle(ts[i]), stateCell), 1)
-		}
-		b.WriteString(line + "\n")
-	}
-	return b.String()
+		return ""
+	})
+	return strings.Join(lines, "\n") + "\n"
 }
 
-// nodeTable renders the NODES table of the dashboard with a header row;
+// nodeTable renders the NODES table of the dashboard as a boxed table;
 // the NAME column only when a name differs from its id, and below 100
 // columns without CONTROL.
 func (g *Globals) nodeTable(ns []api.NodeInfo) string {
@@ -369,15 +343,17 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 		}
 		named = named || (n.Name != "" && n.Name != n.ID)
 	}
-	header := []string{i18n.T(i18n.CLIColNode)}
+	cols := []boxCol{{title: i18n.T(i18n.CLIColNode), min: 6, max: 28, flex: true}}
 	if named {
-		header = append(header, i18n.T(i18n.TUIColName))
+		cols = append(cols, boxCol{title: i18n.T(i18n.TUIColName), min: 4, max: 20, flex: true})
 	}
-	header = append(header, i18n.T(i18n.CLIColAddress), i18n.T(i18n.TUIColState))
+	cols = append(cols, boxCol{title: i18n.T(i18n.CLIColAddress), min: 7, flex: true}, boxCol{title: i18n.T(i18n.TUIColState), min: 4})
+	stateCol := len(cols) - 1
 	if !g.narrow() {
-		header = append(header, i18n.T(i18n.CLIColControl))
+		cols = append(cols, boxCol{title: i18n.T(i18n.CLIColControl), right: true})
 	}
-	header = append(header, i18n.T(i18n.CLIColVersion), i18n.T(i18n.CLIColCPU), i18n.T(i18n.CLIColRAM))
+	cols = append(cols, boxCol{title: i18n.T(i18n.CLIColVersion), min: 5, flex: true},
+		boxCol{title: i18n.T(i18n.CLIColCPU), right: true}, boxCol{title: i18n.T(i18n.CLIColRAM), right: true})
 	rows := make([][]string, 0, len(ns))
 	for _, n := range ns {
 		st := s.up + " " + i18n.T(i18n.TUIOnline)
@@ -406,15 +382,16 @@ func (g *Globals) nodeTable(ns []api.NodeInfo) string {
 		row = append(row, ver, i18n.T(i18n.CLINodeCPUValue, n.CPUPercent), i18n.T(i18n.CLINodeRAMValue, n.RAMBytes/(1<<20)))
 		rows = append(rows, row)
 	}
-	var b strings.Builder
-	on, off := s.up+" "+i18n.T(i18n.TUIOnline), s.down+" "+i18n.T(i18n.TUIOffline)
-	for _, l := range tableLines(header, rows) {
-		l = g.fit(l)
-		l = strings.Replace(l, on, g.styleOut(styleGreen, on), 1)
-		l = strings.Replace(l, off, g.styleOut(styleRed, off), 1)
-		b.WriteString(l + "\n")
-	}
-	return b.String()
+	lines := g.boxTable(cols, rows, func(r, c int) string {
+		switch {
+		case c != stateCol:
+			return ""
+		case ns[r].Online:
+			return styleGreen
+		}
+		return styleRed
+	})
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // nodeAddr is the address column of a node: its public IP, or "via front"
@@ -448,23 +425,26 @@ func eventWho(e state.Event) string {
 // eventMessage is the event's text, its probe reason when it has none.
 func eventMessage(e state.Event) string { return tui.EventMessage(e) }
 
-// eventLines renders LAST EVENTS in local time.
+// eventLines renders LAST EVENTS in local time as a boxed table; the
+// message column takes the room that is left.
 func (g *Globals) eventLines(evs []state.Event) string {
-	ell := g.sym().ell
-	whoW, typW := 0, 0
-	for _, e := range evs {
-		whoW = max(whoW, min(eventCap, width(eventWho(e))))
-		typW = max(typW, min(eventCap, width(eventWord(e.Type))))
+	cols := []boxCol{
+		{title: i18n.T(i18n.CLIColTime)},
+		{title: i18n.T(i18n.CLIColWho), min: 4, max: eventCap},
+		{title: i18n.T(i18n.CLIColType), min: 4, max: eventCap},
+		{title: i18n.T(i18n.CLIColMessage), min: 10, flex: true},
 	}
-	var b strings.Builder
-	for _, e := range evs {
-		who, typ := trunc(eventWho(e), whoW, ell), trunc(eventWord(e.Type), typW, ell)
-		head := "  " + localTime(e.At, "15:04:05") + "  " + pad(who, whoW+3)
-		msg := trunc(eventMessage(e), max(10, g.lineWidth()-width(head)-typW-3), ell)
-		line := head + g.styleOut(eventStyle(e), pad(typ, typW+3)) + msg
-		b.WriteString(strings.TrimRight(line, " ") + "\n")
+	rows := make([][]string, len(evs))
+	for i, e := range evs {
+		rows[i] = []string{localTime(e.At, "15:04:05"), eventWho(e), eventWord(e.Type), eventMessage(e)}
 	}
-	return b.String()
+	lines := g.boxTable(cols, rows, func(r, c int) string {
+		if c == 2 {
+			return eventStyle(evs[r])
+		}
+		return ""
+	})
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // warningLines renders the dashboard warnings ("! main: …") on a node

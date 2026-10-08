@@ -13,7 +13,6 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/secrets"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
-	"github.com/localroot4/deyroute/internal/install"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 	"github.com/localroot4/deyroute/internal/version"
@@ -236,10 +235,7 @@ func (h *Hub) warnings(cfg *config.Config) []api.Warning {
 			out = append(out, api.Warning{Code: sk.Code, Message: msg, Tunnel: t.ID, Node: c.Node})
 		}
 	}
-	var upd api.UpdateInfo
-	if ok, err := h.st.GetMeta(metaUpdateCheck, &upd); err == nil && ok && install.NewerThan(upd.Latest, version.Version) {
-		out = append(out, api.Warning{Message: "deyroute " + upd.Latest + " is available (running " + version.Version + "): run deyroute update"})
-	}
+	out = append(out, h.updateWarnings()...)
 	fw := h.Firewall()
 	switch {
 	case !firewallManaged(cfg):

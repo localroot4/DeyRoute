@@ -22,7 +22,7 @@ const (
 // Layout of the `deyroute stats` table.
 const (
 	statsTrendWide   = 30 // sparkline columns from 100 columns on
-	statsTrendNarrow = 16
+	statsTrendNarrow = 8  // below 100 columns: the boxed table still fits 80
 	statsChartRows   = 6
 )
 
@@ -267,7 +267,9 @@ func (g *Globals) statsTable(d statsData) string {
 	g.Out = &b
 	g.table(header, rows)
 	g.Out = out
-	b.WriteString(g.text("  "+i18n.T(i18n.CLIStatsLegend)) + "\n")
+	for _, l := range wrapText(i18n.T(i18n.CLIStatsLegend), g.lineWidth()-2) {
+		b.WriteString(g.text("  "+l) + "\n")
+	}
 	reason := d.rep.Reason
 	if reason == nil {
 		for _, s := range d.rep.Series {
