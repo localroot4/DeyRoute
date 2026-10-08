@@ -6,6 +6,13 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed — downloads that hang
+
+- A download that receives no data for 2 minutes (a stalled connection,
+  common towards GitHub from Iran) is given up and the next path or source
+  is tried at once, instead of waiting up to 10 minutes per attempt
+  (`deyroute update`, backend installs, the release check).
+
 ### Fixed — stale "node is offline" line
 
 - A node that was busy during a tunnel sync (for example while installing an

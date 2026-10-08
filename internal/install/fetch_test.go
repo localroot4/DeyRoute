@@ -366,3 +366,39 @@ func TestHTTPFetcherRejectsNonHTTPURLs(t *testing.T) {
 	requireCode(t, err, deyerr.I004)
 	require.Empty(t, ns.waited)
 }
+
+// A path that stalls (no byte for StallTimeout) is given up for the next
+// one, and a slow path that keeps sending is not cut.
+func TestStalledFetchMovesOn(t *testing.T) {
+	old := StallTimeout
+	StallTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { StallTimeout = old })
+
+	stalled := 0
+	stall := FetcherFunc(func(ctx context.Context, _ string, w io.Writer) error {
+		stalled++
+		_, _ = w.Write([]byte("par"))
+		<-ctx.Done() // a connection that stops delivering
+		return ctx.Err()
+	})
+	slow := FetcherFunc(func(ctx context.Context, _ string, w io.Writer) error {
+		for _, b := range []byte("payload") {
+			time.Sleep(40 * time.Millisecond) // below the stall timeout each time
+			if _, err := w.Write([]byte{b}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	data, _, err := FetchBytes(context.Background(), ChainFetcher{Fetchers: []Fetcher{stall, slow}},
+		[]string{"https://example.invalid/SHA256SUMS"}, RetryOptions{Tries: 1})
+	require.NoError(t, err)
+	require.Equal(t, "payload", string(data), "the partial bytes of the stalled path are dropped")
+	require.Equal(t, 1, stalled)
+
+	start := time.Now()
+	_, _, err = FetchBytes(context.Background(), stall, []string{"https://example.invalid/x"}, RetryOptions{Tries: 1})
+	require.Error(t, err)
+	require.ErrorIs(t, err, errStalled)
+	require.Less(t, time.Since(start), 5*time.Second)
+}
