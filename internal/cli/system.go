@@ -142,10 +142,10 @@ func (g *Globals) optimizeAuto(ctx context.Context, f autoFlags) error {
 	}
 	switch {
 	case f.dryRun:
-		g.say(i18n.CLITuneDryRun)
+		g.sayWrap(i18n.CLITuneDryRun)
 		return nil
 	case changes == 0 && len(pending) == 0:
-		g.say(i18n.CLITuneNothing)
+		g.sayWrap(i18n.CLITuneNothing)
 		return nil
 	}
 	lost := i18n.T(i18n.CLITuneLost, changes)
@@ -174,14 +174,14 @@ func (g *Globals) optimizeAuto(ctx context.Context, f autoFlags) error {
 	s := g.sym()
 	for _, h := range res.Hosts {
 		if h.Error != nil {
-			g.println(g.text("  " + s.warn + " " + tuneHostName(h.Host) + ": " + h.Error.Code + " " + clean(h.Error.Message)))
+			g.printWarn(g.Out, tuneHostName(h.Host)+": "+h.Error.Code+" "+clean(h.Error.Message))
 		}
 	}
 	for _, w := range res.Warnings {
-		g.println(g.text("  " + s.warn + " " + clean(w)))
+		g.printWarn(g.Out, clean(w))
 	}
 	g.println(g.styleOut(styleGreen, g.text(s.ok+" "+i18n.T(i18n.CLITuneApplied))))
-	g.say(i18n.CLITuneUndo)
+	g.sayWrap(i18n.CLITuneUndo)
 	return nil
 }
 
@@ -211,6 +211,32 @@ func tunePlanRestarts(r api.TunePlanReport) bool {
 }
 
 // tuneHostName names a host of a plan or a check: "hub", "node de-1".
+// sayWrap is say wrapped to the line width.
+func (g *Globals) sayWrap(k i18n.Key, a ...any) {
+	for _, l := range wrapText(i18n.T(k, a...), g.lineWidth()) {
+		g.println(g.text(l))
+	}
+}
+
+// printWarn prints "  ! text", wrapped to the line width.
+func (g *Globals) printWarn(w io.Writer, text string) {
+	for i, l := range wrapText(text, g.lineWidth()-4) {
+		lead := "  " + g.sym().warn + " "
+		if i > 0 {
+			lead = "    "
+		}
+		fmt.Fprintln(w, g.text(lead+l))
+	}
+}
+
+// tuneHostTitle is the section title of a host: "HUB", "NODE de-1".
+func tuneHostTitle(host string) string {
+	if host == "" || host == config.RoleHub {
+		return i18n.T(i18n.CLITuneHostHubTitle)
+	}
+	return i18n.T(i18n.CLITuneHostNodeTitle, host)
+}
+
 func tuneHostName(host string) string {
 	if host == "" || host == config.RoleHub {
 		return i18n.T(i18n.CLITuneHostHub)
@@ -218,48 +244,97 @@ func tuneHostName(host string) string {
 	return i18n.T(i18n.CLITuneHostNode, host)
 }
 
-// printTunePlan prints a plan grouped by host: the measured facts, a table
-// of KEY, NOW, NEW, EFFECT and WHY, the skipped items with their reason
-// (one line per reason) and the offline nodes; then the totals and how to
-// undo it.
+// printTunePlan prints a plan by host: a section per host with what was
+// measured, then its changes in groups (tuneGroupOrder): "key  now → new"
+// with the effect when it is not immediate, and under each group the
+// reasons, each once. Then the skipped items (one line per reason), the
+// totals and how to undo it. Nothing is wider than the terminal.
 func (g *Globals) printTunePlan(w io.Writer, r api.TunePlanReport) {
 	out := func(s string) { fmt.Fprintln(w, g.text(s)) }
-	out(i18n.T(i18n.CLITunePlanTitle))
+	ell := g.sym().ell
+	lw := g.lineWidth()
+	out(g.styleOut(styleBold, i18n.T(i18n.CLITunePlanTitle)))
 	changes, _ := tunePlanCounts(r)
 	for _, h := range r.Hosts {
 		fmt.Fprintln(w)
-		head := tuneHostName(h.Host)
+		out(g.sectionHead(tuneHostTitle(h.Host), ""))
 		if facts := tui.TuneFactsText(h.Facts); facts != "" {
-			head += " " + g.sym().sep + " " + facts
+			for _, l := range wrapText(facts, lw-4) {
+				out("  " + g.styleOut(styleGray, l))
+			}
 		}
-		fmt.Fprintln(w, g.style(styleBold, g.text(head)))
 		switch {
 		case h.Error != nil:
-			out(i18n.T(i18n.CLITuneHostError, h.Error.Code+" "+clean(h.Error.Message)))
+			out(g.fit(i18n.T(i18n.CLITuneHostError, h.Error.Code+" "+clean(h.Error.Message))))
 		case h.Pending:
 			out(i18n.T(i18n.CLITuneHostPending))
 		case len(h.Changes) == 0:
 			out(i18n.T(i18n.CLITuneHostNothing))
 		default:
-			rows := make([][]string, 0, len(h.Changes))
+			byKey := map[string]api.TuneChange{}
+			keys := make([]string, 0, len(h.Changes))
 			for _, c := range h.Changes {
-				rows = append(rows, []string{clean(c.Key), orDash(clean(c.From)), orDash(clean(c.To)), tui.TuneEffectText(c.Effect), clean(c.Reason)})
+				byKey[c.Key] = c
+				keys = append(keys, c.Key)
 			}
-			for _, l := range tableLines([]string{i18n.T(i18n.CLIColKey), i18n.T(i18n.CLIColNow), i18n.T(i18n.CLIColNew),
-				i18n.T(i18n.CLIColEffect), i18n.T(i18n.CLIColWhy)}, rows) {
-				out(l)
+			for _, grp := range groupKeys(keys) {
+				fmt.Fprintln(w)
+				out("  " + g.styleOut(styleBold, grp.title))
+				keyW := 0
+				for _, k := range grp.keys {
+					keyW = max(keyW, width(clean(shortKey(k))))
+				}
+				keyW = min(keyW, lw/2)
+				var reasons []string
+				seen := map[string]bool{}
+				for _, k := range grp.keys {
+					c := byKey[k]
+					change := orDash(tuneValue(c.Key, clean(c.From))) + " " + g.sym().arrow + " " + orDash(tuneValue(c.Key, clean(c.To)))
+					if c.Effect != "" && c.Effect != api.TuneEffectNow {
+						change += "  (" + tui.TuneEffectText(c.Effect) + ")"
+					}
+					line := "    " + pad(trunc(clean(shortKey(c.Key)), keyW, ell), keyW+3) + change
+					out(trunc(line, lw, ell))
+					if why := clean(c.Reason); why != "" && !seen[why] {
+						seen[why] = true
+						reasons = append(reasons, why)
+					}
+				}
+				for _, why := range reasons {
+					for i, l := range wrapText(why, lw-8) {
+						lead := "      " + g.sym().sep + " "
+						if i > 0 {
+							lead = "        "
+						}
+						out(lead + g.styleOut(styleGray, l))
+					}
+				}
 			}
 		}
+		if len(h.Skips) > 0 {
+			fmt.Fprintln(w)
+		}
 		for _, sk := range groupSkips(h.Skips) {
-			out(i18n.T(i18n.CLITuneHostSkipped, strings.Join(sk.keys, ", "), sk.reason))
+			short := make([]string, len(sk.keys))
+			for i, k := range sk.keys {
+				short[i] = shortKey(k)
+			}
+			for i, l := range wrapText(strings.TrimSpace(i18n.T(i18n.CLITuneHostSkipped, strings.Join(short, ", "), sk.reason)), lw-6) {
+				lead := "  " + g.sym().skip + " "
+				if i > 0 {
+					lead = "    "
+				}
+				out(lead + g.styleOut(styleGray, l))
+			}
 		}
 	}
 	fmt.Fprintln(w)
-	out(i18n.T(i18n.CLITuneSummary, changes, len(r.Hosts)))
+	out(g.sectionHead(i18n.T(i18n.CLITuneTotalSection), ""))
+	out("  " + i18n.T(i18n.CLITuneSummary, changes, len(r.Hosts)))
 	for _, warn := range r.Warnings {
-		out("  " + g.sym().warn + " " + clean(warn))
+		g.printWarn(w, clean(warn))
 	}
-	out(i18n.T(i18n.CLITuneUndo))
+	out("  " + i18n.T(i18n.CLITuneUndo))
 }
 
 // skipGroup is the skipped items of one host that share a reason.
@@ -411,33 +486,55 @@ func (g *Globals) printOptimize(st api.OptimizeStatus, k i18n.Key) error {
 	if g.JSON {
 		return g.emitJSON(st)
 	}
-	g.say(k, orDash(st.Profile))
-	bbr := i18n.T(i18n.CLIBBRInactive)
+	if k != i18n.CLIOptimizeStatusLine { // status has the profile in its first section
+		g.say(k, orDash(st.Profile))
+		g.println()
+	}
+	bbr := i18n.T(i18n.CLIBBRValInactive)
 	switch {
 	case st.BBRActive:
-		bbr = i18n.T(i18n.CLIBBRActive)
+		bbr = i18n.T(i18n.CLIBBRValActive)
 	case !st.BBRAvailable:
-		bbr = i18n.T(i18n.CLIBBRMissing)
+		bbr = i18n.T(i18n.CLIBBRValMissing)
 	}
-	g.println(g.text("  " + bbr))
-	if facts := tui.TuneFactsText(st.Facts); facts != "" {
-		g.println(g.text("  " + tuneHostName(config.RoleHub) + ": " + facts))
-	}
-	keys := make([]string, 0, len(st.Applied))
-	for key := range st.Applied {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		g.println(g.text("  " + key + " = " + st.Applied[key]))
+	g.println(g.text(g.sectionHead(i18n.T(i18n.CLITuneStatusSection), "")))
+	for _, l := range kvWrapLines("  ", [][2]string{
+		{i18n.T(i18n.CLITuneLabelProfile), orDash(st.Profile)},
+		{i18n.T(i18n.CLITuneLabelBBR), bbr},
+		{i18n.T(i18n.CLITuneLabelServer), tui.TuneFactsText(st.Facts)},
+	}, g.lineWidth()) {
+		g.println(g.text(l))
 	}
 	for _, w := range st.Warnings {
-		g.println(g.text("  " + g.sym().warn + " " + clean(w)))
+		g.printWarn(g.Out, clean(w))
+	}
+	if len(st.Applied) > 0 {
+		keys := make([]string, 0, len(st.Applied))
+		for key := range st.Applied {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		g.println()
+		g.println(g.text(g.sectionHead(i18n.T(i18n.CLITuneSettingsSection, tuneHostTitle(config.RoleHub)), "")))
+		for i, grp := range groupKeys(keys) {
+			if i > 0 {
+				g.println()
+			}
+			g.println(g.text("  " + g.styleOut(styleBold, grp.title)))
+			rows := make([][2]string, 0, len(grp.keys))
+			for _, key := range grp.keys {
+				rows = append(rows, [2]string{shortKey(key), orDash(tuneValue(key, st.Applied[key]))})
+			}
+			for _, l := range kvLines("    ", rows) {
+				g.println(g.text(g.fit(l)))
+			}
+		}
 	}
 	if len(st.Nodes) == 0 {
 		return nil
 	}
-	g.say(i18n.CLITuneNodesTitle)
+	g.println()
+	g.println(g.text(g.sectionHead(i18n.T(i18n.TUIDashNodes), "")))
 	rows := make([][]string, 0, len(st.Nodes))
 	for _, n := range st.Nodes {
 		rows = append(rows, []string{n.Node, yesNo(n.Online), orDash(n.Profile), yesNo(n.Pending)})

@@ -1,0 +1,910 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="888" height="494.4" viewBox="0 0 8880 4944" role="img" aria-labelledby="title">
+<title id="title">deyroute status</title>
+<style>
+rect{shape-rendering:crispEdges}
+.w{fill:#161b22;stroke:#30363d;stroke-width:10;shape-rendering:auto}
+.l{fill:#30363d}
+.tt{fill:#9da7b3;font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace;font-size:120px}
+text{fill:#e6edf3;font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace;font-size:140px}
+.b{font-weight:700}
+.k{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.f2{fill:#3fb950}
+.f4{fill:#58a6ff}
+.f6{fill:#39c5cf}
+.fd{fill:#e6edf3}
+</style>
+<rect class="w" x="5" y="5" width="8870" height="4934" rx="120"/>
+<circle cx="240" cy="160" r="60" fill="#ff5f57"/>
+<circle cx="440" cy="160" r="60" fill="#febc2e"/>
+<circle cx="640" cy="160" r="60" fill="#28c840"/>
+<text class="tt" x="4440" y="202" text-anchor="middle">deyroute status</text>
+<rect class="l" x="10" y="320" width="8860" height="10"/>
+<g xml:space="preserve">
+<text x="240" y="628" class="f2 b" textLength="756">root@ir-1</text>
+<text x="996" y="628">:</text>
+<text x="1080" y="628" class="f4 b">~</text>
+<text x="1164" y="628">#</text>
+<text x="1332" y="628" textLength="672">deyroute</text>
+<text x="2088" y="628" textLength="504">status</text>
+<text x="324" y="804" class="b" textLength="672">DEYROUTE</text>
+<text x="1080" y="804" class="b" textLength="504">Tunnel</text>
+<text x="1668" y="804" class="b" textLength="588">Manager</text>
+<text x="2424" y="804" textLength="504">v1.0.0</text>
+<text x="324" y="980" textLength="336">Hub:</text>
+<text x="744" y="980" textLength="336">ir-1</text>
+<text x="1164" y="980" textLength="1176">(203.0.113.10)</text>
+<text x="2508" y="980">·</text>
+<text x="2760" y="980" textLength="420">Mode:</text>
+<text x="3264" y="980" textLength="504">Simple</text>
+<text x="3936" y="980">·</text>
+<text x="4188" y="980" textLength="420">nodes</text>
+<text x="4692" y="980" textLength="252">2/2</text>
+<text x="5028" y="980" textLength="504">online</text>
+<text x="5700" y="980">·</text>
+<text x="5952" y="980" textLength="588">tunnels</text>
+<text x="6624" y="980" textLength="252">3/3</text>
+<text x="6960" y="980" textLength="168">UP</text>
+<rect class="fd" x="276" y="1286" width="48" height="12"/>
+<rect class="fd" x="240" y="1286" width="48" height="12"/>
+<rect class="fd" x="360" y="1286" width="48" height="12"/>
+<rect class="fd" x="324" y="1286" width="48" height="12"/>
+<text x="492" y="1332" class="f6 b" textLength="588">TUNNELS</text>
+<rect class="fd" x="1200" y="1286" width="48" height="12"/>
+<rect class="fd" x="1164" y="1286" width="48" height="12"/>
+<rect class="fd" x="1284" y="1286" width="48" height="12"/>
+<rect class="fd" x="1248" y="1286" width="48" height="12"/>
+<rect class="fd" x="1368" y="1286" width="48" height="12"/>
+<rect class="fd" x="1332" y="1286" width="48" height="12"/>
+<rect class="fd" x="1452" y="1286" width="48" height="12"/>
+<rect class="fd" x="1416" y="1286" width="48" height="12"/>
+<rect class="fd" x="1536" y="1286" width="48" height="12"/>
+<rect class="fd" x="1500" y="1286" width="48" height="12"/>
+<rect class="fd" x="1620" y="1286" width="48" height="12"/>
+<rect class="fd" x="1584" y="1286" width="48" height="12"/>
+<rect class="fd" x="1704" y="1286" width="48" height="12"/>
+<rect class="fd" x="1668" y="1286" width="48" height="12"/>
+<rect class="fd" x="1788" y="1286" width="48" height="12"/>
+<rect class="fd" x="1752" y="1286" width="48" height="12"/>
+<rect class="fd" x="1872" y="1286" width="48" height="12"/>
+<rect class="fd" x="1836" y="1286" width="48" height="12"/>
+<rect class="fd" x="1956" y="1286" width="48" height="12"/>
+<rect class="fd" x="1920" y="1286" width="48" height="12"/>
+<rect class="fd" x="2040" y="1286" width="48" height="12"/>
+<rect class="fd" x="2004" y="1286" width="48" height="12"/>
+<rect class="fd" x="2124" y="1286" width="48" height="12"/>
+<rect class="fd" x="2088" y="1286" width="48" height="12"/>
+<rect class="fd" x="2208" y="1286" width="48" height="12"/>
+<rect class="fd" x="2172" y="1286" width="48" height="12"/>
+<rect class="fd" x="2292" y="1286" width="48" height="12"/>
+<rect class="fd" x="2256" y="1286" width="48" height="12"/>
+<rect class="fd" x="2376" y="1286" width="48" height="12"/>
+<rect class="fd" x="2340" y="1286" width="48" height="12"/>
+<rect class="fd" x="2460" y="1286" width="48" height="12"/>
+<rect class="fd" x="2424" y="1286" width="48" height="12"/>
+<rect class="fd" x="2544" y="1286" width="48" height="12"/>
+<rect class="fd" x="2508" y="1286" width="48" height="12"/>
+<rect class="fd" x="2628" y="1286" width="48" height="12"/>
+<rect class="fd" x="2592" y="1286" width="48" height="12"/>
+<rect class="fd" x="2712" y="1286" width="48" height="12"/>
+<rect class="fd" x="2676" y="1286" width="48" height="12"/>
+<rect class="fd" x="2796" y="1286" width="48" height="12"/>
+<rect class="fd" x="2760" y="1286" width="48" height="12"/>
+<rect class="fd" x="2880" y="1286" width="48" height="12"/>
+<rect class="fd" x="2844" y="1286" width="48" height="12"/>
+<rect class="fd" x="2964" y="1286" width="48" height="12"/>
+<rect class="fd" x="2928" y="1286" width="48" height="12"/>
+<rect class="fd" x="3048" y="1286" width="48" height="12"/>
+<rect class="fd" x="3012" y="1286" width="48" height="12"/>
+<rect class="fd" x="3132" y="1286" width="48" height="12"/>
+<rect class="fd" x="3096" y="1286" width="48" height="12"/>
+<rect class="fd" x="3216" y="1286" width="48" height="12"/>
+<rect class="fd" x="3180" y="1286" width="48" height="12"/>
+<rect class="fd" x="3300" y="1286" width="48" height="12"/>
+<rect class="fd" x="3264" y="1286" width="48" height="12"/>
+<rect class="fd" x="3384" y="1286" width="48" height="12"/>
+<rect class="fd" x="3348" y="1286" width="48" height="12"/>
+<rect class="fd" x="3468" y="1286" width="48" height="12"/>
+<rect class="fd" x="3432" y="1286" width="48" height="12"/>
+<rect class="fd" x="3552" y="1286" width="48" height="12"/>
+<rect class="fd" x="3516" y="1286" width="48" height="12"/>
+<rect class="fd" x="3636" y="1286" width="48" height="12"/>
+<rect class="fd" x="3600" y="1286" width="48" height="12"/>
+<rect class="fd" x="3720" y="1286" width="48" height="12"/>
+<rect class="fd" x="3684" y="1286" width="48" height="12"/>
+<rect class="fd" x="3804" y="1286" width="48" height="12"/>
+<rect class="fd" x="3768" y="1286" width="48" height="12"/>
+<rect class="fd" x="3888" y="1286" width="48" height="12"/>
+<rect class="fd" x="3852" y="1286" width="48" height="12"/>
+<rect class="fd" x="3972" y="1286" width="48" height="12"/>
+<rect class="fd" x="3936" y="1286" width="48" height="12"/>
+<rect class="fd" x="4056" y="1286" width="48" height="12"/>
+<rect class="fd" x="4020" y="1286" width="48" height="12"/>
+<rect class="fd" x="4140" y="1286" width="48" height="12"/>
+<rect class="fd" x="4104" y="1286" width="48" height="12"/>
+<rect class="fd" x="4224" y="1286" width="48" height="12"/>
+<rect class="fd" x="4188" y="1286" width="48" height="12"/>
+<rect class="fd" x="4308" y="1286" width="48" height="12"/>
+<rect class="fd" x="4272" y="1286" width="48" height="12"/>
+<rect class="fd" x="4392" y="1286" width="48" height="12"/>
+<rect class="fd" x="4356" y="1286" width="48" height="12"/>
+<rect class="fd" x="4476" y="1286" width="48" height="12"/>
+<rect class="fd" x="4440" y="1286" width="48" height="12"/>
+<rect class="fd" x="4560" y="1286" width="48" height="12"/>
+<rect class="fd" x="4524" y="1286" width="48" height="12"/>
+<rect class="fd" x="4644" y="1286" width="48" height="12"/>
+<rect class="fd" x="4608" y="1286" width="48" height="12"/>
+<rect class="fd" x="4728" y="1286" width="48" height="12"/>
+<rect class="fd" x="4692" y="1286" width="48" height="12"/>
+<rect class="fd" x="4812" y="1286" width="48" height="12"/>
+<rect class="fd" x="4776" y="1286" width="48" height="12"/>
+<rect class="fd" x="4896" y="1286" width="48" height="12"/>
+<rect class="fd" x="4860" y="1286" width="48" height="12"/>
+<rect class="fd" x="4980" y="1286" width="48" height="12"/>
+<rect class="fd" x="4944" y="1286" width="48" height="12"/>
+<rect class="fd" x="5064" y="1286" width="48" height="12"/>
+<rect class="fd" x="5028" y="1286" width="48" height="12"/>
+<rect class="fd" x="5148" y="1286" width="48" height="12"/>
+<rect class="fd" x="5112" y="1286" width="48" height="12"/>
+<rect class="fd" x="5232" y="1286" width="48" height="12"/>
+<rect class="fd" x="5196" y="1286" width="48" height="12"/>
+<rect class="fd" x="5316" y="1286" width="48" height="12"/>
+<rect class="fd" x="5280" y="1286" width="48" height="12"/>
+<rect class="fd" x="5400" y="1286" width="48" height="12"/>
+<rect class="fd" x="5364" y="1286" width="48" height="12"/>
+<rect class="fd" x="5484" y="1286" width="48" height="12"/>
+<rect class="fd" x="5448" y="1286" width="48" height="12"/>
+<rect class="fd" x="5568" y="1286" width="48" height="12"/>
+<rect class="fd" x="5532" y="1286" width="48" height="12"/>
+<rect class="fd" x="5652" y="1286" width="48" height="12"/>
+<rect class="fd" x="5616" y="1286" width="48" height="12"/>
+<rect class="fd" x="5736" y="1286" width="48" height="12"/>
+<rect class="fd" x="5700" y="1286" width="48" height="12"/>
+<rect class="fd" x="5820" y="1286" width="48" height="12"/>
+<rect class="fd" x="5784" y="1286" width="48" height="12"/>
+<rect class="fd" x="5904" y="1286" width="48" height="12"/>
+<rect class="fd" x="5868" y="1286" width="48" height="12"/>
+<rect class="fd" x="5988" y="1286" width="48" height="12"/>
+<rect class="fd" x="5952" y="1286" width="48" height="12"/>
+<rect class="fd" x="6072" y="1286" width="48" height="12"/>
+<rect class="fd" x="6036" y="1286" width="48" height="12"/>
+<rect class="fd" x="6156" y="1286" width="48" height="12"/>
+<rect class="fd" x="6120" y="1286" width="48" height="12"/>
+<rect class="fd" x="6240" y="1286" width="48" height="12"/>
+<rect class="fd" x="6204" y="1286" width="48" height="12"/>
+<rect class="fd" x="6324" y="1286" width="48" height="12"/>
+<rect class="fd" x="6288" y="1286" width="48" height="12"/>
+<rect class="fd" x="6408" y="1286" width="48" height="12"/>
+<rect class="fd" x="6372" y="1286" width="48" height="12"/>
+<rect class="fd" x="6492" y="1286" width="48" height="12"/>
+<rect class="fd" x="6456" y="1286" width="48" height="12"/>
+<rect class="fd" x="6576" y="1286" width="48" height="12"/>
+<rect class="fd" x="6540" y="1286" width="48" height="12"/>
+<rect class="fd" x="6660" y="1286" width="48" height="12"/>
+<rect class="fd" x="6624" y="1286" width="48" height="12"/>
+<rect class="fd" x="6744" y="1286" width="48" height="12"/>
+<rect class="fd" x="6708" y="1286" width="48" height="12"/>
+<rect class="fd" x="6828" y="1286" width="48" height="12"/>
+<rect class="fd" x="6792" y="1286" width="48" height="12"/>
+<rect class="fd" x="6912" y="1286" width="48" height="12"/>
+<rect class="fd" x="6876" y="1286" width="48" height="12"/>
+<rect class="fd" x="6996" y="1286" width="48" height="12"/>
+<rect class="fd" x="6960" y="1286" width="48" height="12"/>
+<rect class="fd" x="7080" y="1286" width="48" height="12"/>
+<rect class="fd" x="7044" y="1286" width="48" height="12"/>
+<rect class="fd" x="7164" y="1286" width="48" height="12"/>
+<rect class="fd" x="7128" y="1286" width="48" height="12"/>
+<rect class="fd" x="7248" y="1286" width="48" height="12"/>
+<rect class="fd" x="7212" y="1286" width="48" height="12"/>
+<rect class="fd" x="7332" y="1286" width="48" height="12"/>
+<rect class="fd" x="7296" y="1286" width="48" height="12"/>
+<rect class="fd" x="7416" y="1286" width="48" height="12"/>
+<rect class="fd" x="7380" y="1286" width="48" height="12"/>
+<rect class="fd" x="7500" y="1286" width="48" height="12"/>
+<rect class="fd" x="7464" y="1286" width="48" height="12"/>
+<rect class="fd" x="7584" y="1286" width="48" height="12"/>
+<rect class="fd" x="7548" y="1286" width="48" height="12"/>
+<rect class="fd" x="7668" y="1286" width="48" height="12"/>
+<rect class="fd" x="7632" y="1286" width="48" height="12"/>
+<rect class="fd" x="7752" y="1286" width="48" height="12"/>
+<rect class="fd" x="7716" y="1286" width="48" height="12"/>
+<rect class="fd" x="7836" y="1286" width="48" height="12"/>
+<rect class="fd" x="7800" y="1286" width="48" height="12"/>
+<rect class="fd" x="7920" y="1286" width="48" height="12"/>
+<rect class="fd" x="7884" y="1286" width="48" height="12"/>
+<rect class="fd" x="8004" y="1286" width="48" height="12"/>
+<rect class="fd" x="7968" y="1286" width="48" height="12"/>
+<rect class="fd" x="8088" y="1286" width="48" height="12"/>
+<rect class="fd" x="8052" y="1286" width="48" height="12"/>
+<rect class="fd" x="8172" y="1286" width="48" height="12"/>
+<rect class="fd" x="8136" y="1286" width="48" height="12"/>
+<rect class="fd" x="8256" y="1286" width="48" height="12"/>
+<rect class="fd" x="8220" y="1286" width="48" height="12"/>
+<rect class="fd" x="8340" y="1286" width="48" height="12"/>
+<rect class="fd" x="8304" y="1286" width="48" height="12"/>
+<rect class="fd" x="8424" y="1286" width="48" height="12"/>
+<rect class="fd" x="8388" y="1286" width="48" height="12"/>
+<rect class="fd" x="8508" y="1286" width="48" height="12"/>
+<rect class="fd" x="8472" y="1286" width="48" height="12"/>
+<rect class="fd" x="8592" y="1286" width="48" height="12"/>
+<rect class="fd" x="8556" y="1286" width="48" height="12"/>
+<text x="408" y="1508">#</text>
+<text x="660" y="1508" textLength="336">NAME</text>
+<text x="2004" y="1508" textLength="336">NODE</text>
+<text x="2424" y="1508" textLength="672">(active)</text>
+<text x="3348" y="1508" textLength="756">TRANSPORT</text>
+<text x="4944" y="1508" textLength="420">STATE</text>
+<text x="5616" y="1508" textLength="252">RTT</text>
+<text x="6204" y="1508" textLength="588">UP-TIME</text>
+<text x="7128" y="1508" textLength="420">PORTS</text>
+<text x="408" y="1684">1</text>
+<text x="660" y="1684" textLength="336">Xray</text>
+<text x="1080" y="1684" textLength="252">443</text>
+<text x="2004" y="1684" textLength="336">de-1</text>
+<text x="2424" y="1684" textLength="756">Frankfurt</text>
+<text x="3348" y="1684" textLength="1260">backhaul/wssmux</text>
+<circle class="fd" cx="4986" cy="1644" r="30"/>
+<text x="5112" y="1684" textLength="168">UP</text>
+<text x="5616" y="1684" textLength="336">41ms</text>
+<text x="6204" y="1684" textLength="168">3d</text>
+<text x="6456" y="1684" textLength="420">04:12</text>
+<text x="7128" y="1684" textLength="672">443,2053</text>
+<text x="408" y="1860">2</text>
+<text x="660" y="1860" textLength="420">Games</text>
+<text x="1164" y="1860" textLength="252">UDP</text>
+<text x="2004" y="1860" textLength="336">nl-1</text>
+<text x="2424" y="1860" textLength="756">Amsterdam</text>
+<text x="3348" y="1860" textLength="1092">hysteria2/udp</text>
+<circle class="fd" cx="4986" cy="1820" r="30"/>
+<text x="5112" y="1860" textLength="168">UP</text>
+<text x="5616" y="1860" textLength="336">52ms</text>
+<text x="6204" y="1860" textLength="168">1d</text>
+<text x="6456" y="1860" textLength="420">02:41</text>
+<text x="7128" y="1860" textLength="756">27015/udp</text>
+<text x="408" y="2036">3</text>
+<text x="660" y="2036" textLength="420">Panel</text>
+<text x="1164" y="2036" textLength="336">8443</text>
+<text x="2004" y="2036" textLength="336">de-1</text>
+<text x="2424" y="2036" textLength="756">Frankfurt</text>
+<text x="3348" y="2036" textLength="1008">xray/reality</text>
+<circle class="fd" cx="4986" cy="1996" r="30"/>
+<text x="5112" y="2036" textLength="168">UP</text>
+<text x="5616" y="2036" textLength="336">44ms</text>
+<text x="6204" y="2036" textLength="672">09:05:00</text>
+<text x="7128" y="2036" textLength="336">8443</text>
+<rect class="fd" x="276" y="2342" width="48" height="12"/>
+<rect class="fd" x="240" y="2342" width="48" height="12"/>
+<rect class="fd" x="360" y="2342" width="48" height="12"/>
+<rect class="fd" x="324" y="2342" width="48" height="12"/>
+<text x="492" y="2388" class="f6 b" textLength="588">TRAFFIC</text>
+<rect class="fd" x="1200" y="2342" width="48" height="12"/>
+<rect class="fd" x="1164" y="2342" width="48" height="12"/>
+<rect class="fd" x="1284" y="2342" width="48" height="12"/>
+<rect class="fd" x="1248" y="2342" width="48" height="12"/>
+<rect class="fd" x="1368" y="2342" width="48" height="12"/>
+<rect class="fd" x="1332" y="2342" width="48" height="12"/>
+<rect class="fd" x="1452" y="2342" width="48" height="12"/>
+<rect class="fd" x="1416" y="2342" width="48" height="12"/>
+<rect class="fd" x="1536" y="2342" width="48" height="12"/>
+<rect class="fd" x="1500" y="2342" width="48" height="12"/>
+<rect class="fd" x="1620" y="2342" width="48" height="12"/>
+<rect class="fd" x="1584" y="2342" width="48" height="12"/>
+<rect class="fd" x="1704" y="2342" width="48" height="12"/>
+<rect class="fd" x="1668" y="2342" width="48" height="12"/>
+<rect class="fd" x="1788" y="2342" width="48" height="12"/>
+<rect class="fd" x="1752" y="2342" width="48" height="12"/>
+<rect class="fd" x="1872" y="2342" width="48" height="12"/>
+<rect class="fd" x="1836" y="2342" width="48" height="12"/>
+<rect class="fd" x="1956" y="2342" width="48" height="12"/>
+<rect class="fd" x="1920" y="2342" width="48" height="12"/>
+<rect class="fd" x="2040" y="2342" width="48" height="12"/>
+<rect class="fd" x="2004" y="2342" width="48" height="12"/>
+<rect class="fd" x="2124" y="2342" width="48" height="12"/>
+<rect class="fd" x="2088" y="2342" width="48" height="12"/>
+<rect class="fd" x="2208" y="2342" width="48" height="12"/>
+<rect class="fd" x="2172" y="2342" width="48" height="12"/>
+<rect class="fd" x="2292" y="2342" width="48" height="12"/>
+<rect class="fd" x="2256" y="2342" width="48" height="12"/>
+<rect class="fd" x="2376" y="2342" width="48" height="12"/>
+<rect class="fd" x="2340" y="2342" width="48" height="12"/>
+<rect class="fd" x="2460" y="2342" width="48" height="12"/>
+<rect class="fd" x="2424" y="2342" width="48" height="12"/>
+<rect class="fd" x="2544" y="2342" width="48" height="12"/>
+<rect class="fd" x="2508" y="2342" width="48" height="12"/>
+<rect class="fd" x="2628" y="2342" width="48" height="12"/>
+<rect class="fd" x="2592" y="2342" width="48" height="12"/>
+<rect class="fd" x="2712" y="2342" width="48" height="12"/>
+<rect class="fd" x="2676" y="2342" width="48" height="12"/>
+<rect class="fd" x="2796" y="2342" width="48" height="12"/>
+<rect class="fd" x="2760" y="2342" width="48" height="12"/>
+<rect class="fd" x="2880" y="2342" width="48" height="12"/>
+<rect class="fd" x="2844" y="2342" width="48" height="12"/>
+<rect class="fd" x="2964" y="2342" width="48" height="12"/>
+<rect class="fd" x="2928" y="2342" width="48" height="12"/>
+<rect class="fd" x="3048" y="2342" width="48" height="12"/>
+<rect class="fd" x="3012" y="2342" width="48" height="12"/>
+<rect class="fd" x="3132" y="2342" width="48" height="12"/>
+<rect class="fd" x="3096" y="2342" width="48" height="12"/>
+<rect class="fd" x="3216" y="2342" width="48" height="12"/>
+<rect class="fd" x="3180" y="2342" width="48" height="12"/>
+<rect class="fd" x="3300" y="2342" width="48" height="12"/>
+<rect class="fd" x="3264" y="2342" width="48" height="12"/>
+<rect class="fd" x="3384" y="2342" width="48" height="12"/>
+<rect class="fd" x="3348" y="2342" width="48" height="12"/>
+<rect class="fd" x="3468" y="2342" width="48" height="12"/>
+<rect class="fd" x="3432" y="2342" width="48" height="12"/>
+<rect class="fd" x="3552" y="2342" width="48" height="12"/>
+<rect class="fd" x="3516" y="2342" width="48" height="12"/>
+<rect class="fd" x="3636" y="2342" width="48" height="12"/>
+<rect class="fd" x="3600" y="2342" width="48" height="12"/>
+<rect class="fd" x="3720" y="2342" width="48" height="12"/>
+<rect class="fd" x="3684" y="2342" width="48" height="12"/>
+<rect class="fd" x="3804" y="2342" width="48" height="12"/>
+<rect class="fd" x="3768" y="2342" width="48" height="12"/>
+<rect class="fd" x="3888" y="2342" width="48" height="12"/>
+<rect class="fd" x="3852" y="2342" width="48" height="12"/>
+<text x="4020" y="2388" textLength="336">last</text>
+<text x="4440" y="2388" textLength="336">hour</text>
+<text x="4860" y="2388">·</text>
+<text x="5028" y="2388">↓</text>
+<text x="5196" y="2388" textLength="672">download</text>
+<text x="5952" y="2388" textLength="168">to</text>
+<text x="6204" y="2388" textLength="420">users</text>
+<text x="6708" y="2388">·</text>
+<text x="6876" y="2388">↑</text>
+<text x="7044" y="2388" textLength="504">upload</text>
+<text x="7632" y="2388" textLength="336">from</text>
+<text x="8052" y="2388" textLength="420">users</text>
+<text x="408" y="2564" textLength="336">Xray</text>
+<text x="828" y="2564" textLength="252">443</text>
+<rect class="fd" x="1416" y="2546" width="84" height="66"/>
+<rect class="fd" x="1500" y="2458" width="84" height="154"/>
+<rect class="fd" x="1584" y="2502" width="84" height="110"/>
+<rect class="fd" x="1668" y="2546" width="84" height="66"/>
+<rect class="fd" x="1752" y="2458" width="84" height="154"/>
+<rect class="fd" x="1836" y="2480" width="84" height="132"/>
+<rect class="fd" x="1920" y="2524" width="84" height="88"/>
+<rect class="fd" x="2004" y="2436" width="84" height="176"/>
+<rect class="fd" x="2088" y="2480" width="84" height="132"/>
+<rect class="fd" x="2172" y="2502" width="84" height="110"/>
+<rect class="fd" x="2256" y="2546" width="84" height="66"/>
+<rect class="fd" x="2340" y="2458" width="84" height="154"/>
+<rect class="fd" x="2424" y="2502" width="84" height="110"/>
+<rect class="fd" x="2508" y="2524" width="84" height="88"/>
+<rect class="fd" x="2592" y="2436" width="84" height="176"/>
+<rect class="fd" x="2676" y="2480" width="84" height="132"/>
+<rect class="fd" x="2760" y="2502" width="84" height="110"/>
+<rect class="fd" x="2844" y="2546" width="84" height="66"/>
+<rect class="fd" x="2928" y="2458" width="84" height="154"/>
+<rect class="fd" x="3012" y="2502" width="84" height="110"/>
+<rect class="fd" x="3096" y="2524" width="84" height="88"/>
+<rect class="fd" x="3180" y="2436" width="84" height="176"/>
+<rect class="fd" x="3264" y="2480" width="84" height="132"/>
+<rect class="fd" x="3348" y="2524" width="84" height="88"/>
+<rect class="fd" x="3432" y="2546" width="84" height="66"/>
+<rect class="fd" x="3516" y="2458" width="84" height="154"/>
+<rect class="fd" x="3600" y="2502" width="84" height="110"/>
+<rect class="fd" x="3684" y="2546" width="84" height="66"/>
+<rect class="fd" x="3768" y="2436" width="84" height="176"/>
+<rect class="fd" x="3852" y="2480" width="84" height="132"/>
+<text x="4104" y="2564">↓</text>
+<text x="4272" y="2564" textLength="336">26.2</text>
+<text x="4692" y="2564" textLength="336">Mb/s</text>
+<text x="5196" y="2564">↑</text>
+<text x="5364" y="2564" textLength="336">2.91</text>
+<text x="5784" y="2564" textLength="336">Mb/s</text>
+<text x="6288" y="2564" textLength="420">today</text>
+<text x="6792" y="2564">↓</text>
+<text x="6960" y="2564" textLength="336">87.4</text>
+<text x="7380" y="2564" textLength="252">GiB</text>
+<text x="7716" y="2564">↑</text>
+<text x="7884" y="2564" textLength="252">9.7</text>
+<text x="8220" y="2564" textLength="252">GiB</text>
+<text x="408" y="2740" textLength="420">Games</text>
+<text x="912" y="2740" textLength="252">UDP</text>
+<rect class="fd" x="1416" y="2656" width="84" height="132"/>
+<rect class="fd" x="1500" y="2700" width="84" height="88"/>
+<rect class="fd" x="1584" y="2722" width="84" height="66"/>
+<rect class="fd" x="1668" y="2634" width="84" height="154"/>
+<rect class="fd" x="1752" y="2678" width="84" height="110"/>
+<rect class="fd" x="1836" y="2722" width="84" height="66"/>
+<rect class="fd" x="1920" y="2634" width="84" height="154"/>
+<rect class="fd" x="2004" y="2656" width="84" height="132"/>
+<rect class="fd" x="2088" y="2700" width="84" height="88"/>
+<rect class="fd" x="2172" y="2744" width="84" height="44"/>
+<rect class="fd" x="2256" y="2656" width="84" height="132"/>
+<rect class="fd" x="2340" y="2678" width="84" height="110"/>
+<rect class="fd" x="2424" y="2722" width="84" height="66"/>
+<rect class="fd" x="2508" y="2634" width="84" height="154"/>
+<rect class="fd" x="2592" y="2678" width="84" height="110"/>
+<rect class="fd" x="2676" y="2700" width="84" height="88"/>
+<rect class="fd" x="2760" y="2612" width="84" height="176"/>
+<rect class="fd" x="2844" y="2656" width="84" height="132"/>
+<rect class="fd" x="2928" y="2678" width="84" height="110"/>
+<rect class="fd" x="3012" y="2722" width="84" height="66"/>
+<rect class="fd" x="3096" y="2634" width="84" height="154"/>
+<rect class="fd" x="3180" y="2678" width="84" height="110"/>
+<rect class="fd" x="3264" y="2700" width="84" height="88"/>
+<rect class="fd" x="3348" y="2612" width="84" height="176"/>
+<rect class="fd" x="3432" y="2656" width="84" height="132"/>
+<rect class="fd" x="3516" y="2700" width="84" height="88"/>
+<rect class="fd" x="3600" y="2722" width="84" height="66"/>
+<rect class="fd" x="3684" y="2634" width="84" height="154"/>
+<rect class="fd" x="3768" y="2678" width="84" height="110"/>
+<rect class="fd" x="3852" y="2722" width="84" height="66"/>
+<text x="4104" y="2740">↓</text>
+<text x="4272" y="2740" textLength="336">4.91</text>
+<text x="4692" y="2740" textLength="336">Mb/s</text>
+<text x="5196" y="2740">↑</text>
+<text x="5448" y="2740" textLength="252">546</text>
+<text x="5784" y="2740" textLength="336">kb/s</text>
+<text x="6288" y="2740" textLength="420">today</text>
+<text x="6792" y="2740">↓</text>
+<text x="6960" y="2740" textLength="336">16.4</text>
+<text x="7380" y="2740" textLength="252">GiB</text>
+<text x="7716" y="2740">↑</text>
+<text x="7884" y="2740" textLength="252">1.8</text>
+<text x="8220" y="2740" textLength="252">GiB</text>
+<text x="408" y="2916" textLength="420">Panel</text>
+<text x="912" y="2916" textLength="336">8443</text>
+<rect class="fd" x="1416" y="2810" width="84" height="154"/>
+<rect class="fd" x="1500" y="2854" width="84" height="110"/>
+<rect class="fd" x="1584" y="2876" width="84" height="88"/>
+<rect class="fd" x="1668" y="2920" width="84" height="44"/>
+<rect class="fd" x="1752" y="2832" width="84" height="132"/>
+<rect class="fd" x="1836" y="2876" width="84" height="88"/>
+<rect class="fd" x="1920" y="2898" width="84" height="66"/>
+<rect class="fd" x="2004" y="2810" width="84" height="154"/>
+<rect class="fd" x="2088" y="2854" width="84" height="110"/>
+<rect class="fd" x="2172" y="2876" width="84" height="88"/>
+<rect class="fd" x="2256" y="2810" width="84" height="154"/>
+<rect class="fd" x="2340" y="2832" width="84" height="132"/>
+<rect class="fd" x="2424" y="2876" width="84" height="88"/>
+<rect class="fd" x="2508" y="2898" width="84" height="66"/>
+<rect class="fd" x="2592" y="2810" width="84" height="154"/>
+<rect class="fd" x="2676" y="2854" width="84" height="110"/>
+<rect class="fd" x="2760" y="2898" width="84" height="66"/>
+<rect class="fd" x="2844" y="2810" width="84" height="154"/>
+<rect class="fd" x="2928" y="2832" width="84" height="132"/>
+<rect class="fd" x="3012" y="2876" width="84" height="88"/>
+<rect class="fd" x="3096" y="2920" width="84" height="44"/>
+<rect class="fd" x="3180" y="2832" width="84" height="132"/>
+<rect class="fd" x="3264" y="2854" width="84" height="110"/>
+<rect class="fd" x="3348" y="2898" width="84" height="66"/>
+<rect class="fd" x="3432" y="2810" width="84" height="154"/>
+<rect class="fd" x="3516" y="2832" width="84" height="132"/>
+<rect class="fd" x="3600" y="2876" width="84" height="88"/>
+<rect class="fd" x="3684" y="2788" width="84" height="176"/>
+<rect class="fd" x="3768" y="2832" width="84" height="132"/>
+<rect class="fd" x="3852" y="2854" width="84" height="110"/>
+<text x="4104" y="2916">↓</text>
+<text x="4272" y="2916" textLength="336">1.54</text>
+<text x="4692" y="2916" textLength="336">Mb/s</text>
+<text x="5196" y="2916">↑</text>
+<text x="5448" y="2916" textLength="252">171</text>
+<text x="5784" y="2916" textLength="336">kb/s</text>
+<text x="6288" y="2916" textLength="420">today</text>
+<text x="6792" y="2916">↓</text>
+<text x="6960" y="2916" textLength="252">5.1</text>
+<text x="7296" y="2916" textLength="252">GiB</text>
+<text x="7632" y="2916">↑</text>
+<text x="7800" y="2916" textLength="420">585.3</text>
+<text x="8304" y="2916" textLength="252">MiB</text>
+<rect class="fd" x="276" y="3222" width="48" height="12"/>
+<rect class="fd" x="240" y="3222" width="48" height="12"/>
+<rect class="fd" x="360" y="3222" width="48" height="12"/>
+<rect class="fd" x="324" y="3222" width="48" height="12"/>
+<text x="492" y="3268" class="f6 b" textLength="420">NODES</text>
+<rect class="fd" x="1032" y="3222" width="48" height="12"/>
+<rect class="fd" x="996" y="3222" width="48" height="12"/>
+<rect class="fd" x="1116" y="3222" width="48" height="12"/>
+<rect class="fd" x="1080" y="3222" width="48" height="12"/>
+<rect class="fd" x="1200" y="3222" width="48" height="12"/>
+<rect class="fd" x="1164" y="3222" width="48" height="12"/>
+<rect class="fd" x="1284" y="3222" width="48" height="12"/>
+<rect class="fd" x="1248" y="3222" width="48" height="12"/>
+<rect class="fd" x="1368" y="3222" width="48" height="12"/>
+<rect class="fd" x="1332" y="3222" width="48" height="12"/>
+<rect class="fd" x="1452" y="3222" width="48" height="12"/>
+<rect class="fd" x="1416" y="3222" width="48" height="12"/>
+<rect class="fd" x="1536" y="3222" width="48" height="12"/>
+<rect class="fd" x="1500" y="3222" width="48" height="12"/>
+<rect class="fd" x="1620" y="3222" width="48" height="12"/>
+<rect class="fd" x="1584" y="3222" width="48" height="12"/>
+<rect class="fd" x="1704" y="3222" width="48" height="12"/>
+<rect class="fd" x="1668" y="3222" width="48" height="12"/>
+<rect class="fd" x="1788" y="3222" width="48" height="12"/>
+<rect class="fd" x="1752" y="3222" width="48" height="12"/>
+<rect class="fd" x="1872" y="3222" width="48" height="12"/>
+<rect class="fd" x="1836" y="3222" width="48" height="12"/>
+<rect class="fd" x="1956" y="3222" width="48" height="12"/>
+<rect class="fd" x="1920" y="3222" width="48" height="12"/>
+<rect class="fd" x="2040" y="3222" width="48" height="12"/>
+<rect class="fd" x="2004" y="3222" width="48" height="12"/>
+<rect class="fd" x="2124" y="3222" width="48" height="12"/>
+<rect class="fd" x="2088" y="3222" width="48" height="12"/>
+<rect class="fd" x="2208" y="3222" width="48" height="12"/>
+<rect class="fd" x="2172" y="3222" width="48" height="12"/>
+<rect class="fd" x="2292" y="3222" width="48" height="12"/>
+<rect class="fd" x="2256" y="3222" width="48" height="12"/>
+<rect class="fd" x="2376" y="3222" width="48" height="12"/>
+<rect class="fd" x="2340" y="3222" width="48" height="12"/>
+<rect class="fd" x="2460" y="3222" width="48" height="12"/>
+<rect class="fd" x="2424" y="3222" width="48" height="12"/>
+<rect class="fd" x="2544" y="3222" width="48" height="12"/>
+<rect class="fd" x="2508" y="3222" width="48" height="12"/>
+<rect class="fd" x="2628" y="3222" width="48" height="12"/>
+<rect class="fd" x="2592" y="3222" width="48" height="12"/>
+<rect class="fd" x="2712" y="3222" width="48" height="12"/>
+<rect class="fd" x="2676" y="3222" width="48" height="12"/>
+<rect class="fd" x="2796" y="3222" width="48" height="12"/>
+<rect class="fd" x="2760" y="3222" width="48" height="12"/>
+<rect class="fd" x="2880" y="3222" width="48" height="12"/>
+<rect class="fd" x="2844" y="3222" width="48" height="12"/>
+<rect class="fd" x="2964" y="3222" width="48" height="12"/>
+<rect class="fd" x="2928" y="3222" width="48" height="12"/>
+<rect class="fd" x="3048" y="3222" width="48" height="12"/>
+<rect class="fd" x="3012" y="3222" width="48" height="12"/>
+<rect class="fd" x="3132" y="3222" width="48" height="12"/>
+<rect class="fd" x="3096" y="3222" width="48" height="12"/>
+<rect class="fd" x="3216" y="3222" width="48" height="12"/>
+<rect class="fd" x="3180" y="3222" width="48" height="12"/>
+<rect class="fd" x="3300" y="3222" width="48" height="12"/>
+<rect class="fd" x="3264" y="3222" width="48" height="12"/>
+<rect class="fd" x="3384" y="3222" width="48" height="12"/>
+<rect class="fd" x="3348" y="3222" width="48" height="12"/>
+<rect class="fd" x="3468" y="3222" width="48" height="12"/>
+<rect class="fd" x="3432" y="3222" width="48" height="12"/>
+<rect class="fd" x="3552" y="3222" width="48" height="12"/>
+<rect class="fd" x="3516" y="3222" width="48" height="12"/>
+<rect class="fd" x="3636" y="3222" width="48" height="12"/>
+<rect class="fd" x="3600" y="3222" width="48" height="12"/>
+<rect class="fd" x="3720" y="3222" width="48" height="12"/>
+<rect class="fd" x="3684" y="3222" width="48" height="12"/>
+<rect class="fd" x="3804" y="3222" width="48" height="12"/>
+<rect class="fd" x="3768" y="3222" width="48" height="12"/>
+<rect class="fd" x="3888" y="3222" width="48" height="12"/>
+<rect class="fd" x="3852" y="3222" width="48" height="12"/>
+<rect class="fd" x="3972" y="3222" width="48" height="12"/>
+<rect class="fd" x="3936" y="3222" width="48" height="12"/>
+<rect class="fd" x="4056" y="3222" width="48" height="12"/>
+<rect class="fd" x="4020" y="3222" width="48" height="12"/>
+<rect class="fd" x="4140" y="3222" width="48" height="12"/>
+<rect class="fd" x="4104" y="3222" width="48" height="12"/>
+<rect class="fd" x="4224" y="3222" width="48" height="12"/>
+<rect class="fd" x="4188" y="3222" width="48" height="12"/>
+<rect class="fd" x="4308" y="3222" width="48" height="12"/>
+<rect class="fd" x="4272" y="3222" width="48" height="12"/>
+<rect class="fd" x="4392" y="3222" width="48" height="12"/>
+<rect class="fd" x="4356" y="3222" width="48" height="12"/>
+<rect class="fd" x="4476" y="3222" width="48" height="12"/>
+<rect class="fd" x="4440" y="3222" width="48" height="12"/>
+<rect class="fd" x="4560" y="3222" width="48" height="12"/>
+<rect class="fd" x="4524" y="3222" width="48" height="12"/>
+<rect class="fd" x="4644" y="3222" width="48" height="12"/>
+<rect class="fd" x="4608" y="3222" width="48" height="12"/>
+<rect class="fd" x="4728" y="3222" width="48" height="12"/>
+<rect class="fd" x="4692" y="3222" width="48" height="12"/>
+<rect class="fd" x="4812" y="3222" width="48" height="12"/>
+<rect class="fd" x="4776" y="3222" width="48" height="12"/>
+<rect class="fd" x="4896" y="3222" width="48" height="12"/>
+<rect class="fd" x="4860" y="3222" width="48" height="12"/>
+<rect class="fd" x="4980" y="3222" width="48" height="12"/>
+<rect class="fd" x="4944" y="3222" width="48" height="12"/>
+<rect class="fd" x="5064" y="3222" width="48" height="12"/>
+<rect class="fd" x="5028" y="3222" width="48" height="12"/>
+<rect class="fd" x="5148" y="3222" width="48" height="12"/>
+<rect class="fd" x="5112" y="3222" width="48" height="12"/>
+<rect class="fd" x="5232" y="3222" width="48" height="12"/>
+<rect class="fd" x="5196" y="3222" width="48" height="12"/>
+<rect class="fd" x="5316" y="3222" width="48" height="12"/>
+<rect class="fd" x="5280" y="3222" width="48" height="12"/>
+<rect class="fd" x="5400" y="3222" width="48" height="12"/>
+<rect class="fd" x="5364" y="3222" width="48" height="12"/>
+<rect class="fd" x="5484" y="3222" width="48" height="12"/>
+<rect class="fd" x="5448" y="3222" width="48" height="12"/>
+<rect class="fd" x="5568" y="3222" width="48" height="12"/>
+<rect class="fd" x="5532" y="3222" width="48" height="12"/>
+<rect class="fd" x="5652" y="3222" width="48" height="12"/>
+<rect class="fd" x="5616" y="3222" width="48" height="12"/>
+<rect class="fd" x="5736" y="3222" width="48" height="12"/>
+<rect class="fd" x="5700" y="3222" width="48" height="12"/>
+<rect class="fd" x="5820" y="3222" width="48" height="12"/>
+<rect class="fd" x="5784" y="3222" width="48" height="12"/>
+<rect class="fd" x="5904" y="3222" width="48" height="12"/>
+<rect class="fd" x="5868" y="3222" width="48" height="12"/>
+<rect class="fd" x="5988" y="3222" width="48" height="12"/>
+<rect class="fd" x="5952" y="3222" width="48" height="12"/>
+<rect class="fd" x="6072" y="3222" width="48" height="12"/>
+<rect class="fd" x="6036" y="3222" width="48" height="12"/>
+<rect class="fd" x="6156" y="3222" width="48" height="12"/>
+<rect class="fd" x="6120" y="3222" width="48" height="12"/>
+<rect class="fd" x="6240" y="3222" width="48" height="12"/>
+<rect class="fd" x="6204" y="3222" width="48" height="12"/>
+<rect class="fd" x="6324" y="3222" width="48" height="12"/>
+<rect class="fd" x="6288" y="3222" width="48" height="12"/>
+<rect class="fd" x="6408" y="3222" width="48" height="12"/>
+<rect class="fd" x="6372" y="3222" width="48" height="12"/>
+<rect class="fd" x="6492" y="3222" width="48" height="12"/>
+<rect class="fd" x="6456" y="3222" width="48" height="12"/>
+<rect class="fd" x="6576" y="3222" width="48" height="12"/>
+<rect class="fd" x="6540" y="3222" width="48" height="12"/>
+<rect class="fd" x="6660" y="3222" width="48" height="12"/>
+<rect class="fd" x="6624" y="3222" width="48" height="12"/>
+<rect class="fd" x="6744" y="3222" width="48" height="12"/>
+<rect class="fd" x="6708" y="3222" width="48" height="12"/>
+<rect class="fd" x="6828" y="3222" width="48" height="12"/>
+<rect class="fd" x="6792" y="3222" width="48" height="12"/>
+<rect class="fd" x="6912" y="3222" width="48" height="12"/>
+<rect class="fd" x="6876" y="3222" width="48" height="12"/>
+<rect class="fd" x="6996" y="3222" width="48" height="12"/>
+<rect class="fd" x="6960" y="3222" width="48" height="12"/>
+<rect class="fd" x="7080" y="3222" width="48" height="12"/>
+<rect class="fd" x="7044" y="3222" width="48" height="12"/>
+<rect class="fd" x="7164" y="3222" width="48" height="12"/>
+<rect class="fd" x="7128" y="3222" width="48" height="12"/>
+<rect class="fd" x="7248" y="3222" width="48" height="12"/>
+<rect class="fd" x="7212" y="3222" width="48" height="12"/>
+<rect class="fd" x="7332" y="3222" width="48" height="12"/>
+<rect class="fd" x="7296" y="3222" width="48" height="12"/>
+<rect class="fd" x="7416" y="3222" width="48" height="12"/>
+<rect class="fd" x="7380" y="3222" width="48" height="12"/>
+<rect class="fd" x="7500" y="3222" width="48" height="12"/>
+<rect class="fd" x="7464" y="3222" width="48" height="12"/>
+<rect class="fd" x="7584" y="3222" width="48" height="12"/>
+<rect class="fd" x="7548" y="3222" width="48" height="12"/>
+<rect class="fd" x="7668" y="3222" width="48" height="12"/>
+<rect class="fd" x="7632" y="3222" width="48" height="12"/>
+<rect class="fd" x="7752" y="3222" width="48" height="12"/>
+<rect class="fd" x="7716" y="3222" width="48" height="12"/>
+<rect class="fd" x="7836" y="3222" width="48" height="12"/>
+<rect class="fd" x="7800" y="3222" width="48" height="12"/>
+<rect class="fd" x="7920" y="3222" width="48" height="12"/>
+<rect class="fd" x="7884" y="3222" width="48" height="12"/>
+<rect class="fd" x="8004" y="3222" width="48" height="12"/>
+<rect class="fd" x="7968" y="3222" width="48" height="12"/>
+<rect class="fd" x="8088" y="3222" width="48" height="12"/>
+<rect class="fd" x="8052" y="3222" width="48" height="12"/>
+<rect class="fd" x="8172" y="3222" width="48" height="12"/>
+<rect class="fd" x="8136" y="3222" width="48" height="12"/>
+<rect class="fd" x="8256" y="3222" width="48" height="12"/>
+<rect class="fd" x="8220" y="3222" width="48" height="12"/>
+<rect class="fd" x="8340" y="3222" width="48" height="12"/>
+<rect class="fd" x="8304" y="3222" width="48" height="12"/>
+<rect class="fd" x="8424" y="3222" width="48" height="12"/>
+<rect class="fd" x="8388" y="3222" width="48" height="12"/>
+<rect class="fd" x="8508" y="3222" width="48" height="12"/>
+<rect class="fd" x="8472" y="3222" width="48" height="12"/>
+<rect class="fd" x="8592" y="3222" width="48" height="12"/>
+<rect class="fd" x="8556" y="3222" width="48" height="12"/>
+<text x="408" y="3444" textLength="336">NODE</text>
+<text x="912" y="3444" textLength="336">NAME</text>
+<text x="1836" y="3444" textLength="588">ADDRESS</text>
+<text x="3096" y="3444" textLength="420">STATE</text>
+<text x="3936" y="3444" textLength="588">CONTROL</text>
+<text x="4692" y="3444" textLength="588">VERSION</text>
+<text x="5448" y="3444" textLength="252">CPU</text>
+<text x="5868" y="3444" textLength="252">RAM</text>
+<text x="408" y="3620" textLength="336">de-1</text>
+<text x="912" y="3620" textLength="756">Frankfurt</text>
+<text x="1836" y="3620" textLength="1092">198.51.100.21</text>
+<circle class="fd" cx="3138" cy="3580" r="30"/>
+<text x="3264" y="3620" textLength="504">online</text>
+<text x="3936" y="3620" textLength="336">38ms</text>
+<text x="4692" y="3620" textLength="504">v1.0.0</text>
+<text x="5448" y="3620" textLength="168">4%</text>
+<text x="5868" y="3620" textLength="252">182</text>
+<text x="6204" y="3620" textLength="168">MB</text>
+<text x="408" y="3796" textLength="336">nl-1</text>
+<text x="912" y="3796" textLength="756">Amsterdam</text>
+<text x="1836" y="3796" textLength="1092">198.51.100.34</text>
+<circle class="fd" cx="3138" cy="3756" r="30"/>
+<text x="3264" y="3796" textLength="504">online</text>
+<text x="3936" y="3796" textLength="336">45ms</text>
+<text x="4692" y="3796" textLength="504">v1.0.0</text>
+<text x="5448" y="3796" textLength="168">2%</text>
+<text x="5868" y="3796" textLength="252">141</text>
+<text x="6204" y="3796" textLength="168">MB</text>
+<rect class="fd" x="276" y="4102" width="48" height="12"/>
+<rect class="fd" x="240" y="4102" width="48" height="12"/>
+<rect class="fd" x="360" y="4102" width="48" height="12"/>
+<rect class="fd" x="324" y="4102" width="48" height="12"/>
+<text x="492" y="4148" class="f6 b" textLength="336">LAST</text>
+<text x="912" y="4148" class="f6 b" textLength="504">EVENTS</text>
+<rect class="fd" x="1536" y="4102" width="48" height="12"/>
+<rect class="fd" x="1500" y="4102" width="48" height="12"/>
+<rect class="fd" x="1620" y="4102" width="48" height="12"/>
+<rect class="fd" x="1584" y="4102" width="48" height="12"/>
+<rect class="fd" x="1704" y="4102" width="48" height="12"/>
+<rect class="fd" x="1668" y="4102" width="48" height="12"/>
+<rect class="fd" x="1788" y="4102" width="48" height="12"/>
+<rect class="fd" x="1752" y="4102" width="48" height="12"/>
+<rect class="fd" x="1872" y="4102" width="48" height="12"/>
+<rect class="fd" x="1836" y="4102" width="48" height="12"/>
+<rect class="fd" x="1956" y="4102" width="48" height="12"/>
+<rect class="fd" x="1920" y="4102" width="48" height="12"/>
+<rect class="fd" x="2040" y="4102" width="48" height="12"/>
+<rect class="fd" x="2004" y="4102" width="48" height="12"/>
+<rect class="fd" x="2124" y="4102" width="48" height="12"/>
+<rect class="fd" x="2088" y="4102" width="48" height="12"/>
+<rect class="fd" x="2208" y="4102" width="48" height="12"/>
+<rect class="fd" x="2172" y="4102" width="48" height="12"/>
+<rect class="fd" x="2292" y="4102" width="48" height="12"/>
+<rect class="fd" x="2256" y="4102" width="48" height="12"/>
+<rect class="fd" x="2376" y="4102" width="48" height="12"/>
+<rect class="fd" x="2340" y="4102" width="48" height="12"/>
+<rect class="fd" x="2460" y="4102" width="48" height="12"/>
+<rect class="fd" x="2424" y="4102" width="48" height="12"/>
+<rect class="fd" x="2544" y="4102" width="48" height="12"/>
+<rect class="fd" x="2508" y="4102" width="48" height="12"/>
+<rect class="fd" x="2628" y="4102" width="48" height="12"/>
+<rect class="fd" x="2592" y="4102" width="48" height="12"/>
+<rect class="fd" x="2712" y="4102" width="48" height="12"/>
+<rect class="fd" x="2676" y="4102" width="48" height="12"/>
+<rect class="fd" x="2796" y="4102" width="48" height="12"/>
+<rect class="fd" x="2760" y="4102" width="48" height="12"/>
+<rect class="fd" x="2880" y="4102" width="48" height="12"/>
+<rect class="fd" x="2844" y="4102" width="48" height="12"/>
+<rect class="fd" x="2964" y="4102" width="48" height="12"/>
+<rect class="fd" x="2928" y="4102" width="48" height="12"/>
+<rect class="fd" x="3048" y="4102" width="48" height="12"/>
+<rect class="fd" x="3012" y="4102" width="48" height="12"/>
+<rect class="fd" x="3132" y="4102" width="48" height="12"/>
+<rect class="fd" x="3096" y="4102" width="48" height="12"/>
+<rect class="fd" x="3216" y="4102" width="48" height="12"/>
+<rect class="fd" x="3180" y="4102" width="48" height="12"/>
+<rect class="fd" x="3300" y="4102" width="48" height="12"/>
+<rect class="fd" x="3264" y="4102" width="48" height="12"/>
+<rect class="fd" x="3384" y="4102" width="48" height="12"/>
+<rect class="fd" x="3348" y="4102" width="48" height="12"/>
+<rect class="fd" x="3468" y="4102" width="48" height="12"/>
+<rect class="fd" x="3432" y="4102" width="48" height="12"/>
+<rect class="fd" x="3552" y="4102" width="48" height="12"/>
+<rect class="fd" x="3516" y="4102" width="48" height="12"/>
+<rect class="fd" x="3636" y="4102" width="48" height="12"/>
+<rect class="fd" x="3600" y="4102" width="48" height="12"/>
+<rect class="fd" x="3720" y="4102" width="48" height="12"/>
+<rect class="fd" x="3684" y="4102" width="48" height="12"/>
+<rect class="fd" x="3804" y="4102" width="48" height="12"/>
+<rect class="fd" x="3768" y="4102" width="48" height="12"/>
+<rect class="fd" x="3888" y="4102" width="48" height="12"/>
+<rect class="fd" x="3852" y="4102" width="48" height="12"/>
+<rect class="fd" x="3972" y="4102" width="48" height="12"/>
+<rect class="fd" x="3936" y="4102" width="48" height="12"/>
+<rect class="fd" x="4056" y="4102" width="48" height="12"/>
+<rect class="fd" x="4020" y="4102" width="48" height="12"/>
+<rect class="fd" x="4140" y="4102" width="48" height="12"/>
+<rect class="fd" x="4104" y="4102" width="48" height="12"/>
+<rect class="fd" x="4224" y="4102" width="48" height="12"/>
+<rect class="fd" x="4188" y="4102" width="48" height="12"/>
+<rect class="fd" x="4308" y="4102" width="48" height="12"/>
+<rect class="fd" x="4272" y="4102" width="48" height="12"/>
+<rect class="fd" x="4392" y="4102" width="48" height="12"/>
+<rect class="fd" x="4356" y="4102" width="48" height="12"/>
+<rect class="fd" x="4476" y="4102" width="48" height="12"/>
+<rect class="fd" x="4440" y="4102" width="48" height="12"/>
+<rect class="fd" x="4560" y="4102" width="48" height="12"/>
+<rect class="fd" x="4524" y="4102" width="48" height="12"/>
+<rect class="fd" x="4644" y="4102" width="48" height="12"/>
+<rect class="fd" x="4608" y="4102" width="48" height="12"/>
+<rect class="fd" x="4728" y="4102" width="48" height="12"/>
+<rect class="fd" x="4692" y="4102" width="48" height="12"/>
+<rect class="fd" x="4812" y="4102" width="48" height="12"/>
+<rect class="fd" x="4776" y="4102" width="48" height="12"/>
+<rect class="fd" x="4896" y="4102" width="48" height="12"/>
+<rect class="fd" x="4860" y="4102" width="48" height="12"/>
+<rect class="fd" x="4980" y="4102" width="48" height="12"/>
+<rect class="fd" x="4944" y="4102" width="48" height="12"/>
+<rect class="fd" x="5064" y="4102" width="48" height="12"/>
+<rect class="fd" x="5028" y="4102" width="48" height="12"/>
+<rect class="fd" x="5148" y="4102" width="48" height="12"/>
+<rect class="fd" x="5112" y="4102" width="48" height="12"/>
+<rect class="fd" x="5232" y="4102" width="48" height="12"/>
+<rect class="fd" x="5196" y="4102" width="48" height="12"/>
+<rect class="fd" x="5316" y="4102" width="48" height="12"/>
+<rect class="fd" x="5280" y="4102" width="48" height="12"/>
+<rect class="fd" x="5400" y="4102" width="48" height="12"/>
+<rect class="fd" x="5364" y="4102" width="48" height="12"/>
+<rect class="fd" x="5484" y="4102" width="48" height="12"/>
+<rect class="fd" x="5448" y="4102" width="48" height="12"/>
+<rect class="fd" x="5568" y="4102" width="48" height="12"/>
+<rect class="fd" x="5532" y="4102" width="48" height="12"/>
+<rect class="fd" x="5652" y="4102" width="48" height="12"/>
+<rect class="fd" x="5616" y="4102" width="48" height="12"/>
+<rect class="fd" x="5736" y="4102" width="48" height="12"/>
+<rect class="fd" x="5700" y="4102" width="48" height="12"/>
+<rect class="fd" x="5820" y="4102" width="48" height="12"/>
+<rect class="fd" x="5784" y="4102" width="48" height="12"/>
+<rect class="fd" x="5904" y="4102" width="48" height="12"/>
+<rect class="fd" x="5868" y="4102" width="48" height="12"/>
+<rect class="fd" x="5988" y="4102" width="48" height="12"/>
+<rect class="fd" x="5952" y="4102" width="48" height="12"/>
+<rect class="fd" x="6072" y="4102" width="48" height="12"/>
+<rect class="fd" x="6036" y="4102" width="48" height="12"/>
+<rect class="fd" x="6156" y="4102" width="48" height="12"/>
+<rect class="fd" x="6120" y="4102" width="48" height="12"/>
+<rect class="fd" x="6240" y="4102" width="48" height="12"/>
+<rect class="fd" x="6204" y="4102" width="48" height="12"/>
+<rect class="fd" x="6324" y="4102" width="48" height="12"/>
+<rect class="fd" x="6288" y="4102" width="48" height="12"/>
+<rect class="fd" x="6408" y="4102" width="48" height="12"/>
+<rect class="fd" x="6372" y="4102" width="48" height="12"/>
+<rect class="fd" x="6492" y="4102" width="48" height="12"/>
+<rect class="fd" x="6456" y="4102" width="48" height="12"/>
+<rect class="fd" x="6576" y="4102" width="48" height="12"/>
+<rect class="fd" x="6540" y="4102" width="48" height="12"/>
+<rect class="fd" x="6660" y="4102" width="48" height="12"/>
+<rect class="fd" x="6624" y="4102" width="48" height="12"/>
+<rect class="fd" x="6744" y="4102" width="48" height="12"/>
+<rect class="fd" x="6708" y="4102" width="48" height="12"/>
+<rect class="fd" x="6828" y="4102" width="48" height="12"/>
+<rect class="fd" x="6792" y="4102" width="48" height="12"/>
+<rect class="fd" x="6912" y="4102" width="48" height="12"/>
+<rect class="fd" x="6876" y="4102" width="48" height="12"/>
+<rect class="fd" x="6996" y="4102" width="48" height="12"/>
+<rect class="fd" x="6960" y="4102" width="48" height="12"/>
+<rect class="fd" x="7080" y="4102" width="48" height="12"/>
+<rect class="fd" x="7044" y="4102" width="48" height="12"/>
+<rect class="fd" x="7164" y="4102" width="48" height="12"/>
+<rect class="fd" x="7128" y="4102" width="48" height="12"/>
+<rect class="fd" x="7248" y="4102" width="48" height="12"/>
+<rect class="fd" x="7212" y="4102" width="48" height="12"/>
+<rect class="fd" x="7332" y="4102" width="48" height="12"/>
+<rect class="fd" x="7296" y="4102" width="48" height="12"/>
+<rect class="fd" x="7416" y="4102" width="48" height="12"/>
+<rect class="fd" x="7380" y="4102" width="48" height="12"/>
+<rect class="fd" x="7500" y="4102" width="48" height="12"/>
+<rect class="fd" x="7464" y="4102" width="48" height="12"/>
+<rect class="fd" x="7584" y="4102" width="48" height="12"/>
+<rect class="fd" x="7548" y="4102" width="48" height="12"/>
+<rect class="fd" x="7668" y="4102" width="48" height="12"/>
+<rect class="fd" x="7632" y="4102" width="48" height="12"/>
+<rect class="fd" x="7752" y="4102" width="48" height="12"/>
+<rect class="fd" x="7716" y="4102" width="48" height="12"/>
+<rect class="fd" x="7836" y="4102" width="48" height="12"/>
+<rect class="fd" x="7800" y="4102" width="48" height="12"/>
+<rect class="fd" x="7920" y="4102" width="48" height="12"/>
+<rect class="fd" x="7884" y="4102" width="48" height="12"/>
+<rect class="fd" x="8004" y="4102" width="48" height="12"/>
+<rect class="fd" x="7968" y="4102" width="48" height="12"/>
+<rect class="fd" x="8088" y="4102" width="48" height="12"/>
+<rect class="fd" x="8052" y="4102" width="48" height="12"/>
+<rect class="fd" x="8172" y="4102" width="48" height="12"/>
+<rect class="fd" x="8136" y="4102" width="48" height="12"/>
+<rect class="fd" x="8256" y="4102" width="48" height="12"/>
+<rect class="fd" x="8220" y="4102" width="48" height="12"/>
+<rect class="fd" x="8340" y="4102" width="48" height="12"/>
+<rect class="fd" x="8304" y="4102" width="48" height="12"/>
+<rect class="fd" x="8424" y="4102" width="48" height="12"/>
+<rect class="fd" x="8388" y="4102" width="48" height="12"/>
+<rect class="fd" x="8508" y="4102" width="48" height="12"/>
+<rect class="fd" x="8472" y="4102" width="48" height="12"/>
+<rect class="fd" x="8592" y="4102" width="48" height="12"/>
+<rect class="fd" x="8556" y="4102" width="48" height="12"/>
+<text x="408" y="4324" textLength="672">11:46:07</text>
+<text x="1248" y="4324" textLength="336">main</text>
+<text x="1920" y="4324" textLength="504">switch</text>
+<text x="2676" y="4324" textLength="1260">backhaul/tcpmux</text>
+<text x="4020" y="4324">→</text>
+<text x="4188" y="4324" textLength="1260">backhaul/wssmux</text>
+<text x="5532" y="4324" textLength="840">(failback,</text>
+<text x="6456" y="4324" textLength="588">primary</text>
+<text x="7128" y="4324" textLength="588">healthy</text>
+<text x="7800" y="4324" textLength="252">5m)</text>
+<text x="408" y="4500" textLength="672">11:40:52</text>
+<text x="1248" y="4500" textLength="336">main</text>
+<text x="1920" y="4500" textLength="504">switch</text>
+<text x="2676" y="4500" textLength="1260">backhaul/wssmux</text>
+<text x="4020" y="4500">→</text>
+<text x="4188" y="4500" textLength="1260">backhaul/tcpmux</text>
+<text x="5532" y="4500" textLength="504">(probe</text>
+<text x="6120" y="4500" textLength="504">failed</text>
+<text x="6708" y="4500" textLength="252">3x)</text>
+<text x="408" y="4676" textLength="672">02:55:00</text>
+<text x="1248" y="4676" textLength="420">panel</text>
+<text x="1920" y="4676" textLength="168">up</text>
+<text x="2676" y="4676" textLength="168">UP</text>
+<text x="2928" y="4676" textLength="252">via</text>
+<text x="3264" y="4676" textLength="1008">xray/reality</text>
+<text x="4356" y="4676" textLength="504">(44ms)</text>
+</g>
+</svg>

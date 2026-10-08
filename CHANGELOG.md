@@ -60,6 +60,17 @@ All notable changes to DEYROUTE are documented here. The format follows
 - Lab scenario S34: with the node's direct path to the hub cut, a tunnel
   carries 20 MB intact through a Cloudflare-like edge.
 
+### Changed — clearer status and tuning output
+
+- `deyroute status`, `deyroute optimize status` and the tuning plan
+  (`optimize auto`) are laid out in titled sections. The tuning settings are
+  grouped (speed and queues, buffers, connections and ports, keepalive,
+  connection tracking, services), with short names and readable values
+  (`32 MiB` rather than `33554432`), and each reason is shown once under its
+  group. The node table has a header row; the top line wraps instead of
+  running off the screen; every line fits the terminal, also a phone's
+  60 columns. `--json` is unchanged.
+
 ### Fixed — update refused between edge builds
 
 - `deyroute update` refused a newer edge build (DEY-S011, "older than

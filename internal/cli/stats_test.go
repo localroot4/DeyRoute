@@ -352,9 +352,9 @@ func TestStatusTrafficBlock(t *testing.T) {
 	copy(st.Tunnels, statsTunnels())
 	e.stub.StatusFn = func(context.Context) (api.Status, error) { return st, nil }
 	out := e.ok("status")
-	require.Contains(t, out, " TRAFFIC  last hour · ↓ download to users · ↑ upload from users\n")
+	require.Regexp(t, `── TRAFFIC ─+ last hour · ↓ download to users · ↑ upload from users\n`, out)
 	require.Contains(t, out, "↓ 12.3 Mb/s  ↑ 1.20 Mb/s  today ↓ 3.8 GiB ↑ 512.0 MiB")
-	require.Less(t, strings.Index(out, " TRAFFIC"), strings.Index(out, " NODES"))
+	require.Less(t, strings.Index(out, " TRAFFIC "), strings.Index(out, " NODES "))
 	require.Equal(t, []api.TrafficQuery{tui.TrafficBlockQuery()}, queries())
 	require.Contains(t, e.json("status"), "tunnels") // --json: Status only
 	require.Len(t, queries(), 1)
