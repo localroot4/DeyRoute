@@ -31,7 +31,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "fakecdn:", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(*caFile, cdn.CAPEM(), 0o644); err != nil { // #nosec G306 -- a public CA certificate
+	if err := os.WriteFile(*caFile, cdn.CAPEM(), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "fakecdn:", err)
 		os.Exit(1)
 	}

@@ -69,6 +69,7 @@ Optional, but recommended: join a second node and make it a backup:
 | [Troubleshooting](troubleshooting.md) | doctor, logs, events, the error format, the most common DEY codes and what to do |
 | [Filtering FAQ](faq-filtering.md) | the transport ladder, skipped rungs, decoy SNI, why TLS is not touched, client IP, what DEYROUTE cannot do |
 | [Hub move](hub-move.md) | moving the hub to a new server or IP without re-joining the nodes |
+| [Through Cloudflare](front.md) | when the direct path between hub and node is filtered: the node and its tunnels go through Cloudflare (`deyroute front enable`) |
 | [Backup & restore](backup.md) | backups, passphrase, `DEYROUTE_BACKUP_PASSPHRASE`, automatic backups, what a backup holds |
 | [Update & uninstall](update-uninstall.md) | updating deyroute and the backends, rollback, uninstall |
 | [Security](security.md) | control channel, join tokens, firewall table, secrets, rotation, TLS, audit, no telemetry |

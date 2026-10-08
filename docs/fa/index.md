@@ -57,6 +57,7 @@ deyroute port check 443
 | [عیب‌یابی](troubleshooting.md) | doctor، لاگ، رویدادها، شکل خطاها، کدهای DEY رایج و راه‌حل هرکدام |
 | [پرسش‌های فیلترینگ](faq-filtering.md) | نردبان ترنسپورت‌ها، پله skip‌شده، decoy SNI، چرا TLS دست نمی‌خورد، IP واقعی کاربر، کارهایی که DEYROUTE نمی‌کند |
 | [جابه‌جایی Hub](hub-move.md) | بردن Hub به سرور یا IP جدید بدون Join دوباره Nodeها |
+| [عبور از کلودفلر](front.md) | وقتی مسیر مستقیم Hub و Node فیلتر است: Node و تانل‌هایش از کلودفلر رد می‌شوند (`deyroute front enable`) |
 | [بکاپ و ریستور](backup.md) | بکاپ، رمز عبور، `DEYROUTE_BACKUP_PASSPHRASE`، بکاپ خودکار، محتوای بکاپ |
 | [آپدیت و حذف](update-uninstall.md) | آپدیت deyroute و بک‌اندها، برگشت به نسخه قبل، حذف کامل |
 | [امنیت](security.md) | کانال کنترل، توکن Join، جدول فایروال، رازها، عوض کردن توکن و CA، TLS، audit، بدون telemetry |
