@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "Questions and help · پرسش و کمک"
+    url: https://github.com/localroot4/DeyRoute/discussions
+    about: "Ask how to set something up, share what works on your network · بپرسید چطور راه بیندازید، تجربهٔ شبکه‌تان را بگویید"
+  - name: "Guides (فارسی)"
+    url: https://github.com/localroot4/DeyRoute/blob/main/docs/fa/index.md
+    about: "نصب، اولین تانل، نود پشتیبان، عیب‌یابی"
+  - name: "Guides (English)"
+    url: https://github.com/localroot4/DeyRoute/blob/main/docs/en/index.md
+    about: "Install, first tunnel, backup nodes, troubleshooting"
+  - name: "Security issue · مشکل امنیتی"
+    url: https://github.com/localroot4/DeyRoute/security/advisories/new
+    about: "Report privately, not in a public issue · خصوصی گزارش دهید، نه در Issue عمومی"

@@ -1,0 +1,57 @@
+name: "Bug report · گزارش مشکل"
+description: "Something does not work as described · چیزی طبق راهنما کار نمی‌کند"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please check [troubleshooting](https://github.com/localroot4/DeyRoute/blob/main/docs/en/troubleshooting.md) first.
+        ممنون که گزارش می‌دهید. لطفاً اول [عیب‌یابی](https://github.com/localroot4/DeyRoute/blob/main/docs/fa/troubleshooting.md) را ببینید. فارسی یا انگلیسی بنویسید، هر دو خوب است.
+  - type: input
+    id: version
+    attributes:
+      label: "Version · نسخه"
+      description: "Output of `deyroute version` on the hub (and the node if it differs) · خروجی `deyroute version` روی هاب (و نود اگر فرق دارد)"
+      placeholder: "0.3.0-edge.50"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: "Where does it happen? · کجا اتفاق می‌افتد؟"
+      multiple: true
+      options:
+        - "Install / setup wizard · نصب / ویزارد"
+        - "Node join · اتصال نود"
+        - "Tunnel (traffic, failover) · تانل (ترافیک، سوییچ)"
+        - "Update · آپدیت"
+        - "Menu / CLI output · منو / خروجی دستورها"
+        - "Cloudflare front · عبور از کلودفلر"
+        - "Other · غیره"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: "What happened, and what did you expect? · چه شد و انتظار چه داشتید؟"
+      description: "The command you ran and its full output, including any DEY-xxxx code · دستوری که زدید و خروجی کاملش، همراه با کد DEY-xxxx اگر هست"
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: "deyroute status"
+      description: "Output of `deyroute status` on the hub · خروجی `deyroute status` روی هاب"
+      render: text
+  - type: input
+    id: os
+    attributes:
+      label: "Servers · سرورها"
+      description: "OS of hub and node, and the hosting providers if you can say · سیستم‌عامل هاب و نود، و دیتاسنتر اگر می‌توانید بگویید"
+      placeholder: "hub: Ubuntu 24.04 (Iran DC) · node: Debian 12 (Germany)"
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste tokens, keys or join commands.** `deyroute doctor` makes a report with secrets removed; attach it if asked.
+        **توکن، کلید یا دستور join را اینجا نگذارید.** `deyroute doctor` یک گزارش بدون اطلاعات محرمانه می‌سازد؛ اگر خواسته شد آن را پیوست کنید.

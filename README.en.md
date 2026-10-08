@@ -6,6 +6,16 @@
 
 [فارسی](README.md) · **English**
 
+<p>
+<a href="https://github.com/localroot4/DeyRoute/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/localroot4/DeyRoute?include_prereleases&label=release&color=0e8a16"></a>
+<a href="https://github.com/localroot4/DeyRoute/actions/workflows/ci.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/localroot4/DeyRoute/ci.yml?branch=main&label=tests"></a>
+<a href="https://github.com/localroot4/DeyRoute/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/localroot4/DeyRoute/total?color=1f6feb"></a>
+<a href="https://github.com/localroot4/DeyRoute/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/localroot4/DeyRoute?color=e3b341"></a>
+<img alt="Ubuntu and Debian, amd64 and arm64" src="https://img.shields.io/badge/Ubuntu%20%7C%20Debian-amd64%20%7C%20arm64-555">
+</p>
+
+If DEYROUTE helps you, a ⭐ helps others find it.
+
 [Quick start](#quick-start-5-minutes) ·
 [Everyday use](#everyday-use) ·
 [Monitoring](#monitoring) ·
@@ -18,6 +28,12 @@
 ---
 
 ## What is DEYROUTE?
+
+A complete tunnel manager between an Iran server and servers abroad. Instead of
+setting up Backhaul, Rathole, FRP, Xray Reality, Hysteria2 or Waterwall by hand,
+one at a time, and swapping them by hand whenever one gets filtered, DEYROUTE
+installs them with one command, tests them all the time and moves to the next
+one by itself when one is blocked.
 
 DEYROUTE connects two kinds of servers:
 
