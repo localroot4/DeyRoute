@@ -14,7 +14,6 @@ import (
 	"github.com/localroot4/deyroute/internal/ports"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/tui"
-	"github.com/localroot4/deyroute/internal/version"
 )
 
 // clearScreen moves the cursor home and clears the terminal.
@@ -117,7 +116,7 @@ func (g *Globals) sparklines(ctx context.Context, l api.Local, st api.Status) *a
 // the TUI.
 func (g *Globals) dashboard(st api.Status, tr *api.TrafficReport) string {
 	var b strings.Builder
-	for _, l := range g.statusLines(st) {
+	for _, l := range g.headLines(st) {
 		b.WriteString(l + "\n")
 	}
 	if line := frontLine(st); line != "" {
@@ -186,49 +185,6 @@ func frontLine(st api.Status) string {
 		who = i18n.T(i18n.CLIStatusFrontCF)
 	}
 	return i18n.T(i18n.CLIStatusFront, f.Domain, f.Port, up, who, f.TLS)
-}
-
-// statusLines are the two lines on top of the dashboard: the product and
-// version, then the server and the counts ("Hub: ir-1 (5.6.7.8) · Mode:
-// Simple · nodes 2/2 online · tunnels 1/1 UP").
-func (g *Globals) statusLines(st api.Status) []string {
-	sep := "  " + g.sym().sep + "  "
-	head := " " + g.styleOut(styleBold, i18n.T(i18n.BannerProduct)) + "  " + version.Display()
-	var parts []string
-	switch {
-	case st.Hub != nil:
-		parts = append(parts, i18n.T(i18n.BannerHub, st.Hub.Name, st.Hub.PublicIP))
-		mode := i18n.T(i18n.ModeSimple)
-		if st.Hub.UIMode == "advanced" {
-			mode = i18n.T(i18n.ModeAdvanced)
-		}
-		online := 0
-		for _, n := range st.Nodes {
-			if n.Online {
-				online++
-			}
-		}
-		parts = append(parts, i18n.T(i18n.BannerMode, mode), i18n.T(i18n.CLIStatusNodesOnline, online, len(st.Nodes)))
-	case st.NodeSelf != nil:
-		parts = append(parts, i18n.T(i18n.BannerNode, st.NodeSelf.ID, hubLabel(*st.NodeSelf)))
-	}
-	if st.NodeSelf == nil {
-		up, enabled := 0, 0
-		for _, t := range st.Tunnels {
-			if t.Enabled {
-				enabled++
-				if t.State == state.StateUp {
-					up++
-				}
-			}
-		}
-		parts = append(parts, i18n.T(i18n.CLIStatusTunnelsUp, up, enabled))
-	}
-	lines := []string{head}
-	for _, l := range joinWrap(parts, sep, g.lineWidth()-1) {
-		lines = append(lines, " "+l)
-	}
-	return lines
 }
 
 // stateCell is "● UP": the word is always there, never only a color.

@@ -80,7 +80,7 @@ func TestAgainstRealHub(t *testing.T) {
 	startRealHub(t, e)
 
 	out := e.ok("status")
-	require.Contains(t, out, "Hub: ir-1 (127.0.0.1)")
+	require.Contains(t, out, "Hub ir-1 · 127.0.0.1")
 	require.Contains(t, out, "No tunnels yet")
 	doc := e.json("status")
 	require.Equal(t, "hub", doc["role"])

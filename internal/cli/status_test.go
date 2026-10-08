@@ -58,7 +58,7 @@ func TestStatusHuman(t *testing.T) {
 	e.stub.StatusFn = func(context.Context) (api.Status, error) { return sampleStatus(), nil }
 	out := e.ok("status")
 	for _, want := range []string{
-		"DEYROUTE Tunnel Manager", "Hub: ir-1 (5.6.7.8)", "Mode: Simple", "nodes 1/2 online", "tunnels 2/8 UP",
+		"█▀▄ █▀▀ █▄█", "Tunnel Manager · dev", "Hub ir-1 · 5.6.7.8", "Mode Simple", "Nodes ◐ 1/2 online", "Tunnels ◐ 2/8 UP",
 		"── TUNNELS ──", "NAME", "NODE (active)", "TRANSPORT", "STATE", "RTT", "UP-TIME", "PORTS",
 		"Main 443/2053", "de-1 Germany 1", "backhaul/wssmux", "● UP", "41ms", "3d 04:12", "443,2053",
 		"◐ DEGR", "00:03:10", "27015/udp", "DISABLED", "PAUSED", "SWITCHING", "STARTING", "○ DOWN", "INIT", "WEIRD",
@@ -79,6 +79,7 @@ func TestStatusHuman(t *testing.T) {
 	require.NotContains(t, out, "CONTROL")
 	require.Contains(t, out, "* UP")
 	require.Contains(t, out, "-- TUNNELS ---")
+	require.Contains(t, out, " DEYROUTE  Tunnel Manager - dev\n", "no block letters without UTF-8")
 	require.Contains(t, out, "| # | NAME")
 	require.Contains(t, out, "+---+")
 	// No line is wider than the terminal.
@@ -95,7 +96,8 @@ func TestStatusHuman(t *testing.T) {
 	for _, l := range strings.Split(out, "\n") {
 		require.LessOrEqual(t, width(l), 60, l)
 	}
-	require.Contains(t, out, " nodes 1/2 online")
+	require.Contains(t, out, "Nodes ◐ 1/2 online")
+	require.Contains(t, out, "█▄▀ ██▄", "the logo fits 60 columns")
 }
 
 func TestStatusNodeAndEmpty(t *testing.T) {
@@ -105,7 +107,7 @@ func TestStatusNodeAndEmpty(t *testing.T) {
 			LastContact: testNow, HubVersion: "v1.0.0", Units: []string{"b", "a"}}}, nil
 	}
 	out := e.ok("status")
-	require.Contains(t, out, "Node: de-1 → hub 5.6.7.8:44433")
+	require.Contains(t, out, "Node de-1   │   Hub 5.6.7.8:44433")
 	require.Contains(t, out, "hub 5.6.7.8:44433")
 	require.Contains(t, out, "connected")
 	require.Contains(t, out, "units: a, b")
@@ -135,7 +137,7 @@ func TestStatusNodeAndEmpty(t *testing.T) {
 	out = e.ok("status")
 	require.Contains(t, out, "No tunnels yet")
 	require.Contains(t, out, "No nodes yet")
-	require.Contains(t, out, "Mode: Advanced")
+	require.Contains(t, out, "Mode Advanced")
 }
 
 func TestStatusJSONAndErrors(t *testing.T) {
