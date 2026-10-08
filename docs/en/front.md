@@ -38,7 +38,9 @@ layer that only the hub and the node can open.
 deyroute front enable --domain t1.example.com
 ```
 
-Replace `t1.example.com` with your record. This turns the front on, on port
+Replace `t1.example.com` with your record. If the hub's provider has a
+firewall panel, allow TCP port `2053` there; deyroute opens it to
+Cloudflare's addresses only. This turns the front on, on port
 `2053` (a port Cloudflare proxies), and ends with something like:
 
 ```

@@ -205,7 +205,7 @@ func (g *Globals) frontShow(ctx context.Context) error {
 		g.say(i18n.CLIFrontNodes, strings.Join(nodes, ", "))
 	}
 	g.println()
-	g.say(i18n.CLIFrontCloudflare, f.Domain, cfg.Hub.PublicIP, cloudflareSSL(f))
+	g.say(i18n.CLIFrontCloudflare, f.Domain, cfg.Hub.PublicIP, cloudflareSSL(f), f.Port)
 	if target != "" {
 		g.println()
 		g.say(i18n.CLIFrontNodeCommand)

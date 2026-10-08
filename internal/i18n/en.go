@@ -2513,7 +2513,7 @@ var cliEN = map[Key]string{
 	CLIFrontOff:                  "Cloudflare front: off. Turn it on with: deyroute front enable --domain <your Cloudflare record>",
 	CLIFrontOn:                   "Cloudflare front: on · %s:%d · %s · tls %s",
 	CLIFrontNodes:                "Nodes through the front: %s",
-	CLIFrontCloudflare:           "In Cloudflare (once):\n   1. DNS: an A record %s -> %s with the orange cloud (Proxied) on\n   2. SSL/TLS -> Overview: mode %s\n   3. Network: WebSockets on",
+	CLIFrontCloudflare:           "In Cloudflare (once):\n   1. DNS: an A record %s -> %s with the orange cloud (Proxied) on\n   2. SSL/TLS -> Overview: mode %s\n   3. Network: WebSockets on\nIn the firewall panel of this server's provider: allow TCP port %d (deyroute opens it to Cloudflare's addresses only).",
 	CLIFrontNodeCommand:          "On each node that should go through Cloudflare, run (keep it private, it holds the front's secret path):",
 	CLIWGShort:                   "Configure a WireGuard interface (deyroute-tun@ unit)",
 	CLIPairShort:                 "Run a backend and its UDP companion process together (deyroute-tun@ unit)",

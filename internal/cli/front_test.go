@@ -43,6 +43,7 @@ func TestFrontEnableStatusDisable(t *testing.T) {
 		"t1.example.com -> 5.6.7.8",
 		"mode Full",
 		"WebSockets on",
+		"allow TCP port 2053",
 		"deyroute node set-hub 'wss://t1.example.com:2053/" + cliFrontSecret + "'",
 	} {
 		require.Contains(t, out, want)
