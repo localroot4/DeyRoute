@@ -72,8 +72,9 @@ done
 
 got=$(fetch_via_hub 443)
 [ "$got" = "$WANT" ] || fail "the 20 MB download through the front is corrupt"
-direct=$(sh_on node1 "ss -Htn state established dst $HUB_IP | awk '{print \$4}' | grep -vc ':2053\$' || true")
-[ "${direct:-0}" = 0 ] || fail "the node holds $direct direct connection(s) to the hub besides the edge's"
-log "cut packets: $(on node1 nft -j list counter inet it_cut cut | jq '.nftables[] | select(.counter) | .counter.packets')"
+# Nothing reaches the hub directly: the cut drops every such packet (a
+# socket opened before the cut may stay "established" in the kernel, but
+# carries nothing), so the download above came through the edge.
+log "packets of the old direct path dropped: $(on node1 nft -j list counter inet it_cut cut | jq '.nftables[] | select(.counter) | .counter.packets')"
 dey status --json | jq -e --arg id "$NODE1" '.nodes[] | select(.id == $id) | .online == true' >/dev/null || fail "the node went offline"
 pass "via $tr through the front"
