@@ -1,4 +1,8 @@
-  TUNNEL  NOW v / ^              TODAY    30 DAYS    QUOTA  LAST 7d
-  main    12.3 Mb/s / 1.20 Mb/s  4.3 GiB  450.0 GiB  45%    .:-+*#:-=+#.:=+#
-  games   250 kb/s / 64.0 kb/s   4.3 GiB  450.0 GiB  -      .:-+*#:-=+#.:=+#
-  v download to users, ^ upload from users; TODAY and 30 DAYS count both directions.
+  +--------+-----------------------+---------+-----------+-------+----------+
+  | TUNNEL | NOW v / ^             | TODAY   | 30 DAYS   | QUOTA | LAST 7d  |
+  +--------+-----------------------+---------+-----------+-------+----------+
+  | main   | 12.3 Mb/s / 1.20 Mb/s | 4.3 GiB | 450.0 GiB | 45%   | :=#-+==# |
+  | games  | 250 kb/s / 64.0 kb/s  | 4.3 GiB | 450.0 GiB | -     | :=#-+==# |
+  +--------+-----------------------+---------+-----------+-------+----------+
+  v download to users, ^ upload from users; TODAY and 30 DAYS count both
+  directions.

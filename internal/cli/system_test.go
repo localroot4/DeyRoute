@@ -132,8 +132,8 @@ func TestOptimizeCommands(t *testing.T) {
 	}
 	out := e.ok("optimize", "apply", "--profile", "balanced")
 	require.Equal(t, "balanced", profile)
-	for _, want := range []string{"Kernel profile balanced applied.", "  BBR       active\n", "  Speed and queues\n    default_qdisc   fq\n",
-		"  Connections and ports\n    somaxconn   65535\n", "! w1"} {
+	for _, want := range []string{"Kernel profile balanced applied.", "  BBR       active\n", "  ✔ Speed and queues        fq\n",
+		"  ✔ Connections and ports   queue 65535\n", "! w1", "deyroute optimize status --details"} {
 		require.Contains(t, out, want)
 	}
 	doc := e.json("optimize", "apply", "--profile", "aggressive")
@@ -332,9 +332,9 @@ func TestOptimizeCheck(t *testing.T) {
 	out := e.out.String()
 	for _, want := range []string{
 		"hub · profile auto\n",
-		"  KEY                 WANT      LIVE    CHANGED BY\n",
-		"  net.core.rmem_max   33554432  212992  /etc/sysctl.d/99-zz-local.conf\n",
-		"  net.core.somaxconn  65535     4096    a runtime write\n",
+		"  │ KEY                │ WANT     │ LIVE   │ CHANGED BY                     │\n",
+		"  │ net.core.rmem_max  │ 33554432 │ 212992 │ /etc/sysctl.d/99-zz-local.conf │\n",
+		"  │ net.core.somaxconn │ 65535    │ 4096   │ a runtime write                │\n",
 		"\nnode de-1 · profile auto\n  ! conntrack_fill  the conntrack table is 85% full\n",
 		"\nnode nl-1 · profile -\n  not checked: DEY-N004 node nl-1 is offline\n",
 	} {
@@ -386,10 +386,10 @@ func TestOptimizeStatus(t *testing.T) {
 	out := e.ok("optimize", "status")
 	for _, want := range []string{
 		"── AUTOMATIC TUNING ──", "  Profile       auto\n", "  BBR           active\n", "  This server   4.0 GiB RAM · 4 CPU · kernel 6.8.0\n",
-		"── NODES ──", "\n  NODE  ONLINE  PROFILE   PENDING\n",
-		"  de-1  yes     auto      no\n",
-		"  nl-1  no      -         yes\n",
-		"  fr-1  yes     balanced  no\n",
+		"── NODES ──", "  │ NODE │ ONLINE │ PROFILE  │ PENDING │\n",
+		"  │ de-1 │ yes    │ auto     │ no      │\n",
+		"  │ nl-1 │ no     │ -        │ yes     │\n",
+		"  │ fr-1 │ yes    │ balanced │ no      │\n",
 		"  ! node fr-1: too old for auto (gets balanced)\n",
 	} {
 		require.Contains(t, out, want)

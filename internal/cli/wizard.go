@@ -219,11 +219,12 @@ func (g *Globals) promptMark() string {
 
 // ANSI styles of the question blocks.
 const (
-	styleBold  = "1"
-	styleCyan  = "1;36"
-	styleGreen = "1;32"
-	styleRed   = "31"
-	styleGray  = "90"
+	styleBold   = "1"
+	styleCyan   = "1;36"
+	styleGreen  = "1;32"
+	styleRed    = "31"
+	styleYellow = "33"
+	styleGray   = "90"
 )
 
 // style colors s with an ANSI SGR code when the terminal the questions go

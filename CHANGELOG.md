@@ -6,6 +6,44 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — automatic update
+
+- **Automatic update, on by default:** once a day at 04:00 server time the
+  hub installs the newest release that has been out for at least 24 hours,
+  and the nodes follow. After the restart it checks that every tunnel that
+  was UP and every node that was online works again within 10 minutes; if
+  not, or if the new version does not start (counted before anything else
+  loads), the previous binary is put back by itself (`DEY-S003` event and a
+  dashboard line) and that release is never installed automatically again.
+  `deyroute update auto` shows the state, the next release and when it is
+  due, and the last result; `deyroute update auto off|on` turns it off and
+  on. A manual `update --rollback` also skips the release you left.
+
+### Changed — clearer status and tuning output
+
+- Tables are drawn in boxes: every cell sits in a frame and the column
+  headers are set apart in color (`deyroute status`, `stats`, `node list`,
+  `tunnel list`, `optimize status`, …). They still fit the terminal, down
+  to a phone; without UTF-8 the frame is drawn with `+ - |`.
+
+- `deyroute status`, `deyroute optimize status` and the tuning plan
+  (`optimize auto`) are laid out in titled sections. The tuning settings are
+  grouped (speed and queues, buffers, connections and ports, keepalive,
+  connection tracking, services), with short names and readable values
+  (`32 MiB` rather than `33554432`), and each reason is shown once under its
+  group. The node table has a header row; the top line wraps instead of
+  running off the screen; every line fits the terminal, also a phone's
+  60 columns. `--json` is unchanged.
+- `deyroute status` on the hub starts with what needs attention: tunnels that
+  are not UP, nodes offline and the warnings, in red or yellow and in plain
+  words; one green line when everything works. Tunnel and node states and
+  the event types are coloured (green, yellow, red).
+- `deyroute optimize status` shows one line per group with what it means now
+  ("BBR · fq", "up to 32 MiB per connection", "dead connections found in
+  about 8 min"); `--details` lists every value with a short explanation of
+  the group. In the menu, `7) Optimize` → `6) Settings in effect` opens each
+  group on its own.
+
 ### Added — traffic monitoring, automatic tuning, screenshots
 
 - **Traffic monitoring:** the hub counts the bytes of every tunnel on its
@@ -59,17 +97,6 @@ All notable changes to DEYROUTE are documented here. The format follows
   the node's real address are skipped for it (DEY-B012).
 - Lab scenario S34: with the node's direct path to the hub cut, a tunnel
   carries 20 MB intact through a Cloudflare-like edge.
-
-### Changed — clearer status and tuning output
-
-- `deyroute status`, `deyroute optimize status` and the tuning plan
-  (`optimize auto`) are laid out in titled sections. The tuning settings are
-  grouped (speed and queues, buffers, connections and ports, keepalive,
-  connection tracking, services), with short names and readable values
-  (`32 MiB` rather than `33554432`), and each reason is shown once under its
-  group. The node table has a header row; the top line wraps instead of
-  running off the screen; every line fits the terminal, also a phone's
-  60 columns. `--json` is unchanged.
 
 ### Fixed — update refused between edge builds
 

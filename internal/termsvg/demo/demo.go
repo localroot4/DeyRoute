@@ -311,19 +311,22 @@ func DoctorFindings() []api.DoctorFinding {
 }
 
 // OptimizeStatus is `deyroute optimize status` on the demo hub after
-// `optimize auto`: what the plan of TunePlan set on the hub, BBR active,
-// de-1 tuned and nl-1 still to apply it.
+// `optimize auto`: every value the automatic plan of the demo hub sets, BBR
+// active, de-1 tuned and nl-1 still to apply it.
 func OptimizeStatus() api.OptimizeStatus {
-	plan := TunePlan()
-	hub := plan.Hosts[0]
+	f := sysinfo.Facts{MemBytes: 2 << 30, CPUs: 2, Kernel: "6.8.0-45-generic", BBRAvailable: true,
+		FQAvailable: true, Qdisc: "fq", NIC: "eth0", NICMTU: 1500, ConntrackLoaded: true, ConntrackMax: 65536}
+	in := sysctl.AutoInputs{BBR: true, UDPRungs: true, Reserved: []string{"30000-31999", strconv.Itoa(ControlPort)},
+		Live: func(k string) (string, bool) { v, ok := hubLive[k]; return v, ok }}
 	applied := map[string]string{}
-	for _, c := range hub.Changes {
-		if !strings.Contains(c.Key, " ") && !strings.HasPrefix(c.Key, "/") {
+	for _, c := range sysctl.AutoPlan(f, in).Changes {
+		if !strings.ContainsAny(c.Key, " /") {
 			applied[c.Key] = c.To
 		}
 	}
+	facts := api.TuneFacts(f)
 	return api.OptimizeStatus{
-		Profile: "auto", BBRAvailable: true, BBRActive: true, Applied: applied, Facts: hub.Facts,
+		Profile: "auto", BBRAvailable: true, BBRActive: true, Applied: applied, Facts: &facts,
 		Nodes: []api.NodeTuneStatus{
 			{Node: "de-1", Online: true, Profile: "auto", AutoCapable: true},
 			{Node: "nl-1", Online: false, Profile: "auto", Pending: true, AutoCapable: true},

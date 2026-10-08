@@ -124,7 +124,9 @@ type Globals struct {
 	RunNode func(ctx context.Context, o node.Options) error
 
 	reader *bufio.Reader
-	ready  bool
+	// details is --details of optimize status (every value, not the group summaries).
+	details bool
+	ready   bool
 	// ctx is the context of the current run: Ctrl-C ends it, which also
 	// leaves a question that waits for an answer (readLine).
 	ctx context.Context

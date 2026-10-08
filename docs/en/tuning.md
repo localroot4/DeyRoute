@@ -63,6 +63,28 @@ is idempotent. The plan has a hash; if anything changes between the list and
 your `yes` (a node comes online, someone edits a value), the apply is
 refused with `DEY-X065` and you see the new list instead.
 
+## Seeing the settings in effect
+
+`deyroute optimize status` shows the settings in groups, one line each with
+what the group means now ("BBR · fq", "up to 32 MiB per connection"); every
+value with `--details`. In the menu: `7) Optimize` → `6) Settings in
+effect`; choosing a group opens what it is for and every value in it.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/screens/tui-settings-dark.svg">
+    <img src="../assets/screens/tui-settings-light.svg" alt="The Settings in effect menu: the groups of settings, each with its summary, such as BBR · fq and up to 32 MiB per connection.">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/screens/tui-settings-group-dark.svg">
+    <img src="../assets/screens/tui-settings-group-light.svg" alt="The Buffers group opened: a short explanation, the green summary and every value, such as rmem_max 32 MiB.">
+  </picture>
+</p>
+
+
 ## What is measured
 
 Only files under `/proc` and `/sys` are read (and the kernel is asked for the

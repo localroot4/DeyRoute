@@ -53,6 +53,25 @@ Undo any time with: deyroute optimize revert
 
 اجرای دوبارهٔ `optimize auto` وقتی چیزی عوض نشده، چیزی فهرست نمی‌کند. برنامه یک hash دارد؛ اگر بین نمایش فهرست و `yes` شما چیزی عوض شود (یک Node آنلاین شود یا کسی مقداری را تغییر دهد)، اعمال با `DEY-X065` رد می‌شود و فهرست جدید را می‌بینید.
 
+## دیدن تنظیم‌های فعال
+
+`deyroute optimize status` تنظیم‌ها را در چند گروه نشان می‌دهد؛ برای هر گروه یک خط که می‌گوید الان یعنی چه (مثلاً «BBR · fq» یا «تا 32 MiB برای هر اتصال»). همهٔ مقدارها با `--details`. در منو: `7) Optimize` → `6) Settings in effect`؛ با انتخاب هر گروه، توضیح آن گروه و همهٔ مقدارهایش باز می‌شود.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/screens/tui-settings-dark.svg">
+    <img src="../assets/screens/tui-settings-light.svg" alt="منوی Settings in effect: فهرست گروه‌های تنظیم با خلاصهٔ هر کدام، مثل BBR · fq و up to 32 MiB per connection.">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../assets/screens/tui-settings-group-dark.svg">
+    <img src="../assets/screens/tui-settings-group-light.svg" alt="گروه Buffers باز شده: توضیح کوتاه گروه، خلاصهٔ سبز و همهٔ مقدارها مثل rmem_max 32 MiB.">
+  </picture>
+</p>
+
+
 ## چه چیزهایی اندازه گرفته می‌شود
 
 فقط فایل‌های زیر `/proc` و `/sys` خوانده می‌شوند (و صف کارت شبکه از خود کرنل پرسیده می‌شود)؛ هیچ برنامه‌ای اجرا نمی‌شود:

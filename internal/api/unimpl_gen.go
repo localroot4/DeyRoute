@@ -354,6 +354,12 @@ func (u UnimplementedLocal) UpdateRollback(ctx context.Context) (UpdateInfo, err
 	return zero, u.wrongRole()
 }
 
+// UpdateAuto implements Local.UpdateAuto; it returns DEY-X009.
+func (u UnimplementedLocal) UpdateAuto(ctx context.Context, mode string) (AutoUpdateInfo, error) {
+	var zero AutoUpdateInfo
+	return zero, u.wrongRole()
+}
+
 // UpdateBackends implements Local.UpdateBackends; it returns DEY-X009.
 func (u UnimplementedLocal) UpdateBackends(ctx context.Context, name string, progress func(Step)) ([]BackendUpdate, error) {
 	var zero []BackendUpdate

@@ -2,9 +2,10 @@
 
 [فارسی](../fa/update-uninstall.md) · [Index](index.md)
 
-Updates never run without asking you. Updating deyroute does not interrupt the
-tunnels: the tunnel programs run as their own systemd units and are not
-touched while the deyroute service restarts.
+The hub keeps deyroute up to date by itself (automatic update, on by
+default; see below), and you can update by hand at any time. Updating
+deyroute does not interrupt the tunnels: the tunnel programs run as their
+own systemd units and are not touched while the deyroute service restarts.
 
 ## Update deyroute
 
@@ -42,6 +43,39 @@ install a specific version with `--version V`). It also works when the
 service does not run any more (for example a bad update that keeps
 crashing) and on a node: the binaries are swapped locally and the service
 is restarted.
+
+## Automatic update
+
+On by default. Once a day at **04:00 server time** the hub installs the
+newest release that has been out for at least **24 hours**; the nodes follow
+it as after `deyroute update`, and the tunnels keep running.
+
+After the restart the hub checks that every tunnel that was UP and every
+node that was online before the update works again (it gives them up to 10
+minutes). If not — or if the new version does not even start — it puts the
+previous version back by itself, records a `DEY-S003` event and a dashboard
+line, and never installs that release automatically again (you still can,
+with `deyroute update`).
+
+```bash
+deyroute update auto        # on or off, next release and when, last result
+deyroute update auto off    # turn it off
+deyroute update auto on     # turn it back on
+```
+
+```text
+── AUTOMATIC UPDATE ─────────────────────────────────────────
+  Status     on
+  When       every day at 04:00 server time; only releases out for 24 hours
+  Running    0.3.0-edge.40
+  Next       0.3.0-edge.41 on 2026-10-10 04:00
+  Last       updated 0.3.0-edge.39 → 0.3.0-edge.40; 1 tunnels and 1 nodes work (2026-10-09 04:03)
+```
+
+While it is on, `deyroute status` does not list a new release as something
+that needs attention: it is installed on schedule. A manual
+`deyroute update --rollback` also tells the automatic update to skip the
+release you left.
 
 **Alternative:** running the installer again also upgrades in place and keeps
 the configuration. It works even when the service is down, and on a node:

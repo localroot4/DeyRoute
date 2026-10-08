@@ -39,6 +39,9 @@ const (
 	metaUpdatePrevious = "update/previous"
 	// metaUpdateCheck is the result of the last release check.
 	metaUpdateCheck = "update/check"
+	// metaAutoUpdate is the automatic update (on/off, releases seen and
+	// skipped, last outcome).
+	metaAutoUpdate = "update/auto"
 )
 
 // Queue sizes of the operation jobs.
@@ -57,6 +60,7 @@ type opsState struct {
 	decoyKick chan struct{} // a decoy check is wanted now (settings changed)
 
 	updMu  sync.Mutex // serialises update, rollback, update backends/manifest
+	autoMu sync.Mutex // serialises changes of metaAutoUpdate
 	certMu sync.Mutex // serialises TLS renewals
 
 	restart chan struct{} // scheduled restart of deyroute-hub (update)

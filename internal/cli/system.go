@@ -88,6 +88,7 @@ func newOptimizeCmd(g *Globals) *cobra.Command {
 			return g.printOptimize(st, i18n.CLIOptimizeStatusLine)
 		},
 	}
+	status.Flags().BoolVar(&g.details, "details", false, i18n.T(i18n.CLIFlagDetails))
 	cmd.AddCommand(newOptimizeAutoCmd(g), newOptimizeCheckCmd(g), status, apply, revert)
 	return cmd
 }
@@ -277,23 +278,23 @@ func (g *Globals) printTunePlan(w io.Writer, r api.TunePlanReport) {
 				byKey[c.Key] = c
 				keys = append(keys, c.Key)
 			}
-			for _, grp := range groupKeys(keys) {
+			for _, grp := range tui.TuneGroups(keys) {
 				fmt.Fprintln(w)
-				out("  " + g.styleOut(styleBold, grp.title))
+				out("  " + g.styleOut(styleBold, grp.Title))
 				keyW := 0
-				for _, k := range grp.keys {
-					keyW = max(keyW, width(clean(shortKey(k))))
+				for _, k := range grp.Keys {
+					keyW = max(keyW, width(clean(tui.TuneShortKey(k))))
 				}
 				keyW = min(keyW, lw/2)
 				var reasons []string
 				seen := map[string]bool{}
-				for _, k := range grp.keys {
+				for _, k := range grp.Keys {
 					c := byKey[k]
-					change := orDash(tuneValue(c.Key, clean(c.From))) + " " + g.sym().arrow + " " + orDash(tuneValue(c.Key, clean(c.To)))
+					change := orDash(tui.TuneValue(c.Key, clean(c.From))) + " " + g.sym().arrow + " " + orDash(tui.TuneValue(c.Key, clean(c.To)))
 					if c.Effect != "" && c.Effect != api.TuneEffectNow {
 						change += "  (" + tui.TuneEffectText(c.Effect) + ")"
 					}
-					line := "    " + pad(trunc(clean(shortKey(c.Key)), keyW, ell), keyW+3) + change
+					line := "    " + pad(trunc(clean(tui.TuneShortKey(c.Key)), keyW, ell), keyW+3) + change
 					out(trunc(line, lw, ell))
 					if why := clean(c.Reason); why != "" && !seen[why] {
 						seen[why] = true
@@ -317,7 +318,7 @@ func (g *Globals) printTunePlan(w io.Writer, r api.TunePlanReport) {
 		for _, sk := range groupSkips(h.Skips) {
 			short := make([]string, len(sk.keys))
 			for i, k := range sk.keys {
-				short[i] = shortKey(k)
+				short[i] = tui.TuneShortKey(k)
 			}
 			for i, l := range wrapText(strings.TrimSpace(i18n.T(i18n.CLITuneHostSkipped, strings.Join(short, ", "), sk.reason)), lw-6) {
 				lead := "  " + g.sym().skip + " "
@@ -516,18 +517,34 @@ func (g *Globals) printOptimize(st api.OptimizeStatus, k i18n.Key) error {
 		sort.Strings(keys)
 		g.println()
 		g.println(g.text(g.sectionHead(i18n.T(i18n.CLITuneSettingsSection, tuneHostTitle(config.RoleHub)), "")))
-		for i, grp := range groupKeys(keys) {
-			if i > 0 {
-				g.println()
+		groups := tui.TuneGroups(keys)
+		if g.details {
+			for i, grp := range groups {
+				if i > 0 {
+					g.println()
+				}
+				g.println(g.text("  " + g.styleOut(styleBold, grp.Title) + "  " + g.styleOut(styleGreen, tui.TuneGroupSummary(grp, st.Applied))))
+				for _, l := range wrapText(tui.TuneGroupHelp(grp.ID), g.lineWidth()-4) {
+					g.println(g.text("  " + g.styleOut(styleGray, l)))
+				}
+				rows := make([][2]string, 0, len(grp.Keys))
+				for _, key := range grp.Keys {
+					rows = append(rows, [2]string{tui.TuneShortKey(key), orDash(tui.TuneValue(key, st.Applied[key]))})
+				}
+				for _, l := range kvLines("    ", rows) {
+					g.println(g.text(g.fit(l)))
+				}
 			}
-			g.println(g.text("  " + g.styleOut(styleBold, grp.title)))
-			rows := make([][2]string, 0, len(grp.keys))
-			for _, key := range grp.keys {
-				rows = append(rows, [2]string{shortKey(key), orDash(tuneValue(key, st.Applied[key]))})
+		} else {
+			// One line per group: what it is and what it means now.
+			rows := make([][2]string, 0, len(groups))
+			for _, grp := range groups {
+				rows = append(rows, [2]string{g.sym().ok + " " + grp.Title, tui.TuneGroupSummary(grp, st.Applied)})
 			}
-			for _, l := range kvLines("    ", rows) {
-				g.println(g.text(g.fit(l)))
+			for _, l := range kvWrapLines("  ", rows, g.lineWidth()) {
+				g.println(g.text(strings.Replace(l, g.sym().ok, g.styleOut(styleGreen, g.sym().ok), 1)))
 			}
+			g.println(g.text("  " + g.styleOut(styleGray, i18n.T(i18n.CLITuneDetailsHint))))
 		}
 	}
 	if len(st.Nodes) == 0 {
@@ -1107,7 +1124,7 @@ func newUpdateCmd(g *Globals) *cobra.Command {
 	f.StringVar(&ver, "version", "", i18n.T(i18n.CLIFlagVersion))
 	f.BoolVar(&rollback, "rollback", false, i18n.T(i18n.CLIFlagRollback))
 	f.BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
-	cmd.AddCommand(newUpdateBackendsCmd(g), newUpdateManifestCmd(g))
+	cmd.AddCommand(newUpdateBackendsCmd(g), newUpdateManifestCmd(g), newUpdateAutoCmd(g))
 	return cmd
 }
 

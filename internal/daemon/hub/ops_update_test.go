@@ -140,6 +140,8 @@ func TestUpdateCheckApplyRollback(t *testing.T) {
 	require.True(t, info.Available)
 	require.Equal(t, install.GitHubReleases+"/tag/v1.2.3", info.Changelog)
 	require.Empty(t, info.Previous)
+	_, err = env.client.UpdateAuto(ctx, "off") // else the automatic update installs it
+	require.NoError(t, err)
 	st, err := env.client.Status(ctx)
 	require.NoError(t, err)
 	var announced bool

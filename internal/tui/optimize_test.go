@@ -178,3 +178,24 @@ func TestOptimizeNodeRows(t *testing.T) {
 		"  nl-10  offline  never tuned  pending\n",
 		"  fr-1   online   balanced     ! agent too old for auto\n")
 }
+
+// Settings in effect lists the groups with what each means now; a group
+// opens with what it is for and every value in it.
+func TestOptimizeSettingsGroups(t *testing.T) {
+	log := &callLog{}
+	stub := fullStub(log, "simple")
+	stub.OptimizeStatusFn = func(context.Context) (api.OptimizeStatus, error) {
+		return api.OptimizeStatus{Profile: "auto", BBRAvailable: true, BBRActive: true, Applied: map[string]string{
+			"net.ipv4.tcp_congestion_control": "bbr", "net.core.default_qdisc": "fq",
+			"net.core.rmem_max": "16777216", "net.ipv4.tcp_rmem": "4096 131072 16777216",
+			"net.ipv4.tcp_keepalive_time": "300", "net.ipv4.tcp_keepalive_intvl": "30", "net.ipv4.tcp_keepalive_probes": "5",
+		}}, nil
+	}
+	h := newHarness(t, Options{Caps: Caps{Unicode: true, Width: 100}, Local: stub})
+	h.choose("7").choose("6")
+	h.must("1) Speed and queues", "BBR · fq",
+		"2) Buffers (memory per connection)", "up to 16 MiB per connection",
+		"3) Dead connections (keepalive)", "dead connections found in about 8 min")
+	h.choose("2")
+	h.must("How much memory one connection may use", "rmem_max   16 MiB", "tcp_rmem   4 KiB · 128 KiB · 16 MiB")
+}

@@ -122,6 +122,9 @@ type Hub struct {
 // ctx ends and everything the hub started has stopped, or an error when the
 // hub cannot start (config, state database, CA, listeners).
 func Run(ctx context.Context, o Options) error {
+	if err := AutoUpdateStartGuard(o.Root); err != nil {
+		return err
+	}
 	h, err := New(o)
 	if err != nil {
 		return err
