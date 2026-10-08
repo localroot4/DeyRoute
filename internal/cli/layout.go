@@ -57,25 +57,6 @@ func (g *Globals) fit(s string) string {
 	return trunc(s, g.lineWidth(), g.sym().ell)
 }
 
-// kvLines aligns label/value rows: "  label    value". Empty rows are
-// skipped.
-func kvLines(indent string, rows [][2]string) []string {
-	w := 0
-	for _, r := range rows {
-		if r[1] != "" {
-			w = max(w, width(r[0]))
-		}
-	}
-	out := make([]string, 0, len(rows))
-	for _, r := range rows {
-		if r[1] == "" {
-			continue
-		}
-		out = append(out, indent+pad(r[0], w+3)+r[1])
-	}
-	return out
-}
-
 // joinWrap joins parts with sep into as few lines of at most w columns as
 // possible, breaking only between parts.
 func joinWrap(parts []string, sep string, w int) []string {
@@ -98,8 +79,8 @@ func joinWrap(parts []string, sep string, w int) []string {
 	return out
 }
 
-// kvWrapLines is kvLines whose values wrap under themselves when they are
-// longer than the line width lw.
+// kvWrapLines aligns label/value rows ("  label    value", empty rows
+// skipped); values longer than the line width lw wrap under themselves.
 func kvWrapLines(indent string, rows [][2]string, lw int) []string {
 	w := 0
 	for _, r := range rows {

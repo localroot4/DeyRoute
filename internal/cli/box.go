@@ -139,11 +139,17 @@ func (g *Globals) boxTable(cols []boxCol, rows [][]string, style func(row, col i
 		return s.String()
 	}
 	out := []string{g.styleOut(styleGray, rule(b.tl, b.tm, b.tr, b.h))}
-	head := make([]string, len(w))
-	for c := range w {
-		head[c] = g.styleOut(styleCyan, cell(cols[c].title, c))
+	headed := false
+	for _, col := range cols {
+		headed = headed || col.title != ""
 	}
-	out = append(out, line(head), g.styleOut(styleGray, rule(b.hml, b.hmm, b.hmr, b.hh)))
+	if headed { // a table whose columns have no titles is a plain frame
+		head := make([]string, len(w))
+		for c := range w {
+			head[c] = g.styleOut(styleCyan, cell(cols[c].title, c))
+		}
+		out = append(out, line(head), g.styleOut(styleGray, rule(b.hml, b.hmm, b.hmr, b.hh)))
+	}
 	for i, r := range rows {
 		cells := make([]string, len(w))
 		for c := range w {
