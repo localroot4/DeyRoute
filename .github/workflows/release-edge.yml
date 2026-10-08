@@ -80,7 +80,7 @@ jobs:
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
               -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -o "$d/deyroute" ./cmd/deyroute
-            cp README.md README.en.md CHANGELOG.md "$d/"
+            cp README.md README.en.md CHANGELOG.md LICENSE "$d/"
             tar -C dist -czf "dist/deyroute_${VERSION}_linux_${arch}.tar.gz" "deyroute_${VERSION}_linux_${arch}"
             rm -rf "$d"
           done
@@ -128,8 +128,11 @@ jobs:
             echo "## What's new"
             echo
             # The newest three sections of the changelog; the rest is linked.
-            awk '/^## \[Unreleased\]/{on=1; next} on && /^## \[/{exit} on' CHANGELOG.md |
-              awk 'NR==1 && /^$/ {next} /^### /{n++} n>3{exit} {print}'
+            # One awk reading the file: an early exit in a pipe is SIGPIPE
+            # under pipefail.
+            awk '/^## \[Unreleased\]/{on=1; next}
+                 on && /^## \[/{exit}
+                 on { if (!seen && /^$/) next; seen=1; if (/^### /) n++; if (n > 3) exit; print }' CHANGELOG.md
             echo
             echo "[Full changelog](${repo}/blob/${GITHUB_SHA}/CHANGELOG.md) · [راهنمای فارسی](${repo}/blob/main/docs/fa/index.md) · [English guides](${repo}/blob/main/docs/en/index.md)"
             echo
