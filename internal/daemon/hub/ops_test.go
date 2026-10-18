@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -398,7 +400,7 @@ func TestDecoyCheck(t *testing.T) {
 	reachable := map[string]bool{"b.example.com": true}
 	var tried []string
 	env, o := prepareEnv(t, func(c *config.Config) { c.Hub.DecoySNIs = []string{"a.example.com", "b.example.com"} })
-	o.DecoyCheck = func(_ context.Context, sni string) error {
+	o.DecoyCheck = func(_ context.Context, _, sni string) error {
 		mu.Lock()
 		defer mu.Unlock()
 		tried = append(tried, sni)
@@ -438,6 +440,115 @@ func TestDecoyCheck(t *testing.T) {
 	require.Equal(t, backend.DecoyCandidates(nil)[0], env.h.currentDecoy(nil))
 }
 
+// The decoy check uses the address family of hub.public_ip: a dual-stack hub
+// whose Reality paths are IPv4 must not test its decoys over IPv6 ("tcp4",
+// names looked up as "ip4"); an IPv6 hub is not forced onto IPv4.
+func TestDecoyCheckNetwork(t *testing.T) {
+	for _, tc := range []struct {
+		name, ip, ip6, dial, lookup string
+	}{
+		{name: "ipv4", ip: "127.0.0.1", dial: "tcp4", lookup: "ip4"},
+		{name: "dual-stack", ip: "127.0.0.1", ip6: "2001:db8::2", dial: "tcp4", lookup: "ip4"},
+		{name: "ipv6", ip: "2001:db8::1", dial: "tcp", lookup: "ip"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var dials, lookups []string
+			env := startHub(t, func(c *config.Config) {
+				c.Hub.PublicIP, c.Hub.PublicIP6 = tc.ip, tc.ip6
+				c.Hub.DecoySNIs = []string{"a.example.com"}
+			}, func(o *Options, _ string) {
+				o.DecoyResolver = func(ctx context.Context, network, host string) ([]netip.Addr, error) {
+					mu.Lock()
+					lookups = append(lookups, network)
+					mu.Unlock()
+					return publicResolver(ctx, network, host)
+				}
+				o.DecoyCheck = func(_ context.Context, network, _ string) error {
+					mu.Lock()
+					dials = append(dials, network)
+					mu.Unlock()
+					return nil
+				}
+			})
+			env.h.checkDecoys(ctxT(t))
+			mu.Lock()
+			defer mu.Unlock()
+			require.NotEmpty(t, dials)
+			for _, n := range dials {
+				require.Equal(t, tc.dial, n)
+			}
+			require.NotEmpty(t, lookups)
+			for _, n := range lookups {
+				require.Equal(t, tc.lookup, n)
+			}
+		})
+	}
+}
+
+// DNS tampering answers a blocked decoy name with a private address: the
+// decoy fails before any dial with a reason that says so, and the next
+// decoy is used.
+func TestDecoyResolvingToPrivateAddress(t *testing.T) {
+	var mu sync.Mutex
+	var dialed []string
+	answers := map[string][]string{
+		"a.example.com": {"10.0.0.1"},
+		"b.example.com": {"203.0.113.7"},
+	}
+	failB := false
+	env, o := prepareEnv(t, func(c *config.Config) { c.Hub.DecoySNIs = []string{"a.example.com", "b.example.com"} })
+	o.DecoyResolver = func(_ context.Context, _, host string) ([]netip.Addr, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if answers[host] == nil {
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		var out []netip.Addr
+		for _, s := range answers[host] {
+			out = append(out, netip.MustParseAddr(s))
+		}
+		return out, nil
+	}
+	o.DecoyCheck = func(_ context.Context, _, sni string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		dialed = append(dialed, sni)
+		if failB && sni == "b.example.com" {
+			return errors.New("handshake failed")
+		}
+		return nil
+	}
+	env.startEnv(o)
+	require.Eventually(t, func() bool { return env.h.currentDecoy(env.h.Config()) == "b.example.com" }, testWait, 10*time.Millisecond)
+	mu.Lock()
+	require.NotContains(t, dialed, "a.example.com", "a name that resolves to a private address is not dialed")
+	failB = true
+	mu.Unlock()
+
+	// None answers: the private-address reason is in the DEY-B042 event.
+	env.h.checkDecoys(ctxT(t))
+	ev := env.waitEvent(state.EvProbeError, "")
+	require.Equal(t, string(deyerr.B042), ev.Code)
+	require.Contains(t, ev.Reason, "a.example.com: resolves to a private address from the hub (10.0.0.1; DNS tampering?)")
+	require.Contains(t, ev.Reason, "b.example.com: handshake failed")
+	require.Equal(t, "b.example.com", env.h.currentDecoy(env.h.Config()))
+
+	// Loopback, link-local and unspecified answers count as private too; one
+	// public answer among them is enough to try the handshake.
+	mu.Lock()
+	answers["a.example.com"] = []string{"127.0.0.1", "169.254.1.1", "0.0.0.0", "::ffff:192.168.1.1"}
+	mu.Unlock()
+	err := env.h.decoyResolvesPublic(ctxT(t), "tcp4", "a.example.com")
+	require.ErrorContains(t, err, "resolves to a private address from the hub (127.0.0.1, 169.254.1.1, 0.0.0.0, 192.168.1.1; DNS tampering?)")
+	mu.Lock()
+	answers["a.example.com"] = []string{"10.0.0.1", "198.51.100.9"}
+	mu.Unlock()
+	require.NoError(t, env.h.decoyResolvesPublic(ctxT(t), "tcp4", "a.example.com"))
+	// A failed lookup is left to the handshake, which reports its own error.
+	require.NoError(t, env.h.decoyResolvesPublic(ctxT(t), "tcp4", "c.example.com"))
+}
+
 // The default decoy check wants TLS 1.3 with a verified certificate and
 // HTTP/2: REALITY cannot use a target without them.
 func TestDecoyHandshake(t *testing.T) {
@@ -452,22 +563,25 @@ func TestDecoyHandshake(t *testing.T) {
 		return srv.Listener.Addr().String(), roots
 	}
 	addr, roots := site(true, 0)
-	require.NoError(t, decoyHandshake(ctxT(t), "example.com", addr, roots))
-	require.Error(t, decoyHandshake(ctxT(t), "example.com", addr, nil), "certificate not trusted")
+	require.NoError(t, decoyHandshake(ctxT(t), "tcp", "example.com", addr, roots))
+	require.Error(t, decoyHandshake(ctxT(t), "tcp", "example.com", addr, nil), "certificate not trusted")
+	// The dial uses the network it is given (the site listens on IPv4).
+	require.NoError(t, decoyHandshake(ctxT(t), "tcp4", "example.com", addr, roots))
+	require.Error(t, decoyHandshake(ctxT(t), "tcp6", "example.com", addr, roots))
 
 	addr, roots = site(false, 0)
-	err := decoyHandshake(ctxT(t), "example.com", addr, roots)
+	err := decoyHandshake(ctxT(t), "tcp", "example.com", addr, roots)
 	require.ErrorContains(t, err, "no HTTP/2")
 
 	addr, roots = site(true, tls.VersionTLS12)
-	require.Error(t, decoyHandshake(ctxT(t), "example.com", addr, roots), "TLS 1.2 only")
+	require.Error(t, decoyHandshake(ctxT(t), "tcp", "example.com", addr, roots), "TLS 1.2 only")
 }
 
 func TestCheckDecoyTLSRefused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	// The name does not resolve: the handshake cannot even start.
-	require.Error(t, checkDecoyTLS(ctx, "decoy.invalid"))
+	require.Error(t, checkDecoyTLS(ctx, "tcp", "decoy.invalid"))
 }
 
 func TestCollectMetrics(t *testing.T) {

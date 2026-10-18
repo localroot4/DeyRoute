@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -117,16 +118,24 @@ func prepareEnv(t *testing.T, edit func(c *config.Config), opts ...envOption) (*
 		UnitStartCheck:  time.Millisecond,
 		TunnelUpWait:    testWait,
 		UDPProbeTimeout: 150 * time.Millisecond,
-		// No test reaches the internet: decoys always answer and downloads
-		// fail at once (a test that downloads sets its own Fetcher).
-		DecoyCheck:   func(context.Context, string) error { return nil },
-		Fetcher:      offlineFetcher{},
-		RestartDelay: time.Millisecond,
+		// No test reaches the internet: decoys resolve to a public address
+		// and always answer, and downloads fail at once (a test that
+		// downloads sets its own Fetcher).
+		DecoyCheck:    func(context.Context, string, string) error { return nil },
+		DecoyResolver: publicResolver,
+		Fetcher:       offlineFetcher{},
+		RestartDelay:  time.Millisecond,
 	}
 	for _, f := range opts {
 		f(&o, root)
 	}
 	return env, o
+}
+
+// publicResolver is the default test DecoyResolver: every name resolves to
+// one public (documentation) IPv4 address.
+func publicResolver(context.Context, string, string) ([]netip.Addr, error) {
+	return []netip.Addr{netip.MustParseAddr("203.0.113.7")}, nil
 }
 
 // offlineFetcher is the default test download path: every URL fails

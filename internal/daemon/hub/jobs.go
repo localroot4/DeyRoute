@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
+	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
@@ -124,20 +126,26 @@ func (h *Hub) requestDecoyCheck() {
 
 // checkDecoys tests hub.decoy_snis (or the built-in list) in order with a
 // TLS 1.3 + HTTP/2 handshake from the hub; the first that answers becomes the decoy
-// of the Reality transports (section 7.4). When it changed, the tunnels are
-// rendered again. When none answers the last choice stays and a warning
-// event (DEY-B042) is emitted.
+// of the Reality transports (section 7.4). The check dials over the family
+// of hub.public_ip, and a name that resolves to private addresses only fails
+// before the dial. When it changed, the tunnels are rendered again. When
+// none answers the last choice stays and a warning event (DEY-B042) is
+// emitted with the reason of every decoy.
 func (h *Hub) checkDecoys(ctx context.Context) {
 	cfg := h.Config()
 	cands := backend.DecoyCandidates(cfg.Hub.DecoySNIs)
 	if len(cands) == 0 {
 		return
 	}
+	network := decoyNetwork(cfg)
 	var chosen string
 	var reasons []string
 	for _, sni := range cands {
 		cctx, cancel := context.WithTimeout(ctx, decoyTimeout)
-		err := h.o.DecoyCheck(cctx, sni)
+		err := h.decoyResolvesPublic(cctx, network, sni)
+		if err == nil {
+			err = h.o.DecoyCheck(cctx, network, sni)
+		}
 		cancel()
 		if ctx.Err() != nil {
 			return
@@ -178,19 +186,55 @@ func (h *Hub) checkDecoys(ctx context.Context) {
 	}
 }
 
-// checkDecoyTLS is the default Options.DecoyCheck: a TLS 1.3 handshake with
-// sni:443 whose certificate verifies against the system roots and that
-// agrees on HTTP/2, as REALITY needs of its target.
-func checkDecoyTLS(ctx context.Context, sni string) error {
-	return decoyHandshake(ctx, sni, net.JoinHostPort(sni, "443"), nil)
+// decoyNetwork is the network of the decoy check: "tcp4" when
+// hub.public_ip is IPv4, so that a dual-stack hub tests the decoy over the
+// family of its Reality paths instead of the IPv6 Go may prefer; "tcp" on
+// an IPv6 hub.
+func decoyNetwork(cfg *config.Config) string {
+	if a, err := netip.ParseAddr(cfg.Hub.PublicIP); err == nil && a.Unmap().Is4() {
+		return "tcp4"
+	}
+	return "tcp"
 }
 
-// decoyHandshake runs the decoy check against addr; nil roots means the
-// system roots.
-func decoyHandshake(ctx context.Context, sni, addr string, roots *x509.CertPool) error {
+// decoyResolvesPublic looks sni up as the hub sees it and fails when no
+// answer is a public address (setup.IsPublicIP: every one is private,
+// CGNAT, loopback, link-local or unspecified): DNS tampering answers
+// blocked names with such addresses, and the handshake would only fail
+// with an unclear connect or TLS error. A failed or empty lookup is left
+// to the decoy check itself.
+func (h *Hub) decoyResolvesPublic(ctx context.Context, network, sni string) error {
+	ipNet := "ip"
+	if network == "tcp4" {
+		ipNet = "ip4"
+	}
+	addrs, err := h.o.DecoyResolver(ctx, ipNet, sni)
+	if err != nil || len(addrs) == 0 {
+		return nil
+	}
+	shown := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if setup.IsPublicIP(a) {
+			return nil
+		}
+		shown = append(shown, a.Unmap().String())
+	}
+	return fmt.Errorf("resolves to a private address from the hub (%s; DNS tampering?)", strings.Join(shown, ", "))
+}
+
+// checkDecoyTLS is the default Options.DecoyCheck: a TLS 1.3 handshake with
+// sni:443 over network whose certificate verifies against the system roots
+// and that agrees on HTTP/2, as REALITY needs of its target.
+func checkDecoyTLS(ctx context.Context, network, sni string) error {
+	return decoyHandshake(ctx, network, sni, net.JoinHostPort(sni, "443"), nil)
+}
+
+// decoyHandshake runs the decoy check against addr over network; nil roots
+// means the system roots.
+func decoyHandshake(ctx context.Context, network, sni, addr string, roots *x509.CertPool) error {
 	d := tls.Dialer{Config: &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS13,
 		NextProtos: []string{"h2", "http/1.1"}, RootCAs: roots}}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := d.DialContext(ctx, network, addr)
 	if err != nil {
 		return err
 	}
