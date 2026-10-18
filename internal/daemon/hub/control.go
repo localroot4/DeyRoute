@@ -15,6 +15,7 @@ import (
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/i18n"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/tlsutil"
@@ -196,10 +197,16 @@ func (h *Hub) authenticate(ctx context.Context, nodeID, certFingerprint, remoteI
 }
 
 // nodeIPChanged records the new public IP of a node (once, even when
-// several requests from the new address arrive together).
+// several requests from the new address arrive together). When a direct
+// node's address moved to the other IP family (typically `node set-hub`
+// to the hub's IPv6), the event and the log line say what it means
+// (familyHint).
 func (h *Hub) nodeIPChanged(id, ip string) {
-	var old string
-	_, err := h.mutate(func(c *config.Config) error {
+	var (
+		old   string
+		front bool
+	)
+	cfg, err := h.mutate(func(c *config.Config) error {
 		n, ok := c.NodeByID(id)
 		if !ok {
 			return deyerr.New(deyerr.N008, deyerr.Params{"node": id})
@@ -208,6 +215,7 @@ func (h *Hub) nodeIPChanged(id, ip string) {
 			return errNoChange
 		}
 		old, n.PublicIP = n.PublicIP, ip
+		front = n.Route == config.RouteFront
 		return nil
 	})
 	if stderrors.Is(err, errNoChange) {
@@ -225,12 +233,59 @@ func (h *Hub) nodeIPChanged(id, ip string) {
 		h.log.Info("node public IP recorded", dlog.Node(id), slog.String("new_ip", ip))
 		return
 	}
-	h.log.Warn("node public IP changed", dlog.Node(id), slog.String("old_ip", old), slog.String("new_ip", ip))
+	msg := "node " + id + " public IP changed from " + old + " to " + ip
+	attrs := []any{dlog.Node(id), slog.String("old_ip", old), slog.String("new_ip", ip)}
+	// A front node reaches the hub through the CDN and is never in @nodes:
+	// its address family does not matter.
+	if hint := familyHint(cfg.Hub, old, ip); hint != "" && !front {
+		msg += "; " + hint
+		attrs = append(attrs, slog.String("hint", hint))
+	}
+	h.log.Warn("node public IP changed", attrs...)
 	h.Emit(state.Event{
 		Type: state.EvNodeIPChanged, Level: state.LevelWarn, Node: id,
 		Reason:  "control connection from " + ip,
-		Message: "node " + id + " public IP changed from " + old + " to " + ip,
+		Message: msg,
 	})
+}
+
+// familyHint explains a public IP change from one IP family to the other
+// ("" when the family stayed the same). The nodes' backend clients dial
+// hub.public_ip, so a node that left its family (control connection over
+// IPv6 to a hub whose public_ip is IPv4) dials from an address that is no
+// longer in @nodes, and the hub firewall drops those rungs on the backend
+// range; the hint names the set-hub command that goes back (and, for a
+// move to IPv6, that IPv6 between hub and node is not supported yet: an
+// IPv6-only hub is the exception). A node that came back to the family of
+// hub.public_ip is told those rungs are accepted.
+func familyHint(hub *config.Hub, old, ip string) string {
+	of, nf := ipFamily(old), ipFamily(ip)
+	if of == "" || nf == "" || of == nf {
+		return ""
+	}
+	hf := ipFamily(hub.PublicIP)
+	if nf == hf {
+		return i18n.T(i18n.HubNodeIPFamilyHub, nf)
+	}
+	back := net.JoinHostPort(hub.PublicIP, strconv.Itoa(hub.ControlPort))
+	if nf == "IPv6" && hf == "IPv4" {
+		return i18n.T(i18n.HubNodeIPToIPv6, hub.PublicIP, back)
+	}
+	return i18n.T(i18n.HubNodeIPFamilyOther, nf, hub.PublicIP, back)
+}
+
+// ipFamily returns "IPv4" or "IPv6" (an IPv4-mapped IPv6 address is
+// IPv4), "" when s is not an address.
+func ipFamily(s string) string {
+	a, err := netip.ParseAddr(normalizeIP(s))
+	switch {
+	case err != nil:
+		return ""
+	case a.Is4():
+		return "IPv4"
+	default:
+		return "IPv6"
+	}
 }
 
 // normalizeIP returns the canonical text of an address (IPv4-mapped IPv6
