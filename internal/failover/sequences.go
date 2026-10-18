@@ -24,8 +24,9 @@ const (
 type attempt struct {
 	out        outcome
 	probe      Probe
-	err        error // Start error
-	nodeBroken bool  // failed while the candidate's node is broken
+	err        error     // Start error
+	nodeBroken bool      // failed while the candidate's node is broken
+	since      time.Time // outOK: when the probe window began (after the start)
 	reason     string
 }
 
@@ -68,7 +69,8 @@ func (e *Engine) moveTo(ctx context.Context, c state.Candidate, window time.Dura
 // waitProbe polls c every StartPoll until a probe passes or window elapses.
 // A failing probe while c's node is broken ends the wait early.
 func (e *Engine) waitProbe(ctx context.Context, c state.Candidate, window time.Duration, w waitOpts) attempt {
-	deadline := e.clk.Now().Add(window)
+	since := e.clk.Now()
+	deadline := since.Add(window)
 	for {
 		began := e.clk.Now()
 		// Within the window; the last poll (at the deadline) gets StartPoll.
@@ -81,7 +83,7 @@ func (e *Engine) waitProbe(ctx context.Context, c state.Candidate, window time.D
 			return attempt{out: outStop}
 		}
 		if p.OK {
-			return attempt{out: outOK, probe: p}
+			return attempt{out: outOK, probe: p, since: since}
 		}
 		if e.nodeBroken(c.Node) {
 			return attempt{out: outFail, probe: p, nodeBroken: true,
@@ -128,7 +130,12 @@ func (e *Engine) upAfterMove(p Probe, cause string) {
 	st.DownRetryAt = time.Time{}
 	st.CanaryPasses = 0
 	st.UpSince = now
-	delete(st.Quarantine, st.Active.Key())
+	// A passing probe ends the exclusion but keeps the duration: the entry
+	// is forgotten QuarantineForget later (quarantine.go).
+	if q, ok := st.Quarantine[st.Active.Key()]; ok {
+		q.Until = now
+		st.Quarantine[st.Active.Key()] = q
+	}
 	e.hist.reset()
 	e.hist.add(now, p.RTT)
 	e.nextProbe = now.Add(e.cfg.probeInterval)
@@ -762,15 +769,18 @@ func (e *Engine) canaryTick(ctx context.Context) {
 // also waits for the doubled FailbackDelay (section 9): a rung 1 whose
 // canary passes but whose real path does not is not retried every
 // recover_threshold probes, each attempt an outage of up to StartWait.
+// A rung 1 the engine quarantined is not a failback target before the
+// quarantine ends: the canary keeps counting meanwhile, so the failback
+// follows on the first probe after it (if the canary still passes).
 func (e *Engine) maybeFailback(ctx context.Context) {
 	if !e.cfg.failback || e.st.Paused || e.st.State != state.StateUp {
 		return
 	}
+	now := e.clk.Now()
 	target, ok := e.home()
-	if !ok || target == e.st.Active {
+	if !ok || target == e.st.Active || Quarantined(e.st.Quarantine, target, now) {
 		return
 	}
-	now := e.clk.Now()
 	var why string
 	if e.canary {
 		if e.st.CanaryPasses < e.cfg.recoverThreshold {
@@ -984,6 +994,9 @@ func (e *Engine) manualMove(ctx context.Context, target state.Candidate, why str
 	}
 	if a.out == outOK {
 		e.upAfterMove(a.probe, why)
+		// The owner chose this candidate: its failure history goes (lab S08
+		// resets between runs to start from a clean quarantine).
+		delete(e.st.Quarantine, target.Key())
 		e.emit(evt{typ: manualEvent(origin, target), level: state.LevelInfo, from: origin, to: target, reason: why})
 		e.commit(true)
 		return nil
@@ -1081,18 +1094,20 @@ outer:
 				break outer
 			}
 			a := e.moveTo(ctx, c, TestLadderRungWait, waitOpts{abort: req})
-			switch a.out {
+			out := a.out
+			switch out {
+			case outOK:
+				out = e.holdRung(ctx, req, c, a, &r)
+			case outFail:
+				r.Error = api.ToDTO(attemptErr(c, a, TestLadderRungWait))
+			}
+			switch out {
 			case outStop:
 				return results, e.notRunning()
 			case outPreempt:
 				e.stopActive(ctx)
 				abortErr = deyerr.Wrap(deyerr.F008, req.Err(), deyerr.Params{"tunnel": e.id, "command": cmdNames[cmdTestLadder]})
 				break outer
-			case outOK:
-				r.OK = true
-				r.RTTms = ms(a.probe.RTT)
-			default:
-				r.Error = api.ToDTO(attemptErr(c, a, TestLadderRungWait))
 			}
 			e.stopActive(ctx)
 			if ctx.Err() != nil {
@@ -1103,6 +1118,43 @@ outer:
 	}
 	e.restoreAfterTest(ctx, original, wasRunning, prevState, prevCause)
 	return results, abortErr
+}
+
+// holdRung keeps a tested rung that passed its first probe running until
+// TestLadderRungWait has passed since its probe window began, probing it
+// every probe_interval_s: a rung that passes and is then cut (filtering
+// that lets a new tunnel through for a few seconds) is a failure, DEY-B073,
+// not a success. r gets OK and the median RTT of the passing probes, or the
+// error of the first failing one (outFail).
+func (e *Engine) holdRung(ctx, req context.Context, c state.Candidate, a attempt, r *api.RungResult) outcome {
+	end := a.since.Add(TestLadderRungWait)
+	passed := []rttSample{{at: e.clk.Now(), rtt: a.probe.RTT}}
+	for e.clk.Now().Before(end) {
+		wake := e.clk.Now().Add(e.cfg.probeInterval)
+		if wake.After(end) {
+			wake = end
+		}
+		switch e.sleepUntil(ctx, wake, waitOpts{abort: req}) {
+		case sleepStop:
+			return outStop
+		case sleepPreempt, sleepAbort:
+			return outPreempt
+		}
+		at := e.clk.Now()
+		p := e.probePath(ctx, c, e.cfg.probeTimeout)
+		if ctx.Err() != nil {
+			return outStop
+		}
+		if !p.OK {
+			secs := int(at.Sub(a.since) / time.Second)
+			r.Error = api.ToDTO(deyerr.New(deyerr.B073, deyerr.Params{"transport": c.Transport, "seconds": secs}).WithDetail(p.Err))
+			return outFail
+		}
+		passed = append(passed, rttSample{at: at, rtt: p.RTT})
+	}
+	r.OK = true
+	r.RTTms = ms(medianOf(passed))
+	return outOK
 }
 
 // restoreAfterTest brings back the candidate that was active before the

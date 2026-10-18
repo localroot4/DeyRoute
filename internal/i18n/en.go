@@ -1674,6 +1674,8 @@ const (
 	CLITunnelTestLadderShort     Key = "cli.tunnel_test_ladder_short"
 	CLITunnelTestLadderExample   Key = "cli.tunnel_test_ladder_example"
 	CLITestLadderLost            Key = "cli.test_ladder_lost"
+	CLITestLadderLostNoTotal     Key = "cli.test_ladder_lost_no_total"
+	CLITestLadderUDPOnly         Key = "cli.test_ladder_udp_only"
 	CLIResultOK                  Key = "cli.result_ok"
 	CLIResultFailed              Key = "cli.result_failed"
 	CLIResultSkipped             Key = "cli.result_skipped"
@@ -2263,7 +2265,9 @@ var cliEN = map[Key]string{
 	CLITunnelResumed:             "Failover of %s resumed.",
 	CLITunnelTestLadderShort:     "Try every rung for 20 seconds and report RTT and success (interrupts the tunnel)",
 	CLITunnelTestLadderExample:   "  deyroute tunnel test-ladder main\n  deyroute tunnel test-ladder main --yes --json",
-	CLITestLadderLost:            "Testing the ladder of %s tries every transport for %d seconds, one after the other.\nThe tunnel is interrupted during the test; users lose their connections.",
+	CLITestLadderLost:            "Testing the ladder of %[1]s tries every transport for %[2]d seconds, one after the other (about %[3]d x %[2]d s).\nThe tunnel is interrupted during the test; users lose their connections.",
+	CLITestLadderLostNoTotal:     "Testing the ladder of %s tries every transport for %d seconds, one after the other.\nThe tunnel is interrupted during the test; users lose their connections.",
+	CLITestLadderUDPOnly:         "Tunnel %s forwards UDP only: for each rung the test checked only that its units run on the hub and the node, not that traffic passes.",
 	CLIResultOK:                  "ok",
 	CLIResultFailed:              "failed",
 	CLIResultSkipped:             "skipped",

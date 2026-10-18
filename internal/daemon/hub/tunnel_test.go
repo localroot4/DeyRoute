@@ -646,19 +646,37 @@ func TestTunnelEditEnableDisableRestart(t *testing.T) {
 	require.Equal(t, deyerr.C021, codeOf(te.client.TunnelRestart(ctx, "nope")))
 }
 
-func TestTunnelTestLadderAndCanaryFailback(t *testing.T) {
-	te := startTunnelHub(t)
-	n := te.tunnelNode("de-1")
+func TestTunnelTestLadder(t *testing.T) {
+	// The engines run on a fake clock: test-ladder holds every passing rung
+	// for 20 s of engine time.
+	clk := failover.NewFakeClock(time.Now())
+	te := startTunnelHub(t, func(o *Options, _ string) { o.FailoverClock = clk })
+	te.tunnelNode("de-1")
 	port := freePort(t)
-	fo := fastFailover(true)
 	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port}},
-		Rungs: []string{trAlpha, trDelta, trBeta}, Failover: fo})
+		Rungs: []string{trAlpha, trDelta, trBeta}, Failover: fastFailover(true)})
 	id := info.ID
 	ctx := ctxT(t)
 
 	// Test ladder: one line per rung, the skipped one included; back on rung 1.
 	var log stepLog
-	res, err := te.client.TunnelTestLadder(ctx, id, log.add)
+	var res []api.RungResult
+	done := make(chan error, 1)
+	go func() {
+		var err error
+		res, err = te.client.TunnelTestLadder(ctx, id, log.add)
+		done <- err
+	}()
+	var err error
+	require.Eventually(t, func() bool {
+		select {
+		case err = <-done:
+			return true
+		default:
+			clk.Advance(time.Second)
+			return false
+		}
+	}, testWait, 5*time.Millisecond)
 	require.NoError(t, err)
 	require.Len(t, res, 3)
 	require.True(t, res[0].OK)
@@ -666,9 +684,22 @@ func TestTunnelTestLadderAndCanaryFailback(t *testing.T) {
 	require.True(t, res[2].OK)
 	require.Equal(t, []string{"rung:de-1/tfa/alpha:ok", "rung:de-1/tfa/delta:skipped", "rung:de-1/tfa/beta:ok"}, log.finished())
 	require.Equal(t, "tfa/beta on de-1", log.steps[2].Title)
+	probes, err := te.h.st.Probes(id, "de-1", trBeta)
+	require.NoError(t, err)
+	require.Greater(t, len(probes), 1, "the passing rung is held and probed again")
 	te.waitActive(id, "de-1", trAlpha)
 	_, err = te.client.TunnelTestLadder(ctx, "nope", nil)
 	require.Equal(t, deyerr.C021, codeOf(err))
+}
+
+func TestTunnelCanaryFailback(t *testing.T) {
+	te := startTunnelHub(t)
+	n := te.tunnelNode("de-1")
+	port := freePort(t)
+	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port}},
+		Rungs: []string{trAlpha, trDelta, trBeta}, Failover: fastFailover(true)})
+	id := info.ID
+	ctx := ctxT(t)
 
 	// Away from rung 1 the canary runs; after recover_threshold (2) canary
 	// passes the tunnel fails back and the canary stops.

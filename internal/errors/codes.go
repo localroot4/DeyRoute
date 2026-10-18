@@ -125,6 +125,7 @@ const (
 	B002 Code = "DEY-B002" // render failed {backend} {transport}
 	B003 Code = "DEY-B003" // unit failed to start {unit} (Detail = last 40 log lines)
 	B004 Code = "DEY-B004" // probe timeout after start {transport} {seconds}
+	B073 Code = "DEY-B073" // test-ladder: probe passed, then failed while held {transport} {seconds} (Detail = probe error)
 	B005 Code = "DEY-B005" // unsupported arch for backend {backend} {arch}
 	B006 Code = "DEY-B006" // transport validation failed {transport} {reason}
 	B007 Code = "DEY-B007" // transport needs UDP (skipped) {transport} {tunnel}
@@ -510,6 +511,9 @@ var catalog = map[Code]Info{
 	B004: {B004, "Transport {transport} did not pass the probe within {seconds}s",
 		"the backend started but traffic did not flow through the tunnel",
 		"check the node side (deyroute logs <tunnel>), or try the next rung: deyroute tunnel switch <tunnel> --transport <id>"},
+	B073: {B073, "Transport {transport} passed the probe, then failed after {seconds}s",
+		"traffic flowed when the rung came up but stopped while the ladder test held it; filtering that lets a new tunnel through and cuts it after a few seconds looks like this",
+		"prefer the rungs that stayed up: move this one down the ladder (deyroute ladder set <ladder> --rungs ...) and run deyroute tunnel test-ladder <tunnel> again"},
 	B005: {B005, "{backend} has no binary for {arch}",
 		"the pinned release does not ship this architecture",
 		"remove transports of this backend from the ladder"},

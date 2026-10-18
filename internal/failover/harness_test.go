@@ -37,9 +37,11 @@ type fakeActions struct {
 	mu  sync.Mutex
 	clk *FakeClock
 
-	blocked      map[string]bool          // candidate key → path probe fails
-	blockedUntil map[string]time.Time     // candidate key → path probe fails until then
-	rtt          map[string]time.Duration // candidate key → RTT (default 20ms)
+	blocked      map[string]bool            // candidate key → path probe fails
+	blockedUntil map[string]time.Time       // candidate key → path probe fails until then
+	blockedFrom  map[string]time.Time       // candidate key → path probe fails from then on
+	rtt          map[string]time.Duration   // candidate key → RTT (default 20ms)
+	rttSeq       map[string][]time.Duration // candidate key → RTTs of the next passing probes (then rtt)
 	startErr     map[string]error
 	svcDown      map[string]bool // node → service down (known)
 	svcUnknown   map[string]bool // node → node_service unknown
@@ -61,7 +63,9 @@ func newFakeActions(clk *FakeClock) *fakeActions {
 		clk:          clk,
 		blocked:      map[string]bool{},
 		blockedUntil: map[string]time.Time{},
+		blockedFrom:  map[string]time.Time{},
 		rtt:          map[string]time.Duration{},
+		rttSeq:       map[string][]time.Duration{},
 		startErr:     map[string]error{},
 		svcDown:      map[string]bool{},
 		svcUnknown:   map[string]bool{},
@@ -106,13 +110,18 @@ func (f *fakeActions) ProbePath(ctx context.Context, c state.Candidate) Probe {
 		f.probeBudgets = append(f.probeBudgets, time.Until(dl))
 	}
 	f.record("probe", c.Key())
+	from, cut := f.blockedFrom[c.Key()]
 	switch {
 	case !f.running[c.Key()]:
 		return Probe{Err: "connection refused (unit not running)"}
-	case f.blocked[c.Key()], f.clk.Now().Before(f.blockedUntil[c.Key()]):
+	case f.blocked[c.Key()], f.clk.Now().Before(f.blockedUntil[c.Key()]), cut && !f.clk.Now().Before(from):
 		return Probe{Err: "i/o timeout"}
 	case f.svcDown[c.Node]:
 		return Probe{Err: "connection closed by node service"}
+	}
+	if seq := f.rttSeq[c.Key()]; len(seq) > 0 {
+		f.rttSeq[c.Key()] = seq[1:]
+		return Probe{OK: true, RTT: seq[0]}
 	}
 	rtt := f.rtt[c.Key()]
 	if rtt == 0 {

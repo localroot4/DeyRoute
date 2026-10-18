@@ -1126,8 +1126,9 @@ func (l *local) TunnelResume(ctx context.Context, id string) error {
 }
 
 // TunnelTestLadder implements api.Local (`deyroute tunnel test-ladder`, S18):
-// every rung on every node is tried for up to 20 s (start, probe, RTT,
-// stop), one progress line per rung, then the original candidate returns.
+// every rung on every node is tried for 20 s (start, probe; a rung that
+// passes is held and probed for the rest of the 20 s, median RTT; stop),
+// one progress line per rung, then the original candidate returns.
 func (l *local) TunnelTestLadder(ctx context.Context, id string, progress func(api.Step)) ([]api.RungResult, error) {
 	c, e, err := l.h.runningCtl(id)
 	if err != nil {

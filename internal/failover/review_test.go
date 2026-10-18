@@ -242,7 +242,7 @@ func TestEngineQuarantineExpiryAndDoubling(t *testing.T) {
 	h.act.block(a3.Key(), false)
 	h.advanceUntil(2*time.Minute, isUpOn(a3))
 	q := h.st().Quarantine
-	require.Equal(t, 10*time.Minute, q[a2.Key()].Duration, "a/2 passed in between: a fresh 10 minutes")
+	require.Equal(t, 20*time.Minute, q[a2.Key()].Duration, "a/2 passed in between, then was cut again within the hour: doubled")
 	h.act.block(a3.Key(), true)
 	h.act.block(a2.Key(), false)
 	h.advanceUntil(2*time.Minute, func(s state.TunnelState) bool { return s.State == state.StateDown || isUpOn(a2)(s) })

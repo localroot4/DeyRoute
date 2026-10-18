@@ -24,7 +24,9 @@ const (
 	DownRetryInitial = 30 * time.Second
 	// DownRetryMax caps the DOWN retry backoff.
 	DownRetryMax = 5 * time.Minute
-	// TestLadderRungWait is the probe window per rung in `test ladder`.
+	// TestLadderRungWait is the probe window per rung in `test ladder`: the
+	// first probe must pass within it, and a rung that passes is held (and
+	// probed every probe_interval_s) until it ends.
 	TestLadderRungWait = 20 * time.Second
 	// DefaultQuarantine is quarantine_s when the setting is zero.
 	DefaultQuarantine = time.Duration(config.DefaultQuarantineS) * time.Second
@@ -667,10 +669,12 @@ func (e *Engine) MoveTo(ctx context.Context, c state.Candidate, why string) erro
 	return e.send(ctx, &command{kind: cmdMoveTo, cand: c, arg: why}).err
 }
 
-// TestLadder tries every rung on every node for up to TestLadderRungWait
-// each (start, probe, record RTT, stop), reports each row through onRung
-// (may be nil) and restores the original candidate. Automatic failover is
-// suspended while it runs. Cancelling ctx aborts the test and restores.
+// TestLadder tries every rung on every node for TestLadderRungWait each
+// (start, probe until one passes, then keep probing every probe_interval_s
+// to the end of the window, median RTT, stop; a rung that passes and then
+// fails is DEY-B073), reports each row through onRung (may be nil) and
+// restores the original candidate. Automatic failover is suspended while it
+// runs. Cancelling ctx aborts the test and restores.
 func (e *Engine) TestLadder(ctx context.Context, onRung func(api.RungResult)) ([]api.RungResult, error) {
 	r := e.send(ctx, &command{kind: cmdTestLadder, onRung: onRung})
 	return r.rungs, r.err

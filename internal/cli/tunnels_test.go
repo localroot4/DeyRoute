@@ -302,6 +302,7 @@ func TestTunnelTestLadderAndBackup(t *testing.T) {
 	}
 	doc := e.json("tunnel", "test-ladder", "main", "--yes")
 	require.Len(t, doc["results"], 3)
+	require.NotContains(t, out, "UDP only")
 
 	var added, removed [2]string
 	e.stub.TunnelBackupAddFn = func(_ context.Context, id, node string, progress func(api.Step)) error {
@@ -327,6 +328,48 @@ func TestTunnelTestLadderAndBackup(t *testing.T) {
 	require.Contains(t, e.fail(1, "tunnel", "backup", "add", "main", "--node", "nl-1", "--node", "de-2"), "one backup node per command")
 	require.Empty(t, added[0])
 	require.Contains(t, e.ok("tunnel", "backup"), "add")
+}
+
+// test-ladder gives the total time in its confirmation and says, for a
+// UDP-only tunnel, that each rung was checked by its units only.
+func TestTunnelTestLadderTotalAndUDPOnlyNote(t *testing.T) {
+	e := newEnv(t)
+	e.stub.TunnelTestLadderFn = func(context.Context, string, func(api.Step)) ([]api.RungResult, error) {
+		return []api.RungResult{{Node: "de-1", Transport: "backhaul/udp", OK: true, RTTms: 41}}, nil
+	}
+	detail := sampleDetail() // TCP; 5 rungs, one skipped
+	shows := 0
+	e.stub.TunnelShowFn = func(_ context.Context, id string) (api.TunnelDetail, error) {
+		shows++
+		require.Equal(t, "main", id)
+		return detail, nil
+	}
+	errOut := e.fail(3, "tunnel", "test-ladder", "main")
+	require.Contains(t, errOut, "Testing the ladder of main tries every transport for 20 seconds, one after the other (about 4 x 20 s).\n")
+	require.Contains(t, errOut, "users lose their connections")
+	out := e.ok("tunnel", "test-ladder", "main", "--yes")
+	require.Contains(t, out, "41ms")
+	require.NotContains(t, out, "UDP only", "a TCP tunnel's rungs are probed through the tunnel")
+
+	udpNote := "Tunnel main forwards UDP only: for each rung the test checked only that its units run on the hub and the node, not that traffic passes."
+	detail.Ports = []api.PortMapDTO{{Listen: 27015, Proto: "udp", Target: "127.0.0.1:27015"}}
+	out = e.ok("tunnel", "test-ladder", "main", "--yes")
+	require.Contains(t, out, udpNote)
+	detail.Ports = append(detail.Ports, api.PortMapDTO{Listen: 443, Proto: "tcp", Target: "127.0.0.1:443"})
+	require.NotContains(t, e.ok("tunnel", "test-ladder", "main", "--yes"), "UDP only", "TCP and UDP: the TCP port is probed")
+
+	// --json --yes shows neither text: the tunnel is not asked for.
+	shows = 0
+	require.Len(t, e.json("tunnel", "test-ladder", "main", "--yes")["results"], 1)
+	require.Zero(t, shows)
+
+	// The tunnel cannot be shown: the confirmation goes without the total.
+	e.stub.TunnelShowFn = func(context.Context, string) (api.TunnelDetail, error) {
+		return api.TunnelDetail{}, deyerr.New(deyerr.C021, deyerr.Params{"tunnel": "main"})
+	}
+	errOut = e.fail(3, "tunnel", "test-ladder", "main")
+	require.Contains(t, errOut, "Testing the ladder of main tries every transport for 20 seconds, one after the other.\n")
+	require.NotContains(t, errOut, "about")
 }
 
 func TestPortCommands(t *testing.T) {
