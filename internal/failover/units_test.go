@@ -185,6 +185,19 @@ func TestReconcile(t *testing.T) {
 	got = Reconcile(p, nil, tun)
 	require.Equal(t, r2, got.Active)
 	require.Equal(t, state.StateStarting, got.State)
+
+	// The restart of an update that dropped the active rung from the ladder
+	// (wireguard/kernel left udp-default after the field report of
+	// 2026-10-17): its running unit is not adopted, rung 1 starts and the old
+	// unit is a stray the daemon stops.
+	udp := oneNode()
+	udp.Ladder = append([]string(nil), config.DefaultUDPLadder...)
+	wg := cand("de-1", "wireguard/kernel")
+	running := map[string]bool{wg.Key(): true}
+	got = Reconcile(upOn(wg, since), running, udp)
+	require.Equal(t, state.StateStarting, got.State)
+	require.Equal(t, cand("de-1", "backhaul/udp"), got.Active)
+	require.Equal(t, []state.Candidate{wg}, StrayUnits(got, running))
 }
 
 func TestStrayUnits(t *testing.T) {

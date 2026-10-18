@@ -9,6 +9,7 @@ import (
 
 func TestResolveLadder(t *testing.T) {
 	custom := []string{"backhaul/tcpmux", "hysteria2/udp", "direct/native"}
+	udpWG := []string{"backhaul/udp", "hysteria2/udp", "wireguard/kernel", "direct/native"}
 	tcp := []PortMap{{Listen: 443, Proto: ProtoTCP}}
 	udp := []PortMap{{Listen: 27015, Proto: ProtoUDP}}
 	mixed := []PortMap{{Listen: 443, Proto: ProtoTCP}, {Listen: 27015, Proto: ProtoUDP}}
@@ -40,7 +41,13 @@ func TestResolveLadder(t *testing.T) {
 		},
 		{
 			name: "udp filter on udp-default", ref: LadderRef{Name: "default"}, ports: udp, supports: fakeSupports,
-			want: []string{"backhaul/udp", "hysteria2/udp", "wireguard/kernel", "direct/native"},
+			want: []string{"backhaul/udp", "hysteria2/udp", "direct/native"},
+		},
+		{
+			// wireguard/kernel left udp-default (field report of 2026-10-17)
+			// but stays usable in a ladder of the owner's.
+			name: "udp-only custom profile keeps wireguard", ladders: map[string][]string{"udp-wg": udpWG},
+			ref: LadderRef{Name: "udp-wg"}, ports: udp, supports: fakeSupports, want: udpWG,
 		},
 		{
 			name: "mixed filter keeps rungs carrying both", ref: LadderRef{Name: "default"}, ports: mixed, supports: fakeSupports,
@@ -113,6 +120,8 @@ func TestLadderProfileHelpers(t *testing.T) {
 	r, ok = (*Config)(nil).LadderProfile("udp-default")
 	require.True(t, ok)
 	require.Equal(t, DefaultUDPLadder, r)
+	require.Equal(t, []string{"backhaul/udp", "hysteria2/udp", "direct/native"}, r,
+		"no wireguard/kernel: plain WireGuard was measured blocked while the UDP echo probe passed")
 	_, ok = c.LadderProfile("none")
 	require.False(t, ok)
 

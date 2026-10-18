@@ -312,6 +312,13 @@ func TestValidateTunnelLadder(t *testing.T) {
 			tun0(c).Ladder = LadderRef{Inline: []string{"direct/native", "direct/native"}}
 		}, codes: []deyerr.Code{deyerr.C013}, field: "tunnels[main].ladder"},
 		{name: "udp-only default ladder", mut: udpOnly},
+		{name: "udp-only custom profile with wireguard/kernel", mut: func(c *Config) {
+			// `deyroute ladder create udp-wg --rungs …`: an optional
+			// transport is fine in a ladder of the owner's.
+			udpOnly(c)
+			c.Ladders["udp-wg"] = []string{"backhaul/udp", "hysteria2/udp", "wireguard/kernel", "direct/native"}
+			tun0(c).Ladder = LadderRef{Name: "udp-wg"}
+		}},
 		{name: "udp-only tunnel with tcp rungs is not a config error", mut: func(c *Config) {
 			udpOnly(c)
 			tun0(c).Ladder = LadderRef{Inline: []string{"backhaul/tcpmux"}}

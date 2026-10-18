@@ -490,6 +490,13 @@ func TestLadderCommands(t *testing.T) {
 	require.False(t, saved.create)
 	require.Equal(t, []string{"a/b", "c/d"}, saved.rungs)
 	require.Contains(t, e.fail(1, "ladder", "create", "x"), "--rungs")
+	// wireguard/kernel is in no builtin ladder any more; an owner's ladder
+	// still takes it (the hub checks it: TestUDPDefaultLadderHasNoWireGuard).
+	require.Contains(t, e.ok("ladder", "create", "udp-wg", "--rungs", "backhaul/udp,hysteria2/udp,wireguard/kernel,direct/native"),
+		"Ladder udp-wg created: backhaul/udp, hysteria2/udp, wireguard/kernel, direct/native")
+	require.True(t, saved.create)
+	require.Equal(t, "udp-wg", saved.name)
+	require.Equal(t, []string{"backhaul/udp", "hysteria2/udp", "wireguard/kernel", "direct/native"}, saved.rungs)
 	deleted := ""
 	e.stub.LadderDeleteFn = func(_ context.Context, name string) error { deleted = name; return nil }
 	require.Contains(t, e.ok("ladder", "delete", "fast"), "Ladder fast deleted.")

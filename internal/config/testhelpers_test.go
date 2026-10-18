@@ -13,10 +13,11 @@ import (
 // testFP is a syntactically valid fingerprint.
 var testFP = "sha256:" + strings.Repeat("ab", 32)
 
-// knownRungs is what the fake registry accepts: every builtin rung plus the
-// direct/haproxy rung of the section 4 sample.
+// knownRungs is what the fake registry accepts: every builtin rung plus two
+// optional rungs that are in no builtin ladder: direct/haproxy of the
+// section 4 sample and wireguard/kernel.
 var knownRungs = func() map[string]bool {
-	m := map[string]bool{"direct/haproxy": true}
+	m := map[string]bool{"direct/haproxy": true, "wireguard/kernel": true}
 	for _, r := range append(append([]string{}, DefaultLadder...), DefaultUDPLadder...) {
 		m[r] = true
 	}

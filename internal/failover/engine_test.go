@@ -1484,6 +1484,51 @@ func TestUpdateConfig(t *testing.T) {
 	require.Equal(t, state.StateDown, h.st().State)
 }
 
+// A UDP-only tunnel on the builtin ladder that runs on wireguard/kernel (a
+// rung of udp-default before the field report of 2026-10-17) leaves it when
+// the update brings udp-default without it, and never tries it again.
+func TestUpdateConfigMovesOffWireGuardDroppedFromUDPDefault(t *testing.T) {
+	ctx := context.Background()
+	wg := cand("de-1", "wireguard/kernel")
+	games := config.NewTunnel("main", "", []string{"de-1"}, []config.PortMap{{Listen: 27015, Proto: config.ProtoUDP, Target: "127.0.0.1:27015"}})
+	builtin, err := (*config.Config)(nil).ResolveLadder(&games, nil)
+	require.NoError(t, err)
+	require.NotContains(t, builtin, wg.Transport)
+
+	tun := oneNode()
+	tun.Ladder = []string{"backhaul/udp", "hysteria2/udp", wg.Transport, "direct/native"} // udp-default before
+	h := newHarness(t, tun, upOn(wg, t0), func(f *fakeActions) { f.running[wg.Key()] = true }).run()
+	h.requireActive(wg, state.StateUp)
+
+	h.act.clearCalls()
+	tun.Ladder = builtin
+	require.NoError(t, h.eng.UpdateConfig(ctx, tun))
+	h.idle()
+	home := cand("de-1", "backhaul/udp")
+	h.requireActive(home, state.StateUp)
+	ms := h.act.eventsOf(state.EvSwitchTransport)
+	require.Len(t, ms, 1)
+	require.Equal(t, "active candidate removed by a configuration change", ms[0].Reason)
+	require.Equal(t, wg.Transport, ms[0].FromTransport)
+	require.Equal(t, home.Transport, ms[0].ToTransport)
+
+	// Only direct/native works now: the ladder walk never reaches
+	// wireguard/kernel, and no candidate of the new ladder is it.
+	h.act.block(home.Key(), true)
+	h.act.block("de-1/hysteria2/udp", true)
+	h.advanceUntil(2*time.Minute, isUpOn(dn))
+	ops := h.act.opSequence("start", "stop")
+	require.Equal(t, "stop "+wg.Key(), ops[0])
+	require.NotContains(t, ops, "start "+wg.Key())
+	tried := map[string]bool{}
+	for c, ok := home, true; ok; c, ok = NextCandidate(config.DefaultPolicy, tun.Nodes, builtin, c, tried, nil) {
+		require.NotEqual(t, wg, c)
+		tried[c.Key()] = true
+	}
+	require.Len(t, tried, len(builtin))
+	require.NotContains(t, h.st().Quarantine, wg.Key())
+}
+
 func TestSkippedRungsAreNotTried(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t, twoNodes(), state.TunnelState{}, nil).run()

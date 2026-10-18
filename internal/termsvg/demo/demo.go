@@ -77,7 +77,7 @@ func tunnels(now time.Time) []tunnelDef {
 			UpSince: now.Add(-(26*time.Hour + 41*time.Minute)),
 			Ports:   []api.PortMapDTO{{Listen: 27015, Proto: "udp", Target: "127.0.0.1:27015"}},
 			Nodes:   []string{"nl-1"}, LadderName: "default-udp",
-			Ladder: []string{"backhaul/udp", "hysteria2/udp", "wireguard/kernel", "direct/native"},
+			Ladder: []string{"backhaul/udp", "hysteria2/udp", "direct/native"},
 			Policy: "transport_then_node", ClientIP: "masked",
 		}},
 		{peakBit: 3_000_000, info: api.TunnelInfo{

@@ -899,6 +899,73 @@ func TestLaddersAndTransports(t *testing.T) {
 	require.True(t, slices.IsSortedFunc(trs, func(a, b api.TransportInfo) int { return strings.Compare(a.ID, b.ID) }))
 }
 
+// wireguard/kernel left udp-default after the field report of 2026-10-17
+// (plain WireGuard blocked while the UDP echo probe passed). An owner's
+// ladder may still list it (`deyroute ladder create udp-wg --rungs …`); a
+// UDP-only tunnel running on it that moves to the builtin ladder leaves it,
+// and it is no longer planned. backhaul and hysteria2 cannot be downloaded
+// in tests, so their rungs are skipped here.
+func TestUDPDefaultLadderHasNoWireGuard(t *testing.T) {
+	te := startTunnelHub(t, withIPForward)
+	n := te.tunnelNode("de-1")
+	ctx := ctxT(t)
+	const wg = "wireguard/kernel"
+
+	udpWG := []string{"backhaul/udp", "hysteria2/udp", wg, "direct/native"}
+	require.NoError(t, te.client.LadderSave(ctx, "udp-wg", udpWG, true))
+	require.Equal(t, udpWG, te.h.Config().Ladders["udp-wg"])
+	trs, err := te.client.TransportList(ctx)
+	require.NoError(t, err)
+	i := slices.IndexFunc(trs, func(tr api.TransportInfo) bool { return tr.ID == wg })
+	require.GreaterOrEqual(t, i, 0)
+	require.True(t, trs[i].Optional)
+
+	// WireGuard needs a node address that is not loopback, and the network
+	// of the report: the UDP echo probe passed.
+	_, err = te.h.mutate(func(c *config.Config) error {
+		nd, _ := c.NodeByID("de-1")
+		nd.PublicIP = "192.0.2.7"
+		return nil
+	})
+	require.NoError(t, err)
+	te.h.updateNode("de-1", func(ns *state.NodeState) {
+		ok := true
+		ns.UDPOK, ns.UDPCheckedAt = &ok, te.h.now()
+	})
+
+	port := freePort(t)
+	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port, Proto: "udp"}},
+		Ladder: "udp-wg", Failover: fastFailover(false)})
+	id := info.ID
+	te.waitActive(id, "de-1", wg)
+	inst := systemd.InstanceName(id, "de-1", wg)
+	require.Contains(t, n.renderedFor(id), inst)
+
+	def := config.DefaultLadderName
+	out, err := te.client.TunnelEdit(ctx, id, api.TunnelEditRequest{Ladder: &def}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"backhaul/udp", "hysteria2/udp", "direct/native"}, out.Ladder)
+	te.waitActive(id, "de-1", "direct/native")
+	require.Equal(t, 1, te.countEvents(state.EvSwitchTransport))
+	sw := te.waitEvent(state.EvSwitchTransport, "de-1")
+	require.Equal(t, wg, sw.FromTransport)
+	require.Equal(t, "active candidate removed by a configuration change", sw.Reason)
+	_, plan := te.h.tun.lookup(id).snapshot()
+	for _, pc := range plan.Candidates {
+		require.NotEqual(t, wg, pc.TransportID)
+	}
+	require.Eventually(t, func() bool { return slices.Contains(n.removedList(), inst) }, testWait, 20*time.Millisecond)
+	require.NotContains(t, n.renderedFor(id), inst)
+	list, err := te.client.LadderList(ctx)
+	require.NoError(t, err)
+	for _, l := range list {
+		if l.Name == config.DefaultUDPLadderName {
+			require.Equal(t, []string{id}, l.UsedBy)
+			require.NotContains(t, l.Rungs, wg)
+		}
+	}
+}
+
 func TestPortCheckSuggestAndDiagProbe(t *testing.T) {
 	te := startTunnelHub(t)
 	te.tunnelNode("de-1")
