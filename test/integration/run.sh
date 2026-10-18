@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Integration scenarios S01-S30 (spec section 17) and S31-S33 (acceptance
-# criteria of section 16 that S01-S30 do not cover) in Docker containers
-# running systemd. Usage (from anywhere; needs docker compose, go, jq):
+# Integration scenarios S01-S30 (spec section 17), S31-S33 (acceptance
+# criteria of section 16 that S01-S30 do not cover), S34 (front mode) and
+# S35 (a measurement of "passes, then cut" filtering; its numbers go to
+# S35-measure.txt beside the logs) in Docker containers running systemd.
+# Usage (from anywhere; needs docker compose, go, jq):
 #
 #   DISTRO=ubuntu-24.04 test/integration/run.sh            # every scenario
 #   SCENARIOS="S01 S07" test/integration/run.sh            # a selection
@@ -28,6 +30,7 @@ export DEY_OLD_VERSION=${DEY_OLD_VERSION:-0.0.1-it.1}
 ART=${DEY_ARTIFACTS:-$ROOT/dist/integration}
 mkdir -p "$ART"
 ART=$(cd "$ART" && pwd)
+export ART
 
 if [ "${DEY_REBUILD:-0}" = 1 ] || ! docker image inspect "$DEY_IMAGE" >/dev/null 2>&1; then
   echo "building $DEY_IMAGE from $BASE" >&2
