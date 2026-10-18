@@ -228,7 +228,7 @@ func validHex(s string, n int) bool {
 	return err == nil && len(b) == n
 }
 
-// httpPost answers http.post: the hub's Telegram fallback (QUESTIONS.md
+// httpPost answers http.post: the hub's first Telegram path (QUESTIONS.md
 // C.18). Only https://api.telegram.org is reachable this way; the bot token
 // in the URL path is registered as a secret and never logged or returned.
 func (a *agent) httpPost(ctx context.Context, args api.HTTPPostArgs) (api.HTTPPostResult, error) {

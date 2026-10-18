@@ -39,67 +39,97 @@ func writeBotToken(t *testing.T, root string) {
 	require.NoError(t, os.WriteFile(p, []byte(testBotToken+"\n"), 0o600))
 }
 
-func TestTelegramDirectAndViaNode(t *testing.T) {
+// sendMessageBody is the part of a sendMessage request the tests check.
+type sendMessageBody struct {
+	ChatID string `json:"chat_id"`
+	Text   string `json:"text"`
+}
+
+func TestTelegramViaNodeFirst(t *testing.T) {
+	// srv stands for api.telegram.org reached directly; it counts the posts.
 	var mu sync.Mutex
 	var bodies []string
-	status := http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		bodies = append(bodies, string(data))
-		code := status
 		mu.Unlock()
 		require.Contains(t, r.URL.Path, "/bot"+testBotToken+"/sendMessage")
-		w.WriteHeader(code)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
+	direct := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), bodies...)
+	}
 	env, o := prepareEnv(t, telegramOn)
 	writeBotToken(t, env.root)
 	o.TelegramAPIBase = srv.URL
 	env.startEnv(o)
-	require.NotNil(t, env.h.Notifier())
+	tg := env.h.Notifier()
+	require.NotNil(t, tg)
 
-	env.h.Emit(state.Event{Type: state.EvTunnelDown, Tunnel: "main", Level: state.LevelError, Code: "DEY-F001", Message: "all rungs failed"})
-	env.h.Emit(state.Event{Type: state.EvConfigApplied, Message: "not selected"})
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(bodies) == 1
-	}, testWait, 10*time.Millisecond)
-	mu.Lock()
-	var msg struct {
-		ChatID string `json:"chat_id"`
-		Text   string `json:"text"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(bodies[0]), &msg))
-	mu.Unlock()
+	// No node online (before the first join): the node sender gives up at
+	// once (DEY-N012) and the message is posted directly, once.
+	require.NoError(t, tg.Test(ctxT(t)))
+	require.Len(t, direct(), 1)
+	var msg sendMessageBody
+	require.NoError(t, json.Unmarshal([]byte(direct()[0]), &msg))
 	require.Equal(t, "123456789", msg.ChatID)
-	require.Contains(t, msg.Text, "tunnel_down")
+	require.Contains(t, msg.Text, "DEYROUTE test message")
 
-	// Direct delivery fails: a node posts it (http.post).
+	// An online node answers http.post: events go through it and nothing is
+	// posted directly.
 	n := env.joinNode("de-1").start()
 	env.waitOnline("de-1", true)
-	var posted api.HTTPPostArgs
-	postedCh := make(chan struct{}, 1)
-	n.on(api.CmdHTTPPost, func(_ context.Context, n *fakeNode, cmd api.Command, _ func([]string)) (any, error) {
-		decode(t, cmd, &posted)
-		postedCh <- struct{}{}
+	posted := make(chan api.Command, 4)
+	n.on(api.CmdHTTPPost, func(_ context.Context, _ *fakeNode, cmd api.Command, _ func([]string)) (any, error) {
+		posted <- cmd
 		return api.HTTPPostResult{Status: 200, Body: `{"ok":true}`}, nil
 	})
-	mu.Lock()
-	status = http.StatusBadGateway
-	mu.Unlock()
-	env.h.Emit(state.Event{Type: state.EvTunnelDown, Tunnel: "other", Level: state.LevelError, Message: "down"})
-	select {
-	case <-postedCh:
-	case <-time.After(testWait):
-		t.Fatal("no http.post through the node")
+	nextPost := func() api.Command {
+		t.Helper()
+		select {
+		case cmd := <-posted:
+			return cmd
+		case <-time.After(testWait):
+			t.Fatal("no http.post through the node")
+		}
+		return api.Command{}
 	}
-	require.True(t, strings.HasSuffix(posted.URL, "/sendMessage"))
-	require.Contains(t, string(posted.Body), "123456789")
+	env.h.Emit(state.Event{Type: state.EvTunnelDown, Tunnel: "main", Level: state.LevelError, Code: "DEY-F001", Message: "all rungs failed"})
+	env.h.Emit(state.Event{Type: state.EvConfigApplied, Message: "not selected"})
+	first := nextPost()
+	var args api.HTTPPostArgs
+	decode(t, first, &args)
+	require.True(t, strings.HasSuffix(args.URL, "/bot"+testBotToken+"/sendMessage"))
+	require.NoError(t, json.Unmarshal(args.Body, &msg))
+	require.Equal(t, "123456789", msg.ChatID)
+	require.Contains(t, msg.Text, "tunnel_down")
+	// The nodes get at most viaNodeTimeout of the one-minute budget; the
+	// rest stays for the direct post.
+	require.Positive(t, first.TimeoutMs)
+	require.LessOrEqual(t, first.TimeoutMs, int(viaNodeTimeout/time.Millisecond))
+	require.NoError(t, tg.Test(ctxT(t)))
+	nextPost()
+	require.Len(t, direct(), 1, "nothing is posted directly while a node delivers")
+
+	// The node cannot reach Telegram: the message is posted directly.
+	n.on(api.CmdHTTPPost, func(_ context.Context, _ *fakeNode, cmd api.Command, _ func([]string)) (any, error) {
+		posted <- cmd
+		return nil, deyerr.New(deyerr.X050, deyerr.Params{"reason": "unreachable"})
+	})
+	require.NoError(t, tg.Test(ctxT(t)))
+	nextPost()
+	require.Len(t, direct(), 2)
+	require.NoError(t, json.Unmarshal([]byte(direct()[1]), &msg))
+	require.Contains(t, msg.Text, "DEYROUTE test message")
 
 	// The via-node sender alone.
+	n.on(api.CmdHTTPPost, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
+		return api.HTTPPostResult{Status: 200, Body: `{"ok":true}`}, nil
+	})
 	code, body, err := nodeSender{env.h}.Post(ctxT(t), srv.URL+"/x", "application/json", []byte("{}"))
 	require.NoError(t, err)
 	require.Equal(t, 200, code)

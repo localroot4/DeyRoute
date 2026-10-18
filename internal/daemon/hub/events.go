@@ -23,8 +23,12 @@ const (
 	// subscriberBuffer is the channel size of a Subscribe call without an
 	// explicit buffer.
 	subscriberBuffer = 64
-	// notifyTimeout bounds one notification (direct, then via a node).
+	// notifyTimeout bounds one notification (via a node, then direct).
 	notifyTimeout = time.Minute
+	// viaNodeTimeout bounds the via-node attempt of one notification (every
+	// online node in turn), so the direct post that follows keeps 20 s (its
+	// client timeout) of the one-minute budget.
+	viaNodeTimeout = 40 * time.Second
 )
 
 // Emit publishes an event (section 9): it is appended to the events ring
@@ -169,8 +173,11 @@ func (h *Hub) notifyLoop(ctx context.Context) {
 }
 
 // reloadNotifier builds the Telegram notifier from hub.notify.telegram
-// (nil when disabled or unusable). Messages are posted directly first and
-// through an online node second (QUESTIONS.md C.18).
+// (nil when disabled or unusable). Messages are posted through an online
+// node first and directly second (QUESTIONS.md C.18): api.telegram.org is
+// filtered from Iranian datacenters, and a direct post waiting for its 20 s
+// timeout would delay the alert exactly when the filtering changes. Before
+// the first join (no node online) they go directly at once.
 func (h *Hub) reloadNotifier(cfg *config.Config) {
 	t, err := h.buildNotifier(cfg)
 	if err != nil {
@@ -197,7 +204,7 @@ func (h *Hub) buildNotifier(cfg *config.Config) (*notify.Telegram, error) {
 		Token:   token,
 		ChatID:  tg.ChatID,
 		Events:  tg.Events,
-		Senders: []notify.Sender{notify.HTTPSender{}, nodeSender{h}},
+		Senders: []notify.Sender{nodeSender{h}, notify.HTTPSender{}},
 		Now:     h.o.Now,
 		APIBase: h.o.TelegramAPIBase,
 		Hub:     cfg.Hub.Name,
@@ -207,16 +214,21 @@ func (h *Hub) buildNotifier(cfg *config.Config) (*notify.Telegram, error) {
 // Notifier returns the active Telegram notifier (nil when off).
 func (h *Hub) Notifier() *notify.Telegram { return h.notifier.Load() }
 
-// nodeSender posts through an online node (http.post), for hubs that
-// cannot reach api.telegram.org directly.
+// nodeSender posts through an online node (http.post), fastest control link
+// first. It leads the Telegram chain because api.telegram.org is filtered
+// from Iranian datacenters; with no node online it fails at once
+// (DEY-N012) and the chain posts directly.
 type nodeSender struct{ h *Hub }
 
-// Post implements notify.Sender.
+// Post implements notify.Sender. The nodes share viaNodeTimeout; the rest
+// of the caller's deadline is left to the direct post.
 func (s nodeSender) Post(ctx context.Context, url, contentType string, body []byte) (int, []byte, error) {
 	nodes := s.h.onlineNodes()
 	if len(nodes) == 0 {
 		return 0, nil, deyerr.New(deyerr.N012, nil)
 	}
+	ctx, cancel := context.WithTimeout(ctx, viaNodeTimeout)
+	defer cancel()
 	var last error
 	for _, node := range nodes {
 		var res api.HTTPPostResult

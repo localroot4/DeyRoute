@@ -2416,7 +2416,7 @@ var cliEN = map[Key]string{
 	CLINotifyShort:               "Notifications (Telegram)",
 	CLITelegramShort:             "Telegram bot notifications: set, test, off",
 	CLITelegramSetShort:          "Enable Telegram notifications",
-	CLITelegramSetLong:           "Send one Telegram message per event (down, switch, failback, node offline), at most\none per minute per tunnel and type. Put the bot token in a file readable by root only\n(chmod 600); the hub posts through a node when api.telegram.org is blocked.",
+	CLITelegramSetLong:           "Send one Telegram message per event (down, switch, failback, node offline), at most\none per minute per tunnel and type. Put the bot token in a file readable by root only\n(chmod 600). Messages go through an online node first (api.telegram.org is often\nblocked from Iran) and directly when no node is online or the node fails.",
 	CLITelegramSetExample:        "  deyroute notify telegram set --token-file /etc/deyroute/secrets/telegram.token --chat-id 123456789",
 	CLITelegramSet:               "Telegram notifications enabled (chat %s). Send a test: deyroute notify telegram test",
 	CLITelegramTestShort:         "Send a test message",

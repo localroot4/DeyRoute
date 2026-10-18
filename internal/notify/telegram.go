@@ -42,8 +42,8 @@ type TelegramOptions struct {
 	ChatID string
 	// Events are aliases or event names; empty selects DefaultEvents.
 	Events []string
-	// Senders are tried in order until one gets a 2xx (direct, then via a
-	// node). nil entries are ignored. Empty: a direct HTTPSender.
+	// Senders are tried in order until one gets a 2xx (the hub: via a node,
+	// then direct). nil entries are ignored. Empty: a direct HTTPSender.
 	Senders []Sender
 	// Now is the clock of the rate limiter (time.Now when nil).
 	Now func() time.Time
