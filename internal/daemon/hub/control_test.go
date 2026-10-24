@@ -14,6 +14,7 @@ import (
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/notify"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 	"github.com/localroot4/deyroute/internal/version"
@@ -328,9 +329,11 @@ func TestNodeIPChange(t *testing.T) {
 }
 
 // A node whose control connection moves to the other IP family (set-hub to
-// the hub's IPv6) is told that the transports it dials still use
-// hub.public_ip and are blocked, and how to go back; a change within one
-// family and a front node's first address carry no hint.
+// the hub's IPv6) is told how to go back and that the transports it dials
+// still use hub.public_ip and are blocked; a change within one family, a
+// front node's first address and any request through the front (the node
+// is, or is about to become, a front node) carry no hint. A direct request
+// from a node whose route is still front does: routeDirect makes it direct.
 func TestNodeIPFamilyChange(t *testing.T) {
 	logger, logs := newFrontLog()
 	env := startHub(t, nil, func(o *Options, _ string) { o.Logger = logger })
@@ -339,85 +342,128 @@ func TestNodeIPFamilyChange(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "127.0.0.1", nd.PublicIP)
 	fp := nd.CertFingerprint
+	viaFront := func(ip string) context.Context {
+		return api.ContextWithPeer(ctxT(t), api.Peer{IP: ip, Via: "front", Trusted: true})
+	}
+	setNode := func(route, ip string) {
+		t.Helper()
+		_, err := env.h.mutate(func(c *config.Config) error {
+			n, _ := c.NodeByID("de-1")
+			n.Route, n.PublicIP = route, ip
+			return nil
+		})
+		require.NoError(t, err)
+	}
 	// lastIPEvent authenticates de-1 from remote and returns the
 	// node_ip_changed event it emitted (the count-th one).
-	lastIPEvent := func(remote string, count int) state.Event {
+	lastIPEvent := func(ctx context.Context, remote string, count int) state.Event {
 		t.Helper()
-		require.NoError(t, env.h.authenticate(ctxT(t), "de-1", fp, remote))
+		require.NoError(t, env.h.authenticate(ctx, "de-1", fp, remote))
 		require.Eventually(t, func() bool { return env.countEvents(state.EvNodeIPChanged) == count }, testWait, 10*time.Millisecond)
 		return env.waitEvent(state.EvNodeIPChanged, "de-1") // newest first
 	}
+	// requireToIPv6 checks the hint of a move to IPv6 from old to newIP: the
+	// set-hub command before the explanation, and a notification that shows
+	// it (an event with a reason is notified without its message).
+	requireToIPv6 := func(ev state.Event, old, newIP string) {
+		t.Helper()
+		require.Equal(t, state.LevelWarn, ev.Level)
+		require.True(t, strings.HasPrefix(ev.Message, "node de-1 public IP changed from "+old+" to "+newIP+"; "), ev.Message)
+		require.Contains(t, ev.Message, "IPv6 between hub and node is not supported yet")
+		require.Contains(t, ev.Message, "deyroute node set-hub 127.0.0.1:44433")
+		require.Contains(t, ev.Message, "now reaches the hub over IPv6")
+		require.Contains(t, ev.Message, "still use hub.public_ip 127.0.0.1 and the hub firewall blocks them")
+		require.Less(t, strings.Index(ev.Message, "set-hub"), strings.Index(ev.Message, "firewall blocks"), "the command comes first")
+		require.Empty(t, ev.Reason)
+		require.Contains(t, notify.Format(ev), "deyroute node set-hub 127.0.0.1:44433", "the notification carries the command")
+	}
 
-	// IPv4 to IPv6: the hint names the family, hub.public_ip and set-hub.
-	ev := lastIPEvent("[2001:db8::5]:40000", 1)
-	require.Equal(t, state.LevelWarn, ev.Level)
-	require.True(t, strings.HasPrefix(ev.Message, "node de-1 public IP changed from 127.0.0.1 to 2001:db8::5; "), ev.Message)
-	require.Contains(t, ev.Message, "now reaches the hub over IPv6")
-	require.Contains(t, ev.Message, "still use hub.public_ip 127.0.0.1 and the hub firewall blocks them")
-	require.Contains(t, ev.Message, "IPv6 between hub and node is not supported yet")
-	require.Contains(t, ev.Message, "deyroute node set-hub 127.0.0.1:44433")
+	// IPv4 to IPv6: the hint names set-hub, the family and hub.public_ip.
+	ev := lastIPEvent(ctxT(t), "[2001:db8::5]:40000", 1)
+	requireToIPv6(ev, "127.0.0.1", "2001:db8::5")
 	nd, _ = env.h.Config().NodeByID("de-1")
 	require.Equal(t, "2001:db8::5", nd.PublicIP)
 	require.Contains(t, logs.String(), "deyroute node set-hub 127.0.0.1:44433", "the log line carries the hint")
 
 	// IPv6 back to IPv4 (the family of hub.public_ip): told it works, no
 	// set-hub.
-	ev = lastIPEvent("127.0.0.1:40001", 2)
+	ev = lastIPEvent(ctxT(t), "127.0.0.1:40001", 2)
 	require.Contains(t, ev.Message, "from 2001:db8::5 to 127.0.0.1; ")
 	require.Contains(t, ev.Message, "now reaches the hub over IPv4, like hub.public_ip")
 	require.NotContains(t, ev.Message, "set-hub")
 
 	// IPv4 to IPv4: the plain message.
-	ev = lastIPEvent("127.0.0.2:40002", 3)
+	ev = lastIPEvent(ctxT(t), "127.0.0.2:40002", 3)
 	require.Equal(t, "node de-1 public IP changed from 127.0.0.1 to 127.0.0.2", ev.Message)
+	require.Equal(t, "control connection from 127.0.0.2", ev.Reason)
 	require.Equal(t, state.LevelWarn, ev.Level)
+
+	// A direct node whose first request through the front (set-hub to the
+	// front; routeFront runs only when its session attaches) comes from
+	// IPv6: it is becoming a front node, so no hint.
+	before := logs.String()
+	ev = lastIPEvent(viaFront("2001:db8::9"), "[2001:db8::9]:40003", 4)
+	require.Empty(t, nodeRoute(t, env.h, "de-1").Route, "still direct while authenticating")
+	require.Equal(t, "node de-1 public IP changed from 127.0.0.2 to 2001:db8::9", ev.Message)
+	require.Equal(t, "control connection from 2001:db8::9", ev.Reason)
+	require.NotContains(t, strings.TrimPrefix(logs.String(), before), "hint=")
 
 	// A front node whose address was unknown: recorded with an info log
 	// line only, no event and no hint, even from an IPv6 address.
-	_, err := env.h.mutate(func(c *config.Config) error {
-		n, _ := c.NodeByID("de-1")
-		n.Route, n.PublicIP = config.RouteFront, ""
-		return nil
-	})
-	require.NoError(t, err)
-	before := logs.String()
-	ctx := api.ContextWithPeer(ctxT(t), api.Peer{IP: "2001:db8::7", Via: "front", Trusted: true})
-	require.NoError(t, env.h.authenticate(ctx, "de-1", fp, "[2001:db8::7]:40003"))
+	setNode(config.RouteFront, "")
+	before = logs.String()
+	require.NoError(t, env.h.authenticate(viaFront("2001:db8::7"), "de-1", fp, "[2001:db8::7]:40004"))
 	nd, _ = env.h.Config().NodeByID("de-1")
 	require.Equal(t, "2001:db8::7", nd.PublicIP)
 	added := strings.TrimPrefix(logs.String(), before)
 	require.Contains(t, added, "node public IP recorded")
 	require.NotContains(t, added, "hint=")
 	require.NotContains(t, added, "node public IP changed")
-	require.Never(t, func() bool { return env.countEvents(state.EvNodeIPChanged) != 3 }, 100*time.Millisecond, 10*time.Millisecond)
+	require.Never(t, func() bool { return env.countEvents(state.EvNodeIPChanged) != 4 }, 100*time.Millisecond, 10*time.Millisecond)
 
-	// A front node with a known address changing family: no hint either
-	// (it is never in @nodes).
-	require.NoError(t, env.h.authenticate(api.ContextWithPeer(ctxT(t), api.Peer{IP: "198.51.100.9", Via: "front", Trusted: true}),
-		"de-1", fp, "198.51.100.9:40004"))
-	require.Eventually(t, func() bool { return env.countEvents(state.EvNodeIPChanged) == 4 }, testWait, 10*time.Millisecond)
-	ev = env.waitEvent(state.EvNodeIPChanged, "de-1")
+	// A front node with a known address changing family through the front:
+	// no hint either (it is never in @nodes).
+	ev = lastIPEvent(viaFront("198.51.100.9"), "198.51.100.9:40005", 5)
 	require.Equal(t, "node de-1 public IP changed from 2001:db8::7 to 198.51.100.9", ev.Message)
+
+	// The front node now connects directly from IPv6 (set-hub to the hub's
+	// IPv6): its route is still front, but routeDirect will make it direct
+	// in @nodes6, so it gets the hint.
+	require.Equal(t, config.RouteFront, nodeRoute(t, env.h, "de-1").Route)
+	ev = lastIPEvent(ctxT(t), "[2001:db8::8]:40006", 6)
+	requireToIPv6(ev, "198.51.100.9", "2001:db8::8")
 }
 
 func TestFamilyHint(t *testing.T) {
-	hub4 := &config.Hub{PublicIP: "203.0.113.1", ControlPort: 44433}
-	hub6 := &config.Hub{PublicIP: "2001:db8::1", ControlPort: 44433}
+	hubCfg := func(ip string) *config.Config {
+		return &config.Config{Hub: &config.Hub{PublicIP: ip, ControlPort: 44433}}
+	}
+	hub4, hub6 := hubCfg("203.0.113.1"), hubCfg("2001:db8::1")
 	require.Empty(t, familyHint(hub4, "", "2001:db8::5"), "no old address")
 	require.Empty(t, familyHint(hub4, "198.51.100.1", "198.51.100.2"))
 	require.Empty(t, familyHint(hub4, "2001:db8::5", "2001:db8::6"))
 	require.Empty(t, familyHint(hub4, "198.51.100.1", "::ffff:198.51.100.2"), "IPv4-mapped is IPv4")
 	h := familyHint(hub4, "198.51.100.1", "2001:db8::5")
-	require.Contains(t, h, "IPv6 between hub and node is not supported yet")
-	require.Contains(t, h, "deyroute node set-hub 203.0.113.1:44433")
+	require.True(t, strings.HasPrefix(h, "IPv6 between hub and node is not supported yet; to go back, run on the node: deyroute node set-hub 203.0.113.1:44433 ("), h)
+	require.Contains(t, h, "still use hub.public_ip 203.0.113.1 and the hub firewall blocks them")
 	require.NotContains(t, familyHint(hub4, "2001:db8::5", "198.51.100.1"), "set-hub")
 	// An IPv6-only hub: leaving IPv6 is the problem, set-hub needs brackets
 	// and IPv6 is not called unsupported.
 	h = familyHint(hub6, "2001:db8::5", "198.51.100.1")
+	require.True(t, strings.HasPrefix(h, "to go back, run on the node: deyroute node set-hub [2001:db8::1]:44433 ("), h)
 	require.Contains(t, h, "over IPv4")
-	require.Contains(t, h, "deyroute node set-hub [2001:db8::1]:44433")
+	require.Contains(t, h, "still use hub.public_ip 2001:db8::1 and the hub firewall blocks them")
 	require.NotContains(t, h, "not supported")
 	require.Contains(t, familyHint(hub6, "198.51.100.1", "2001:db8::5"), "over IPv6, like hub.public_ip")
+	// security.firewall_managed false: deyroute drops nothing on the
+	// backend range, so no hint in either direction; managed (or no
+	// security section, the default) keeps it.
+	hub4.Security = &config.Security{FirewallManaged: false}
+	require.Empty(t, familyHint(hub4, "198.51.100.1", "2001:db8::5"))
+	require.Empty(t, familyHint(hub4, "2001:db8::5", "198.51.100.1"))
+	hub4.Security.FirewallManaged = true
+	require.Contains(t, familyHint(hub4, "198.51.100.1", "2001:db8::5"), "set-hub")
+	require.Empty(t, familyHint(&config.Config{}, "198.51.100.1", "2001:db8::5"), "no hub section")
 	require.Equal(t, "IPv4", ipFamily("::ffff:1.2.3.4"))
 	require.Equal(t, "IPv6", ipFamily("[2001:db8::1]:80"))
 	require.Equal(t, "", ipFamily("nope"))
