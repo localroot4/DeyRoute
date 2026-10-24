@@ -10,8 +10,13 @@ import (
 	"time"
 )
 
-// maxResponseBody bounds how much of a response body is read.
-const maxResponseBody = 64 << 10
+const (
+	// DirectTimeout is the timeout of the default client of HTTPSender. The
+	// hub leaves it to the direct post when a node is tried first.
+	DirectTimeout = 20 * time.Second
+	// maxResponseBody bounds how much of a response body is read.
+	maxResponseBody = 64 << 10
+)
 
 // Sender performs one HTTP POST and returns the response status and body.
 // Implementations: HTTPSender (direct), a node-backed sender in the daemon
@@ -22,7 +27,7 @@ type Sender interface {
 
 // defaultClient is used by an HTTPSender without Client. It honours
 // https_proxy / HTTPS_PROXY from the environment (http.DefaultTransport).
-var defaultClient = &http.Client{Timeout: 20 * time.Second, CheckRedirect: noRedirect}
+var defaultClient = &http.Client{Timeout: DirectTimeout, CheckRedirect: noRedirect}
 
 // noRedirect makes a client return 3xx responses instead of following them:
 // the Bot API never redirects, and the message must not be re-posted to a

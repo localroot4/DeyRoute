@@ -129,6 +129,9 @@ type Options struct {
 	Getenv func(key string) string
 	// TelegramAPIBase overrides the Telegram Bot API base URL (tests).
 	TelegramAPIBase string
+	// NotifyViaNode bounds the via-node attempt of one Telegram message
+	// before it is posted directly; 0 = DefaultNotifyViaNode (40 s).
+	NotifyViaNode time.Duration
 	// ProcRoot is the root of the /proc tree the port checker reads to name
 	// the process holding a port ("/" when empty).
 	ProcRoot string
@@ -335,6 +338,7 @@ func (o Options) withDefaults() Options {
 	setDur(&o.RouteStable, DefaultRouteStable)
 	setDur(&o.UploadGrace, DefaultUploadGrace)
 	setDur(&o.FollowPoll, DefaultFollowPoll)
+	setDur(&o.NotifyViaNode, DefaultNotifyViaNode)
 	return o
 }
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,10 +108,10 @@ func TestTelegramViaNodeFirst(t *testing.T) {
 	require.NoError(t, json.Unmarshal(args.Body, &msg))
 	require.Equal(t, "123456789", msg.ChatID)
 	require.Contains(t, msg.Text, "tunnel_down")
-	// The nodes get at most viaNodeTimeout of the one-minute budget; the
-	// rest stays for the direct post.
+	// The nodes get at most DefaultNotifyViaNode of the one-minute budget;
+	// the rest stays for the direct post.
 	require.Positive(t, first.TimeoutMs)
-	require.LessOrEqual(t, first.TimeoutMs, int(viaNodeTimeout/time.Millisecond))
+	require.LessOrEqual(t, first.TimeoutMs, int(DefaultNotifyViaNode/time.Millisecond))
 	require.NoError(t, tg.Test(ctxT(t)))
 	nextPost()
 	require.Len(t, direct(), 1, "nothing is posted directly while a node delivers")
@@ -126,6 +127,21 @@ func TestTelegramViaNodeFirst(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(direct()[1]), &msg))
 	require.Contains(t, msg.Text, "DEYROUTE test message")
 
+	// A node that hangs does not use up a caller's deadline shorter than a
+	// minute (the TUI's): the nodes get half of it, the direct post the rest.
+	n.on(api.CmdHTTPPost, func(ctx context.Context, _ *fakeNode, cmd api.Command, _ func([]string)) (any, error) {
+		posted <- cmd
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	short, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	require.NoError(t, tg.Test(short))
+	hung := nextPost()
+	require.Positive(t, hung.TimeoutMs)
+	require.LessOrEqual(t, hung.TimeoutMs, 2000)
+	require.Len(t, direct(), 3)
+
 	// The via-node sender alone.
 	n.on(api.CmdHTTPPost, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
 		return api.HTTPPostResult{Status: 200, Body: `{"ok":true}`}, nil
@@ -139,6 +155,99 @@ func TestTelegramViaNodeFirst(t *testing.T) {
 	})
 	_, _, err = nodeSender{env.h}.Post(ctxT(t), srv.URL+"/x", "application/json", nil)
 	require.Equal(t, deyerr.X050, codeOf(err))
+}
+
+// A node that hangs (its control link died, but it still counts as online)
+// gets only its share of the via-node budget: the next node, or else the
+// direct post, still delivers.
+func TestTelegramNodeHangs(t *testing.T) {
+	var directPosts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		directPosts.Add(1)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	const budget = time.Second
+	env, o := prepareEnv(t, telegramOn, func(o *Options, _ string) { o.NotifyViaNode = budget })
+	writeBotToken(t, env.root)
+	o.TelegramAPIBase = srv.URL
+	env.startEnv(o)
+	tg := env.h.Notifier()
+	require.NotNil(t, tg)
+
+	// call is one http.post a node received.
+	type call struct {
+		node string
+		cmd  api.Command
+	}
+	var mu sync.Mutex
+	var calls []call
+	// hangFirst: the first http.post (whichever node gets it) hangs until
+	// its deadline; the next ones are delivered.
+	hangFirst := func(ctx context.Context, n *fakeNode, cmd api.Command, _ func([]string)) (any, error) {
+		mu.Lock()
+		calls = append(calls, call{n.id, cmd})
+		first := len(calls) == 1
+		mu.Unlock()
+		if first {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return api.HTTPPostResult{Status: 200, Body: `{"ok":true}`}, nil
+	}
+	received := func() []call {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]call(nil), calls...)
+	}
+
+	// The only online node hangs: after NotifyViaNode the message is posted
+	// directly, once.
+	a := env.joinNode("de-1").start()
+	env.waitOnline("de-1", true)
+	a.on(api.CmdHTTPPost, hangFirst)
+	require.NoError(t, tg.Test(ctxT(t)))
+	require.EqualValues(t, 1, directPosts.Load())
+	got := received()
+	require.Len(t, got, 1)
+	require.Positive(t, got[0].cmd.TimeoutMs)
+	require.LessOrEqual(t, got[0].cmd.TimeoutMs, int(budget/time.Millisecond))
+
+	// Two online nodes, the first one tried hangs: it gets half of the
+	// budget and the second one delivers; nothing is posted directly.
+	b := env.joinNode("de-2").start()
+	env.waitOnline("de-2", true)
+	b.on(api.CmdHTTPPost, hangFirst)
+	mu.Lock()
+	calls = nil
+	mu.Unlock()
+	require.NoError(t, tg.Test(ctxT(t)))
+	require.EqualValues(t, 1, directPosts.Load())
+	got = received()
+	require.Len(t, got, 2)
+	require.NotEqual(t, got[0].node, got[1].node)
+	require.Positive(t, got[0].cmd.TimeoutMs)
+	require.LessOrEqual(t, got[0].cmd.TimeoutMs, int(budget/2/time.Millisecond))
+	require.Positive(t, got[1].cmd.TimeoutMs)
+}
+
+func TestViaNodeBudget(t *testing.T) {
+	h := &Hub{o: Options{NotifyViaNode: DefaultNotifyViaNode}}
+	require.Equal(t, DefaultNotifyViaNode, h.viaNodeBudget(context.Background()))
+	for _, c := range []struct{ left, want time.Duration }{
+		// The notifier's minute: 20 s stay for the direct post.
+		{time.Minute, 40 * time.Second},
+		{2 * time.Minute, 40 * time.Second},
+		{45 * time.Second, 25 * time.Second},
+		// Shorter callers (the TUI): never less than half for the nodes.
+		{30 * time.Second, 15 * time.Second},
+		{4 * time.Second, 2 * time.Second},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), c.left)
+		got := h.viaNodeBudget(ctx)
+		cancel()
+		require.InDelta(t, float64(c.want), float64(got), float64(500*time.Millisecond), "%s left", c.left)
+	}
 }
 
 func TestNotifierOffAndBroken(t *testing.T) {
