@@ -20,9 +20,9 @@
 Neither is in a built-in ladder. `wireguard/kernel` was rung 3 of the
 UDP-only default ladder `udp-default` (section 8) until a filtering report
 of 2026-10-17 measured plain WireGuard blocked over IPv4 and IPv6 in the
-direction this rung uses (the hub dials the node), while DEYROUTE's UDP
-test still passed (QUESTIONS.md C.45). To use it, add it to a ladder of
-your own, for example
+direction this rung uses (the hub dials the node). DEYROUTE's UDP test
+sends only small plain datagrams, so it would still pass on such a network
+(QUESTIONS.md C.45). To use it, add it to a ladder of your own, for example
 `deyroute ladder create udp-wg --rungs backhaul/udp,hysteria2/udp,wireguard/kernel,direct/native`
 and then `deyroute tunnel edit <id> --ladder udp-wg`, or as an inline list
 with `deyroute tunnel edit <id> --ladder …`.

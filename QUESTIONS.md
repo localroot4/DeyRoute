@@ -327,12 +327,13 @@ stated default until the owner decides · **[ANSWERED]** closed.
     see this before it uses the rung: the UDP test (up to three small plain
     datagrams echoed by the node) passes on such a network, and a UDP-only
     tunnel has no TCP port to probe, so its rungs are checked only by the
-    state of their units (hub and node unit active). The rung was chosen
-    and then cut. `udp-default` is therefore `backhaul/udp` →
-    `hysteria2/udp` → `direct/native`, and `wireguard/kernel` is optional
-    like `awg/userspace`; owners add it to a ladder of their own. This is
-    the same kind of deviation as C.31. Open for later: a WireGuard-specific
-    reachability check before the rung is added back.
+    state of their units (hub and node unit active). So DEYROUTE would
+    choose the rung, and the filter would then cut it. `udp-default` is
+    therefore `backhaul/udp` → `hysteria2/udp` → `direct/native`, and
+    `wireguard/kernel` is optional like `awg/userspace`; owners add it to a
+    ladder of their own. This is the same kind of deviation as C.31. Open
+    for later: a WireGuard-specific reachability check before the rung is
+    added back.
 46. **[DEFAULT] Failback waits for rung 1's quarantine.** Against filtering
     that lets a rung come up and then cuts it, a rung that passes a probe
     keeps its quarantine duration for an hour (a new cut doubles it: 10, 20,
@@ -341,12 +342,16 @@ stated default until the owner decides · **[ANSWERED]** closed.
     probes is quarantined when the tunnel leaves it, so failback comes at
     the earliest when that quarantine ends: at the later of
     `failback_after_s` (or the canary's `recover_threshold` passes) and the
-    end of the quarantine, plus up to one probe interval. Spec section 9
-    phase 5 (lab S09) asks for failback ≤ `failback_after_s` + 20 s after
-    the block is lifted; that bound now holds only when `quarantine_s` ≤
-    `failback_after_s`. Under the defaults (300 s and 600 s) it does not:
-    the first failback comes about 10 minutes after the switch. Lab S09 and
-    S10 set `quarantine_s` to `failback_after_s`, S13 sets it to 5 s.
+    end of the quarantine, plus up to one probe interval. Spec section 16
+    (phase 5 acceptance) and section 17 (S09) ask for failback ≤
+    `failback_after_s` + 20 s after the block is lifted; that bound now
+    holds only when `quarantine_s` ≤ `failback_after_s`. Under the defaults
+    (300 s and 600 s) it does not: the first failback comes about 10
+    minutes after the switch. This also departs from section 9 phase 5,
+    which fails back once the tunnel has been stable UP for
+    `failback_after_s`: failback now also waits for the quarantine. Lab
+    S09 and S10 set `quarantine_s` to `failback_after_s`, S13 sets it to
+    5 s.
     `tunnel reset` and `tunnel switch` still clear the history of the rung
     they move to. Owner decision: keep this, or reword the criterion.
 

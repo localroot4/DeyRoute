@@ -13,8 +13,8 @@ All notable changes to DEYROUTE are documented here. The format follows
   it. A filtering report from Iran of 2026-10-17 measured plain WireGuard
   blocked over IPv4 and IPv6 in the direction this rung uses (the hub dials
   the node). DEYROUTE's UDP test still passes on such a network, and a
-  UDP-only tunnel is checked only by the state of its units, so the rung was
-  chosen and then cut (QUESTIONS.md C.45).
+  UDP-only tunnel is checked only by the state of its units, so the rung
+  would be chosen and then cut (QUESTIONS.md C.45).
 - `udp-default` is never written to `config.yaml`, so every UDP-only tunnel
   on it gets the new order with the update. A tunnel that runs on
   `wireguard/kernel` moves to the first usable rung of the new ladder after

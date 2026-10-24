@@ -238,8 +238,9 @@ Filtering that lets a new tunnel through and then cuts it looks like this.
 Give the tunnel a ladder with that rung lower or left out, as an inline
 list (`deyroute tunnel edit main --ladder a,b,c`) or with
 `deyroute ladder create`, and run `test-ladder` again. The seconds in the
-message count from the start of the rung's probe window; the detail shows
-the probe error.
+message count from the start of the rung's probe window. The table shows
+only the code and the message; `deyroute tunnel test-ladder main --yes --json`
+also gives the probe error, in `error.detail` of that rung's result.
 
 ### No decoy SNI — `DEY-B042`
 

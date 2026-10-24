@@ -71,7 +71,7 @@ A simple guide:
 | filtering recognises the tunnel TLS | move `xray/reality` up |
 | UDP passes between hub and node (UDP `ok` in `deyroute node test`) | put `hysteria2/udp` second, then check it with `test-ladder`: the UDP test only shows that plain datagrams pass |
 | the node only has TCP services | remove the udp rungs |
-| the node's own UDP service is WireGuard, OpenVPN or QUIC | `backhaul/udp` passes its datagrams on as they are and `direct/native` only puts a short header in front of them, so a filter may still recognise them (not tested); only `hysteria2/udp` encrypts them again: `deyroute ladder create udp-stealth --rungs hysteria2/udp,backhaul/udp,direct/native` |
+| the node's own UDP service is WireGuard, OpenVPN or QUIC | `backhaul/udp` passes its datagrams on as they are and `direct/native` only puts a short header in front of them, so a filter may still recognise them (not tested). Of the `udp-default` rungs only `hysteria2/udp` encrypts them again. Rungs that carry UDP port maps inside one encrypted TCP connection, such as `xray/reality` (XUDP) and `rathole/noise`, hide them too, but UDP over TCP adds delay when packets are lost: `deyroute ladder create udp-stealth --rungs hysteria2/udp,xray/reality,backhaul/udp,direct/native` |
 | on a hub with no domain, rungs 1 and 4 connect and are then cut | `deyroute ladder create no-sni --rungs rathole/noise,xray/reality,waterwall/reverse-reality,backhaul/tcpmux,direct/native` (not the `stealth` example above: it has `backhaul/wssmux`) |
 
 Without `hub.domain`, the tunnel TLS of `backhaul/wssmux` and `frp/tcp`
