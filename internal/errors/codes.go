@@ -513,7 +513,7 @@ var catalog = map[Code]Info{
 		"check the node side (deyroute logs <tunnel>), or try the next rung: deyroute tunnel switch <tunnel> --transport <id>"},
 	B073: {B073, "Transport {transport} passed the probe, then failed after {seconds}s",
 		"traffic flowed when the rung came up but stopped while the ladder test held it; filtering that lets a new tunnel through and cuts it after a few seconds looks like this",
-		"prefer the rungs that stayed up: move this one down the ladder (deyroute ladder set <ladder> --rungs ...) and run deyroute tunnel test-ladder <tunnel> again"},
+		"prefer the rungs that stayed up: give the tunnel a ladder with this one lower or left out (deyroute tunnel edit <tunnel> --ladder a,b,c) and run deyroute tunnel test-ladder <tunnel> again"},
 	B005: {B005, "{backend} has no binary for {arch}",
 		"the pinned release does not ship this architecture",
 		"remove transports of this backend from the ladder"},

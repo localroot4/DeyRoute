@@ -157,7 +157,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-B070` | WireGuard interface {iface} could not be set up | {reason} | check that the wireguard kernel module loads (modprobe wireguard) and see the tunnel log (deyroute logs <tunnel>); or use awg/userspace, which needs no kernel module |
 | `DEY-B071` | AmneziaWG interface {iface} could not be configured | {reason} | check that the awg unit runs (systemctl status 'deyroute-tun@*awg-userspace*') and read the tunnel log (deyroute logs <tunnel>) |
 | `DEY-B072` | WireGuard config {path} is invalid | {reason} | re-render the tunnel (deyroute tunnel restart <tunnel>); if it repeats run deyroute doctor |
-| `DEY-B073` | Transport {transport} passed the probe, then failed after {seconds}s | traffic flowed when the rung came up but stopped while the ladder test held it; filtering that lets a new tunnel through and cuts it after a few seconds looks like this | prefer the rungs that stayed up: move this one down the ladder (deyroute ladder set <ladder> --rungs ...) and run deyroute tunnel test-ladder <tunnel> again |
+| `DEY-B073` | Transport {transport} passed the probe, then failed after {seconds}s | traffic flowed when the rung came up but stopped while the ladder test held it; filtering that lets a new tunnel through and cuts it after a few seconds looks like this | prefer the rungs that stayed up: give the tunnel a ladder with this one lower or left out (deyroute tunnel edit <tunnel> --ladder a,b,c) and run deyroute tunnel test-ladder <tunnel> again |
 
 ## Failover (DEY-F0xx)
 

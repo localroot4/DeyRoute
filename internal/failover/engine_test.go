@@ -519,6 +519,77 @@ func TestBlindFailbackWaitsForQuarantine(t *testing.T) {
 	require.Empty(t, h.act.eventsOf(state.EvFailbackFailed))
 }
 
+// labFailbackModes are the two failback paths the lab scenarios run into:
+// blind (no canary) and a canary that passes.
+var labFailbackModes = []struct {
+	name   string
+	canary bool
+}{{"blind", false}, {"canary", true}}
+
+// Lab S10 sets failback_after_s and quarantine_s to 60 and keeps rung 1
+// blocked: failback_failed within failback_after_s + 60s of the move, UP on
+// the second rung again within 15s, the delay doubled.
+func TestLabS10FailbackFailsWithinItsWaits(t *testing.T) {
+	for _, m := range labFailbackModes {
+		t.Run(m.name, func(t *testing.T) {
+			tun := oneNode()
+			tun.Settings.FailbackAfterS = 60
+			tun.Settings.QuarantineS = 60
+			h := newHarness(t, tun, state.TunnelState{}, func(f *fakeActions) {
+				f.canaryOn = m.canary
+				f.canaryOK = true
+			}).run()
+			h.act.block(r1.Key(), true)
+			h.advanceUntil(90*time.Second, isUpOn(r2))
+			d1 := h.st().FailbackDelay
+			failed := func(state.TunnelState) bool { return len(h.act.eventsOf(state.EvFailbackFailed)) > 0 }
+			h.advanceUntil(60*time.Second+60*time.Second, failed)
+			h.advanceUntil(15*time.Second, isUpOn(r2))
+			require.GreaterOrEqual(t, h.st().FailbackDelay, 2*d1)
+		})
+	}
+}
+
+// Lab S13 sets failback_after_s 20 and quarantine_s 5, then blocks rung 1
+// until the tunnel moves and lifts the block, each wait 120s, until
+// flapping. Rung 1 keeps its quarantine duration across a pass, so it
+// doubles every round; flapping comes in round 4 (six switches at the
+// default max_switches_per_hour), every wait well within 120s.
+func TestLabS13RoundsReachFlappingWithinTheirWaits(t *testing.T) {
+	for _, m := range labFailbackModes {
+		t.Run(m.name, func(t *testing.T) {
+			tun := oneNode()
+			tun.Settings.FailbackAfterS = 20
+			tun.Settings.QuarantineS = 5
+			h := newHarness(t, tun, state.TunnelState{}, func(f *fakeActions) {
+				f.canaryOn = m.canary
+				f.canaryOK = true
+			}).run()
+			round := 0
+			for !h.st().Flapping {
+				round++
+				require.LessOrEqual(t, round, 10, "no flapping after 10 rounds")
+				from := h.st().Active
+				require.Equal(t, r1, from, "round %d starts on rung 1", round)
+				h.act.block(from.Key(), true)
+				h.advanceUntil(120*time.Second, func(s state.TunnelState) bool {
+					return s.Flapping || (s.State == state.StateUp && s.Active != from)
+				})
+				h.act.block(from.Key(), false)
+				if h.st().Flapping {
+					break
+				}
+				require.Equal(t, 5*time.Second<<(round-1), h.st().Quarantine[r1.Key()].Duration, "round %d", round)
+				h.advanceUntil(120*time.Second, func(s state.TunnelState) bool { return s.Flapping || isUpOn(r1)(s) })
+			}
+			require.Equal(t, 4, round)
+			require.Len(t, h.act.eventsOf(state.EvFailback), 3)
+			require.Len(t, h.act.eventsOf(state.EvFlapping), 1)
+			h.advanceUntil(120*time.Second, isUpOn(dn))
+		})
+	}
+}
+
 // ---- node service / control / node failover
 
 // Acceptance (S11): the service on the primary node goes down → switch to
