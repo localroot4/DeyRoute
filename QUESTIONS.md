@@ -31,7 +31,7 @@ stated default until the owner decides · **[ANSWERED]** closed.
 | Installer URL / mirror (`RELEASE_BASE`) | **[DEFAULT]** GitHub only for now: `https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh`; owner CDN can be set later in `RELEASE_BASE` | phase 1 |
 | Domain for ACME | none (`tls.mode: auto`) | phase 3 |
 | Decoy SNI list (Reality/Waterwall) | **[DEFAULT]** `dl.google.com`, `www.speedtest.net`, `www.samsung.com` in `internal/backend/decoy.go` (each carries both Reality rungs, S18); the owner can set others in `hub.decoy_snis` | phase 6 |
-| Default ladder | as in section 8 | phase 4 |
+| Default ladder | as in section 8, except rung 4 of `default` (C.31) and `udp-default` without `wireguard/kernel` (C.45) | phase 4 |
 | Backend control port range | `30000-31999` | phase 2 |
 | Hub `control_port` | `44433` | phase 2 |
 | Telegram | off | phase 5 |
@@ -138,9 +138,17 @@ stated default until the owner decides · **[ANSWERED]** closed.
     `direct/native` (and HAProxy is optional, phase 7). Section 8 is followed:
     the embedded default ladder ends with `direct/native`.
 18. **[DEFAULT] Telegram from Iran.** `api.telegram.org` is usually unreachable
-    from Iranian datacenters. The hub first posts directly; on failure it asks
-    an online node to perform the same HTTPS POST (`http.post` command) — the
-    same pattern as `fetch.proxy` for GitHub. No other data leaves the servers.
+    (filtered, DNS tampered) from Iranian datacenters. The hub first asks an
+    online node to perform the HTTPS POST (`http.post` command, fastest
+    control link first, at most 40 s for all nodes together, each node in
+    turn a share of it) and posts directly second — the same order as
+    `fetch.proxy` for GitHub downloads. With no node online (before the first
+    join) it posts directly at once. The bot token is part of the API
+    address, so it goes to a node with every message (inside the control
+    connection; the node keeps it out of its logs). No other data leaves the
+    servers. (Changed after the filtering report of 2026-10-17: the order was
+    direct first, through a node second, and a direct post that waited for
+    its 20 s timeout delayed every alert.)
 19. **[DEFAULT] Manifest file location.** `backends.yaml` is embedded from
     `internal/backend/backends.yaml` (the backend registry owns it); the
     release publishes and signs that same file.
@@ -309,6 +317,38 @@ stated default until the owner decides · **[ANSWERED]** closed.
     node itself, in ways that need a decision first. Until then the ladder
     order is the owner's: `deyroute tunnel test-ladder` compares the rungs
     (it interrupts the tunnel) and `deyroute ladder create` sets the order.
+
+45. **[DEFAULT] `udp-default` has no `wireguard/kernel` rung.** Section 8
+    lists `wireguard/kernel` as rung 3 of the UDP-only default ladder. A
+    filtering report of 2026-10-17 (one datacenter in Iran to Hetzner in
+    Germany, connections started from Iran) measured plain WireGuard
+    blocked over IPv4 (cut after about 2 s) and over IPv6 (no answer), in
+    the direction this rung uses (the hub dials the node). DEYROUTE cannot
+    see this before it uses the rung: the UDP test (up to three small plain
+    datagrams echoed by the node) passes on such a network, and a UDP-only
+    tunnel has no TCP port to probe, so its rungs are checked only by the
+    state of their units (hub and node unit active). The rung was chosen
+    and then cut. `udp-default` is therefore `backhaul/udp` →
+    `hysteria2/udp` → `direct/native`, and `wireguard/kernel` is optional
+    like `awg/userspace`; owners add it to a ladder of their own. This is
+    the same kind of deviation as C.31. Open for later: a WireGuard-specific
+    reachability check before the rung is added back.
+46. **[DEFAULT] Failback waits for rung 1's quarantine.** Against filtering
+    that lets a rung come up and then cuts it, a rung that passes a probe
+    keeps its quarantine duration for an hour (a new cut doubles it: 10, 20,
+    40, 60 minutes by default), and failback never goes to a rung 1 that is
+    still quarantined (blind failback and canary). A rung 1 that fails its
+    probes is quarantined when the tunnel leaves it, so failback comes at
+    the earliest when that quarantine ends: at the later of
+    `failback_after_s` (or the canary's `recover_threshold` passes) and the
+    end of the quarantine, plus up to one probe interval. Spec section 9
+    phase 5 (lab S09) asks for failback ≤ `failback_after_s` + 20 s after
+    the block is lifted; that bound now holds only when `quarantine_s` ≤
+    `failback_after_s`. Under the defaults (300 s and 600 s) it does not:
+    the first failback comes about 10 minutes after the switch. Lab S09 and
+    S10 set `quarantine_s` to `failback_after_s`, S13 sets it to 5 s.
+    `tunnel reset` and `tunnel switch` still clear the history of the rung
+    they move to. Owner decision: keep this, or reword the criterion.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

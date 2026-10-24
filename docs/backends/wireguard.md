@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Spec | section 7.7 (plus section 7 common rules, 11, 15, 16 phase 7; QUESTIONS.md C.10, C.20) |
+| Spec | section 7.7 (plus section 7 common rules, 11, 15, 16 phase 7; QUESTIONS.md C.10, C.20, C.45) |
 | Package | `internal/backend/wireguard` — registers **two** backends: `wireguard` (transport `kernel`) and `awg` (transport `userspace`) |
 | `wireguard/kernel` | the in-kernel WireGuard module (every Tier 1 distribution); nothing is downloaded — `Manifest()` reports a `System` entry with version `kernel` |
 | `awg/userspace` | [amnezia-vpn/amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go) **v1.0.4** (Go module version on proxy.golang.org = commit `69ca16c4fbfa`, 2025-07-04; the `v1.0.4` tag is no longer served by raw.githubusercontent.com, so the manifest links the [README of that commit](https://github.com/amnezia-vpn/amneziawg-go/blob/69ca16c4fbfa868834fd733f4cb38513d460aad9/README.md)) |
@@ -14,8 +14,18 @@
 
 | Transport id | Direction | Carries | Needs UDP between hub and node | Stealth | Optional | Client IP |
 | --- | --- | --- | --- | --- | --- | --- |
-| `wireguard/kernel` | Forward | tcp, udp | **yes** (node listens on `<ctl>/udp`) | 1 | no (rung 3 of the UDP-only default ladder, section 8) | masked |
+| `wireguard/kernel` | Forward | tcp, udp | **yes** (node listens on `<ctl>/udp`) | 1 | yes (not in `udp-default` any more; below) | masked |
 | `awg/userspace` | Forward | tcp, udp | **yes** | 3 | yes (never in a default ladder) | masked |
+
+Neither is in a built-in ladder. `wireguard/kernel` was rung 3 of the
+UDP-only default ladder `udp-default` (section 8) until a filtering report
+of 2026-10-17 measured plain WireGuard blocked over IPv4 and IPv6 in the
+direction this rung uses (the hub dials the node), while DEYROUTE's UDP
+test still passed (QUESTIONS.md C.45). To use it, add it to a ladder of
+your own, for example
+`deyroute ladder create udp-wg --rungs backhaul/udp,hysteria2/udp,wireguard/kernel,direct/native`
+and then `deyroute tunnel edit <id> --ladder udp-wg`, or as an inline list
+with `deyroute tunnel edit <id> --ladder …`.
 
 Both run as **root with `CAP_NET_ADMIN`** and `AF_NETLINK` (section 7 common
 rules; the only backends that do). Neither consumes the tunnel TLS

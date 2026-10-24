@@ -313,8 +313,15 @@ transport from inside the transport itself.
 - **No telemetry.** DEYROUTE sends no data about you or your users anywhere.
   The only outside traffic is: downloading DEYROUTE releases and backend
   binaries from GitHub or your mirror (through a node when the hub cannot
-  reach GitHub), and Telegram messages if you turn notifications on (the hub
-  sends them itself, or through a node when api.telegram.org is blocked).
+  reach GitHub), and Telegram messages if you turn notifications on
+  (through an online node first, since api.telegram.org is often blocked
+  from Iran, and directly from the hub when no node is online or the nodes
+  fail).
+- **The Telegram bot token goes to your nodes.** It is part of the Telegram
+  API address, so the hub sends it to a node with every message, inside the
+  node's control connection (mutual TLS). The node uses it only for that
+  request to `api.telegram.org`, the only address it posts to for the hub,
+  and keeps it out of its logs. Use a bot made for these alerts only.
 
 ## Checklist
 

@@ -133,6 +133,30 @@ certificate; the hub accepts it, puts the new IP into `@nodes` and records a
 When the **hub's** address changes, the nodes must be told: see
 [Hub move](hub-move.md).
 
+## Do not connect a node over IPv6
+
+Keep every node on the hub's `hub.public_ip`. When it is IPv4, do not point
+a node at the hub's IPv6 address (`deyroute node set-hub [IPv6]:44433`),
+and do not change `hub.public_ip` to an IPv6 address to get around this.
+IPv6 between hub and node is not supported: the hub firewall then accepts
+the node only from its new IPv6 address, while the transports in which the
+node dials the hub (Backhaul, rathole, FRP, Waterwall, gost, chisel) still
+go to `hub.public_ip` from the node's IPv4 address, and are dropped.
+
+If it happened, the `node_ip_changed` event (`deyroute events`; Telegram
+when you selected that event) and `hub.log` say so and name the command
+that goes back, for example:
+
+```text
+node de-1 public IP changed from 1.2.3.4 to 2001:db8::7; IPv6 between hub and node is not supported yet; to go back, run on the node: deyroute node set-hub 5.6.7.8:44433 (…)
+```
+
+Run that command on the node. When it is back on IPv4, a second
+`node_ip_changed` event says the hub firewall accepts those transports
+again. The hint is not shown when deyroute does not manage the firewall
+(`security.firewall_managed: false`) or the node goes through the
+[Cloudflare front](front.md).
+
 ## Incompatible versions
 
 Hub and node must run the same major.minor version (1.0.x with 1.0.x). A node

@@ -39,7 +39,7 @@ checklist (section 18) with the test that proves it. Three kinds of evidence:
 | 4 | golden render tests per transport | unit `internal/backend/*` |
 | 4 | `test-ladder` reports RTT per rung | lab S18, run with real backends (Backhaul, Rathole, Xray-Reality, Hysteria2, direct pass) |
 | 5 | blocked rung → UP on the next ≤ 35 s (p95 of 10) | lab S08, run (10 runs: p50 19 s, p95 20 s; the Xray client is back 69–737 ms after each switch) |
-| 5 | block lifted → failback ≤ `failback_after_s` + 20 s | lab S09, run (38 s after the unblock with `failback_after_s` 60) |
+| 5 | block lifted → failback ≤ `failback_after_s` + 20 s | lab S09, run (38 s after the unblock with `failback_after_s` 60, on 2026-10-01, before failback waited for rung 1's quarantine); holds only when `quarantine_s` ≤ `failback_after_s`, see below |
 | 5 | service down on the primary → backup node, same transport | lab S11, run |
 | 5 | 7 blocks in an hour → flapping, held on `direct/native` | lab S13 |
 | 5 | hub restart during failover → state recovered, no restart | lab S14, run |
@@ -56,6 +56,22 @@ checklist (section 18) with the test that proves it. Three kinds of evidence:
 | 9 | Persian and English documentation | `docs/fa/`, `docs/en/` |
 | 9 | 5-minute video | **pending** |
 | 9 | test matrix of section 17 green | CI `integration` (S30 is manual by nature) |
+
+Failback never goes to a rung 1 that is still quarantined, and a rung 1
+that failed is quarantined when the tunnel leaves it. Failback therefore
+comes at the earliest when that quarantine ends, and the phase 5 bound
+(failback ≤ `failback_after_s` + 20 s) holds only when `quarantine_s` ≤
+`failback_after_s`. Under the defaults (`failback_after_s` 300,
+`quarantine_s` 600) it does not (QUESTIONS.md C.46). The lab scenarios that
+time a failback set `quarantine_s` for this reason: S09 and S10 set it to
+`failback_after_s` (60 s), S13 to 5 s, so its doubling (5, 10, 20 s) stays
+at or below `failback_after_s` (20 s) until the tunnel is held as flapping.
+
+A lab scenario measures without a pass/fail criterion of the spec:
+
+| Scenario | What it measures | Evidence |
+| --- | --- | --- |
+| S35 | a filter that lets a flow pass for 12 packets and then cuts it (`lib.sh` `block --cut-after`): time to the switch, states, switches and the client's outage; `test-ladder` with such a cut (`DEY-B073` expected); a UDP-only tunnel whose traffic is cut while its units run | lab S35, **not run yet**; numbers go to `S35-measure.txt` |
 
 ## Section 18 — delivery checklist
 

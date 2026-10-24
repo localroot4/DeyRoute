@@ -6,6 +6,131 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed — the UDP-only ladder has no WireGuard rung
+
+- The built-in `udp-default` ladder (tunnels whose ports are all UDP) is now
+  `backhaul/udp` → `hysteria2/udp` → `direct/native`; `wireguard/kernel` left
+  it. A filtering report from Iran of 2026-10-17 measured plain WireGuard
+  blocked over IPv4 and IPv6 in the direction this rung uses (the hub dials
+  the node). DEYROUTE's UDP test still passes on such a network, and a
+  UDP-only tunnel is checked only by the state of its units, so the rung was
+  chosen and then cut (QUESTIONS.md C.45).
+- `udp-default` is never written to `config.yaml`, so every UDP-only tunnel
+  on it gets the new order with the update. A tunnel that runs on
+  `wireguard/kernel` moves to the first usable rung of the new ladder after
+  the update (its users reconnect once), and its WireGuard units are
+  stopped and removed. Tunnels with a ladder of their own or an inline list
+  keep `wireguard/kernel` as written.
+- To keep WireGuard on a tunnel on purpose, give it an inline ladder:
+  `deyroute tunnel edit <id> --ladder backhaul/udp,hysteria2/udp,wireguard/kernel,direct/native`
+  (or create a ladder with `deyroute ladder create` for several tunnels).
+  `wireguard/kernel` is now an optional transport, like `awg/userspace`: it
+  is in no built-in ladder.
+
+### Changed — failover against "passes, then cut"
+
+- A quarantined rung that passes a probe keeps its quarantine duration for
+  an hour instead of forgetting it. When it is cut again within that hour,
+  its quarantine doubles (10, 20, 40, then 60 minutes with the default
+  `quarantine_s` of 600) instead of starting at 10 minutes again. This is
+  for filtering that lets a rung come up and then cuts it. `tunnel reset`
+  and `tunnel switch` still clear the history of the rung they move to.
+- Failback never goes to a rung 1 that is still quarantined (blind failback
+  and canary). A rung 1 that fails its probes is quarantined when the tunnel
+  leaves it, so failback now also waits for that quarantine: with the
+  defaults the first failback after a cut comes at the earliest about
+  10 minutes after the switch, even when the canary passes or
+  `failback_after_s` (300 s) is over. `quarantine_s` sets this wait
+  (QUESTIONS.md C.46). The canary keeps counting meanwhile, and the
+  failback follows on the first probe after the quarantine ends.
+- Lab S09, S10 and S13 set `quarantine_s` so that their failback timings
+  still hold.
+
+### Changed — test-ladder holds each rung
+
+- `deyroute tunnel test-ladder` keeps every rung that passes its first probe
+  running for the whole 20 seconds and probes it every `probe_interval_s`
+  (5 s by default). A rung that passes and then fails is reported as failed
+  with the new `DEY-B073` ("passed the probe, then failed after N s"). The
+  RTT is the median of the passing probes. The test therefore takes about
+  20 s per rung and node; the confirmation shows the total
+  ("about 6 x 20 s").
+- For a tunnel with only UDP ports the result ends with a note: the test
+  checked only that the units of each rung run on the hub and the node, not
+  that traffic passes.
+
+### Changed — Telegram alerts go through a node first
+
+- The hub now sends Telegram messages through an online node first (fastest
+  control link first) and directly to api.telegram.org second; before, it
+  tried directly first. api.telegram.org is usually filtered from Iranian
+  datacenters, and the direct try could hold each alert for up to 20 s.
+  With no node online (before the first join) the hub posts directly at
+  once. The nodes get at most 40 s of the one-minute budget, each node in
+  turn a share of it, so a node that hangs does not stop the next one or the
+  direct post. `deyroute notify telegram test` uses the same order.
+- The bot token is part of the Telegram API address, so it now goes to a
+  node with every alert, not only when the direct post failed. It travels
+  inside the node's control connection (mutual TLS), and the node keeps it
+  out of its logs.
+
+### Changed — decoy check
+
+- The decoy check connects over the address family of `hub.public_ip`: over
+  IPv4 when it is IPv4, so a dual-stack hub no longer tests a decoy over
+  IPv6 and picks one that fails over IPv4. A hub whose `hub.public_ip` is
+  IPv6 is unchanged.
+- The check looks the name up first, as the hub's resolver answers it, and
+  connects only to the public addresses it gets. When every answer is a
+  private or reserved address (DNS tampering), the decoy fails without a
+  connection, and the `DEY-B042` reason says, for example,
+  `www.example.com: resolves to a private address from the hub (10.0.0.1; DNS tampering?)`.
+  The next decoy in the list is still tried.
+
+### Added — hint when a node switches IP family
+
+- When a node's control connection moves to the other IP family (for example
+  after `deyroute node set-hub` with the hub's IPv6 address on a hub whose
+  `hub.public_ip` is IPv4), the `node_ip_changed` event and `hub.log` now say
+  what it means: the transports in which the node dials the hub still go to
+  `hub.public_ip`, and the hub firewall drops them, because it now allows
+  only the node's new address; IPv6 between hub and node is not supported
+  yet. The command that goes back comes early in the hint
+  (`deyroute node set-hub <hub.public_ip>:<control port>`, on the node). When
+  the node comes back to the family of `hub.public_ip`, the event says the
+  firewall accepts those transports again. There is no hint when deyroute
+  does not manage the firewall (`security.firewall_managed: false`) or when
+  the node connects through the Cloudflare front.
+
+### Fixed — rungs that left the ladder
+
+- A skipped rung that is no longer planned (it left the ladder, or its node
+  left the tunnel) no longer sends `rung_restored` ("back in the ladder")
+  when the hub starts or applies a change; it is only logged.
+  `rung_restored` stays for rungs that are still planned.
+- After a hub restart (as in an update), a tunnel that ran on a rung that is
+  no longer planned waits for its node to reconnect, at most 30 s, before it
+  starts on the new ladder. Before, every candidate on that node failed with
+  `DEY-N003` and the tunnel went DOWN (`tunnel_down`) until the retry 30 s
+  later.
+
+### Added — lab scenario S35
+
+- Lab S35 measures failover against a filter that lets a flow pass and then
+  cuts it (`lib.sh` `block --cut-after N`): time to the switch, states,
+  switches, the client's outage, `test-ladder` with `DEY-B073`, and a
+  UDP-only tunnel whose traffic is cut. It records numbers and asserts no
+  reachability.
+
+### Changed — documentation after the Iran filtering report
+
+- The filtering FAQ has a section on the report of 2026-10-17 (what it
+  measured and what it did not), describes `hysteria2/udp` correctly (QUIC
+  with Salamander obfuscation on a backend control port, never 443), says
+  what the UDP test proves and where the 35-second goal holds, and adds
+  rows to the ladder guide. Join, hub move and front warn not to point a
+  node at the hub's IPv6 address.
+
 ### Fixed — downloads that hang
 
 - A download that receives no data for 2 minutes (a stalled connection,

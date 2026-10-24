@@ -84,6 +84,8 @@ deyroute node set-hub 7.7.7.7:44433
 ```
 
 or, in the node's menu, `10) Backup & Restore` → `3) Set hub address`.
+Always use the new hub's `hub.public_ip`; when it is IPv4, never the hub's
+IPv6 address ([why](#nodes-and-the-control-port)).
 
 **5. On the new hub — check.**
 
@@ -128,7 +130,8 @@ the old hub: without it, see "No backup" below.
    deyroute node set-hub NEW_IP:44433
    ```
 
-   (menu: `10) Backup & Restore` → `3) Set hub address`).
+   (menu: `10) Backup & Restore` → `3) Set hub address`). `NEW_IP` is the
+   address you put in `hub.public_ip`, not another address of the hub.
 
 3. Check with `deyroute node list`, then give users the new IP.
 
@@ -137,6 +140,12 @@ the old hub: without it, see "No backup" below.
 The address you announce is `IP:CONTROL_PORT` of the new hub. The restored
 configuration keeps the control port of the old hub (44433 by default); make
 sure it is free on the new server and allowed in its provider firewall.
+
+Use the IP in the new hub's `hub.public_ip` for `announce-move` and
+`set-hub`. When it is IPv4, never give the nodes the hub's IPv6 address:
+IPv6 between hub and node is not supported, and the hub firewall then drops
+the transports in which the node dials the hub. See
+[Join](join.md#do-not-connect-a-node-over-ipv6).
 
 ## No backup: join the nodes again
 

@@ -118,6 +118,11 @@ When the direct path works again, on the node:
 deyroute node set-hub HUB_IP:44433
 ```
 
+`HUB_IP` is the hub's `hub.public_ip`. When it is IPv4, do not use the
+hub's IPv6 address here: IPv6 between hub and node is not supported, and
+the hub firewall would drop the transports in which the node dials the hub
+(see [Join](join.md#do-not-connect-a-node-over-ipv6)).
+
 To turn the front off on the hub:
 
 ```bash

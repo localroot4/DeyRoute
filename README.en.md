@@ -274,12 +274,13 @@ others are installed, configured and waiting.
 | 3 | `rathole/noise` | a different program and protocol with Noise encryption |
 | 4 | `frp/tcp` | a third program with a different traffic pattern |
 | 5 | `xray/reality` | looks like a real TLS 1.3 visit to a harmless website |
-| 6 | `hysteria2/udp` | QUIC: fastest on lossy links, when UDP is open |
+| 6 | `hysteria2/udp` | QUIC hidden by Salamander obfuscation, on a port in 30000–31999 (never 443): fastest on lossy links, when UDP passes |
 | 7 | `waterwall/reverse-reality` | a reverse connection that also looks like a real website (least tested method) |
 | 8 | `direct/native` | no disguise; only so the service does not go down |
 
 When the hub confirms that the active rung is blocked, it starts the next one;
-users usually do not notice. When rung 1 has been healthy again for a few minutes,
+with a block that stays in place, users usually do not notice.
+When rung 1 has been healthy again for a few minutes,
 the tunnel goes back to it. The built-in ladder cannot be edited, but you can build
 your own: `deyroute ladder create NAME --rungs a,b,c`, then
 `deyroute tunnel edit main --ladder NAME`. Details: [the filtering FAQ](docs/en/faq-filtering.md).
