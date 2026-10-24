@@ -192,9 +192,13 @@ func TestGenerateKeys(t *testing.T) {
 
 	require.NoError(t, checkServerKey(testKey, testFingerprint))
 
+	// Since Go 1.26 (go.mod go 1.26), ecdsa.GenerateKey ignores the reader
+	// it is given and draws from crypto/rand (GODEBUG cryptocustomrand), so a
+	// short reader no longer makes key generation fail.
 	b.rand = io.LimitReader(strings.NewReader("short"), 5)
-	_, err = b.GenerateKeys(backend.Transport{})
-	require.True(t, deyerr.HasCode(err, deyerr.B009), "%v", err)
+	short, err := b.GenerateKeys(backend.Transport{})
+	require.NoError(t, err)
+	require.NoError(t, checkServerKey(short[KeyServerKey], short[KeyFingerprint]))
 }
 
 func TestValidateErrors(t *testing.T) {

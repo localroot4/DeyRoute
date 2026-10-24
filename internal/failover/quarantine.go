@@ -9,9 +9,13 @@ import (
 // Quarantine rules (section 9): a failed candidate is not tried again for
 // base (quarantine_s, 10 minutes by default); each repeated failure doubles
 // the duration up to QuarantineMax (1 hour). An entry stops excluding its
-// candidate when Until passes, and is forgotten (the next failure starts at
-// base again) once it has been expired for QuarantineForget, or as soon as
-// the candidate passes a probe.
+// candidate when Until passes, or as soon as the candidate passes a probe
+// as the active candidate: the engine then expires the entry in place
+// (Until = that moment) and keeps Duration, so a rung that passes and is
+// cut again soon after (filtering that lets it up, then cuts it) still
+// doubles. An entry is forgotten (the next failure starts at base again)
+// once it has been expired for QuarantineForget, or when the owner moves
+// the tunnel onto the candidate (reset, switch, move).
 
 // Quarantined reports whether c is excluded by a quarantine entry at now.
 func Quarantined(q map[string]state.Quarantine, c state.Candidate, now time.Time) bool {

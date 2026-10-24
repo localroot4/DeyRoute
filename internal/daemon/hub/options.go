@@ -3,6 +3,8 @@ package hub
 import (
 	"context"
 	"log/slog"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -127,6 +129,9 @@ type Options struct {
 	Getenv func(key string) string
 	// TelegramAPIBase overrides the Telegram Bot API base URL (tests).
 	TelegramAPIBase string
+	// NotifyViaNode bounds the via-node attempt of one Telegram message
+	// before it is posted directly; 0 = DefaultNotifyViaNode (40 s).
+	NotifyViaNode time.Duration
 	// ProcRoot is the root of the /proc tree the port checker reads to name
 	// the process holding a port ("/" when empty).
 	ProcRoot string
@@ -173,9 +178,17 @@ type Options struct {
 	// tlsutil.ObtainACME (Let's Encrypt).
 	ObtainACME func(ctx context.Context, o tlsutil.ACMEOptions) (certPEM, keyPEM []byte, err error)
 	// DecoyCheck tests one decoy SNI of the Reality transports (section
-	// 7.4: a TLS 1.3 handshake from the hub to sni:443); nil = the real
-	// handshake verified against the system roots.
-	DecoyCheck func(ctx context.Context, sni string) error
+	// 7.4: a TLS 1.3 handshake from the hub to sni on port 443 over
+	// network, "tcp4" when hub.public_ip is IPv4, else "tcp"). addrs are
+	// the public answers of DecoyResolver, dialed in order; none (the
+	// lookup failed) = dial the name. nil = the real handshake verified
+	// against the system roots.
+	DecoyCheck func(ctx context.Context, network, sni string, addrs []netip.Addr) error
+	// DecoyResolver looks up a decoy SNI before DecoyCheck ("ip4" for a
+	// "tcp4" check, else "ip"): a name whose every address is private or
+	// reserved fails without a dial (DNS tampering); nil =
+	// net.DefaultResolver.LookupNetIP.
+	DecoyResolver func(ctx context.Context, network, host string) ([]netip.Addr, error)
 	// Job timings; zero values take the defaults of jobs.go: the decoy
 	// check every 6 h (DecoyInterval), the TLS renewal pass and the optional
 	// update check once a day (TLSRenewInterval, UpdateCheckInterval), the
@@ -285,6 +298,9 @@ func (o Options) withDefaults() Options {
 	if o.DecoyCheck == nil {
 		o.DecoyCheck = checkDecoyTLS
 	}
+	if o.DecoyResolver == nil {
+		o.DecoyResolver = net.DefaultResolver.LookupNetIP
+	}
 	setDur(&o.DecoyInterval, DefaultDecoyInterval)
 	setDur(&o.TLSRenewInterval, DefaultTLSRenewInterval)
 	setDur(&o.UpdateCheckInterval, DefaultUpdateCheckInterval)
@@ -322,6 +338,7 @@ func (o Options) withDefaults() Options {
 	setDur(&o.RouteStable, DefaultRouteStable)
 	setDur(&o.UploadGrace, DefaultUploadGrace)
 	setDur(&o.FollowPoll, DefaultFollowPoll)
+	setDur(&o.NotifyViaNode, DefaultNotifyViaNode)
 	return o
 }
 

@@ -646,19 +646,37 @@ func TestTunnelEditEnableDisableRestart(t *testing.T) {
 	require.Equal(t, deyerr.C021, codeOf(te.client.TunnelRestart(ctx, "nope")))
 }
 
-func TestTunnelTestLadderAndCanaryFailback(t *testing.T) {
-	te := startTunnelHub(t)
-	n := te.tunnelNode("de-1")
+func TestTunnelTestLadder(t *testing.T) {
+	// The engines run on a fake clock: test-ladder holds every passing rung
+	// for 20 s of engine time.
+	clk := failover.NewFakeClock(time.Now())
+	te := startTunnelHub(t, func(o *Options, _ string) { o.FailoverClock = clk })
+	te.tunnelNode("de-1")
 	port := freePort(t)
-	fo := fastFailover(true)
 	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port}},
-		Rungs: []string{trAlpha, trDelta, trBeta}, Failover: fo})
+		Rungs: []string{trAlpha, trDelta, trBeta}, Failover: fastFailover(true)})
 	id := info.ID
 	ctx := ctxT(t)
 
 	// Test ladder: one line per rung, the skipped one included; back on rung 1.
 	var log stepLog
-	res, err := te.client.TunnelTestLadder(ctx, id, log.add)
+	var res []api.RungResult
+	done := make(chan error, 1)
+	go func() {
+		var err error
+		res, err = te.client.TunnelTestLadder(ctx, id, log.add)
+		done <- err
+	}()
+	var err error
+	require.Eventually(t, func() bool {
+		select {
+		case err = <-done:
+			return true
+		default:
+			clk.Advance(time.Second)
+			return false
+		}
+	}, testWait, 5*time.Millisecond)
 	require.NoError(t, err)
 	require.Len(t, res, 3)
 	require.True(t, res[0].OK)
@@ -666,9 +684,22 @@ func TestTunnelTestLadderAndCanaryFailback(t *testing.T) {
 	require.True(t, res[2].OK)
 	require.Equal(t, []string{"rung:de-1/tfa/alpha:ok", "rung:de-1/tfa/delta:skipped", "rung:de-1/tfa/beta:ok"}, log.finished())
 	require.Equal(t, "tfa/beta on de-1", log.steps[2].Title)
+	probes, err := te.h.st.Probes(id, "de-1", trBeta)
+	require.NoError(t, err)
+	require.Greater(t, len(probes), 1, "the passing rung is held and probed again")
 	te.waitActive(id, "de-1", trAlpha)
 	_, err = te.client.TunnelTestLadder(ctx, "nope", nil)
 	require.Equal(t, deyerr.C021, codeOf(err))
+}
+
+func TestTunnelCanaryFailback(t *testing.T) {
+	te := startTunnelHub(t)
+	n := te.tunnelNode("de-1")
+	port := freePort(t)
+	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port}},
+		Rungs: []string{trAlpha, trDelta, trBeta}, Failover: fastFailover(true)})
+	id := info.ID
+	ctx := ctxT(t)
 
 	// Away from rung 1 the canary runs; after recover_threshold (2) canary
 	// passes the tunnel fails back and the canary stops.
@@ -866,6 +897,197 @@ func TestLaddersAndTransports(t *testing.T) {
 	require.True(t, byID["direct/haproxy"].ClientIPPreserved)
 	require.True(t, byID["hysteria2/udp"].NeedsUDP)
 	require.True(t, slices.IsSortedFunc(trs, func(a, b api.TransportInfo) int { return strings.Compare(a.ID, b.ID) }))
+}
+
+// wireguard/kernel left udp-default after the field report of 2026-10-17
+// (plain WireGuard blocked while the UDP echo probe passed). An owner's
+// ladder may still list it (`deyroute ladder create udp-wg --rungs …`); a
+// UDP-only tunnel running on it that moves to the builtin ladder leaves it,
+// and it is no longer planned. backhaul and hysteria2 cannot be downloaded
+// in tests, so their rungs are skipped here.
+func TestUDPDefaultLadderHasNoWireGuard(t *testing.T) {
+	te := startTunnelHub(t, withIPForward)
+	n := te.tunnelNode("de-1")
+	ctx := ctxT(t)
+	const wg = "wireguard/kernel"
+
+	udpWG := []string{"backhaul/udp", "hysteria2/udp", wg, "direct/native"}
+	require.NoError(t, te.client.LadderSave(ctx, "udp-wg", udpWG, true))
+	require.Equal(t, udpWG, te.h.Config().Ladders["udp-wg"])
+	trs, err := te.client.TransportList(ctx)
+	require.NoError(t, err)
+	i := slices.IndexFunc(trs, func(tr api.TransportInfo) bool { return tr.ID == wg })
+	require.GreaterOrEqual(t, i, 0)
+	require.True(t, trs[i].Optional)
+
+	// WireGuard needs a node address that is not loopback, and the network
+	// of the report: the UDP echo probe passed.
+	_, err = te.h.mutate(func(c *config.Config) error {
+		nd, _ := c.NodeByID("de-1")
+		nd.PublicIP = "192.0.2.7"
+		return nil
+	})
+	require.NoError(t, err)
+	te.h.updateNode("de-1", func(ns *state.NodeState) {
+		ok := true
+		ns.UDPOK, ns.UDPCheckedAt = &ok, te.h.now()
+	})
+
+	port := freePort(t)
+	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: []api.PortSpec{{Listen: port, Proto: "udp"}},
+		Ladder: "udp-wg", Failover: fastFailover(false)})
+	id := info.ID
+	te.waitActive(id, "de-1", wg)
+	inst := systemd.InstanceName(id, "de-1", wg)
+	require.Contains(t, n.renderedFor(id), inst)
+
+	def := config.DefaultLadderName
+	out, err := te.client.TunnelEdit(ctx, id, api.TunnelEditRequest{Ladder: &def}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"backhaul/udp", "hysteria2/udp", "direct/native"}, out.Ladder)
+	te.waitActive(id, "de-1", "direct/native")
+	require.Equal(t, 1, te.countEvents(state.EvSwitchTransport))
+	sw := te.waitEvent(state.EvSwitchTransport, "de-1")
+	require.Equal(t, wg, sw.FromTransport)
+	require.Equal(t, "active candidate removed by a configuration change", sw.Reason)
+	_, plan := te.h.tun.lookup(id).snapshot()
+	for _, pc := range plan.Candidates {
+		require.NotEqual(t, wg, pc.TransportID)
+	}
+	require.Eventually(t, func() bool { return slices.Contains(n.removedList(), inst) }, testWait, 20*time.Millisecond)
+	require.NotContains(t, n.renderedFor(id), inst)
+	list, err := te.client.LadderList(ctx)
+	require.NoError(t, err)
+	for _, l := range list {
+		if l.Name == config.DefaultUDPLadderName {
+			require.Equal(t, []string{id}, l.UsedBy)
+			require.NotContains(t, l.Rungs, wg)
+		}
+	}
+}
+
+// udpWGHub is a hub with nodes de-1 (the UDP probe passed) and nl-1 (UDP
+// blocked), addresses WireGuard accepts and the owner's ladder udp-wg
+// (udp-default as it was before wireguard/kernel left it).
+func udpWGHub(t *testing.T) (*tunnelEnv, *tnode, *tnode) {
+	te := startTunnelHub(t, withIPForward)
+	de, nl := te.tunnelNode("de-1"), te.tunnelNode("nl-1")
+	require.NoError(t, te.client.LadderSave(ctxT(t), "udp-wg",
+		[]string{"backhaul/udp", "hysteria2/udp", "wireguard/kernel", "direct/native"}, true))
+	_, err := te.h.mutate(func(c *config.Config) error {
+		for i, id := range []string{"de-1", "nl-1"} {
+			nd, _ := c.NodeByID(id)
+			nd.PublicIP = "192.0.2." + strconv.Itoa(7+i)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	nl.tmu.Lock()
+	nl.udpBlocked = true
+	nl.tmu.Unlock()
+	for id, ok := range map[string]bool{"de-1": true, "nl-1": false} {
+		te.h.updateNode(id, func(ns *state.NodeState) {
+			v := ok
+			ns.UDPOK, ns.UDPCheckedAt = &v, te.h.now()
+		})
+	}
+	return te, de, nl
+}
+
+// A skipped rung that leaves the ladder (wireguard/kernel on a node without
+// UDP, when the tunnel moves to udp-default) is gone, not back: no
+// rung_restored.
+func TestSkippedRungLeavingTheLadderIsNotRestored(t *testing.T) {
+	te, _, _ := udpWGHub(t)
+	ctx := ctxT(t)
+	const wg = "wireguard/kernel"
+	te.addTunnelUp(api.TunnelAddRequest{ID: "chat", Node: "nl-1", Ports: []api.PortSpec{{Listen: freePort(t), Proto: "udp"}},
+		Ladder: "udp-wg", Failover: fastFailover(false)})
+	ts := te.waitActive("chat", "nl-1", "direct/native")
+	require.Contains(t, ts.Skipped, "nl-1/"+wg)
+	te.waitEvent(state.EvRungSkipped, "nl-1")
+
+	def := config.DefaultLadderName
+	_, err := te.client.TunnelEdit(ctx, "chat", api.TunnelEditRequest{Ladder: &def}, nil)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		ts, _ := te.h.tunnelState("chat")
+		_, skipped := ts.Skipped["nl-1/"+wg]
+		return !skipped
+	}, testWait, 20*time.Millisecond)
+	te.waitActive("chat", "nl-1", "direct/native")
+	require.Zero(t, te.countEvents(state.EvRungRestored))
+}
+
+// The update that took wireguard/kernel out of udp-default reaches running
+// tunnels through a hub restart, and the nodes reconnect after it. A tunnel
+// that ran on wireguard/kernel moves to the new ladder once its node is
+// back (no tunnel_down meanwhile) and its WireGuard units are stopped and
+// removed on the hub and on the node; a tunnel whose wireguard rung was
+// skipped gets no rung_restored for it.
+func TestRestartMovesOffRungThatLeftTheLadder(t *testing.T) {
+	te, de, nl := udpWGHub(t)
+	const wg = "wireguard/kernel"
+	te.addTunnelUp(api.TunnelAddRequest{ID: "games", Node: "de-1", Ports: []api.PortSpec{{Listen: freePort(t), Proto: "udp"}},
+		Ladder: "udp-wg", Failover: fastFailover(false)})
+	te.waitActive("games", "de-1", wg)
+	te.addTunnelUp(api.TunnelAddRequest{ID: "chat", Node: "nl-1", Ports: []api.PortSpec{{Listen: freePort(t), Proto: "udp"}},
+		Ladder: "udp-wg", Failover: fastFailover(false)})
+	ts := te.waitActive("chat", "nl-1", "direct/native")
+	require.Contains(t, ts.Skipped, "nl-1/"+wg)
+	wgInst := systemd.InstanceName("games", "de-1", wg)
+	wgUnit := systemd.UnitName(wgInst)
+	wgDir := filepath.Join(config.BackendsConfDir, "wireguard", "games", "de-1", "kernel")
+	require.Equal(t, "active", te.sd.state(wgUnit))
+	require.True(t, dirExists(te.root, wgDir))
+	require.Contains(t, de.renderedFor("games"), wgInst)
+	de.stop()
+	nl.stop()
+	te.stop()
+
+	// The update: both tunnels are on the builtin ladder, which has no
+	// wireguard rung any more.
+	path := filepath.Join(te.root, config.DefaultPath)
+	c, err := config.LoadWith(path, testValidate)
+	require.NoError(t, err)
+	for _, id := range []string{"games", "chat"} {
+		tun, ok := c.Tunnel(id)
+		require.True(t, ok)
+		tun.Ladder = config.LadderRef{Name: config.DefaultLadderName}
+	}
+	require.NoError(t, config.SaveWith(path, c, testValidate))
+
+	o := te.o
+	o.OnReady = nil
+	env2 := &testEnv{t: t, root: te.root, sock: te.sock, runner: te.runner, ca: te.ca}
+	te.sd.env = env2
+	env2.startEnv(o)
+	require.Eventually(t, env2.h.tunnelsReady, testWait, 20*time.Millisecond)
+	// The nodes come back after the hub's startup reconcile.
+	for _, n := range []*tnode{de, nl} {
+		n.addr = env2.h.ControlAddr().String()
+		n.start()
+	}
+	env2.waitOnline("de-1", true)
+	env2.waitOnline("nl-1", true)
+	require.Eventually(t, func() bool {
+		ts, _ = env2.h.tunnelState("games")
+		return ts.State == state.StateUp && ts.Active == state.Candidate{Node: "de-1", Transport: "direct/native"}
+	}, testWait, 20*time.Millisecond, "games: %+v", ts)
+	require.Zero(t, env2.countEvents(state.EvTunnelDown), "the move waits for the node")
+	require.Equal(t, "inactive", te.sd.state(wgUnit))
+	require.False(t, dirExists(te.root, wgDir))
+	require.Eventually(t, func() bool { return slices.Contains(de.removedList(), wgInst) }, testWait, 20*time.Millisecond)
+	require.NotContains(t, de.renderedFor("games"), wgInst)
+	_, plan := env2.h.tun.lookup("games").snapshot()
+	for _, pc := range plan.Candidates {
+		require.NotEqual(t, wg, pc.TransportID)
+	}
+
+	ts, _ = env2.h.tunnelState("chat")
+	require.Equal(t, state.StateUp, ts.State)
+	require.NotContains(t, ts.Skipped, "nl-1/"+wg)
+	require.Zero(t, env2.countEvents(state.EvRungRestored), "wireguard/kernel left the ladder, it is not back")
 }
 
 func TestPortCheckSuggestAndDiagProbe(t *testing.T) {

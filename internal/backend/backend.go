@@ -71,7 +71,8 @@ type Transport struct {
 	// ClientIPPreserved is shown in the UI as "client IP: preserved/masked"
 	// (section 10). True only for PROXY-protocol capable transports.
 	ClientIPPreserved bool
-	// Optional transports are never part of the default ladder (section 7.9).
+	// Optional transports are never part of a builtin ladder ("default",
+	// "udp-default"; section 7.9); only a ladder of the owner's uses them.
 	Optional bool
 	// NeverQuarantine is set for direct/native (section 9).
 	NeverQuarantine bool

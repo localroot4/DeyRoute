@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # S09: the block is lifted: failback <= failback_after_s + 20s, event failback
+# Failback never targets a quarantined rung 1, so quarantine_s is set to
+# failback_after_s (with the default 600s the failback would wait for it).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 needs_online "a ladder with more than one rung"
@@ -10,6 +12,7 @@ T=$(add_tunnel "$NODE1" 443)
 wait_tunnel_up "$T" 180
 FB=60
 set_failover failback_after_s "$FB"
+set_failover quarantine_s "$FB"
 first=$(active_transport "$T")
 port=$(tunnel_field "$T" '.rungs[] | select(.active) | .control_port')
 block --node "$NODE1_IP" tcp "$port"

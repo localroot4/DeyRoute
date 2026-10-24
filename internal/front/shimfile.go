@@ -77,7 +77,7 @@ func (f ShimFile) Target() (Target, error) {
 
 // Marshal encodes f.
 func (f ShimFile) Marshal() ([]byte, error) {
-	b, err := json.MarshalIndent(f, "", "  ")
+	b, err := json.MarshalIndent(f, "", "  ") // #nosec G117 -- the shim file carries the secret by design; it is written 0640 root:deyroute, readable only by its unit
 	if err != nil {
 		return nil, err
 	}

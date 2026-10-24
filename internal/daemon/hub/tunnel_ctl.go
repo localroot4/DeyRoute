@@ -939,6 +939,21 @@ func (c *tunnelCtl) emitRestored(key string) {
 	})
 }
 
+// unskipped reports a skipped rung that left the skip set: rung_restored
+// when it is a candidate of plan, only a log line when it is not (its rung
+// left the ladder or its node the tunnel, e.g. wireguard/kernel when it left
+// udp-default): such a rung is gone, not back in the ladder.
+func (c *tunnelCtl) unskipped(plan *render.TunnelPlan, key string) {
+	sc, ok := skipKeyCandidate(key)
+	if ok {
+		if _, planned := plan.Candidate(sc.Node, sc.Transport); planned {
+			c.emitRestored(key)
+			return
+		}
+	}
+	c.h.log.Info("a skipped rung is no longer part of the tunnel", dlog.Tunnel(c.id), dlog.Node(sc.Node), dlog.Transport(sc.Transport))
+}
+
 // sameSkip reports whether a known skip may stay as it is: same code and
 // its re-check is not due yet.
 func (c *tunnelCtl) sameSkip(old, s state.Skip) bool {
@@ -947,8 +962,8 @@ func (c *tunnelCtl) sameSkip(old, s state.Skip) bool {
 
 // mergeSkips computes the skip set a new engine starts with from the
 // persisted one (cur) and the wanted one, with rung_skipped / rung_restored
-// events for the differences.
-func (c *tunnelCtl) mergeSkips(cur, want map[string]state.Skip) map[string]state.Skip {
+// events for the differences (rung_restored only for candidates of plan).
+func (c *tunnelCtl) mergeSkips(plan *render.TunnelPlan, cur, want map[string]state.Skip) map[string]state.Skip {
 	out := make(map[string]state.Skip, len(want))
 	for _, k := range sortedKeys(want) {
 		s := want[k]
@@ -963,15 +978,15 @@ func (c *tunnelCtl) mergeSkips(cur, want map[string]state.Skip) map[string]state
 	}
 	for _, k := range sortedKeys(cur) {
 		if _, ok := want[k]; !ok {
-			c.emitRestored(k)
+			c.unskipped(plan, k)
 		}
 	}
 	return out
 }
 
 // applySkipDiff brings the engine's skip set to want (SetSkipped /
-// ClearSkipped, with events).
-func (c *tunnelCtl) applySkipDiff(ctx context.Context, eng *failover.Engine, want map[string]state.Skip) error {
+// ClearSkipped, with events; rung_restored only for candidates of plan).
+func (c *tunnelCtl) applySkipDiff(ctx context.Context, eng *failover.Engine, plan *render.TunnelPlan, want map[string]state.Skip) error {
 	cur := eng.State().Skipped
 	var errs []error
 	for _, k := range sortedKeys(want) {
@@ -1004,7 +1019,7 @@ func (c *tunnelCtl) applySkipDiff(ctx context.Context, eng *failover.Engine, wan
 			errs = append(errs, err)
 			continue
 		}
-		c.emitRestored(k)
+		c.unskipped(plan, k)
 	}
 	return stderrors.Join(errs...)
 }
@@ -1093,10 +1108,19 @@ func (c *tunnelCtl) launch(parent context.Context, skips map[string]state.Skip) 
 	}
 	// The skipped rungs go in first: a new tunnel must not start on a rung
 	// the plan skipped (a UDP rung before the UDP probe passed).
-	persisted.Skipped = c.mergeSkips(persisted.Skipped, skips)
+	persisted.Skipped = c.mergeSkips(&plan, persisted.Skipped, skips)
 	running, anywhere := h.runningUnits(ctx, c.id, t.Nodes)
 	ft := engineTunnel(t, plan)
 	st := failover.Reconcile(persisted, running, ft)
+	// The tunnel ran on a candidate that is no longer planned (its rung
+	// left the ladder while the hub was stopped, as wireguard/kernel left
+	// udp-default in an update) and moves to st.Active. That start needs
+	// the node, which reconnects after the hub: the engine waits for it
+	// instead of failing every candidate there (DEY-N003) and going DOWN.
+	awaitNode := ""
+	if running[persisted.Active.Key()] && st.Active != persisted.Active && st.State == state.StateStarting {
+		awaitNode = st.Active.Node
+	}
 	for _, sc := range failover.StrayUnits(st, anywhere) {
 		h.log.Info("stopping a tunnel unit that must not run", dlog.Tunnel(c.id), dlog.Node(sc.Node), dlog.Transport(sc.Transport))
 		if err := c.stopCandidate(ctx, sc); err != nil {
@@ -1133,6 +1157,9 @@ func (c *tunnelCtl) launch(parent context.Context, skips map[string]state.Skip) 
 	c.mu.Unlock()
 	go func() {
 		defer c.wg.Done()
+		if awaitNode != "" {
+			c.awaitNode(ctx, awaitNode)
+		}
 		_ = eng.Run(ctx)
 	}()
 	go func() {
@@ -1141,6 +1168,29 @@ func (c *tunnelCtl) launch(parent context.Context, skips map[string]state.Skip) 
 	}()
 	h.log.Info("tunnel controller started", dlog.Tunnel(c.id), slog.String("state", st.State),
 		slog.String("active", st.Active.Key()), slog.Int("skipped", len(st.Skipped)))
+}
+
+// awaitNode waits until the control connection of node is up, at most
+// failover.NodeBrokenAfter (the engine treats a node offline for that long
+// as broken and moves on without it), or until ctx ends.
+func (c *tunnelCtl) awaitNode(ctx context.Context, node string) {
+	if c.h.Online(node) {
+		return
+	}
+	c.h.log.Info("waiting for the node to reconnect before the tunnel starts on it", dlog.Tunnel(c.id), dlog.Node(node))
+	limit := time.NewTimer(failover.NodeBrokenAfter)
+	defer limit.Stop()
+	poll := time.NewTicker(unitStartPoll)
+	defer poll.Stop()
+	for !c.h.Online(node) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-limit.C:
+			return
+		case <-poll.C:
+		}
+	}
 }
 
 // halt stops the engine and the controller goroutine; the units keep
@@ -1216,7 +1266,7 @@ func (c *tunnelCtl) update(ctx context.Context, o updateOpts) error {
 		return res.fatal
 	}
 	t, plan := c.snapshot()
-	if err := c.applySkipDiff(ctx, eng, res.skips); err != nil && ctx.Err() == nil {
+	if err := c.applySkipDiff(ctx, eng, &plan, res.skips); err != nil && ctx.Err() == nil {
 		c.h.log.Warn("cannot update the skipped rungs", dlog.Tunnel(c.id), dlog.Err(err))
 	}
 	rep := o.rep

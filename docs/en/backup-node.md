@@ -56,22 +56,38 @@ the next one".
 
 The hub probes the active transport every 5 seconds: it connects to its own
 tunnel port and checks that the service on the node answers through the
-tunnel. With the default settings:
+tunnel. A tunnel with only UDP ports has no TCP port to connect to: its
+probe only checks that the rung's units run on the hub and the node, so
+filtering that cuts its traffic while the units run is not detected. With
+the default settings:
 
 | What happens | Result |
 | --- | --- |
 | 1 or 2 failed probes in a row (or RTT above 3× the 10-minute median for 60 s) | `DEGRADED` (yellow); nothing changes yet |
 | 3 failed probes in a row (`fail_threshold`) | `SWITCHING`: the next candidate is started |
 | the candidate passes a probe within 15 s | `UP` again; event `switch_transport` or `switch_node` |
-| the candidate fails | it is quarantined for 10 minutes (doubling up to 1 hour) and the next one is tried |
+| the candidate fails | it is quarantined for 10 minutes (doubling up to 1 hour) and the next one is tried; the active rung that failed its probes is quarantined the same way when the tunnel leaves it |
 | every candidate failed | `DOWN` (`DEY-F001`); the whole ladder is retried from rung 1 after 30 s, backing off to every 5 minutes |
 
 Targets from the specification: at most **35 seconds** (p95) from the moment
 filtering blocks the active transport until the tunnel is UP on the next rung,
 and at most **3 seconds** of interruption for users during the switch.
-Measured values are published in [Benchmarks](benchmarks.md) once available.
+Measured values are published in [Benchmarks](benchmarks.md) once available;
+the lab measures a block that stays in place (S08). A filter that lets each
+connection run for a few seconds and then cuts it may be noticed late, or
+not at all.
 When the tunnel moves to another node, every user session is cut and
 reconnects; that is normal.
+
+**Quarantine.** A quarantined rung is not tried again before its time is
+over (`quarantined until <time>` in `deyroute tunnel show main`). Its
+length is remembered for an hour after it ends, or after the rung carries
+the tunnel again and passes a probe: if the rung is cut again within that
+hour, the quarantine doubles (10, 20, 40, then 60 minutes with the default
+`quarantine_s`) instead of starting at 10 minutes again. This keeps the
+tunnel off a rung that the filtering lets up and then cuts.
+`deyroute tunnel reset` and `deyroute tunnel switch` clear the history of
+the rung they move to.
 
 ### Which candidate comes next (policy)
 
@@ -111,6 +127,15 @@ previous rung.
   back.
 - If a canary cannot be built, the tunnel moves back after it has been stable
   for 300 seconds (`failback_after_s`).
+- Rung 1 must not be quarantined. When the tunnel left rung 1 because it
+  failed, rung 1 is quarantined (10 minutes by default, longer when it
+  doubled), and failback waits for that too, even when the canary passes or
+  `failback_after_s` is over: with the defaults the first failback comes
+  about 10 minutes after the switch at the earliest. The canary keeps
+  counting meanwhile, so the tunnel moves back on the first probe after the
+  quarantine ends. `quarantine_s` sets this wait: lower it to fail back
+  sooner. `deyroute tunnel reset main` goes back at once and clears the
+  quarantine of rung 1.
 - The primary node must be online and its service must answer.
 - If rung 1 does not pass its probe within 15 seconds, the tunnel returns to
   where it was at once, records `failback_failed` (`DEY-F003`) and doubles the
@@ -135,6 +160,15 @@ switches are always allowed and do not count.
 | `deyroute tunnel pause main` | `5) Failover` → `4) Pause / resume failover` | stop automatic switching (probes continue), e.g. during maintenance |
 | `deyroute tunnel resume main` | same | start automatic switching again |
 | `deyroute tunnel test-ladder main` | `5) Failover` → `6) Test ladder` | try every rung for 20 seconds and report RTT and success |
+
+`test-ladder` tries every rung on every node for 20 seconds each. A rung
+that passes its first probe is kept running and probed every
+`probe_interval_s` until its 20 seconds are over; its RTT is the median of
+the passing probes, and a rung that passes and then fails is reported with
+`DEY-B073`. The whole test takes about 20 seconds per rung and node (the
+confirmation shows the total, e.g. `about 6 x 20 s`). For a tunnel with
+only UDP ports the test can only check that each rung's units run, not that
+traffic passes, and says so under the result.
 
 `test-ladder` interrupts the tunnel for the whole test (users lose their
 connections), so it asks you to type `yes`; in scripts add `--yes`. A paused
@@ -168,7 +202,7 @@ In Advanced mode `5) Failover` → `7) Thresholds *` changes, per tunnel:
 | Fail back to rung 1 — `failback` | yes |
 | Fail back after (seconds) — `failback_after_s` | 300 |
 | Max automatic switches per hour — `max_switches_per_hour` | 6 |
-| Quarantine of a failed transport (seconds) — `quarantine_s` | 600 |
+| Quarantine of a failed transport (seconds) — `quarantine_s` | 600 (also the earliest failback to a rung 1 that failed) |
 
 The same keys live under `failover:` of each tunnel in `config.yaml`
 (`deyroute config edit`).

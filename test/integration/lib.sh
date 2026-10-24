@@ -8,7 +8,10 @@ set -euo pipefail
 
 IT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 : "${DEY_DIST:?run scenarios through run.sh}" "${DEY_VERSION:?}" "${DEY_PROJECT:=deyit}"
-export DEY_DIST DEY_VERSION DEY_PROJECT
+# ART: run.sh's results directory (DEY_DIST is its release/), where a
+# scenario keeps measurements beside its log.
+: "${ART:=${DEY_DIST%/*}}"
+export DEY_DIST DEY_VERSION DEY_PROJECT ART
 case $(uname -m) in x86_64) ARCH=amd64 ;; aarch64 | arm64) ARCH=arm64 ;; *) ARCH=$(uname -m) ;; esac
 ARCHIVE=/dist/deyroute_${DEY_VERSION}_linux_${ARCH}.tar.gz
 # DEY_OFFLINE=1: the servers cannot download backends (no internet); only the
@@ -335,11 +338,23 @@ stop_prober() {
     END { if (start) { d = last - start + 200; if (d > max) max = d }; print max + 0 }'
 }
 
-# block [--node IP] PROTO PORT / block --host IP / block --udp IP / unblock: emulate a filter
-# between the hub and the nodes with an nftables table in the hub's network
-# namespace (the "blocker" of spec section 17). Established flows are cut too.
+# block [--node IP] [--cut-after N] PROTO PORT / block --host IP / block --udp IP / unblock:
+# emulate a filter between the hub and the nodes with an nftables table in the
+# hub's network namespace (the "blocker" of spec section 17). Established
+# flows are cut too. The rules drop in the hub's input and output hooks, so
+# unlike a filter on the path, a packet the hub sends itself is refused
+# locally: sendto() of a UDP datagram fails with EPERM (TCP queues the data
+# and retransmits). --cut-after N emulates a filter that lets a flow pass
+# and then cuts it: a flow of PROTO PORT is dropped (both directions) once
+# conntrack has counted more than N packets in its original direction; every
+# new flow passes again for N packets. These rules count what they drop
+# (cut_drops). A flow that conntrack started to track while accounting was
+# off has no count and is never cut, so a scenario that cuts the flows of a
+# running tunnel calls ct_acct before the tunnel starts; a packet that
+# conntrack finds INVALID has no flow and passes; a rung whose traffic does
+# not use PORT (hysteria2 with port hopping) is not cut at all.
 block() {
-  local sel="" rules=""
+  local sel="" cut="" rules=""
   sh_on hub "nft list table inet it_blocker >/dev/null 2>&1 || nft -f - <<'EOF'
 table inet it_blocker {
   chain in { type filter hook input priority -50; }
@@ -353,16 +368,32 @@ add rule inet it_blocker out ip daddr $2 drop"
     rules="add rule inet it_blocker in ip saddr $2 meta l4proto udp drop
 add rule inet it_blocker out ip daddr $2 meta l4proto udp drop"
   else
-    if [ "$1" = --node ]; then sel="ip saddr $2 "; shift 2; fi
+    while :; do
+      case $1 in
+        --node) sel="ip saddr $2 "; shift 2 ;;
+        --cut-after) ct_acct; cut="ct original packets > $2 counter "; shift 2 ;;
+        *) break ;;
+      esac
+    done
     local p=$1 port=$2 osel=${sel/saddr/daddr}
-    rules="add rule inet it_blocker in ${sel}meta l4proto $p th dport $port drop
-add rule inet it_blocker in ${sel}meta l4proto $p th sport $port drop
-add rule inet it_blocker out ${osel}meta l4proto $p th dport $port drop
-add rule inet it_blocker out ${osel}meta l4proto $p th sport $port drop"
+    rules="add rule inet it_blocker in ${sel}meta l4proto $p th dport $port ${cut}drop
+add rule inet it_blocker in ${sel}meta l4proto $p th sport $port ${cut}drop
+add rule inet it_blocker out ${osel}meta l4proto $p th dport $port ${cut}drop
+add rule inet it_blocker out ${osel}meta l4proto $p th sport $port ${cut}drop"
   fi
   on hub nft -f - <<<"$rules"
 }
 unblock() { sh_on hub "nft delete table inet it_blocker 2>/dev/null || true"; }
+# cut_drops: the packets the --cut-after rules of block dropped since the
+# blocker table was created (0 without the table): the sum of their counters.
+cut_drops() {
+  { on hub nft list table inet it_blocker 2>/dev/null || true; } |
+    awk '{ for (i = 2; i < NF; i++) if ($(i - 1) == "counter" && $i == "packets") n += $(i + 1) } END { print n + 0 }'
+}
+# ct_acct: conntrack counts the packets of every flow it starts to track on
+# the hub from now on (net.netfilter.nf_conntrack_acct, per network
+# namespace); the cut-after rules of block read these counts.
+ct_acct() { on hub sysctl -w net.netfilter.nf_conntrack_acct=1 >/dev/null; }
 
 # https_mirror: an HTTPS file server on https://$CLIENT_IP:8443/ serving
 # /srv/mirror of the client, with a lab certificate the hub and the nodes trust.

@@ -23,8 +23,16 @@ const (
 	// subscriberBuffer is the channel size of a Subscribe call without an
 	// explicit buffer.
 	subscriberBuffer = 64
-	// notifyTimeout bounds one notification (direct, then via a node).
+	// notifyTimeout bounds one notification (via a node, then direct).
 	notifyTimeout = time.Minute
+	// DefaultNotifyViaNode bounds the via-node attempt of one notification
+	// (the online nodes in turn), so the direct post that follows keeps
+	// notify.DirectTimeout (20 s) of the one-minute budget.
+	DefaultNotifyViaNode = 40 * time.Second
+	// viaNodeMinShare: each node gets at least 1/viaNodeMinShare of the
+	// via-node budget, so a long list of nodes that hang still gives the
+	// first ones (fastest control link) a fair try.
+	viaNodeMinShare = 4
 )
 
 // Emit publishes an event (section 9): it is appended to the events ring
@@ -169,8 +177,11 @@ func (h *Hub) notifyLoop(ctx context.Context) {
 }
 
 // reloadNotifier builds the Telegram notifier from hub.notify.telegram
-// (nil when disabled or unusable). Messages are posted directly first and
-// through an online node second (QUESTIONS.md C.18).
+// (nil when disabled or unusable). Messages are posted through an online
+// node first and directly second (QUESTIONS.md C.18): api.telegram.org is
+// filtered from Iranian datacenters, and a direct post waiting for its 20 s
+// timeout would delay the alert exactly when the filtering changes. Before
+// the first join (no node online) they go directly at once.
 func (h *Hub) reloadNotifier(cfg *config.Config) {
 	t, err := h.buildNotifier(cfg)
 	if err != nil {
@@ -197,7 +208,7 @@ func (h *Hub) buildNotifier(cfg *config.Config) (*notify.Telegram, error) {
 		Token:   token,
 		ChatID:  tg.ChatID,
 		Events:  tg.Events,
-		Senders: []notify.Sender{notify.HTTPSender{}, nodeSender{h}},
+		Senders: []notify.Sender{nodeSender{h}, notify.HTTPSender{}},
 		Now:     h.o.Now,
 		APIBase: h.o.TelegramAPIBase,
 		Hub:     cfg.Hub.Name,
@@ -207,27 +218,55 @@ func (h *Hub) buildNotifier(cfg *config.Config) (*notify.Telegram, error) {
 // Notifier returns the active Telegram notifier (nil when off).
 func (h *Hub) Notifier() *notify.Telegram { return h.notifier.Load() }
 
-// nodeSender posts through an online node (http.post), for hubs that
-// cannot reach api.telegram.org directly.
+// nodeSender posts through an online node (http.post), fastest control link
+// first. It leads the Telegram chain because api.telegram.org is filtered
+// from Iranian datacenters; with no node online it fails at once
+// (DEY-N012) and the chain posts directly.
 type nodeSender struct{ h *Hub }
 
-// Post implements notify.Sender.
+// Post implements notify.Sender. The nodes share viaNodeBudget; the rest of
+// the caller's deadline is left to the direct post. Each node in turn gets
+// an equal share of what is left of the budget (at least
+// 1/viaNodeMinShare of it), so a node that hangs, such as one whose control
+// link died less than OfflineAfter ago and so still counts as online, does
+// not keep the next nodes from being tried.
 func (s nodeSender) Post(ctx context.Context, url, contentType string, body []byte) (int, []byte, error) {
 	nodes := s.h.onlineNodes()
 	if len(nodes) == 0 {
 		return 0, nil, deyerr.New(deyerr.N012, nil)
 	}
+	budget := s.h.viaNodeBudget(ctx)
+	vctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	end, _ := vctx.Deadline()
 	var last error
-	for _, node := range nodes {
+	for i, node := range nodes {
+		share := max(time.Until(end)/time.Duration(len(nodes)-i), budget/viaNodeMinShare)
+		nctx, ncancel := context.WithTimeout(vctx, share)
 		var res api.HTTPPostResult
-		err := s.h.Call(ctx, node, api.CmdHTTPPost, api.HTTPPostArgs{URL: url, ContentType: contentType, Body: body}, &res)
+		err := s.h.Call(nctx, node, api.CmdHTTPPost, api.HTTPPostArgs{URL: url, ContentType: contentType, Body: body}, &res)
+		ncancel()
 		if err == nil {
 			return res.Status, []byte(res.Body), nil
 		}
 		last = err
-		if ctx.Err() != nil {
+		if vctx.Err() != nil {
 			break
 		}
 	}
 	return 0, nil, last
+}
+
+// viaNodeBudget is how long the nodes may take for one message:
+// Options.NotifyViaNode (40 s), cut so that the direct post keeps its client
+// timeout (notify.DirectTimeout) of the caller's deadline, but to no less
+// than half of the time left. A caller with less than a minute (the TUI, a
+// client timeout) still gets the direct attempt when a node hangs.
+func (h *Hub) viaNodeBudget(ctx context.Context) time.Duration {
+	budget := h.o.NotifyViaNode
+	if dl, ok := ctx.Deadline(); ok {
+		left := time.Until(dl)
+		budget = min(budget, max(left-notify.DirectTimeout, left/2))
+	}
+	return budget
 }

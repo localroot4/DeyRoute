@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # S10: failback fails (blocked again at the moment of failback): immediate return, delay doubled
+# Failback never targets a quarantined rung 1, so quarantine_s is set to
+# failback_after_s (with the default 600s the first attempt would wait for
+# it). A failed failback does not quarantine rung 1 again, so the second
+# attempt still follows the doubled delay alone.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 needs_online "a ladder with more than one rung"
@@ -10,6 +14,7 @@ T=$(add_tunnel "$NODE1" 443)
 wait_tunnel_up "$T" 180
 FB=60
 set_failover failback_after_s "$FB"
+set_failover quarantine_s "$FB"
 first=$(active_transport "$T")
 port=$(tunnel_field "$T" '.rungs[] | select(.active) | .control_port')
 block --node "$NODE1_IP" tcp "$port"

@@ -416,7 +416,12 @@ parallel without breaking each other's builds:
   downloads, verifies sha256 and POSTs `/v1/upload/<id>`; the hub streams it
   into the waiting writer. The hub's `install.Fetcher` chain is
   `[via-node, direct]` once a node has joined (spec §5).
-- Telegram: `notify.ChainSender{HTTPSender, via-node http.post}`.
+- Telegram: `notify.ChainSender{via-node http.post, HTTPSender}`
+  (QUESTIONS.md C.18). The via-node sender tries the online nodes, fastest
+  control link first, within `Options.NotifyViaNode` (40 s), each node in
+  turn an equal share of what is left (at least a quarter); with no node
+  online it fails at once (`DEY-N012`) and the direct post follows, which
+  keeps `notify.DirectTimeout` (20 s) of the one-minute budget.
 
 ### 7.3 Tunnel lifecycle on the hub
 1. `TunnelAdd`: validate request → check every listen port (`ports.Checker`,

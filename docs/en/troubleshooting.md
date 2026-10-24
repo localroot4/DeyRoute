@@ -169,7 +169,9 @@ servers (provider firewall) if you want them; skipped rungs are re-tested
 every 30 minutes. `deyroute node test de-1` shows `UDP ok` or `blocked`.
 These rungs are also skipped while the test has not run yet (the node has
 been offline since it joined): the reason then says `has not run yet`, and
-they come back once the node is online and the test passes.
+they come back once the node is online and the test passes. A passed test
+only shows that plain datagrams get through, not that a VPN protocol such
+as WireGuard does ([Filtering FAQ](faq-filtering.md#what-does-skipped-rung-mean)).
 
 ### The node is offline — `DEY-N003`
 
@@ -226,6 +228,43 @@ started but no traffic passed within 15 seconds. Read `deyroute logs main`,
 then `deyroute tunnel restart main`, or switch to another rung. `DEY-B001`:
 the binary could not be downloaded — a node must be online (the hub downloads
 through it), or set `DEYROUTE_MIRROR`.
+
+### A rung passes, then fails — `DEY-B073`
+
+`deyroute tunnel test-ladder` keeps a rung that passed its first probe
+running for its whole 20 seconds. `DEY-B073` means a later probe failed:
+traffic flowed when the rung came up and stopped a few seconds later.
+Filtering that lets a new tunnel through and then cuts it looks like this.
+Give the tunnel a ladder with that rung lower or left out, as an inline
+list (`deyroute tunnel edit main --ladder a,b,c`) or with
+`deyroute ladder create`, and run `test-ladder` again. The seconds in the
+message count from the start of the rung's probe window. The table shows
+only the code and the message; `deyroute tunnel test-ladder main --yes --json`
+also gives the probe error, in `error.detail` of that rung's result.
+
+### No decoy SNI — `DEY-B042`
+
+None of the decoys of the Reality rungs answered from the hub. The event
+gives the reason for each one. The check connects over the address family
+of `hub.public_ip` (IPv4 when it is IPv4), so a decoy must answer from the
+hub over that family. A reason such as
+`www.example.com: resolves to a private address from the hub (10.0.0.1; DNS tampering?)`
+means the hub's resolver answered the name only with private or reserved
+addresses: its DNS is likely tampered with. Choose other decoys
+([Filtering FAQ](faq-filtering.md#decoy-sni)), or point the hub at a
+resolver that is not tampered with (`/etc/resolv.conf`) and check with
+`dig +short www.example.com`.
+
+### A node moved to IPv6 — `node_ip_changed`
+
+A node's control connection moved from IPv4 to IPv6 (usually after
+`deyroute node set-hub` with the hub's IPv6 address). When deyroute
+manages the hub firewall, the event and `hub.log` (attribute `hint=`)
+explain it and name the command that goes back early in the text, for
+example `deyroute node set-hub 5.6.7.8:44433`: run it on the node. Until
+then the hub firewall drops the transports in which the node dials the
+hub. IPv6 between hub and node is not supported; see
+[Join](join.md#do-not-connect-a-node-over-ipv6).
 
 ### A tuned value changed — `DEY-X067`
 
@@ -285,7 +324,8 @@ TLS fails when a server's clock is far off. Enable time sync on both servers:
 | `DEY-B003` | backend unit failed to start | see its log lines, `deyroute tunnel restart <tunnel>` |
 | `DEY-B004` | no traffic after start | `deyroute logs <tunnel>`, try the next rung |
 | `DEY-B006` / `B007` | rung skipped for this tunnel | re-tested every 30 minutes; see [Filtering FAQ](faq-filtering.md) |
-| `DEY-B042` | no decoy SNI reachable | set `hub.decoy_snis` ([Filtering FAQ](faq-filtering.md#decoy-sni)) |
+| `DEY-B042` | no decoy SNI reachable (or the hub's DNS answers with private addresses) | set `hub.decoy_snis` ([Filtering FAQ](faq-filtering.md#decoy-sni)); see "No decoy SNI" above |
+| `DEY-B073` | a rung passed the ladder test, then failed | give the tunnel a ladder with that rung lower or left out; see above |
 | `DEY-F001` | all candidates failed | see "The tunnel is DOWN" |
 | `DEY-F002` | flapping limit | see above |
 | `DEY-F003` | failback failed | nothing; it retries later |

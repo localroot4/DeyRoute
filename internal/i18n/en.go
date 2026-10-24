@@ -1045,8 +1045,8 @@ var tuiEN = map[Key]string{
 	TUILadG1Do:     "put tcpmux first",
 	TUILadG2If:     "filtering recognizes the tunnel TLS",
 	TUILadG2Do:     "move xray/reality up",
-	TUILadG3If:     "UDP is open in the Iran datacenter",
-	TUILadG3Do:     "put hysteria2/udp second",
+	TUILadG3If:     "UDP passes between hub and node",
+	TUILadG3Do:     "put hysteria2/udp second, then test-ladder",
 	TUILadG4If:     "the node only has TCP services",
 	TUILadG4Do:     "remove the udp rungs",
 	TUILadKeys:     "number + Enter: a rung to move or remove it, or an action · shortcuts: u up · d down · x remove · a add · p profile · s save",
@@ -1674,6 +1674,8 @@ const (
 	CLITunnelTestLadderShort     Key = "cli.tunnel_test_ladder_short"
 	CLITunnelTestLadderExample   Key = "cli.tunnel_test_ladder_example"
 	CLITestLadderLost            Key = "cli.test_ladder_lost"
+	CLITestLadderLostNoTotal     Key = "cli.test_ladder_lost_no_total"
+	CLITestLadderUDPOnly         Key = "cli.test_ladder_udp_only"
 	CLIResultOK                  Key = "cli.result_ok"
 	CLIResultFailed              Key = "cli.result_failed"
 	CLIResultSkipped             Key = "cli.result_skipped"
@@ -2263,7 +2265,9 @@ var cliEN = map[Key]string{
 	CLITunnelResumed:             "Failover of %s resumed.",
 	CLITunnelTestLadderShort:     "Try every rung for 20 seconds and report RTT and success (interrupts the tunnel)",
 	CLITunnelTestLadderExample:   "  deyroute tunnel test-ladder main\n  deyroute tunnel test-ladder main --yes --json",
-	CLITestLadderLost:            "Testing the ladder of %s tries every transport for %d seconds, one after the other.\nThe tunnel is interrupted during the test; users lose their connections.",
+	CLITestLadderLost:            "Testing the ladder of %[1]s tries every transport for %[2]d seconds, one after the other (about %[3]d x %[2]d s).\nThe tunnel is interrupted during the test; users lose their connections.",
+	CLITestLadderLostNoTotal:     "Testing the ladder of %s tries every transport for %d seconds, one after the other.\nThe tunnel is interrupted during the test; users lose their connections.",
+	CLITestLadderUDPOnly:         "Tunnel %s forwards UDP only: for each rung the test checked only that its units run on the hub and the node, not that traffic passes.",
 	CLIResultOK:                  "ok",
 	CLIResultFailed:              "failed",
 	CLIResultSkipped:             "skipped",
@@ -2412,7 +2416,7 @@ var cliEN = map[Key]string{
 	CLINotifyShort:               "Notifications (Telegram)",
 	CLITelegramShort:             "Telegram bot notifications: set, test, off",
 	CLITelegramSetShort:          "Enable Telegram notifications",
-	CLITelegramSetLong:           "Send one Telegram message per event (down, switch, failback, node offline), at most\none per minute per tunnel and type. Put the bot token in a file readable by root only\n(chmod 600); the hub posts through a node when api.telegram.org is blocked.",
+	CLITelegramSetLong:           "Send one Telegram message per event (down, switch, failback, node offline), at most\none per minute per tunnel and type. Put the bot token in a file readable by root only\n(chmod 600). Messages go through an online node first (api.telegram.org is often\nblocked from Iran) and directly when no node is online or the node fails.",
 	CLITelegramSetExample:        "  deyroute notify telegram set --token-file /etc/deyroute/secrets/telegram.token --chat-id 123456789",
 	CLITelegramSet:               "Telegram notifications enabled (chat %s). Send a test: deyroute notify telegram test",
 	CLITelegramTestShort:         "Send a test message",

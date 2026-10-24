@@ -116,9 +116,11 @@ func (b *Backend) Name() string { return b.name }
 // Transports returns the single transport of the backend. Both are
 // Forward, carry tcp and udp, need UDP between hub and node and use their
 // own keys instead of the tunnel TLS certificate. Stealth follows the
-// section 7 table: kernel 1, awg 3. wireguard/kernel is a rung of the
-// UDP-only default ladder (section 8), so it is not Optional; awg/userspace
-// is in no default ladder and only used when the owner adds it.
+// section 7 table: kernel 1, awg 3. Both are Optional: they are in no
+// default ladder and only used when the owner adds them to a ladder.
+// wireguard/kernel left the UDP-only default ladder after a field report of
+// 2026-10-17 measured plain WireGuard blocked while the UDP echo probe
+// still passed (config.DefaultUDPLadder).
 func (b *Backend) Transports() []backend.Transport {
 	stealth := 1
 	if b.awg {
@@ -132,7 +134,7 @@ func (b *Backend) Transports() []backend.Transport {
 		NeedsUDP:  true,
 		NeedsTLS:  false,
 		Stealth:   stealth,
-		Optional:  b.awg,
+		Optional:  true,
 	}}
 }
 

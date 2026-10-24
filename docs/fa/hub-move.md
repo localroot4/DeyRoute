@@ -70,7 +70,7 @@ New hub address 7.7.7.7:44433 sent to: de-1, nl-1
 deyroute node set-hub 7.7.7.7:44433
 ```
 
-یا در منوی همان Node: `10) Backup & Restore` ← `3) Set hub address`.
+یا در منوی همان Node: `10) Backup & Restore` ← `3) Set hub address`. همیشه از `hub.public_ip` سرور Hub جدید استفاده کنید؛ اگر IPv4 است، هیچ‌وقت آدرس IPv6 سرور Hub را ندهید ([چرا](#nodeها-و-پورت-کنترل)).
 
 **۵. روی Hub جدید — بررسی.**
 
@@ -109,13 +109,15 @@ deyroute config edit
 deyroute node set-hub NEW_IP:44433
 ```
 
-(در منو: `10) Backup & Restore` ← `3) Set hub address`).
+(در منو: `10) Backup & Restore` ← `3) Set hub address`). `NEW_IP` همان آدرسی است که در `hub.public_ip` گذاشتید، نه آدرس دیگری از سرور Hub.
 
 ۳. با `deyroute node list` بررسی کنید و بعد IP جدید را به کاربران بدهید.
 
 ## Nodeها و پورت کنترل
 
 آدرسی که اعلام می‌کنید `IP:CONTROL_PORT` مربوط به Hub جدید است. تنظیمات ریستورشده همان پورت کنترل Hub قدیم را نگه می‌دارد (پیش‌فرض 44433)؛ مطمئن شوید روی سرور جدید آزاد است و در فایروال پنل آن سرور هم باز است.
+
+برای `announce-move` و `set-hub` از IPی استفاده کنید که در `hub.public_ip` سرور Hub جدید است. اگر IPv4 است، هیچ‌وقت آدرس IPv6 سرور Hub را به Nodeها ندهید: IPv6 بین Hub و Node پشتیبانی نمی‌شود و در این حالت فایروال Hub ترنسپورت‌هایی را که در آن‌ها Node به Hub وصل می‌شود دور می‌اندازد. صفحه [Join](join.md#node-را-از-طریق-ipv6-وصل-نکنید) را ببینید.
 
 ## بکاپ ندارم: Join دوباره Nodeها
 

@@ -76,9 +76,9 @@ func (l *local) NotifyTelegramSet(_ context.Context, tokenFile, chatID string, e
 }
 
 // NotifyTelegramTest implements api.Local (`deyroute notify telegram test`):
-// "DEYROUTE test message" is posted directly and, when that fails, through
-// an online node (QUESTIONS.md C.18). Settings that are saved but disabled
-// can be tested too.
+// "DEYROUTE test message" is posted through an online node and, when that
+// fails or no node is online, directly (QUESTIONS.md C.18). Settings that
+// are saved but disabled can be tested too.
 func (l *local) NotifyTelegramTest(ctx context.Context) error {
 	h := l.h
 	t := h.Notifier()

@@ -178,8 +178,13 @@ func TestAcceptanceBlockedRungSwitchesWithin35s(t *testing.T) {
 }
 
 // Acceptance (S09): unblocking → failback to rung 1 within failback_after_s+20s.
+// Failback never targets a quarantined rung 1, so the bound holds when
+// quarantine_s is not above failback_after_s (S09 sets both alike; with the
+// defaults see TestBlindFailbackWaitsForQuarantine).
 func TestAcceptanceFailbackAfterDelay(t *testing.T) {
-	h := newHarness(t, twoNodes(), state.TunnelState{}, nil).run()
+	tun := twoNodes()
+	tun.Settings.QuarantineS = tun.Settings.FailbackAfterS
+	h := newHarness(t, tun, state.TunnelState{}, nil).run()
 	h.act.block(r1.Key(), true)
 	h.advanceUntil(time.Minute, isUpOn(r2))
 	h.act.block(r1.Key(), false)
@@ -192,7 +197,8 @@ func TestAcceptanceFailbackAfterDelay(t *testing.T) {
 	require.Equal(t, r1.Transport, fb[0].ToTransport)
 	s := h.st()
 	require.Equal(t, 300*time.Second, s.FailbackDelay)
-	require.NotContains(t, s.Quarantine, r1.Key(), "a passing candidate leaves quarantine")
+	require.False(t, Quarantined(s.Quarantine, r1, h.clk.Now()), "a passing candidate leaves quarantine")
+	require.Equal(t, 300*time.Second, s.Quarantine[r1.Key()].Duration, "but its duration is kept")
 	require.Len(t, s.SwitchTimes, 2, "failback is an automatic switch")
 }
 
@@ -211,8 +217,9 @@ func TestAcceptanceFailbackFailsRevertsAndDoubles(t *testing.T) {
 	h.advanceUntil(time.Minute, isUpOn(r2))
 	stable := h.st().StableSince
 
-	h.advanceUntil(10*time.Minute, func(s state.TunnelState) bool { return s.Active == r1 })
-	require.Equal(t, stable.Add(300*time.Second), h.clk.Now(), "failback attempted after failback_after_s")
+	h.advanceUntil(15*time.Minute, func(s state.TunnelState) bool { return s.Active == r1 })
+	require.Equal(t, stable.Add(10*time.Minute), h.clk.Now(),
+		"failback attempted after failback_after_s, once rung 1's 10-minute quarantine has ended")
 	h.advanceUntil(time.Minute, isUpOn(r2))
 	ff := h.act.eventsOf(state.EvFailbackFailed)
 	require.Len(t, ff, 1)
@@ -329,9 +336,13 @@ func TestCanaryFailback(t *testing.T) {
 
 // A failed canary failback doubles the delay like a blind one (section 9):
 // the canary keeps passing, but the next attempt waits for the doubled
-// delay instead of the next six passes; a success resets it.
+// delay instead of the next six passes; a success resets it. quarantine_s
+// is 10 so rung 1's quarantine (10s, then 20s once it passed and was cut
+// again) never holds the failbacks this test times.
 func TestCanaryFailbackFailsWaitsDoubledDelay(t *testing.T) {
-	h := newHarness(t, twoNodes(), state.TunnelState{}, func(f *fakeActions) {
+	tun := twoNodes()
+	tun.Settings.QuarantineS = 10
+	h := newHarness(t, tun, state.TunnelState{}, func(f *fakeActions) {
 		f.canaryOn = true
 		f.canaryOK = true
 	}).run()
@@ -369,6 +380,214 @@ func TestCanaryFailbackFailsWaitsDoubledDelay(t *testing.T) {
 	took = h.advanceUntil(time.Minute, isUpOn(r1))
 	require.Equal(t, 30*time.Second, took)
 	require.Len(t, h.act.eventsOf(state.EvFailback), 2)
+}
+
+// ---- quarantine across passes, failback to a quarantined rung 1
+
+// A passing probe ends the quarantine but keeps its duration: a rung that
+// comes back, passes and is cut again within the hour doubles (10, 20, 40
+// minutes, capped at one hour) instead of starting at 10 minutes each time.
+// Failback waits for each quarantine and happens on the first probe after
+// it.
+func TestQuarantineDoublesWhenPassingRungIsCutAgain(t *testing.T) {
+	h := newHarness(t, twoNodes(), state.TunnelState{}, nil).run()
+	for i, d := range []time.Duration{10 * time.Minute, 20 * time.Minute, 40 * time.Minute, time.Hour, time.Hour} {
+		h.act.block(r1.Key(), true)
+		h.advanceUntil(time.Minute, isUpOn(r2))
+		cutAt := h.clk.Now()
+		q := h.st().Quarantine[r1.Key()]
+		require.Equal(t, d, q.Duration, "cut %d", i+1)
+		require.Equal(t, cutAt.Add(d), q.Until, "cut %d", i+1)
+		h.act.block(r1.Key(), false)
+
+		h.advanceUntil(d+time.Minute, isUpOn(r1))
+		require.Equal(t, q.Until, h.clk.Now(), "cut %d: failback on the first probe after the quarantine", i+1)
+		require.Len(t, h.act.eventsOf(state.EvFailback), i+1)
+		s := h.st()
+		require.False(t, Quarantined(s.Quarantine, r1, h.clk.Now()), "pass %d ends the quarantine", i+1)
+		require.Equal(t, h.clk.Now(), s.Quarantine[r1.Key()].Until, "expired in place")
+		require.Equal(t, d, s.Quarantine[r1.Key()].Duration, "pass %d keeps the duration", i+1)
+		require.False(t, s.Flapping)
+	}
+}
+
+// The kept duration is forgotten QuarantineForget after the pass: a rung
+// that stays UP that long starts again at 10 minutes when it is cut.
+func TestQuarantineForgottenAfterPassingForAnHour(t *testing.T) {
+	h := newHarness(t, twoNodes(), state.TunnelState{}, nil).run()
+	h.act.block(r1.Key(), true)
+	h.advanceUntil(time.Minute, isUpOn(r2))
+	h.act.block(r1.Key(), false)
+	h.advanceUntil(11*time.Minute, isUpOn(r1))
+	passedAt := h.clk.Now()
+
+	h.advance(QuarantineForget - time.Minute)
+	require.Contains(t, h.st().Quarantine, r1.Key(), "kept within QuarantineForget of the pass")
+	h.advance(2 * time.Minute)
+	require.NotContains(t, h.st().Quarantine, r1.Key(), "forgotten after Until + QuarantineForget")
+	require.Equal(t, r1, h.st().Active)
+	require.Greater(t, h.clk.Now().Sub(passedAt), QuarantineForget)
+
+	h.act.block(r1.Key(), true)
+	h.advanceUntil(time.Minute, isUpOn(r2))
+	require.Equal(t, 10*time.Minute, h.st().Quarantine[r1.Key()].Duration)
+}
+
+// Owner moves still wipe the target's history: after `tunnel reset` or
+// `tunnel switch` onto rung 1, its next cut is quarantined for 10 minutes.
+func TestManualMoveForgetsQuarantine(t *testing.T) {
+	ctx := context.Background()
+	for _, move := range []struct {
+		name string
+		do   func(*Engine) error
+	}{
+		{"reset", func(e *Engine) error { return e.Reset(ctx) }},
+		{"switch", func(e *Engine) error { return e.SwitchTransport(ctx, r1.Transport) }},
+	} {
+		t.Run(move.name, func(t *testing.T) {
+			h := newHarness(t, twoNodes(), state.TunnelState{}, nil).run()
+			h.act.block(r1.Key(), true)
+			h.advanceUntil(time.Minute, isUpOn(r2))
+			h.act.block(r1.Key(), false)
+			// Within the hour after a pass the next cut would double.
+			h.advanceUntil(11*time.Minute, isUpOn(r1))
+			h.act.block(r1.Key(), true)
+			h.advanceUntil(time.Minute, isUpOn(r2))
+			require.Equal(t, 20*time.Minute, h.st().Quarantine[r1.Key()].Duration)
+			h.act.block(r1.Key(), false)
+
+			require.NoError(t, move.do(h.eng))
+			h.requireActive(r1, state.StateUp)
+			require.NotContains(t, h.st().Quarantine, r1.Key(), "an owner move forgets the history")
+			h.act.block(r1.Key(), true)
+			h.advanceUntil(time.Minute, isUpOn(r2))
+			require.Equal(t, 10*time.Minute, h.st().Quarantine[r1.Key()].Duration)
+		})
+	}
+}
+
+// Phase 8: the canary passing does not bring the tunnel back to a rung 1 the
+// engine quarantined minutes earlier (each attempt burns the
+// max_switches_per_hour budget); the passes keep counting and the failback
+// happens on the first probe after the quarantine. A cut after that failback
+// quarantines rung 1 for 20 minutes, again without failback meanwhile.
+func TestCanaryFailbackWaitsForQuarantine(t *testing.T) {
+	h := newHarness(t, twoNodes(), state.TunnelState{}, func(f *fakeActions) {
+		f.canaryOn = true
+		f.canaryOK = true
+	}).run()
+	for i, d := range []time.Duration{10 * time.Minute, 20 * time.Minute} {
+		h.act.block(r1.Key(), true)
+		h.advanceUntil(time.Minute, isUpOn(r2))
+		q := h.st().Quarantine[r1.Key()]
+		require.Equal(t, d, q.Duration)
+		h.act.block(r1.Key(), false)
+		starts := len(h.act.callsOf("start", r1.Key()))
+
+		h.advance(d - time.Minute)
+		s := h.st()
+		require.Equal(t, r2, s.Active, "no failback to a quarantined rung 1")
+		require.GreaterOrEqual(t, s.CanaryPasses, 100, "the canary keeps counting")
+		require.Len(t, h.act.callsOf("start", r1.Key()), starts, "rung 1 is not tried")
+		require.Len(t, h.act.eventsOf(state.EvFailback), i)
+
+		h.advanceUntil(2*time.Minute, isUpOn(r1))
+		require.Equal(t, q.Until, h.clk.Now(), "failback on the first probe after the quarantine")
+		fb := h.act.eventsOf(state.EvFailback)
+		require.Len(t, fb, i+1)
+		require.Contains(t, fb[i].Reason, "canary passed")
+		require.Len(t, h.st().SwitchTimes, 2*(i+1), "one switch away, one failback")
+	}
+}
+
+// Blind failback (no canary) has the same guard: failback_after_s has
+// passed, but rung 1 is still quarantined.
+func TestBlindFailbackWaitsForQuarantine(t *testing.T) {
+	h := newHarness(t, twoNodes(), state.TunnelState{}, nil).run()
+	h.act.block(r1.Key(), true)
+	h.advanceUntil(time.Minute, isUpOn(r2))
+	stable := h.st().StableSince
+	q := h.st().Quarantine[r1.Key()]
+	h.act.block(r1.Key(), false)
+	h.advance(6 * time.Minute)
+	s := h.st()
+	require.Greater(t, h.clk.Now().Sub(stable), s.FailbackDelay)
+	require.Equal(t, r2, s.Active, "failback_after_s passed, rung 1 still quarantined")
+	h.advanceUntil(5*time.Minute, isUpOn(r1))
+	require.Equal(t, q.Until, h.clk.Now())
+	require.Len(t, h.act.eventsOf(state.EvFailback), 1)
+	require.Empty(t, h.act.eventsOf(state.EvFailbackFailed))
+}
+
+// labFailbackModes are the two failback paths the lab scenarios run into:
+// blind (no canary) and a canary that passes.
+var labFailbackModes = []struct {
+	name   string
+	canary bool
+}{{"blind", false}, {"canary", true}}
+
+// Lab S10 sets failback_after_s and quarantine_s to 60 and keeps rung 1
+// blocked: failback_failed within failback_after_s + 60s of the move, UP on
+// the second rung again within 15s, the delay doubled.
+func TestLabS10FailbackFailsWithinItsWaits(t *testing.T) {
+	for _, m := range labFailbackModes {
+		t.Run(m.name, func(t *testing.T) {
+			tun := oneNode()
+			tun.Settings.FailbackAfterS = 60
+			tun.Settings.QuarantineS = 60
+			h := newHarness(t, tun, state.TunnelState{}, func(f *fakeActions) {
+				f.canaryOn = m.canary
+				f.canaryOK = true
+			}).run()
+			h.act.block(r1.Key(), true)
+			h.advanceUntil(90*time.Second, isUpOn(r2))
+			d1 := h.st().FailbackDelay
+			failed := func(state.TunnelState) bool { return len(h.act.eventsOf(state.EvFailbackFailed)) > 0 }
+			h.advanceUntil(60*time.Second+60*time.Second, failed)
+			h.advanceUntil(15*time.Second, isUpOn(r2))
+			require.GreaterOrEqual(t, h.st().FailbackDelay, 2*d1)
+		})
+	}
+}
+
+// Lab S13 sets failback_after_s 20 and quarantine_s 5, then blocks rung 1
+// until the tunnel moves and lifts the block, each wait 120s, until
+// flapping. Rung 1 keeps its quarantine duration across a pass, so it
+// doubles every round; flapping comes in round 4 (six switches at the
+// default max_switches_per_hour), every wait well within 120s.
+func TestLabS13RoundsReachFlappingWithinTheirWaits(t *testing.T) {
+	for _, m := range labFailbackModes {
+		t.Run(m.name, func(t *testing.T) {
+			tun := oneNode()
+			tun.Settings.FailbackAfterS = 20
+			tun.Settings.QuarantineS = 5
+			h := newHarness(t, tun, state.TunnelState{}, func(f *fakeActions) {
+				f.canaryOn = m.canary
+				f.canaryOK = true
+			}).run()
+			round := 0
+			for !h.st().Flapping {
+				round++
+				require.LessOrEqual(t, round, 10, "no flapping after 10 rounds")
+				from := h.st().Active
+				require.Equal(t, r1, from, "round %d starts on rung 1", round)
+				h.act.block(from.Key(), true)
+				h.advanceUntil(120*time.Second, func(s state.TunnelState) bool {
+					return s.Flapping || (s.State == state.StateUp && s.Active != from)
+				})
+				h.act.block(from.Key(), false)
+				if h.st().Flapping {
+					break
+				}
+				require.Equal(t, 5*time.Second<<(round-1), h.st().Quarantine[r1.Key()].Duration, "round %d", round)
+				h.advanceUntil(120*time.Second, func(s state.TunnelState) bool { return s.Flapping || isUpOn(r1)(s) })
+			}
+			require.Equal(t, 4, round)
+			require.Len(t, h.act.eventsOf(state.EvFailback), 3)
+			require.Len(t, h.act.eventsOf(state.EvFlapping), 1)
+			h.advanceUntil(120*time.Second, isUpOn(dn))
+		})
+	}
 }
 
 // ---- node service / control / node failover
@@ -937,7 +1156,7 @@ func TestAcceptanceDownRetryBackoff(t *testing.T) {
 	require.Zero(t, s.DownBackoff)
 	require.True(t, s.DownRetryAt.IsZero())
 	require.Len(t, h.act.eventsOf(state.EvTunnelUp), 1)
-	require.NotContains(t, s.Quarantine, r1.Key())
+	require.False(t, Quarantined(s.Quarantine, r1, h.clk.Now()))
 }
 
 func TestDownRetryTriesBackupNode(t *testing.T) {
@@ -1026,8 +1245,8 @@ func TestStartingWhilePaused(t *testing.T) {
 
 // ---- test ladder
 
-// Acceptance (S18): every rung on every node for up to 20s, RTT reported,
-// original candidate restored.
+// Acceptance (S18): every rung on every node for 20s (a passing one is held
+// for the whole window), RTT reported, original candidate restored.
 func TestAcceptanceTestLadderRestoresOriginal(t *testing.T) {
 	tun := twoNodes()
 	tun.Ladder = []string{"backhaul/wssmux", "backhaul/tcpmux", "hysteria2/udp", "direct/native"}
@@ -1043,7 +1262,7 @@ func TestAcceptanceTestLadderRestoresOriginal(t *testing.T) {
 		got, err = h.eng.TestLadder(context.Background(), func(r api.RungResult) { rows = append(rows, r) })
 		return err
 	})
-	h.advance(time.Minute)
+	h.advance(3 * time.Minute) // 7 rungs tested, 20s each
 	require.NoError(t, h.wait(ch))
 	require.Equal(t, rows, got)
 	require.Len(t, got, 8)
@@ -1066,10 +1285,13 @@ func TestAcceptanceTestLadderRestoresOriginal(t *testing.T) {
 	require.Empty(t, s.Quarantine, "test results do not quarantine")
 	require.Empty(t, h.act.eventsOf(state.EvSwitchTransport))
 	require.Empty(t, h.act.eventsOf(state.EvProbeError))
-	// Each tested candidate is started and stopped; r2 is polled for 20s.
+	// Each tested candidate is started and stopped; r2 is polled for 20s,
+	// b1 passes at once and is probed every 5s until its 20s are over.
 	require.Len(t, h.act.callsOf("probe", r2.Key()), 21)
 	require.Len(t, h.act.callsOf("start", b1.Key()), 1)
 	require.Len(t, h.act.callsOf("stop", b1.Key()), 1)
+	require.Len(t, h.act.callsOf("probe", b1.Key()), 5)
+	require.Equal(t, h.act.callsOf("start", b1.Key())[0].Add(TestLadderRungWait), h.act.callsOf("stop", b1.Key())[0])
 }
 
 func TestTestLadderCancelRestores(t *testing.T) {
@@ -1079,7 +1301,7 @@ func TestTestLadderCancelRestores(t *testing.T) {
 		_, err := h.eng.TestLadder(ctx, nil)
 		return err
 	})
-	h.advance(3 * time.Second) // r1 passed, r2 is being polled
+	h.advance(23 * time.Second) // r1 passed and was held for 20s, r2 is being polled
 	cancel()
 	require.Equal(t, deyerr.F008, codeOf(h.wait(ch)))
 	require.Eventually(t, func() bool { return isUpOn(r1)(h.st()) }, idleWait, time.Millisecond)
@@ -1114,10 +1336,113 @@ func TestTestLadderWhileDownAndRestoreFailure(t *testing.T) {
 		return err
 	})
 	h.act.block(r1.Key(), true) // r1 was tested first; it breaks meanwhile
-	h.advance(2 * time.Minute)
+	h.advance(6 * time.Minute)  // 16 rungs, 20s each
 	require.NoError(t, h.wait(ch))
 	h.advanceUntil(time.Minute, isUpOn(r2))
 	require.Len(t, h.act.eventsOf(state.EvSwitchTransport), 1)
+}
+
+// testLadderOn runs a ladder test on a one-node tunnel with rungs r1 and r2
+// (r1 active) and returns its rows; ctx may cancel it. The test starts at
+// the current fake time; run advances the clock while it runs.
+func testLadderOn(ctx context.Context, t *testing.T, setup func(f *fakeActions, began time.Time), run func(h *harness)) (*harness, []api.RungResult, error) {
+	t.Helper()
+	tun := oneNode()
+	tun.Ladder = []string{r1.Transport, r2.Transport}
+	h := newHarness(t, tun, state.TunnelState{}, nil).run()
+	began := h.clk.Now()
+	if setup != nil {
+		h.act.set(func(f *fakeActions) { setup(f, began) })
+	}
+	var got []api.RungResult
+	ch := h.async(func() error {
+		var err error
+		got, err = h.eng.TestLadder(ctx, nil)
+		return err
+	})
+	run(h)
+	err := h.wait(ch)
+	return h, got, err
+}
+
+// A rung that passes is held for the whole 20s window and probed every
+// probe_interval_s; its RTT is the median of the passing probes.
+func TestTestLadderHoldsPassingRung(t *testing.T) {
+	msec := time.Millisecond
+	h, got, err := testLadderOn(context.Background(), t, func(f *fakeActions, _ time.Time) {
+		f.rttSeq[r2.Key()] = []time.Duration{100 * msec, 10 * msec, 20 * msec, 30 * msec, 200 * msec}
+	}, func(h *harness) { h.advance(time.Minute) })
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, api.RungResult{Node: "de-1", Transport: r1.Transport, OK: true, RTTms: 20}, got[0])
+	require.Equal(t, api.RungResult{Node: "de-1", Transport: r2.Transport, OK: true, RTTms: 30}, got[1],
+		"the median of the five passing probes, not the first one")
+
+	// r1 (already running) is held from t0, r2 is started when r1's 20s are
+	// over; each is probed at 0, 5, 10, 15 and 20s and stopped after 20s.
+	start := t0.Add(TestLadderRungWait)
+	var want []time.Time
+	for s := time.Duration(0); s <= TestLadderRungWait; s += 5 * time.Second {
+		want = append(want, start.Add(s))
+	}
+	require.Equal(t, want, h.act.callsOf("probe", r2.Key()))
+	require.Equal(t, []time.Time{start}, h.act.callsOf("start", r2.Key()))
+	require.Equal(t, []time.Time{start.Add(TestLadderRungWait)}, h.act.callsOf("stop", r2.Key()))
+	require.Equal(t, start, h.act.callsOf("stop", r1.Key())[0])
+	h.requireActive(r1, state.StateUp)
+}
+
+// A rung that passes its first probe and fails while it is held is a
+// failure, DEY-B073 with the seconds since its window began; it is stopped
+// at once.
+func TestTestLadderPassThenFail(t *testing.T) {
+	start := t0.Add(TestLadderRungWait)
+	h, got, err := testLadderOn(context.Background(), t, func(f *fakeActions, _ time.Time) {
+		f.blockedFrom[r2.Key()] = start.Add(12 * time.Second)
+	}, func(h *harness) { h.advance(time.Minute) })
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.True(t, got[0].OK)
+	r := got[1]
+	require.False(t, r.OK)
+	require.Zero(t, r.RTTms)
+	require.NotNil(t, r.Error)
+	require.Equal(t, string(deyerr.B073), r.Error.Code)
+	require.Equal(t, "Transport backhaul/tcpmux passed the probe, then failed after 15s", r.Error.Message)
+	require.Equal(t, "i/o timeout", r.Error.Detail)
+	require.Equal(t, []time.Time{start.Add(15 * time.Second)}, h.act.callsOf("stop", r2.Key()), "stopped at the failing probe")
+	require.Len(t, h.act.callsOf("probe", r2.Key()), 4)
+	h.requireActive(r1, state.StateUp)
+	require.Empty(t, h.st().Quarantine, "test results do not quarantine")
+	require.Empty(t, h.act.eventsOf(state.EvProbeError))
+}
+
+// Cancelling the request while a rung is held aborts the test (F008) and
+// restores the original candidate.
+func TestTestLadderAbortDuringHold(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h, _, err := testLadderOn(ctx, t, nil, func(h *harness) {
+		h.advance(7 * time.Second) // r1 passed at once and is held
+		cancel()
+	})
+	require.Equal(t, deyerr.F008, codeOf(err))
+	require.Eventually(t, func() bool { return isUpOn(r1)(h.st()) }, idleWait, time.Millisecond)
+	h.idle()
+	require.Empty(t, h.act.callsOf("start", r2.Key()), "the test went no further")
+	require.Equal(t, map[string]bool{r1.Key(): true}, h.act.runningKeys())
+}
+
+// The engine stopping while a rung is held ends the test with F007 and,
+// like every exit of the engine, leaves the units as they are.
+func TestTestLadderEngineStopsDuringHold(t *testing.T) {
+	h, _, err := testLadderOn(context.Background(), t, nil, func(h *harness) {
+		h.advance(7 * time.Second)
+		h.stop()
+	})
+	require.Equal(t, deyerr.F007, codeOf(err))
+	require.True(t, h.act.runningKeys()[r1.Key()], "units are not stopped on the way out")
+	require.Empty(t, h.act.callsOf("stop", ""))
 }
 
 // ---- configuration edits and skipped rungs
@@ -1157,6 +1482,51 @@ func TestUpdateConfig(t *testing.T) {
 	require.NoError(t, h.eng.SetSkipped(ctx, cand("de-1", "hysteria2/udp"), state.Skip{Reason: "udp"}))
 	require.NoError(t, h.eng.UpdateConfig(ctx, tun))
 	require.Equal(t, state.StateDown, h.st().State)
+}
+
+// A UDP-only tunnel on the builtin ladder that runs on wireguard/kernel (a
+// rung of udp-default before the field report of 2026-10-17) leaves it when
+// the update brings udp-default without it, and never tries it again.
+func TestUpdateConfigMovesOffWireGuardDroppedFromUDPDefault(t *testing.T) {
+	ctx := context.Background()
+	wg := cand("de-1", "wireguard/kernel")
+	games := config.NewTunnel("main", "", []string{"de-1"}, []config.PortMap{{Listen: 27015, Proto: config.ProtoUDP, Target: "127.0.0.1:27015"}})
+	builtin, err := (*config.Config)(nil).ResolveLadder(&games, nil)
+	require.NoError(t, err)
+	require.NotContains(t, builtin, wg.Transport)
+
+	tun := oneNode()
+	tun.Ladder = []string{"backhaul/udp", "hysteria2/udp", wg.Transport, "direct/native"} // udp-default before
+	h := newHarness(t, tun, upOn(wg, t0), func(f *fakeActions) { f.running[wg.Key()] = true }).run()
+	h.requireActive(wg, state.StateUp)
+
+	h.act.clearCalls()
+	tun.Ladder = builtin
+	require.NoError(t, h.eng.UpdateConfig(ctx, tun))
+	h.idle()
+	home := cand("de-1", "backhaul/udp")
+	h.requireActive(home, state.StateUp)
+	ms := h.act.eventsOf(state.EvSwitchTransport)
+	require.Len(t, ms, 1)
+	require.Equal(t, "active candidate removed by a configuration change", ms[0].Reason)
+	require.Equal(t, wg.Transport, ms[0].FromTransport)
+	require.Equal(t, home.Transport, ms[0].ToTransport)
+
+	// Only direct/native works now: the ladder walk never reaches
+	// wireguard/kernel, and no candidate of the new ladder is it.
+	h.act.block(home.Key(), true)
+	h.act.block("de-1/hysteria2/udp", true)
+	h.advanceUntil(2*time.Minute, isUpOn(dn))
+	ops := h.act.opSequence("start", "stop")
+	require.Equal(t, "stop "+wg.Key(), ops[0])
+	require.NotContains(t, ops, "start "+wg.Key())
+	tried := map[string]bool{}
+	for c, ok := home, true; ok; c, ok = NextCandidate(config.DefaultPolicy, tun.Nodes, builtin, c, tried, nil) {
+		require.NotEqual(t, wg, c)
+		tried[c.Key()] = true
+	}
+	require.Len(t, tried, len(builtin))
+	require.NotContains(t, h.st().Quarantine, wg.Key())
 }
 
 func TestSkippedRungsAreNotTried(t *testing.T) {
@@ -1456,7 +1826,7 @@ func TestTestLadderWhilePaused(t *testing.T) {
 		_, err := h.eng.TestLadder(ctx, nil)
 		return err
 	})
-	h.advance(time.Minute)
+	h.advance(6 * time.Minute) // 16 rungs, 20s each
 	require.NoError(t, h.wait(ch))
 	h.requireActive(r1, state.StatePaused)
 }

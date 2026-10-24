@@ -13,10 +13,18 @@
 
 | Transport id | Carries | Needs UDP between hub and node | Needs tunnel TLS | Stealth | Client IP |
 | --- | --- | --- | --- | --- | --- |
-| `hysteria2/udp` | tcp, udp | **yes** (QUIC) | no (own node certificate, below) | 3 | masked |
+| `hysteria2/udp` | tcp, udp | **yes** (QUIC with Salamander obfuscation) | no (own node certificate, below) | 3 | masked |
+
+Between hub and node the rung is QUIC wrapped in Salamander obfuscation,
+which is always on (`obfs` in both files below; the render refuses a tunnel
+without `obfs_password`). The node listens on its control port, a UDP port
+in 30000–31999; with `advanced.hysteria_port_hopping: true` the hub sends
+to 20000–20999 and the node redirects that range to the control port. The
+link between hub and node never uses port 443.
 
 The rung is only used after the UDP probe (spec section 10) passed; when UDP
-is blocked it is skipped with `DEY-B007` and a yellow event (S16).
+is blocked it is skipped with `DEY-B007` and a yellow event (S16). The probe
+only shows that plain datagrams pass, not that this rung's traffic does.
 
 ## Keys (`GenerateKeys`, pure Go)
 

@@ -228,7 +228,10 @@ func ackError(m nlMessage) error {
 	if code == 0 {
 		return nil
 	}
-	return syscall.Errno(-code)
+	if code > 0 {
+		return errors.New("netlink: malformed error code")
+	}
+	return syscall.Errno(-code) // #nosec G115 -- -code is a positive errno (checked above)
 }
 
 // parseAttrs returns the top-level attributes of b by type (nested flag

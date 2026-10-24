@@ -62,11 +62,11 @@ field `at`) and from the client log.
 | Block → UP on the next rung (S08) | ≤ 35 s at p95 | apply the block at t0; t1 = time of the `switch_transport` event (the tunnel is UP again); repeat 10 times; report p50, p95, max |
 | User interruption during a switch (S08) | ≤ 3 s | from t1 to the client's first good request after it (`lib.sh` `recovery_ms`); the longer outage from the block to that request (detection plus switch) is reported as well |
 | Manual switch between backends (phase 4, S32) | ≤ 3 s interruption | `deyroute tunnel switch main --transport rathole/noise`, then `frp/tcp`, then back; client interruption for each |
-| Failback after the block is removed (S09) | ≤ `failback_after_s` + 20 s | remove the block at t2; t3 = `failback` event; with a canary the failback may come earlier |
-| Failed failback (S10) | immediate return, delay doubled | block again at the moment of failback; expect `failback_failed` and a doubled delay in `deyroute tunnel show main` |
+| Failback after the block is removed (S09) | ≤ `failback_after_s` + 20 s, when `quarantine_s` ≤ `failback_after_s` | remove the block at t2; t3 = `failback` event; with a canary the failback may come earlier. Failback also waits for rung 1's quarantine, so set `quarantine_s` to `failback_after_s` (as S09 does); with the defaults the first failback comes about 10 minutes after the switch |
+| Failed failback (S10) | immediate return, delay doubled | set `quarantine_s` to `failback_after_s` (as S10 does); block again at the moment of failback; expect `failback_failed` and a doubled delay in `deyroute tunnel show main` |
 | Service down on the primary node (S11) | switch to the backup node without a transport switch | stop the service on node1; expect `service_down` and `switch_node` with the same transport |
 | Primary node network cut (S12) | backup node UP ≤ 45 s | cut all traffic of node1 at t0; t1 = `switch_node` event |
-| Seven blocks in one hour (S13) | `flapping`, tunnel stays on `direct/native` | repeat the S08 block 7 times within 60 minutes |
+| Seven blocks in one hour (S13) | `flapping`, tunnel stays on `direct/native` | set `quarantine_s` low (S13 uses 5 s: rung 1's quarantine doubles every round and failback waits for it); repeat the S08 block 7 times within 60 minutes |
 | Update of deyroute (S19) | no lost requests | run `deyroute update` while the client runs; count failed requests |
 
 Report for every run: date, deyroute version and commit, server type and
@@ -94,7 +94,7 @@ WireGuard module). One scenario at a time; the logs are
 | Client back after the switch (S08) | ≤ 3 s | 69–737 ms (median 228 ms) | 10 |
 | Client outage from the block (S08; detection plus switch) | — | 16.0–16.6 s | 10 |
 | Manual switch backhaul/wssmux → rathole/noise → frp/tcp → backhaul/wssmux (S32) | ≤ 3 s each | 1472 ms, 0 ms, 0 ms (UP after 3.2 s, 1.2 s, 1.2 s) | 1 × 3 |
-| Failback after unblock (S09, `failback_after_s` 60) | ≤ 80 s | 38 s after the unblock (the failback delay runs from the switch) | 1 |
+| Failback after unblock (S09, `failback_after_s` 60) | ≤ 80 s | 38 s after the unblock (the failback delay runs from the switch; before failback waited for rung 1's quarantine, which S09 now sets to 60 s) | 1 |
 | Backup node after network cut (S12) | ≤ 45 s | 23 s | 1 |
 | Lost requests during the update of hub and node (S19) | 0 | 0 of 67 | 1 |
 | Backhaul with 500 concurrent connections (S25, `backhaul/tcpmux`) | ≤ 150 MB, no errors | 500 of 500 complete; peak memory of the unit: hub 34 MB, node 35 MB | 1 |
@@ -122,7 +122,7 @@ WireGuard module). One scenario at a time; the logs are
 | Block → UP on next rung (S08) | ≤ 35 s (p95) | pending | pending | pending | pending |
 | User interruption at switch (S08) | ≤ 3 s | pending | pending | pending | pending |
 | Manual switch interruption | ≤ 3 s | pending | pending | pending | pending |
-| Failback after unblock (S09) | ≤ `failback_after_s` + 20 s | pending | pending | pending | pending |
+| Failback after unblock (S09) | ≤ `failback_after_s` + 20 s (`quarantine_s` ≤ `failback_after_s`) | pending | pending | pending | pending |
 | Backup node after network cut (S12) | ≤ 45 s | pending | pending | pending | pending |
 | Lost requests during update (S19) | 0 | pending | pending | pending | pending |
 

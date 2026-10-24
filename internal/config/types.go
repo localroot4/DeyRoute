@@ -125,11 +125,16 @@ var DefaultLadder = []string{
 	"direct/native",
 }
 
-// DefaultUDPLadder is used for UDP-only tunnels (section 8).
+// DefaultUDPLadder is used for UDP-only tunnels (section 8). It has no
+// wireguard/kernel rung: a field report of 2026-10-17 measured plain
+// WireGuard blocked over IPv4 and IPv6 in the direction that rung uses (hub
+// dials node), while the UDP echo probe still passed, so the rung was picked
+// and then flapped. Owners who want it add it to a ladder of their own. The
+// profile is resolved at run time and never written to config.yaml, so a
+// change here reaches existing tunnels on update.
 var DefaultUDPLadder = []string{
 	"backhaul/udp",
 	"hysteria2/udp",
-	"wireguard/kernel",
 	"direct/native",
 }
 

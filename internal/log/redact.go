@@ -391,7 +391,7 @@ func redactJSON(data []byte) ([]byte, error) {
 		}
 		switch v := tok.(type) {
 		case json.Delim: // '{' or '['
-			out = append(out, byte(v))
+			out = append(out, byte(v)) // #nosec G115 -- a JSON delimiter, '{' or '['
 			stack = append(stack, frame{object: v == '{', wantKey: v == '{'})
 		case string:
 			out = appendJSONString(out, Redact(v))

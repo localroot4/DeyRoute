@@ -7,8 +7,9 @@
 // Telegram is the only outbound message DEYROUTE sends and only when the owner
 // enabled it; nothing else ever leaves the servers (section 0, rule 7: no
 // telemetry). Because api.telegram.org is often unreachable from Iranian
-// datacenters, delivery goes through a chain of Senders: direct HTTPS first,
-// then an online node performing the same POST (QUESTIONS.md C.18).
+// datacenters, delivery goes through a chain of Senders: on the hub an
+// online node performing the POST first (control command http.post), then
+// direct HTTPS, at once when no node is online (QUESTIONS.md C.18).
 package notify
 
 import (

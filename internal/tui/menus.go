@@ -527,7 +527,9 @@ func notifyMenu(a *app) screen {
 			}))
 		}},
 		{label: i18n.TUINtTest, act: func(a *app) tea.Cmd {
-			return a.push(newTask(i18n.T(i18n.TUINtTest), callTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
+			// The hub may take up to a minute: through the online nodes
+			// first, then directly.
+			return a.push(newTask(i18n.T(i18n.TUINtTest), checkTimeout, func(ctx context.Context, l api.Local, _ func(api.Step)) (any, error) {
 				return nil, l.NotifyTelegramTest(ctx)
 			}, textResult(i18n.T(i18n.TUINtSent))))
 		}},

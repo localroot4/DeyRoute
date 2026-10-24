@@ -3,6 +3,11 @@
 # Each round blocks the active rung until the tunnel moves, then lifts the
 # block so the failback to rung 1 comes quickly; every move counts towards
 # max_switches_per_hour (spec section 9) until the tunnel is held as flapping.
+# Failback never targets a quarantined rung 1, and rung 1 keeps its
+# quarantine duration across a pass, so its quarantine doubles every round
+# (5, 10, 20s with quarantine_s 5): small enough that failback_after_s still
+# sets the pace of every failback before flapping (round 4 with the default
+# max_switches_per_hour 6). With the default 600s round 1 would wait for it.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 needs_online "a ladder with more than one rung"
@@ -12,6 +17,7 @@ serve_http node1 443 1
 T=$(add_tunnel "$NODE1" 443)
 wait_tunnel_up "$T" 180
 set_failover failback_after_s 20
+set_failover quarantine_s 5
 first=$(active_transport "$T")
 for i in $(seq 10); do
   has_event flapping "$T" && break

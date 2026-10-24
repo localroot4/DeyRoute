@@ -204,7 +204,7 @@ func TestTransportsAndManifest(t *testing.T) {
 	require.True(t, k[0].NeedsUDP)
 	require.False(t, k[0].NeedsTLS)
 	require.Equal(t, 1, k[0].Stealth)
-	require.False(t, k[0].Optional)
+	require.True(t, k[0].Optional, "wireguard/kernel is in no default ladder")
 	require.False(t, k[0].ClientIPPreserved)
 
 	a := NewAWG().Transports()

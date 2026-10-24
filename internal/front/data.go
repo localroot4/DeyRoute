@@ -120,7 +120,7 @@ func EncodePreface(token string, port int, node string, now time.Time) ([]byte, 
 	ts := now.Unix()
 	var b bytes.Buffer
 	b.WriteByte(prefaceVersion)
-	b.WriteByte(byte(len(node)))
+	b.WriteByte(byte(len(node))) // #nosec G115 -- at most maxNodeIDLen (checked above)
 	b.WriteString(node)
 	var t [8]byte
 	binary.BigEndian.PutUint64(t[:], uint64(ts)) // #nosec G115 -- unix seconds

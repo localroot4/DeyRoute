@@ -302,7 +302,7 @@ func pbeEncrypt(data, password []byte) (pkix.AlgorithmIdentifier, []byte, error)
 	buf := make([]byte, len(data)+pad)
 	copy(buf, data)
 	for i := len(data); i < len(buf); i++ {
-		buf[i] = byte(pad)
+		buf[i] = byte(pad) // #nosec G115 -- 1..block size (8 or 16)
 	}
 	cipher.NewCBCEncrypter(block, iv).CryptBlocks(buf, buf)
 	return pkix.AlgorithmIdentifier{Algorithm: oidPBEWithSHA3KeyTDESCBC, Parameters: asn1.RawValue{FullBytes: params}}, buf, nil
@@ -367,7 +367,7 @@ func addBlock(blk, b []byte) {
 	carry := 1
 	for k := len(blk) - 1; k >= 0; k-- {
 		sum := int(blk[k]) + int(b[k]) + carry
-		blk[k] = byte(sum)
+		blk[k] = byte(sum) // #nosec G115 -- the low byte; the carry keeps the rest
 		carry = sum >> 8
 	}
 }
@@ -389,7 +389,7 @@ func bmpString(s string) ([]byte, error) {
 		if r1, _ := utf16.EncodeRune(r); r1 != 0xfffd || r > 0xffff {
 			return nil, deyerr.Plain("the password contains characters outside the Basic Multilingual Plane")
 		}
-		out = append(out, byte(r>>8), byte(r))
+		out = append(out, byte(r>>8), byte(r)) // #nosec G115 -- r <= 0xffff (checked above)
 	}
 	return out, nil
 }

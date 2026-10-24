@@ -594,7 +594,7 @@ func TestLadderEditorSimpleAndAdvanced(t *testing.T) {
 	h.choose("5")
 	h.must("7) Thresholds *")
 	h.choose("2").choose("1")
-	h.must("Ladder of main", "UDP is open in the Iran datacenter", "put hysteria2/udp second")
+	h.must("Ladder of main", "UDP passes between hub and node", "put hysteria2/udp second, then test-ladder")
 	h.press("s")
 	h.must("Nothing changed.")
 	h.choose("1")

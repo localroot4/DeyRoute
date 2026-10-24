@@ -703,7 +703,16 @@ func newTunnelTestLadderCmd(g *Globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := g.confirm(i18n.T(i18n.CLITestLadderLost, id, int(testLadderRung/time.Second)), yes); err != nil {
+			var about ladderTestInfo
+			if !yes || !g.JSON {
+				about = ladderTestInfoOf(cmd.Context(), l, id)
+			}
+			secs := int(testLadderRung / time.Second)
+			lost := i18n.T(i18n.CLITestLadderLostNoTotal, id, secs)
+			if about.rungs > 0 {
+				lost = i18n.T(i18n.CLITestLadderLost, id, secs, about.rungs)
+			}
+			if err := g.confirm(lost, yes); err != nil {
 				return err
 			}
 			p := g.newProgress()
@@ -737,11 +746,47 @@ func newTunnelTestLadderCmd(g *Globals) *cobra.Command {
 			}
 			g.table([]string{i18n.T(i18n.CLIColNode), i18n.T(i18n.TUIColTransport), i18n.T(i18n.CLIColResult),
 				i18n.T(i18n.TUIColRTT), i18n.T(i18n.CLIColDetail)}, rows)
+			if about.udpOnly {
+				g.say(i18n.CLITestLadderUDPOnly, id)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
 	return cmd
+}
+
+// ladderTestInfo is what test-ladder says around the test: how many rungs
+// it tries (the duration in the confirmation) and whether the tunnel
+// forwards UDP only (its rungs are then checked by their units, section 9).
+type ladderTestInfo struct {
+	rungs   int
+	udpOnly bool
+}
+
+// ladderTestInfoOf asks the daemon for tunnel id. A failed call returns the
+// zero value, which only leaves those texts out: the test itself reports a
+// missing tunnel or an unreachable daemon.
+func ladderTestInfoOf(ctx context.Context, l api.Local, id string) ladderTestInfo {
+	cctx, cancel := callCtx(ctx)
+	defer cancel()
+	d, err := l.TunnelShow(cctx, id)
+	if err != nil {
+		return ladderTestInfo{}
+	}
+	var info ladderTestInfo
+	for _, r := range d.Rungs {
+		if r.Skipped == "" {
+			info.rungs++
+		}
+	}
+	info.udpOnly = len(d.Ports) > 0
+	for _, p := range d.Ports {
+		if p.Proto != config.ProtoUDP {
+			info.udpOnly = false
+		}
+	}
+	return info
 }
 
 func newTunnelBackupCmd(g *Globals, add bool) *cobra.Command {

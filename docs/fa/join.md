@@ -99,6 +99,18 @@ deyroute node test de-1
 
 اگر آدرس **Hub** عوض شود، باید به Nodeها خبر داد: صفحه [جابه‌جایی Hub](hub-move.md).
 
+## Node را از طریق IPv6 وصل نکنید
+
+همه Nodeها را روی `hub.public_ip` سرور Hub نگه دارید. اگر این آدرس IPv4 است، Node را به آدرس IPv6 سرور Hub وصل نکنید (`deyroute node set-hub [IPv6]:44433`) و برای دور زدن این محدودیت هم `hub.public_ip` را به یک آدرس IPv6 عوض نکنید. IPv6 بین Hub و Node پشتیبانی نمی‌شود: در این حالت فایروال Hub آن Node را فقط از آدرس IPv6 جدیدش می‌پذیرد، در حالی که ترنسپورت‌هایی که در آن‌ها Node به Hub وصل می‌شود (Backhaul، rathole، FRP، Waterwall، gost، chisel) هنوز از آدرس IPv4 سرور Node به `hub.public_ip` می‌روند و دور انداخته می‌شوند.
+
+اگر این اتفاق افتاده باشد، رویداد `node_ip_changed` (`deyroute events`؛ و تلگرام، اگر این رویداد را انتخاب کرده باشید) و `hub.log` آن را می‌گویند و دستور برگشت را هم نام می‌برند، مثلاً:
+
+```text
+node de-1 public IP changed from 1.2.3.4 to 2001:db8::7; IPv6 between hub and node is not supported yet; to go back, run on the node: deyroute node set-hub 5.6.7.8:44433 (…)
+```
+
+همان دستور را روی Node اجرا کنید. وقتی Node به IPv4 برگشت، یک رویداد `node_ip_changed` دیگر می‌گوید که فایروال Hub دوباره آن ترنسپورت‌ها را می‌پذیرد. این راهنما وقتی نشان داده نمی‌شود که deyroute فایروال را مدیریت نمی‌کند (`security.firewall_managed: false`) یا Node از طریق [Front کلودفلر](front.md) وصل می‌شود.
+
 ## نسخه ناسازگار
 
 Hub و Node باید نسخه major.minor یکسان داشته باشند (مثلاً 1.0.x با 1.0.x). Nodeی که نسخه دیگری دارد وصل می‌شود، در `deyroute node list` با `(incompatible)` نشان داده می‌شود و تا آپدیت نشود هیچ دستوری اجرا نمی‌کند (`DEY-N004`). Join command خودش نسخه Hub را تعیین می‌کند، پس این وضعیت معمولاً فقط بعد از آپدیت یک طرف پیش می‌آید. برای رفعش هر دو را به یک نسخه برسانید:
