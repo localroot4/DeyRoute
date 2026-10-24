@@ -31,7 +31,7 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
       - uses: golangci/golangci-lint-action@v8
-        with: { version: v2.5.0 }
+        with: { version: v2.13.2 }
       - name: shellcheck scripts
         run: find installer scripts test -name '*.sh' -print0 | xargs -0 -r shellcheck
       - name: installer size budget (<= 250 lines)

@@ -225,7 +225,7 @@ func TestCloneDeep(t *testing.T) {
 func assertNoAliasing(t *testing.T, a, b reflect.Value, path string) {
 	t.Helper()
 	switch a.Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if a.IsNil() || b.IsNil() {
 			return
 		}

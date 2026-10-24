@@ -130,8 +130,11 @@ func parseQdiscDump(b []byte, seq uint32, index int) (done bool, kind string, er
 				return false, kind, errNetlink
 			}
 			code := int32(ne.Uint32(msg)) // #nosec G115 -- the kernel's negative errno
+			if code > 0 {
+				return false, kind, errNetlink
+			}
 			if code != 0 {
-				return false, kind, syscall.Errno(-code)
+				return false, kind, syscall.Errno(-code) // #nosec G115 -- -code is a positive errno (checked above)
 			}
 		case unix.RTM_NEWQDISC:
 			if len(msg) < sizeofTcMsg {

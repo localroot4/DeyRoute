@@ -19,7 +19,7 @@ make screens      # redraw the screenshots after a change to the output
 test/integration/run.sh S01   # one integration scenario in systemd containers
 ```
 
-Go 1.25 or newer. The integration scenarios need Docker; see the head of
+Go 1.26 or newer. The integration scenarios need Docker; see the head of
 `test/integration/run.sh`.
 
 ## Pull requests

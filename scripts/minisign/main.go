@@ -106,7 +106,7 @@ func sign(args []string) error {
 	name := (*in)[strings.LastIndex(*in, "/")+1:]
 	trusted := fmt.Sprintf("timestamp:%d\tfile:%s", time.Now().Unix(), name)
 	sig := minisign.SignWithComments(key, msg, trusted, "signature from DEYROUTE release key")
-	return os.WriteFile(*out, sig, 0o644) // #nosec G306 -- signature is public
+	return os.WriteFile(*out, sig, 0o644) // #nosec G306 G703 -- developer tool; the path is the maintainer's flag and the signature is public
 }
 
 func verify(args []string) error {

@@ -264,7 +264,7 @@ func (g *Globals) configEdit(ctx context.Context) error {
 	// command or the menu may have saved it meanwhile (tunnel add, node
 	// rename …), and replacing it would silently undo that change. The
 	// edited copy is kept for the owner.
-	if cur, err := os.ReadFile(g.configPath()); err != nil || !bytes.Equal(cur, orig) {
+	if cur, err := os.ReadFile(g.configPath()); err != nil || !bytes.Equal(cur, orig) { // #nosec G703 -- the fixed config path below --root
 		_ = os.WriteFile(tmpPath, body, 0o600)
 		keepCopy = true
 		return deyerr.New(deyerr.C024, deyerr.Params{"path": config.DefaultPath, "copy": tmpPath})

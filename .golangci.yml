@@ -45,6 +45,16 @@ linters:
     rules:
       - path: _test\.go
         linters: [gosec, errcheck]
+      # The control channel serves and dials HTTP/2 on connections it owns
+      # (golang.org/x/net/http2 ServeConn and Transport). x/net marks these
+      # deprecated in favour of net/http, which has no per-connection
+      # equivalent yet; the security fixes are in x/net v0.60.0+.
+      - linters: [staticcheck]
+        text: "SA1019: .*golang.org/x/net/http2"
+      # Message catalogue: words such as "token" in user-facing text.
+      - path: internal/i18n/
+        linters: [gosec]
+        text: "G101"
       - path: internal/deps/
         linters: [revive]
 

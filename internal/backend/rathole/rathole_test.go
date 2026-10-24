@@ -262,9 +262,13 @@ type failingReader struct{}
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("no entropy") }
 
 func TestGenerateKeysFailure(t *testing.T) {
+	// Since Go 1.26 (go.mod go 1.26), X25519 key generation ignores the
+	// reader it is given and draws from crypto/rand (GODEBUG
+	// cryptocustomrand), so a failing reader still yields a key pair.
 	b := &Backend{rand: failingReader{}}
-	_, err := b.GenerateKeys(transport(t, Noise))
-	require.True(t, deyerr.HasCode(err, deyerr.B009), "%v", err)
+	pair, err := b.GenerateKeys(transport(t, Noise))
+	require.NoError(t, err)
+	require.Len(t, pair, 2)
 
 	// A zero Backend falls back to crypto/rand.
 	keys, err := (&Backend{}).GenerateKeys(transport(t, Noise))
