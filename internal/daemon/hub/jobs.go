@@ -51,8 +51,11 @@ const (
 	// with its new certificate (rotate-ca).
 	DefaultNodeReconnectWait = 30 * time.Second
 
-	// decoyTimeout bounds one decoy handshake.
+	// decoyTimeout bounds one decoy check (the lookup and the handshake).
 	decoyTimeout = 5 * time.Second
+	// decoyMinConnect is the least time a connect to one of several decoy
+	// addresses gets, as in Go's own dialer.
+	decoyMinConnect = 2 * time.Second
 	// nodeUpdateTimeout bounds one self.update of a node.
 	nodeUpdateTimeout = 10 * time.Minute
 	// metricsCallTimeout bounds the node metrics command.
@@ -126,8 +129,9 @@ func (h *Hub) requestDecoyCheck() {
 
 // checkDecoys tests hub.decoy_snis (or the built-in list) in order with a
 // TLS 1.3 + HTTP/2 handshake from the hub; the first that answers becomes the decoy
-// of the Reality transports (section 7.4). The check dials over the family
-// of hub.public_ip, and a name that resolves to private addresses only fails
+// of the Reality transports (section 7.4). The check dials the public
+// addresses the name resolves to from the hub, over the family of
+// hub.public_ip; a name that resolves to private addresses only fails
 // before the dial. When it changed, the tunnels are rendered again. When
 // none answers the last choice stays and a warning event (DEY-B042) is
 // emitted with the reason of every decoy.
@@ -142,9 +146,9 @@ func (h *Hub) checkDecoys(ctx context.Context) {
 	var reasons []string
 	for _, sni := range cands {
 		cctx, cancel := context.WithTimeout(ctx, decoyTimeout)
-		err := h.decoyResolvesPublic(cctx, network, sni)
+		addrs, err := h.decoyAddrs(cctx, network, sni)
 		if err == nil {
-			err = h.o.DecoyCheck(cctx, network, sni)
+			err = h.o.DecoyCheck(cctx, network, sni, addrs)
 		}
 		cancel()
 		if ctx.Err() != nil {
@@ -197,49 +201,132 @@ func decoyNetwork(cfg *config.Config) string {
 	return "tcp"
 }
 
-// decoyResolvesPublic looks sni up as the hub sees it and fails when no
-// answer is a public address (setup.IsPublicIP: every one is private,
-// CGNAT, loopback, link-local or unspecified): DNS tampering answers
-// blocked names with such addresses, and the handshake would only fail
-// with an unclear connect or TLS error. A failed or empty lookup is left
-// to the decoy check itself.
-func (h *Hub) decoyResolvesPublic(ctx context.Context, network, sni string) error {
+// decoyAddrs looks sni up as the hub sees it and returns its public answers
+// (decoyAddrPublic), which the decoy check dials: the address tested is the
+// one checked here, and the name is not looked up twice within
+// decoyTimeout. It fails when no answer is public: DNS tampering answers
+// blocked names with private or reserved addresses, and the handshake
+// would only fail with an unclear connect or TLS error. A failed or empty
+// lookup returns no addresses: the check then dials the name and reports
+// the lookup error itself.
+func (h *Hub) decoyAddrs(ctx context.Context, network, sni string) ([]netip.Addr, error) {
 	ipNet := "ip"
 	if network == "tcp4" {
 		ipNet = "ip4"
 	}
-	addrs, err := h.o.DecoyResolver(ctx, ipNet, sni)
-	if err != nil || len(addrs) == 0 {
-		return nil
+	answers, err := h.o.DecoyResolver(ctx, ipNet, sni)
+	if err != nil || len(answers) == 0 {
+		return nil, nil
 	}
-	shown := make([]string, 0, len(addrs))
-	for _, a := range addrs {
-		if setup.IsPublicIP(a) {
-			return nil
+	var public []netip.Addr
+	shown := make([]string, 0, len(answers))
+	for _, a := range answers {
+		a = a.Unmap()
+		if decoyAddrPublic(a) {
+			public = append(public, a)
 		}
-		shown = append(shown, a.Unmap().String())
+		shown = append(shown, a.String())
 	}
-	return fmt.Errorf("resolves to a private address from the hub (%s; DNS tampering?)", strings.Join(shown, ", "))
+	if len(public) == 0 {
+		return nil, fmt.Errorf("resolves to a private address from the hub (%s; DNS tampering?)", strings.Join(shown, ", "))
+	}
+	return public, nil
+}
+
+var (
+	// global6 is the IPv6 global unicast space every public address is
+	// allocated from (RFC 4291).
+	global6 = netip.MustParsePrefix("2000::/3")
+	// nat64 and nat64Local are the NAT64 prefixes (RFC 6052, RFC 8215):
+	// DNS64 answers an IPv4-only name with them on an IPv6-only hub.
+	nat64      = netip.MustParsePrefix("64:ff9b::/96")
+	nat64Local = netip.MustParsePrefix("64:ff9b:1::/48")
+)
+
+// decoyAddrPublic reports whether a decoy answer is a public address:
+// setup.IsPublicIP, and for IPv6 also inside 2000::/3, since the reserved
+// addresses DNS tampering injects as AAAA answers (d0::11, the
+// IPv4-compatible ::a0a:2223 of 10.10.34.35) are global unicast to Go. A
+// well-known NAT64 address counts by the IPv4 address it embeds; a
+// local-use one (whose embedding varies) counts as public.
+func decoyAddrPublic(a netip.Addr) bool {
+	a = a.Unmap()
+	switch {
+	case a.Is4():
+		return setup.IsPublicIP(a)
+	case nat64.Contains(a):
+		b := a.As16()
+		return setup.IsPublicIP(netip.AddrFrom4([4]byte(b[12:])))
+	case nat64Local.Contains(a):
+		return true
+	}
+	return global6.Contains(a) && setup.IsPublicIP(a)
 }
 
 // checkDecoyTLS is the default Options.DecoyCheck: a TLS 1.3 handshake with
-// sni:443 over network whose certificate verifies against the system roots
-// and that agrees on HTTP/2, as REALITY needs of its target.
-func checkDecoyTLS(ctx context.Context, network, sni string) error {
-	return decoyHandshake(ctx, network, sni, net.JoinHostPort(sni, "443"), nil)
+// sni on port 443 over network whose certificate verifies against the
+// system roots and that agrees on HTTP/2, as REALITY needs of its target.
+// It dials addrs (the public answers of decoyAddrs) in order, or the name
+// when the lookup gave none.
+func checkDecoyTLS(ctx context.Context, network, sni string, addrs []netip.Addr) error {
+	dial := []string{net.JoinHostPort(sni, "443")}
+	if len(addrs) > 0 {
+		dial = make([]string, len(addrs))
+		for i, a := range addrs {
+			dial[i] = netip.AddrPortFrom(a, 443).String()
+		}
+	}
+	return decoyHandshake(ctx, network, sni, dial, nil)
 }
 
-// decoyHandshake runs the decoy check against addr over network; nil roots
+// decoyHandshake runs the decoy check against the first of addrs (at least
+// one) that answers over network, and returns the first error when none
+// does. As in Go's own dialer, a connect gets an equal share of the time
+// left (at least decoyMinConnect) and the handshake the rest. nil roots
 // means the system roots.
-func decoyHandshake(ctx context.Context, network, sni, addr string, roots *x509.CertPool) error {
-	d := tls.Dialer{Config: &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS13,
-		NextProtos: []string{"h2", "http/1.1"}, RootCAs: roots}}
-	conn, err := d.DialContext(ctx, network, addr)
+func decoyHandshake(ctx context.Context, network, sni string, addrs []string, roots *x509.CertPool) error {
+	cfg := &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2", "http/1.1"}, RootCAs: roots}
+	var first error
+	for i, addr := range addrs {
+		err := decoyHandshakeAt(ctx, network, addr, len(addrs)-i, cfg)
+		if err == nil {
+			return nil
+		}
+		if first == nil {
+			first = err
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return first
+}
+
+// decoyHandshakeAt is decoyHandshake for one address, with left addresses
+// (this one included) still to try.
+func decoyHandshakeAt(ctx context.Context, network, addr string, left int, cfg *tls.Config) error {
+	cctx, cancel := ctx, context.CancelFunc(func() {})
+	if dl, ok := ctx.Deadline(); ok && left > 1 {
+		remain := time.Until(dl)
+		share := remain / time.Duration(left)
+		if share < decoyMinConnect {
+			share = min(remain, decoyMinConnect)
+		}
+		cctx, cancel = context.WithTimeout(ctx, share)
+	}
+	var d net.Dialer
+	raw, err := d.DialContext(cctx, network, addr)
+	cancel()
 	if err != nil {
 		return err
 	}
+	conn := tls.Client(raw, cfg)
 	defer func() { _ = conn.Close() }()
-	if p := conn.(*tls.Conn).ConnectionState().NegotiatedProtocol; p != "h2" {
+	if err := conn.HandshakeContext(ctx); err != nil {
+		return err
+	}
+	if p := conn.ConnectionState().NegotiatedProtocol; p != "h2" {
 		return fmt.Errorf("no HTTP/2 (ALPN %q)", p)
 	}
 	return nil

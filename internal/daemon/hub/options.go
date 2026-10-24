@@ -175,13 +175,16 @@ type Options struct {
 	// tlsutil.ObtainACME (Let's Encrypt).
 	ObtainACME func(ctx context.Context, o tlsutil.ACMEOptions) (certPEM, keyPEM []byte, err error)
 	// DecoyCheck tests one decoy SNI of the Reality transports (section
-	// 7.4: a TLS 1.3 handshake from the hub to sni:443 over network, "tcp4"
-	// when hub.public_ip is IPv4, else "tcp"); nil = the real handshake
-	// verified against the system roots.
-	DecoyCheck func(ctx context.Context, network, sni string) error
+	// 7.4: a TLS 1.3 handshake from the hub to sni on port 443 over
+	// network, "tcp4" when hub.public_ip is IPv4, else "tcp"). addrs are
+	// the public answers of DecoyResolver, dialed in order; none (the
+	// lookup failed) = dial the name. nil = the real handshake verified
+	// against the system roots.
+	DecoyCheck func(ctx context.Context, network, sni string, addrs []netip.Addr) error
 	// DecoyResolver looks up a decoy SNI before DecoyCheck ("ip4" for a
-	// "tcp4" check, else "ip"): a name whose every address is private fails
-	// without a dial (DNS tampering); nil = net.DefaultResolver.LookupNetIP.
+	// "tcp4" check, else "ip"): a name whose every address is private or
+	// reserved fails without a dial (DNS tampering); nil =
+	// net.DefaultResolver.LookupNetIP.
 	DecoyResolver func(ctx context.Context, network, host string) ([]netip.Addr, error)
 	// Job timings; zero values take the defaults of jobs.go: the decoy
 	// check every 6 h (DecoyInterval), the TLS renewal pass and the optional

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -361,7 +362,7 @@ func TestAssetOtherArchitectureFromTheSignedRelease(t *testing.T) {
 func TestDecoyListChangeIsCheckedAtOnce(t *testing.T) {
 	checked := make(chan string, 64)
 	env := startHub(t, nil, func(o *Options, _ string) {
-		o.DecoyCheck = func(_ context.Context, _, sni string) error {
+		o.DecoyCheck = func(_ context.Context, _, sni string, _ []netip.Addr) error {
 			select {
 			case checked <- sni:
 			default:
@@ -390,7 +391,7 @@ func TestDecoyListChangeIsCheckedAtOnce(t *testing.T) {
 func TestConfigApplyChecksAnEditedDecoyList(t *testing.T) {
 	checked := make(chan string, 64)
 	env := startHub(t, nil, func(o *Options, _ string) {
-		o.DecoyCheck = func(_ context.Context, _, sni string) error {
+		o.DecoyCheck = func(_ context.Context, _, sni string, _ []netip.Addr) error {
 			select {
 			case checked <- sni:
 			default:

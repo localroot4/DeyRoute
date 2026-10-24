@@ -121,7 +121,7 @@ func prepareEnv(t *testing.T, edit func(c *config.Config), opts ...envOption) (*
 		// No test reaches the internet: decoys resolve to a public address
 		// and always answer, and downloads fail at once (a test that
 		// downloads sets its own Fetcher).
-		DecoyCheck:    func(context.Context, string, string) error { return nil },
+		DecoyCheck:    func(context.Context, string, string, []netip.Addr) error { return nil },
 		DecoyResolver: publicResolver,
 		Fetcher:       offlineFetcher{},
 		RestartDelay:  time.Millisecond,
