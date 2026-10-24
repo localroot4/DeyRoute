@@ -332,7 +332,7 @@ var catalog = map[Code]Info{
 		"no tunnel with that id exists in config.yaml",
 		"list the tunnels with: deyroute tunnel list"},
 	C022: {C022, "Ladder '{ladder}' is built in and cannot be changed",
-		"the builtin ladders (default, udp-default) follow section 8 of the specification and are read-only here",
+		"the builtin ladders (default, udp-default) come with deyroute and may change with its updates; they are read-only here",
 		"create your own ladder: deyroute ladder create <name> --rungs a,b,c   then: deyroute tunnel edit <id> --ladder <name>"},
 	C023: {C023, "Ladder '{ladder}' is in use",
 		"tunnels {tunnels} use this ladder",
