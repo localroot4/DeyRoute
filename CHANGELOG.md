@@ -6,6 +6,15 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Security — HTTP/2 fixes
+
+- `golang.org/x/net` is updated to v0.61.0 for the HTTP/2 advisories
+  GO-2026-6603, GO-2026-6610, GO-2026-6611, GO-2026-6612 and
+  GO-2026-6617 (flow control, SETTINGS frames, HPACK, trailers and framing
+  headers), which reach the hub–node control channel. Release binaries are
+  built with a current Go toolchain, which carries the same fixes for
+  `net/http`. The module now needs Go 1.26 to build.
+
 ### Changed — the UDP-only ladder has no WireGuard rung
 
 - The built-in `udp-default` ladder (tunnels whose ports are all UDP) is now
