@@ -201,6 +201,9 @@ func New(o Options) (_ *Hub, err error) {
 	h.traffic = newHubTraffic(h)
 	h.reloadNotifier(cfg)
 	h.migrateAutoUpdate()
+	// Releases kept for the nodes of versions this hub neither runs nor
+	// rolls back to (an installer upgrade leaves the old one behind).
+	h.pruneBundles()
 
 	ln, err := net.Listen("tcp", o.controlListen(cfg.Hub.ControlPort))
 	if err != nil {

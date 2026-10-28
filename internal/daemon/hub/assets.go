@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
@@ -35,7 +34,9 @@ type fileDigest struct {
 // own architecture is served from SelfBinary; another architecture from
 // the cache Root/var/lib/deyroute/bin/deyroute-<version>-<arch>, which is filled
 // on first use with the signed release archive of the same version
-// downloaded through the fetcher chain (via a node first).
+// downloaded through the fetcher chain (via a node first). This is the
+// path of nodes without signed updates; a node with them gets the signed
+// release (releaseBundle) and never SelfBinary (refuseOwnBinary).
 func (h *Hub) asset(ctx context.Context, arch string) (api.AssetInfo, error) {
 	info, err := h.assetFor(ctx, arch)
 	if err != nil {
@@ -81,7 +82,8 @@ func (h *Hub) assetCachePath(arch string) string {
 }
 
 // downloadAsset fetches, verifies (SHA256SUMS + minisign) and caches the
-// deyroute binary of arch.
+// deyroute binary of arch, and keeps the signed release it came from for
+// the nodes with signed updates (bundle.go).
 func (h *Hub) downloadAsset(ctx context.Context, arch, dst string) error {
 	file := install.ArchiveName(version.Version, arch)
 	if !isRelease(version.Version) {
@@ -89,20 +91,12 @@ func (h *Hub) downloadAsset(ctx context.Context, arch, dst string) error {
 			WithWhy("this hub runs a development build (" + version.Version + "); only release builds can be downloaded for another architecture").
 			WithFix("install a release build on the hub (deyroute update), or install the node with the installer directly")
 	}
-	work, err := os.MkdirTemp(ensureDir(h.path(DownloadDir)), "asset-"+arch+"-")
+	rel, cleanup, err := h.downloadRelease(ctx, arch)
 	if err != nil {
-		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": h.path(DownloadDir)})
+		return err
 	}
-	defer func() { _ = os.RemoveAll(work) }()
-	rel, err := install.DownloadRelease(ctx, install.ReleaseOptions{
-		Fetcher:   h.Fetcher(),
-		Sources:   h.sources(),
-		Version:   version.Version,
-		Arch:      arch,
-		PublicKey: h.o.MinisignKey,
-		WorkDir:   work,
-	})
-	if err != nil {
+	defer cleanup()
+	if err := h.storeBundle(ctx, rel, arch); err != nil {
 		return err
 	}
 	if err := copyFileAtomic(rel.Binary, dst, 0o755); err != nil {
@@ -120,14 +114,7 @@ func (h *Hub) sources() []install.Source {
 }
 
 // isRelease reports whether v is a SemVer release (not "dev").
-func isRelease(v string) bool {
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	if v == "" || v == "dev" {
-		return false
-	}
-	_, ok := install.CompareVersions(v, v)
-	return ok
-}
+func isRelease(v string) bool { return install.IsReleaseVersion(v) }
 
 // ensureDir creates dir (0700) and returns it.
 func ensureDir(dir string) string {

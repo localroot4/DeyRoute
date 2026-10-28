@@ -83,7 +83,8 @@ type ControlClient struct {
 	// OnConnected / OnDisconnected are called when the stream opens / ends.
 	OnConnected    func()
 	OnDisconnected func()
-	// OnHubHello is called with the hub's hello (version, Compatible).
+	// OnHubHello is called with the hub's hello (version, Compatible,
+	// Features).
 	OnHubHello func(Hello)
 
 	// BackoffMin / BackoffMax bound the reconnect delay (defaults 1 s / 30 s).

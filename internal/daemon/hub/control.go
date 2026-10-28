@@ -46,13 +46,21 @@ func (c controlHandler) Upload(ctx context.Context, id, nodeID string, body io.R
 }
 
 // Asset implements api.ControlHandler.
-func (c controlHandler) Asset(ctx context.Context, _, arch string) (api.AssetInfo, error) {
+func (c controlHandler) Asset(ctx context.Context, nodeID, arch string) (api.AssetInfo, error) {
+	if err := c.h.refuseOwnBinary(nodeID, arch); err != nil {
+		c.h.logAssetError(arch, err)
+		return api.AssetInfo{}, err
+	}
 	return c.h.asset(ctx, arch)
 }
 
 // Release implements api.ControlHandler.
-func (c controlHandler) Release(context.Context, string, string) (api.ReleaseBundle, error) {
-	return api.ReleaseBundle{}, deyerr.New(deyerr.X008, deyerr.Params{"feature": "signed release"})
+func (c controlHandler) Release(ctx context.Context, _, arch string) (api.ReleaseBundle, error) {
+	b, err := c.h.releaseBundle(ctx, arch)
+	if err != nil {
+		c.h.log.Warn("cannot serve the signed release", slog.String("arch", arch), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+	}
+	return b, err
 }
 
 // errNoChange aborts a config mutation that would not change anything.

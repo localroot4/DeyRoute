@@ -138,7 +138,7 @@ func (h *Hub) serveSession(s *api.Session) {
 		return
 	}
 	compatible := version.Compatible(version.Version, s.Hello.Version)
-	if err := s.SendHello(api.Hello{Version: version.Version, Compatible: compatible}); err != nil {
+	if err := s.SendHello(api.Hello{Version: version.Version, Compatible: compatible, Features: hubFeatures}); err != nil {
 		h.log.Info("cannot answer the node hello", dlog.Node(s.NodeID), dlog.Err(err))
 		return
 	}

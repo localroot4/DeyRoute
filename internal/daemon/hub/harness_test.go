@@ -239,6 +239,10 @@ type fakeNode struct {
 	unitsUnknown atomic.Bool
 	// lastError is the last error the heartbeats report (string).
 	lastError atomic.Value
+	// features is Hello.Features of the node (set before start).
+	features []string
+	// hubHello is the last hello the hub sent (api.Hello).
+	hubHello atomic.Value
 }
 
 // joinNode joins a node with id through a fresh join command.
@@ -310,8 +314,9 @@ func (n *fakeNode) client() *api.ControlClient {
 		Dial:      n.dial,
 		TLSConfig: n.tls,
 		Hello: func() api.Hello {
-			return api.Hello{NodeID: n.id, Version: n.version, Arch: "amd64", OS: "Test OS", Kernel: "6.1"}
+			return api.Hello{NodeID: n.id, Version: n.version, Arch: "amd64", OS: "Test OS", Kernel: "6.1", Features: n.features}
 		},
+		OnHubHello: func(h api.Hello) { n.hubHello.Store(h) },
 		Heartbeat: func() api.Heartbeat {
 			n.mu.Lock()
 			defer n.mu.Unlock()

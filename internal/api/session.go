@@ -126,7 +126,7 @@ func (s *Session) setAbort(f func()) {
 // latest one: an unread heartbeat is replaced by a newer one.
 func (s *Session) Heartbeats() <-chan Heartbeat { return s.hb }
 
-// SendHello sends the hub's hello (version, Compatible) to the node.
+// SendHello sends the hub's hello (version, Compatible, Features) to the node.
 func (s *Session) SendHello(h Hello) error {
 	ctx, cancel := context.WithTimeout(context.Background(), s.callTimeout)
 	defer cancel()

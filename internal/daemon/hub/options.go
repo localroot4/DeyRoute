@@ -33,7 +33,9 @@ const (
 	// EventsLogFile receives one JSON line per event (sections 2, 3, 13).
 	EventsLogFile = config.LogDir + "/events.log"
 	// AssetCacheDir caches deyroute binaries of other architectures:
-	// deyroute-<version>-<arch> (section 5, GET /v1/assets/deyroute/<arch>).
+	// deyroute-<version>-<arch> (section 5, GET /v1/assets/deyroute/<arch>),
+	// and the signed release files of a version in <version>/ (DR-03, GET
+	// /v1/assets/release/<arch>, bundle.go).
 	AssetCacheDir = config.BinDir
 	// DownloadDir stages downloads (release archives for other
 	// architectures) and the copies of the tunnel log rotation; root-only

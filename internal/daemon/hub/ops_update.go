@@ -295,6 +295,12 @@ func (h *Hub) updateApply(ctx context.Context, want string, progress func(api.St
 		return info, withLog(err)
 	}
 	h.recordPrevious(version.Version)
+	// The nodes get this release from here: its verified files stay before
+	// the work directory goes (a failure only costs a download later).
+	if err := h.storeBundle(ctx, rel, h.o.Arch); err != nil {
+		h.log.Warn("cannot keep the signed release for the nodes; it is downloaded again when a node needs it",
+			slog.String("version", rel.Version), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+	}
 	_ = rep.run(stepNodes, func() (string, error) { return h.markNodesForUpdate(), nil })
 	how := "deyroute updated"
 	if auto {
@@ -499,8 +505,9 @@ func (h *Hub) maybeFinishNodeUpdate() {
 }
 
 // nodeUpdateLoop sends self.update to the queued nodes (one at a time):
-// the node downloads the hub's binary (GET /v1/assets), verifies it,
-// installs it and restarts.
+// the node downloads the hub's signed release (GET /v1/assets/release, a
+// node with signed updates) or the hub's binary (GET /v1/assets/deyroute,
+// an older node), verifies it, installs it and restarts.
 func (h *Hub) nodeUpdateLoop(ctx context.Context) {
 	for {
 		select {
@@ -512,22 +519,24 @@ func (h *Hub) nodeUpdateLoop(ctx context.Context) {
 	}
 }
 
-// selfUpdateNode sends self.update to one node.
+// selfUpdateNode sends self.update to one node. For a node with signed
+// updates the release of the hub's version is fetched first (when it is
+// not cached); without it no self.update is sent.
 func (h *Hub) selfUpdateNode(ctx context.Context, node string) {
 	ns, _ := h.nodeState(node)
 	if !h.Online(node) || strings.TrimPrefix(ns.AgentVersion, "v") == strings.TrimPrefix(version.Version, "v") {
 		return
 	}
-	args := api.SelfUpdateArgs{Version: version.Version}
-	if ns.Arch == h.o.Arch {
-		if info, err := h.openAsset(h.o.SelfBinary); err == nil {
-			args.SHA256 = info.SHA256
-			_ = info.Reader.Close()
-		}
-	}
 	cctx, cancel := context.WithTimeout(ctx, nodeUpdateTimeout)
-	err := h.Call(cctx, node, api.CmdSelfUpdate, args, nil)
-	cancel()
+	defer cancel()
+	sum, err := h.selfUpdateSum(cctx, node, ns.Arch)
+	if err != nil {
+		h.log.Warn("the signed release of the hub's version is not available for the node; it is tried again when it reconnects",
+			dlog.Node(node), slog.String("version", version.Version), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		return
+	}
+	args := api.SelfUpdateArgs{Version: version.Version, SHA256: sum}
+	err = h.Call(cctx, node, api.CmdSelfUpdate, args, nil)
 	if err != nil {
 		h.log.Warn("node could not install the hub's version; it is tried again when it reconnects",
 			dlog.Node(node), slog.String("version", version.Version), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
