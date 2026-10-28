@@ -1219,8 +1219,14 @@ func TestTunnelAddWithoutOnlineNode(t *testing.T) {
 		st, err := te.client.Status(ctxT(t))
 		return err == nil && len(st.Tunnels[0].Warnings) == 0
 	}, testWait, 20*time.Millisecond)
-	clk.Advance(failover.DownRetryInitial + time.Second)
-	te.waitActive(tn.ID, "de-1", trAlpha)
+	// The engine re-arms its idle timer after every command it handles (the
+	// node coming online sends some), so one Advance can fall between Stop
+	// and NewTimer and fire nothing: advance until the DOWN retry has run.
+	require.Eventually(t, func() bool {
+		clk.Advance(failover.DownRetryInitial + time.Second)
+		ts, _ := te.h.tunnelState(tn.ID)
+		return ts.State == state.StateUp && ts.Active.Node == "de-1" && ts.Active.Transport == trAlpha
+	}, testWait, 200*time.Millisecond, "tunnel %s not UP on de-1/%s", tn.ID, trAlpha)
 }
 
 func TestConfigApplyReconcilesTunnels(t *testing.T) {
