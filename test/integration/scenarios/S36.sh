@@ -9,7 +9,13 @@
 # as a *.log of its own, and a directory with files in it at the next shift
 # target; after the next rotation the root files are byte-identical, the
 # rotation went on and node.log has the warning "tunnel log rotation refused".
-# Last, the installer's repair run gives an existing 0770 directory the mode.
+# Then user deyroute plants a link to a root file at the log name of the next
+# tunnel on both sides before the tunnel is added: the services replace it
+# with root's own regular file before systemd opens it as root, so the root
+# file stays byte-identical, the tunnel comes UP with its output in its log
+# and hub.log and node.log have the warning "tunnel log replaced".
+# Last, an existing 0770 directory gets the mode from the installer's repair
+# run, and from a restart of the services alone (what deyroute update does).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -100,13 +106,65 @@ dups=$(refused | sort | uniq -d)
 log "refused: $(refused | tr '\n' ';')"
 tunnel_up "$T" || fail "tunnel not UP after the rotations"
 
-# 3. An existing directory of an older install (0770, no sticky bit) gets the
-# mode from the installer's repair run (install -d on an existing directory);
-# deyroute update alone keeps it.
+# 3. User deyroute plants a link to a root file at the log name of the next
+# tunnel, on the hub and on node1, before the tunnel exists. systemd opens a
+# unit's StandardOutput=append: file as root and follows a link; the services
+# replace the link with root's own regular file before the units start.
+T2=s36-next
+L2=$D/$T2.log
+serve_http node1 8444 1
+for s in hub node1; do
+  sh_on "$s" "printf 'root file 4\n' > /etc/s36-victim-4 && chmod 0644 /etc/s36-victim-4"
+  on "$s" runuser -u deyroute -- ln -s /etc/s36-victim-4 "$L2" || fail "user deyroute could not add a name to $D on $s"
+done
+sum4() { on "$1" sha256sum /etc/s36-victim-4; }
+hub4=$(sum4 hub) node4=$(sum4 node1)
+id=$(add_tunnel "$NODE1" 8444 --name "$T2")
+[ "$id" = "$T2" ] || fail "the new tunnel is $id, want $T2"
+wait_tunnel_up "$T2"
+[ "$(sum4 hub)" = "$hub4" ] || fail "/etc/s36-victim-4 changed on the hub"
+[ "$(sum4 node1)" = "$node4" ] || fail "/etc/s36-victim-4 changed on node1"
+replaced() { # replaced SERVER LOG: "<file> <reason>" of every "tunnel log replaced"
+  on "$1" cat "/var/log/deyroute/$2.log" |
+    jq -rR 'fromjson? | select(.msg == "tunnel log replaced") | "\(.file) \(.reason)"'
+}
+for s in hub node1; do
+  on "$s" test -f "$L2" -a ! -L "$L2" || fail "$L2 on $s is not a regular file"
+  m=$(on "$s" stat -c '%U %h' "$L2")
+  [ "$m" = "root 1" ] || fail "$L2 on $s is $m, want root's with one link"
+  wait_for 30 "$L2 on $s holds the tunnel's output" on "$s" test -s "$L2"
+done
+replaced hub hub | grep -qx "$L2 symlink" || fail "hub.log has no 'tunnel log replaced' for $L2: $(replaced hub hub)"
+replaced node1 node | grep -qx "$L2 symlink" || fail "node.log has no 'tunnel log replaced' for $L2: $(replaced node1 node)"
+[ "$(fetch_via_hub 8444)" = "$(blob_sha node1)" ] || fail "no traffic through $T2"
+log "replaced: hub $(replaced hub hub | tr '\n' ';') node1 $(replaced node1 node | tr '\n' ';')"
+
+# 4. An existing directory of an older install (0770, no sticky bit) gets the
+# mode from the installer's repair run (install -d on an existing directory).
 on node1 chmod 0770 "$D"
 on node1 bash /dist/install.sh --skip-signature --local "$ARCHIVE" >&2 || fail "the installer's repair run failed"
 m=$(on node1 stat -c '%a %U:%G' "$D")
 [ "$m" = "1770 root:deyroute" ] || fail "after the installer's repair run $D is $m, want 1770 root:deyroute"
 wait_node_online "$NODE1" 90
 wait_tunnel_up "$T"
+
+# 5. ... and from a restart of the services alone, without the installer
+# (deyroute update restarts them): they add the sticky bit when they start.
+on hub chmod 0770 "$D"
+on node1 chmod 0770 "$D"
+on hub systemctl restart deyroute-hub
+on node1 systemctl restart deyroute-node
+sticky() { [ "$(on "$1" stat -c '%a %U:%G' "$D")" = "1770 root:deyroute" ]; }
+for s in hub node1; do
+  wait_for 30 "$D on $s back to 1770 root:deyroute after the service restart" sticky "$s"
+done
+made_sticky() {
+  on "$1" cat "/var/log/deyroute/$2.log" |
+    jq -rR 'fromjson? | select(.msg == "tunnel log directory made sticky") | "\(.from) \(.to)"' | grep -qx '0770 1770'
+}
+made_sticky hub hub || fail "hub.log does not say the tunnel log directory was made sticky"
+made_sticky node1 node || fail "node.log does not say the tunnel log directory was made sticky"
+wait_node_online "$NODE1" 90
+wait_tunnel_up "$T"
+wait_tunnel_up "$T2"
 pass
