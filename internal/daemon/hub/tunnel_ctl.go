@@ -1319,6 +1319,9 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 				return nil
 			}
 			unit := systemd.UnitName(pc.Hub.Instance)
+			if err := h.prepareTunnelLog(c.id); err != nil {
+				return err
+			}
 			if err := h.o.Systemd.Restart(ctx, unit); err != nil {
 				return h.unitFailed(unit, c.id, err)
 			}

@@ -298,6 +298,9 @@ type agent struct {
 	reconnect chan struct{}
 	listeners *registry
 	cpu       *sysinfo.CPUSampler
+	// logWarn logs "tunnel log replaced" once per file and reason
+	// (prepareTunnelLog).
+	logWarn *dlog.WarnOnce
 	// uninstalling is set by the first uninstall command; later ones are
 	// answered without starting a second removal.
 	uninstalling atomic.Bool
@@ -344,6 +347,7 @@ func newAgent(o Options, cfg *config.Config, cfgPath string, logger *slog.Logger
 		st:        nodeState{Instances: map[string]instance{}},
 		ctx:       context.Background(),
 		cpu:       sysinfo.NewCPUSampler(o.Root),
+		logWarn:   dlog.NewWarnOnce(logger, dlog.TunnelLogReplaced),
 	}
 	a.writer = &render.HubWriter{Root: o.Root, Systemd: o.Systemd, Chown: o.Chown, DeyrouteIDs: o.DeyrouteIDs}
 	a.helloV = api.Hello{

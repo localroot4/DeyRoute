@@ -572,7 +572,7 @@ func (a *agent) unitStart(ctx context.Context, args api.UnitArgs, restart bool) 
 			return api.UnitStatus{}, err
 		}
 	}
-	if err := a.ensureTunnelLogDir(); err != nil {
+	if err := a.prepareTunnelLog(in.Tunnel); err != nil {
 		return api.UnitStatus{}, err
 	}
 	if restart {
@@ -857,6 +857,26 @@ func (a *agent) ensureTunnelLogDir() error {
 		gid = g
 	}
 	return systemd.EnsureTunnelLogDir(a.path(systemd.TunnelLogDir), gid, a.o.Chown)
+}
+
+// prepareTunnelLog runs right before a unit of tunnel starts or restarts:
+// the tunnel log directory exists (ensureTunnelLogDir) and <tunnel>.log is
+// the agent's own regular file (dlog.EnsureTunnelLog), so systemd, which
+// opens it as root and follows a link, appends to root's file. Whatever a
+// backend planted there is removed and logged as "tunnel log replaced".
+// Failures are DEY-X022; the unit is then not started.
+func (a *agent) prepareTunnelLog(tunnel string) error {
+	if err := a.ensureTunnelLogDir(); err != nil {
+		return err
+	}
+	if !config.ValidID(tunnel) {
+		return nil
+	}
+	p := a.path(systemd.TunnelLogFile(tunnel))
+	if err := dlog.EnsureTunnelLog(p, func(reason string) { a.logWarn.Warn(p, reason) }); err != nil {
+		return deyerr.Wrap(deyerr.X022, err, deyerr.Params{"path": p})
+	}
+	return nil
 }
 
 // tightenTunnelLogDir adds the sticky bit to an existing

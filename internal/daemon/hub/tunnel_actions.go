@@ -298,7 +298,7 @@ func (h *Hub) releaseCtlPorts(tunnel, node, transportID string) {
 // start, the start check, the post-start step (awg device configuration).
 func (h *Hub) startHubSide(ctx context.Context, tunnel, backendName string, side render.Side) error {
 	unit := systemd.UnitName(side.Instance)
-	if err := h.ensureTunnelLogDir(); err != nil {
+	if err := h.prepareTunnelLog(tunnel); err != nil {
 		return err
 	}
 	if err := h.hubHook(ctx, hookPreStart, backendName, side.ConfigDir); err != nil {
@@ -409,6 +409,26 @@ func (h *Hub) ensureTunnelLogDir() error {
 		gid = g
 	}
 	return systemd.EnsureTunnelLogDir(h.path(systemd.TunnelLogDir), gid, h.o.Chown)
+}
+
+// prepareTunnelLog runs right before a hub unit of tunnel starts or
+// restarts: the tunnel log directory exists (ensureTunnelLogDir) and
+// <tunnel>.log is the hub's own regular file (dlog.EnsureTunnelLog), so
+// systemd, which opens it as root and follows a link, appends to root's
+// file. Whatever a backend planted there is removed and logged as "tunnel
+// log replaced". Failures are DEY-X022; the unit is then not started.
+func (h *Hub) prepareTunnelLog(tunnel string) error {
+	if err := h.ensureTunnelLogDir(); err != nil {
+		return err
+	}
+	if !config.ValidID(tunnel) {
+		return nil
+	}
+	p := h.path(systemd.TunnelLogFile(tunnel))
+	if err := dlog.EnsureTunnelLog(p, func(reason string) { h.logWarn.Warn(p, reason) }); err != nil {
+		return deyerr.Wrap(deyerr.X022, err, deyerr.Params{"path": p})
+	}
+	return nil
 }
 
 // tightenTunnelLogDir adds the sticky bit to an existing

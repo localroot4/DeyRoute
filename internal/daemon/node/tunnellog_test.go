@@ -1,11 +1,16 @@
 package node
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/systemd"
 )
 
@@ -22,4 +27,82 @@ func TestNodeStartMakesTunnelLogDirSticky(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, os.ModeSticky|0o770, fi.Mode()&(os.ModePerm|os.ModeSticky))
 	require.Contains(t, e.logs.String(), "tunnel log directory made sticky")
+}
+
+// replacedWarnings returns "<file> <reason>" of every "tunnel log replaced"
+// warning in the agent's log.
+func replacedWarnings(t *testing.T, e *env) []string {
+	t.Helper()
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(e.logs.String()), "\n") {
+		var m map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &m), "line %q", line)
+		if m["msg"] == "tunnel log replaced" {
+			require.Equal(t, "warn", m["level"])
+			out = append(out, fmt.Sprint(m["file"], " ", m["reason"]))
+		}
+	}
+	return out
+}
+
+// requireOwnLog checks that p is a regular file of this process's user with
+// one link: what systemd may open as root for StandardOutput=append:.
+func requireOwnLog(t *testing.T, p string) {
+	t.Helper()
+	fi, err := os.Lstat(p)
+	require.NoError(t, err)
+	require.True(t, fi.Mode().IsRegular(), "%s is %v", p, fi.Mode())
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), uint64(st.Nlink))
+	require.Equal(t, os.Geteuid(), int(st.Uid))
+}
+
+// A backend (user deyroute) planted a link to a root file at the log name of
+// a tunnel the hub starts next on this node. Before systemd opens
+// <tunnel>.log as root (it would follow the link and create the target),
+// the agent replaces it with its own regular file, on unit.start and on
+// unit.restart: the root file stays as it is and node.log has the warning
+// "tunnel log replaced" once per file and reason.
+func TestNodeUnitStartReplacesPlantedTunnelLog(t *testing.T) {
+	e := newEnv(t)
+	s := e.start()
+	args := renderArgs("main", "backhaul", "wssmux")
+	_, err := call[json.RawMessage](t, s, api.CmdBackendRender, args)
+	require.NoError(t, err)
+	victimData := "* * * * * root /bin/true\n"
+	victim := e.path("/etc/cron.d/x")
+	writeFile(t, victim, victimData, 0o644)
+	logFile := e.path(systemd.TunnelLogFile("main"))
+	require.NoError(t, os.Symlink(victim, logFile))
+
+	_, err = call[api.UnitStatus](t, s, api.CmdUnitStart, api.UnitArgs{Instance: args.Instance})
+	require.NoError(t, err)
+	require.Equal(t, "active", e.sys.state(unitOf(args)))
+	requireOwnLog(t, logFile)
+	data, err := os.ReadFile(victim)
+	require.NoError(t, err)
+	require.Equal(t, victimData, string(data), "the root file is unchanged")
+	require.Equal(t, []string{logFile + " symlink"}, replacedWarnings(t, e))
+
+	// unit.restart: a FIFO this time; then a link again (warned once).
+	require.NoError(t, os.Remove(logFile))
+	require.NoError(t, syscall.Mkfifo(logFile, 0o666))
+	_, err = call[api.UnitStatus](t, s, api.CmdUnitRestart, api.UnitArgs{Instance: args.Instance})
+	require.NoError(t, err)
+	requireOwnLog(t, logFile)
+	require.NoError(t, os.Remove(logFile))
+	require.NoError(t, os.Symlink(victim, logFile))
+	_, err = call[api.UnitStatus](t, s, api.CmdUnitRestart, api.UnitArgs{Instance: args.Instance})
+	require.NoError(t, err)
+	requireOwnLog(t, logFile)
+	require.Equal(t, []string{logFile + " symlink", logFile + " not_regular"}, replacedWarnings(t, e))
+
+	// The agent's own log is kept on the next start.
+	require.NoError(t, os.WriteFile(logFile, []byte("backend output\n"), 0o644))
+	_, err = call[api.UnitStatus](t, s, api.CmdUnitRestart, api.UnitArgs{Instance: args.Instance})
+	require.NoError(t, err)
+	data, err = os.ReadFile(logFile)
+	require.NoError(t, err)
+	require.Equal(t, "backend output\n", string(data))
 }

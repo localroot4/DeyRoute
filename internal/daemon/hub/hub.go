@@ -42,6 +42,9 @@ type Hub struct {
 	log     *slog.Logger
 	evLog   *slog.Logger
 	closers []io.Closer
+	// logWarn logs "tunnel log replaced" once per file and reason
+	// (prepareTunnelLog).
+	logWarn *dlog.WarnOnce
 
 	cfgPath string
 	valOpts config.ValidateOptions
@@ -229,6 +232,7 @@ func (h *Hub) openLogs() error {
 		h.closers = append(h.closers, c)
 		h.log = l
 	}
+	h.logWarn = dlog.NewWarnOnce(h.log, dlog.TunnelLogReplaced)
 	ev, c, err := dlog.New(dlog.Options{Component: "events", File: h.path(EventsLogFile)})
 	if err != nil {
 		return err

@@ -756,9 +756,10 @@ func RotateDir(dir string, o CopyTruncateOptions) ([]string, error) {
 // RotateDirInterval is how often the daemons check the tunnel logs.
 const RotateDirInterval = time.Minute
 
-// maxRefusalWarnings bounds the (file, reason) pairs RotateDirLoop
-// remembers: names planted by the thousand must not grow the daemon's
-// memory. Refusals beyond it are not logged.
+// maxRefusalWarnings bounds the (file, reason) pairs a WarnOnce (the one of
+// RotateDirLoop, the daemons' one for TunnelLogReplaced) remembers: names
+// planted by the thousand must not grow the daemon's memory. Warnings
+// beyond it are not logged.
 const maxRefusalWarnings = 1024
 
 // RotateDirLoop runs RotateDir on dir now and then every interval until ctx
@@ -770,16 +771,7 @@ const maxRefusalWarnings = 1024
 func RotateDirLoop(ctx context.Context, dir, staging string, interval time.Duration, l *slog.Logger) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	type refusal struct{ file, reason string }
-	warned := map[refusal]bool{}
-	o := CopyTruncateOptions{Staging: staging, Refused: func(file, reason string) {
-		k := refusal{file, reason}
-		if warned[k] || len(warned) >= maxRefusalWarnings {
-			return
-		}
-		warned[k] = true
-		l.Warn("tunnel log rotation refused", slog.String("file", file), slog.String("reason", reason))
-	}}
+	o := CopyTruncateOptions{Staging: staging, Refused: NewWarnOnce(l, "tunnel log rotation refused").Warn}
 	for {
 		rotated, err := RotateDir(dir, o)
 		for _, p := range rotated {
