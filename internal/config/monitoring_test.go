@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -84,8 +85,48 @@ func TestNewerKeysInUse(t *testing.T) {
 		{"tuning.nodes_auto", v}, {"tuning.backend_tier", v}, {"tuning.wg_mtu", v}, {"monitoring", v},
 	}, c.NewerKeysInUse())
 	require.Equal(t, "monitoring (since 0.3.0-edge.15)", NewerKey{"monitoring", v}.String())
+
+	// hub.auto_update (on) comes first, as in the file, with its own
+	// first release: the stable 0.3.0, before which every edge build sorts.
+	c.Hub.AutoUpdate = true
+	require.Equal(t, "0.3.0", FirstAutoUpdateVersion)
+	require.Equal(t, NewerKey{"hub.auto_update", FirstAutoUpdateVersion}, c.NewerKeysInUse()[0])
+	require.Len(t, c.NewerKeysInUse(), 8)
+	c = validHub()
+	c.Hub.AutoUpdate = true
+	require.Equal(t, []NewerKey{{"hub.auto_update", "0.3.0"}}, c.NewerKeysInUse())
 	var nilCfg *Config
 	require.Nil(t, nilCfg.NewerKeysInUse())
+}
+
+// TestHubAutoUpdateKey: hub.auto_update is written only when true (an older
+// release can read a default config), survives save and load, and takes
+// only a YAML bool.
+func TestHubAutoUpdateKey(t *testing.T) {
+	dir := t.TempDir()
+	c := validHub()
+	path := filepath.Join(dir, "off.yaml")
+	require.NoError(t, SaveWith(path, c, fakeOpts()))
+	raw, err := os.ReadFile(path) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "auto_update")
+
+	c.Hub.AutoUpdate = true
+	path = filepath.Join(dir, "on.yaml")
+	require.NoError(t, SaveWith(path, c, fakeOpts()))
+	raw, err = os.ReadFile(path) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "auto_update: true")
+	back, err := LoadWith(path, fakeOpts())
+	require.NoError(t, err)
+	require.True(t, back.Hub.AutoUpdate)
+	require.True(t, Clone(back).Hub.AutoUpdate)
+
+	bad := strings.Replace(string(raw), "auto_update: true", "auto_update: sometimes", 1)
+	_, err = ParseWith([]byte(bad), fakeOpts())
+	require.Error(t, err)
+	require.Equal(t, deyerr.C013, deyerr.As(err).Code)
+	require.Contains(t, deyerr.As(err).Message(), "hub.auto_update")
 }
 
 // TestMonitoringRoundTrip: the new keys survive save and load, and a config

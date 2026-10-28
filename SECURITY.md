@@ -24,8 +24,10 @@ How these work is described in [docs/en/security.md](docs/en/security.md)
 
 ## Supported versions
 
-Only the newest release receives fixes. The hub updates itself once a day
-(`deyroute update auto`), and nodes follow the hub.
+Only the newest release receives fixes. Install them with `deyroute update`
+on the hub; the nodes follow the hub. The hub can also install new releases
+by itself once a day, but only after you turn that on
+(`deyroute update auto on`; off by default).
 
 ---
 
@@ -36,6 +38,7 @@ Only the newest release receives fixes. The hub updates itself once a day
 لطفاً مشکل‌های امنیتی را به‌صورت خصوصی از طریق
 [GitHub security advisories](https://github.com/localroot4/DeyRoute/security/advisories/new)
 گزارش دهید، نه در Issue عمومی. نسخه (`deyroute version`)، کاری که مهاجم می‌تواند بکند و
-روش بازتولید را بنویسید. فقط جدیدترین نسخه اصلاح می‌شود؛ هاب روزی یک بار خودش آپدیت می‌شود.
+روش بازتولید را بنویسید. فقط جدیدترین نسخه اصلاح می‌شود؛ آن را با `deyroute update` روی هاب نصب کنید (نودها دنبالش می‌آیند).
+هاب می‌تواند روزی یک بار خودش هم آپدیت شود، ولی فقط اگر خودتان روشنش کنید (`deyroute update auto on`؛ پیش‌فرض خاموش).
 
 </div>

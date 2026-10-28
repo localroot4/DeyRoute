@@ -42,3 +42,20 @@ func TestUpdateAuto(t *testing.T) {
 	require.Contains(t, e.fail(1, "update", "auto", "maybe"), "update auto off")
 	e.fail(1, "update", "auto", "on", "off")
 }
+
+// TestUpdateAutoJSONGolden: the --json document of `update auto` (the
+// AutoUpdateInfo DTO plus schema): enabled comes from hub.auto_update, which
+// "source": "config" names.
+func TestUpdateAutoJSONGolden(t *testing.T) {
+	e := newEnv(t)
+	e.stub.UpdateAutoFn = func(context.Context, string) (api.AutoUpdateInfo, error) {
+		return api.AutoUpdateInfo{Enabled: false, Source: "config", Hour: 4, MinAgeHours: 24, Current: "0.3.0",
+			Next: "0.3.1", NextAt: time.Date(2026, 10, 30, 0, 30, 0, 0, time.UTC),
+			Last: "updated 0.2.9 → 0.3.0; 1 tunnels and 1 nodes work", LastAt: time.Date(2026, 10, 28, 0, 33, 0, 0, time.UTC),
+			Skipped: []string{"0.2.10"}}, nil
+	}
+	statsGolden(t, "update_auto.json.golden", e.ok("update", "auto", "--json"))
+	doc := e.json("update", "auto")
+	require.Equal(t, false, doc["enabled"])
+	require.Equal(t, "config", doc["source"])
+}

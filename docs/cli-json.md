@@ -153,7 +153,9 @@ none)}`
 `advanced.monthly_quota_gib`, once per quota period) and `tune_drift` (warn:
 a tuned kernel value was changed or overridden, DEY-X067) are event types
 too; Telegram sends them when `hub.notify.telegram.events` selects `quota`
-or `tuning` (or the full names).
+or `tuning` (or the full names). `auto_update_default_off` (warn) is recorded
+once by a hub that ran a build with the automatic update on by default: it
+is off now (see `update auto`).
 
 ## Nodes and hub
 
@@ -486,6 +488,17 @@ written either way.
   `--version V` a failed release check does not stop the update (a note goes
   to standard error); without it the check's error is the result.
 - `--rollback`: UpdateInfo.
+
+### `deyroute update auto [on|off]`
+
+The AutoUpdateInfo DTO, also after `on` or `off`: `{"schema", "enabled"
+(hub.auto_update in config.yaml; false when the key is absent, the
+default), "source": "config" (where `enabled` comes from), "hour" (local
+hour of the daily window), "min_age_hours", "current", "next" (the release
+waiting for its turn, absent when none), "next_at", "pending" (installed and
+being checked), "last" (outcome of the last automatic update), "last_at",
+"skipped": [string] (rolled back, never installed automatically; absent
+when none)}`. A value other than `on` or `off` is a usage error (exit 1).
 
 ### `deyroute update backends [name]`
 

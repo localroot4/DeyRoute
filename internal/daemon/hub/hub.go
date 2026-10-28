@@ -197,6 +197,7 @@ func New(o Options) (_ *Hub, err error) {
 	h.loadOps()
 	h.traffic = newHubTraffic(h)
 	h.reloadNotifier(cfg)
+	h.migrateAutoUpdate()
 
 	ln, err := net.Listen("tcp", o.controlListen(cfg.Hub.ControlPort))
 	if err != nil {

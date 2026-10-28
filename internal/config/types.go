@@ -184,7 +184,12 @@ type Hub struct {
 	DecoySNIs   []string `yaml:"decoy_snis,omitempty"`   // Reality/Waterwall decoys (section 7.4, 19)
 	Mirror      string   `yaml:"mirror,omitempty"`       // release base override (DEYROUTE_MIRROR wins)
 	UpdateCheck bool     `yaml:"update_check,omitempty"` // daily release check, default off (section 5)
-	ACME        *ACME    `yaml:"acme,omitempty"`
+	// AutoUpdate turns the automatic update on (`deyroute update auto`):
+	// the hub installs new releases by itself. Off by default (section 5);
+	// written only when on, so a default install never blocks a rollback
+	// (NewerKeysInUse).
+	AutoUpdate bool  `yaml:"auto_update,omitempty"`
+	ACME       *ACME `yaml:"acme,omitempty"`
 
 	// Front is the CDN front listener (front mode); absent = off.
 	Front HubFront `yaml:"front,omitempty"`

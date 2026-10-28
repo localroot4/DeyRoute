@@ -105,14 +105,17 @@ func TestAutoUpdateInstalls(t *testing.T) {
 	env.startEnv(o)
 	ctx := ctxT(t)
 
-	// Seen just now: it waits a day.
+	// Turned on, a release seen just now: it waits a day.
+	info, err := env.client.UpdateAuto(ctx, "on")
+	require.NoError(t, err)
+	require.True(t, info.Enabled)
 	env.h.autoUpdateTick(ctx)
 	rec := env.h.autoRecord()
 	require.Contains(t, rec.Seen, "1.2.3")
 	require.Empty(t, rec.LastDay)
-	info, err := env.client.UpdateAuto(ctx, "")
+	info, err = env.client.UpdateAuto(ctx, "")
 	require.NoError(t, err)
-	require.True(t, info.Enabled, "on by default")
+	require.True(t, info.Enabled)
 	require.Equal(t, 4, info.Hour)
 	require.Equal(t, 24, info.MinAgeHours)
 	require.Equal(t, "1.2.3", info.Next)

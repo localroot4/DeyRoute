@@ -89,6 +89,68 @@ func TestRollbackComparesPerKey(t *testing.T) {
 	require.Equal(t, "#!old", string(data))
 }
 
+// TestRollbackRefusedWithAutoUpdateKey: hub.auto_update (written only when
+// on) is unknown to releases before 0.3.0, the first stable release that
+// knows it. Every 0.3.0-edge.N sorts before 0.3.0, so while the key is set
+// a rollback or downgrade to any edge build is refused (DEY-S011), and a
+// failed automatic update is kept rather than rolled back to one; updates
+// to newer builds are never refused. Without the key nothing is refused.
+func TestRollbackRefusedWithAutoUpdateKey(t *testing.T) {
+	old := version.Version
+	t.Cleanup(func() { version.Version = old }) // after the hub stopped
+	version.Version = "0.3.0-edge.61"
+	env := startHub(t, nil)
+	l := env.h.Local()
+	ctx := ctxT(t)
+	bin := filepath.Join(env.root, config.BinaryPath)
+	prev := filepath.Join(env.root, config.PrevBinaryPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(bin), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(prev), 0o755))
+	require.NoError(t, os.WriteFile(bin, []byte("#!new"), 0o755))  // #nosec G306 -- test binary
+	require.NoError(t, os.WriteFile(prev, []byte("#!old"), 0o755)) // #nosec G306 -- test binary
+	require.NoError(t, env.h.st.PutMeta(metaUpdatePrevious, "0.3.0-edge.60"))
+
+	_, err := l.UpdateApply(ctx, "0.3.0-edge.60", nil)
+	require.NotEqual(t, deyerr.S011, codeOf(err), "off: the key is not written")
+
+	_, err = env.client.UpdateAuto(ctx, "on")
+	require.NoError(t, err)
+	_, err = l.UpdateRollback(ctx)
+	require.Equal(t, deyerr.S011, codeOf(err))
+	e := deyerr.As(err)
+	require.Contains(t, e.Message(), "hub.auto_update (since 0.3.0)")
+	require.Contains(t, e.Why(), "0.3.0-edge.60")
+	require.Contains(t, e.Fix(), "deyroute update auto off")
+	for _, v := range []string{"0.3.0-edge.60", "0.3.0-edge.15", "0.2.9"} {
+		_, err = l.UpdateApply(ctx, v, nil)
+		require.Equal(t, deyerr.S011, codeOf(err), v)
+	}
+	for _, v := range []string{"0.3.0-edge.62", "0.3.0", "0.3.1-edge.1"} {
+		_, err = l.UpdateApply(ctx, v, nil)
+		require.NotEqual(t, deyerr.S011, codeOf(err), v)
+	}
+
+	// A failed automatic update from an edge build is kept.
+	path := env.h.path(AutoPendingPath)
+	require.NoError(t, writeAutoPending(path, autoPending{From: "0.3.0-edge.60", To: version.Version}))
+	env.h.autoRollback(path, autoPending{From: "0.3.0-edge.60", To: version.Version}, "tunnel t1 did not come back")
+	require.NoFileExists(t, path)
+	require.Contains(t, env.h.autoRecord().Last, "hub.auto_update (since 0.3.0)")
+	data, err := os.ReadFile(bin)
+	require.NoError(t, err)
+	require.Equal(t, "#!new", string(data))
+	require.False(t, env.runner.Called("systemctl restart --no-block deyroute-hub.service"))
+
+	// Off again: the key goes and the rollback runs.
+	_, err = env.client.UpdateAuto(ctx, "off")
+	require.NoError(t, err)
+	_, err = l.UpdateRollback(ctx)
+	require.NoError(t, err)
+	data, err = os.ReadFile(bin)
+	require.NoError(t, err)
+	require.Equal(t, "#!old", string(data))
+}
+
 // TestMonitoringAndTuningStubs: Traffic checks its query (DEY-C027) and,
 // without byte accounting, says why (DEY-X061); the automatic tuning answers
 // (a confirmation with another plan's hash is DEY-X065); the background

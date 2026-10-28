@@ -14,6 +14,16 @@ const (
 	// of 0.3.0 look older, so `deyroute update` refused the newest edge
 	// build).
 	FirstTrafficVersion = "0.3.0-edge.15"
+	// FirstAutoUpdateVersion is the first release that knows
+	// hub.auto_update: the stable 0.3.0, the first release cut after the
+	// key came. The edge builds made between the key and 0.3.0 know it as
+	// well, but every 0.3.0-edge.N sorts before 0.3.0, so while the key is
+	// set a rollback or downgrade to any edge build of 0.3.0 is refused.
+	// That is conservative on purpose: an edge build cannot be told apart
+	// by its version, and refusing costs only `deyroute update auto off`
+	// first. Updates are not affected: a release that is not older than
+	// the running build knows every key that build writes.
+	FirstAutoUpdateVersion = "0.3.0"
 )
 
 // NewerKey is a config.yaml key in use that releases before Since refuse.
@@ -39,6 +49,7 @@ var newerKeys = []struct {
 	since string
 	set   func(c *Config) bool
 }{
+	{"hub.auto_update", FirstAutoUpdateVersion, func(c *Config) bool { return c.Hub != nil && c.Hub.AutoUpdate }},
 	{"nodes[].backend_tier", FirstTrafficVersion, func(c *Config) bool {
 		return slices.ContainsFunc(c.Nodes, func(n Node) bool { return n.BackendTier != "" })
 	}},

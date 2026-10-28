@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # S22: backup -> restore on a new hub: the nodes reconnect without joining again
+# The automatic update switch (hub.auto_update in config.yaml) travels with
+# the backup; while it is set a rollback is refused with DEY-S011 (DR-05).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -13,6 +15,11 @@ on hub2 bash /dist/install.sh --skip-signature --local "$ARCHIVE" --no-setup >&2
 # Move: tell the nodes the new address, take the backup, retire the old hub.
 ann=$(dey hub announce-move "$HUB2_IP:$CONTROL_PORT" --json)
 jq -e --arg n "$NODE1" '.accepted | index($n) != null' <<<"$ann" >/dev/null || fail "announce-move: $ann"
+au=$(dey update auto on --json)
+jq -e '.enabled == true and .source == "config"' <<<"$au" >/dev/null || fail "update auto on: $au"
+on hub grep -q 'auto_update: true' /etc/deyroute/config.yaml || fail "update auto on did not write hub.auto_update"
+out=$(expect_code DEY-S011 dey update --rollback --yes)
+grep -q 'hub.auto_update' <<<"$out" || fail "DEY-S011 does not name hub.auto_update: $out"
 path=$(sh_on hub "DEYROUTE_BACKUP_PASSPHRASE=it-pass deyroute backup --json" | jq -r .path)
 { [ -n "$path" ] && [ "$path" != null ]; } || fail "backup wrote no file"
 tmp=$(mktemp -d)
@@ -30,4 +37,6 @@ up2() { [ "$(dey --on hub2 tunnel show "$T" --json | jq -r .state)" = UP ]; }
 wait_for 120 "tunnel UP on the new hub" up2
 [ "$(fetch_via_hub 8443 "$HUB2_IP")" = "$(blob_sha node1)" ] || fail "no traffic through the new hub"
 [ "$(dey --on node1 status --json | jq -r .node.hub_addr)" = "$HUB2_IP:$CONTROL_PORT" ] || fail "node hub_addr not updated"
+au=$(dey --on hub2 update auto --json)
+jq -e '.enabled == true' <<<"$au" >/dev/null || fail "the restored hub lost hub.auto_update: $au"
 pass

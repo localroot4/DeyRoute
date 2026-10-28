@@ -631,7 +631,7 @@ var catalog = map[Code]Info{
 		"run deyroute front disable and move every front node back to a direct hub address (deyroute node set-hub HOST:PORT on each node, or join it again), then repeat the command"},
 	S011: {S011, "Cannot {action} while config.yaml uses newer settings: {keys}",
 		"{reason}: an older deyroute does not know these keys, so it refuses config.yaml (DEY-C001) and the hub would not start",
-		"undo them first (automatic tuning: deyroute optimize revert; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command"},
+		"undo them first (automatic tuning: deyroute optimize revert; automatic update: deyroute update auto off; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command"},
 
 	// ---------------------------------------------------------------- X
 	X000: {X000, "Unexpected error",

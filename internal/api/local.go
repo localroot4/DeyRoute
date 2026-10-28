@@ -910,12 +910,15 @@ type UpdateInfo struct {
 	Previous  string `json:"previous,omitempty"`
 }
 
-// AutoUpdateInfo is the automatic update of the hub (`update auto`): once a
+// AutoUpdateInfo is the automatic update of the hub (`update auto`): while
+// it is enabled (hub.auto_update in config.yaml, off by default), once a
 // day at Hour (server time) the newest release that has been out for at
 // least MinAgeHours is installed; when the tunnels do not come back it is
 // rolled back and skipped.
 type AutoUpdateInfo struct {
-	Enabled     bool      `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// Source is where Enabled comes from: "config" (hub.auto_update).
+	Source      string    `json:"source"`
 	Hour        int       `json:"hour"`
 	MinAgeHours int       `json:"min_age_hours"`
 	Current     string    `json:"current"`

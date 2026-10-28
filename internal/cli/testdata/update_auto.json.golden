@@ -1,0 +1,15 @@
+{
+  "current": "0.3.0",
+  "enabled": false,
+  "hour": 4,
+  "last": "updated 0.2.9 → 0.3.0; 1 tunnels and 1 nodes work",
+  "last_at": "2026-10-28T00:33:00Z",
+  "min_age_hours": 24,
+  "next": "0.3.1",
+  "next_at": "2026-10-30T00:30:00Z",
+  "schema": 1,
+  "skipped": [
+    "0.2.10"
+  ],
+  "source": "config"
+}

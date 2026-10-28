@@ -122,8 +122,8 @@ jobs:
             echo "${install}"
             echo '```'
             echo
-            echo "Already installed? Run \`deyroute update\` on the hub (the nodes follow), or let the automatic update install it at 04:00 server time."
-            echo "قبلاً نصب کرده‌اید؟ روی هاب \`deyroute update\` بزنید (نودها خودشان دنبال می‌کنند)، یا بگذارید آپدیت خودکار ساعت ۴ صبح نصبش کند."
+            echo "Already installed? Run \`deyroute update\` on the hub (the nodes follow)."
+            echo "قبلاً نصب کرده‌اید؟ روی هاب \`deyroute update\` بزنید (نودها خودشان دنبال می‌کنند)."
             echo
             echo "## What's new"
             echo

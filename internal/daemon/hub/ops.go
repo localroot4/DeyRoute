@@ -39,9 +39,12 @@ const (
 	metaUpdatePrevious = "update/previous"
 	// metaUpdateCheck is the result of the last release check.
 	metaUpdateCheck = "update/check"
-	// metaAutoUpdate is the automatic update (on/off, releases seen and
-	// skipped, last outcome).
+	// metaAutoUpdate is the automatic update's runtime record (releases
+	// seen and skipped, last outcome); the switch is hub.auto_update.
 	metaAutoUpdate = "update/auto"
+	// metaAutoMigrated marks the first start of a build that keeps the
+	// switch of the automatic update in config.yaml (migrateAutoUpdate).
+	metaAutoMigrated = "update/auto-migrated"
 )
 
 // Queue sizes of the operation jobs.

@@ -2,10 +2,11 @@
 
 [فارسی](../fa/update-uninstall.md) · [Index](index.md)
 
-The hub keeps deyroute up to date by itself (automatic update, on by
-default; see below), and you can update by hand at any time. Updating
-deyroute does not interrupt the tunnels: the tunnel programs run as their
-own systemd units and are not touched while the deyroute service restarts.
+You update deyroute on the hub when you choose, and the nodes follow it.
+The hub can also update itself once a day (automatic update, off by
+default; see below). Updating deyroute does not interrupt the tunnels: the
+tunnel programs run as their own systemd units and are not touched while
+the deyroute service restarts.
 
 ## Update deyroute
 
@@ -52,9 +53,10 @@ setting first, then repeat the command.
 
 ## Automatic update
 
-On by default. Once a day at **04:00 server time** the hub installs the
-newest release that has been out for at least **24 hours**; the nodes follow
-it as after `deyroute update`, and the tunnels keep running.
+Off by default: deyroute never installs a release unless you ask. When you
+turn it on, once a day at **04:00 server time** the hub installs the newest
+release that has been out for at least **24 hours**; the nodes follow it as
+after `deyroute update`, and the tunnels keep running.
 
 After the restart the hub checks that every tunnel that was UP and every
 node that was online before the update works again (it gives them up to 10
@@ -68,8 +70,8 @@ keeps running and the dashboard shows `DEY-S011` for 7 days (details in
 
 ```bash
 deyroute update auto        # on or off, next release and when, last result
-deyroute update auto off    # turn it off
-deyroute update auto on     # turn it back on
+deyroute update auto on     # turn it on
+deyroute update auto off    # turn it off again
 ```
 
 ```text
@@ -80,6 +82,27 @@ deyroute update auto on     # turn it back on
   Next       0.3.0-edge.41 on 2026-10-10 04:00
   Last       updated 0.3.0-edge.39 → 0.3.0-edge.40; 1 tunnels and 1 nodes work (2026-10-09 04:03)
 ```
+
+The switch is `hub.auto_update` in `config.yaml`: `update auto on` writes
+`auto_update: true` (after an automatic backup), and `off` removes the
+key, so a backup keeps your choice and a restored hub has it again. Without
+the key the automatic update is off.
+
+`deyroute --json update auto` reports `"enabled"` and `"source": "config"`.
+
+While it is on, releases before **0.3.0** do not know the key, so
+`deyroute update --rollback` and `deyroute update --version V` to such a
+release (every `0.3.0-edge.N` build included) are refused with `DEY-S011`;
+run `deyroute update auto off` first. Updates to newer releases are not
+affected.
+
+**Hubs that ran an earlier build:** before this change the automatic update
+was on by default, and the switch was kept in the state database, which a
+backup does not contain. After the update it is **off** until you turn it
+on with `deyroute update auto on`, also on a hub where it ran before. Such a
+hub records the event `auto_update_default_off` once, and `deyroute status`
+shows "automatic update is now off by default; turn it on with: deyroute
+update auto on" for 7 days. A new installation shows neither.
 
 While it is on, `deyroute status` does not list a new release as something
 that needs attention: it is installed on schedule. A manual
