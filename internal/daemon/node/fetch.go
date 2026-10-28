@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/health"
@@ -47,6 +48,16 @@ const (
 // backendInstall answers backend.install: the pinned release is
 // downloaded (nodes have internet), verified against the manifest sha256
 // and installed side by side under /var/lib/deyroute/bin/<b>/<ver>/.
+//
+// The node installs only what a signed DEYROUTE release pins (DR-03): the
+// entry must equal, in version, URL and sha256 of this node's
+// architecture, the entry in the backends.yaml built into this node, or in
+// the backends.yaml the hub sent along (args.Manifest) when its signature
+// (args.ManifestSig) verifies with the release key built into this binary
+// (install.CheckBackendEntry). An older hub sends no manifest: then only
+// the built-in entries are installed. Anything else is refused before a
+// download. Builtin and system backends install nothing and are not
+// checked.
 func (a *agent) backendInstall(ctx context.Context, args api.BackendInstallArgs) (api.BackendInstallResult, error) {
 	e := args.Entry
 	if e.Name == "" {
@@ -58,6 +69,16 @@ func (a *agent) backendInstall(ctx context.Context, args api.BackendInstallArgs)
 	if !backendNameRe.MatchString(e.Name) {
 		return api.BackendInstallResult{}, a.refuse(api.CmdBackendInstall, fmt.Sprintf("invalid backend name %q", e.Name))
 	}
+	var pinnedBy string
+	if !e.Builtin && !e.System {
+		src, err := install.CheckBackendEntry(e, a.o.Arch, backend.EmbeddedManifest(), args.Manifest, args.ManifestSig, "")
+		if err != nil {
+			a.log.Warn("backend installation refused: no signed manifest pins it", slog.String("backend", e.Name),
+				slog.String("version", e.Version), dlog.Err(err))
+			return api.BackendInstallResult{}, a.refuse(api.CmdBackendInstall, err.Error())
+		}
+		pinnedBy = src
+	}
 	f := install.HTTPFetcher{Client: a.o.HTTPClient}
 	dir, err := a.o.Layout.InstallBackend(ctx, e, a.o.Arch, f, a.o.Mirror)
 	if err != nil {
@@ -67,7 +88,8 @@ func (a *agent) backendInstall(ctx context.Context, args api.BackendInstallArgs)
 		return api.BackendInstallResult{}, nil
 	}
 	sys := install.Layout{Root: "/"}
-	a.log.Info("backend installed", slog.String("backend", e.Name), slog.String("version", e.Version))
+	a.log.Info("backend installed", slog.String("backend", e.Name), slog.String("version", e.Version),
+		slog.String("pinned_by", pinnedBy))
 	return api.BackendInstallResult{
 		BinDir: sys.BinDir(e.Name, e.Version),
 		Binary: sys.BinaryPath(e.Name, e.Version, e.Binary()),
@@ -370,6 +392,12 @@ func refuseOlderThanNodeKeys(cfg *config.Config, target string) error {
 		WithWhy("version " + target + " is older than the first release that knows them: it would refuse this node's config.yaml (DEY-C001), and this node could not start again, out of the hub's reach").
 		WithFix("node.allow_unsigned_updates is for test labs only: remove it from /etc/deyroute/config.yaml on this node, then let the hub update it again").
 		WithDetail(nothingInstalled)
+}
+
+// manifestSHA256 is the hex sha256 of a backends.yaml (Hello.ManifestSHA256).
+func manifestSHA256(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
 }
 
 // firstNonEmptyString returns the first non-empty value.

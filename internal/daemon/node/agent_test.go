@@ -942,6 +942,7 @@ func TestIncompatibleHubRefusesCommands(t *testing.T) {
 }
 
 func TestCommandErrors(t *testing.T) {
+	key := useTestKey(t)
 	e := newEnv(t)
 	s := e.start()
 	_, err := call[json.RawMessage](t, s, "no.such.command", nil)
@@ -958,9 +959,15 @@ func TestCommandErrors(t *testing.T) {
 	requireCode(t, err, deyerr.N050)
 	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "a", Entry: backend.ManifestEntry{Name: "b"}})
 	requireCode(t, err, deyerr.N050)
-	// A pinned backend without checksum is never installed (S006).
-	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul",
-		Entry: backend.ManifestEntry{Version: "v0.7.2", URLs: map[string]string{"amd64": "https://example.com/b.tar.gz"}, Archive: "tar.gz"}})
+	// A backend without checksum is never installed: no signed manifest
+	// pins it (N050), and one that does is refused for the missing
+	// checksum (S006).
+	noSum := backend.ManifestEntry{Name: "backhaul", Version: "v0.7.2", URLs: map[string]string{"amd64": "https://example.com/b.tar.gz"}, Archive: "tar.gz"}
+	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: noSum})
+	requireCode(t, err, deyerr.N050)
+	manifest := manifestOf(noSum, "")
+	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: noSum,
+		Manifest: manifest, ManifestSig: signManifest(key, manifest)})
 	requireCode(t, err, deyerr.S006)
 	// Builtin backends need nothing.
 	r, err := call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "direct", Entry: backend.ManifestEntry{Version: "builtin", Builtin: true}})
@@ -1077,6 +1084,7 @@ func tarGz(t *testing.T, name string, data []byte) []byte {
 }
 
 func TestBackendInstall(t *testing.T) {
+	key := useTestKey(t)
 	archive := tarGz(t, "backhaul", []byte("\x7fELF fake backhaul"))
 	sum := sha256.Sum256(archive)
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) }))
@@ -1084,9 +1092,12 @@ func TestBackendInstall(t *testing.T) {
 	e := newEnv(t)
 	e.opts.HTTPClient = srv.Client()
 	s := e.start()
-	entry := backend.ManifestEntry{Version: "v0.7.2", Archive: "tar.gz", Binaries: []string{"backhaul"},
+	entry := backend.ManifestEntry{Name: "backhaul", Version: "v0.7.2", Archive: "tar.gz", Binaries: []string{"backhaul"},
 		URLs: map[string]string{"amd64": srv.URL + "/backhaul_linux_amd64.tar.gz"}, SHA256: map[string]string{"amd64": hex.EncodeToString(sum[:])}}
-	res, err := call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: entry})
+	// The hub's signed manifest pins the test server's archive (DR-03).
+	manifest := manifestOf(entry, "")
+	res, err := call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: entry,
+		Manifest: manifest, ManifestSig: signManifest(key, manifest)})
 	require.NoError(t, err)
 	require.Equal(t, "/var/lib/deyroute/bin/backhaul/v0.7.2", res.BinDir)
 	require.Equal(t, backhaulBin, res.Binary)
@@ -1098,7 +1109,9 @@ func TestBackendInstall(t *testing.T) {
 	bad := entry
 	bad.Version = "v0.7.3"
 	bad.SHA256 = map[string]string{"amd64": strings.Repeat("ab", 32)}
-	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: bad})
+	manifest = manifestOf(bad, "")
+	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: bad,
+		Manifest: manifest, ManifestSig: signManifest(key, manifest)})
 	requireCode(t, err, deyerr.S001)
 	_, err = os.Stat(e.path("/var/lib/deyroute/bin/backhaul/v0.7.3"))
 	require.True(t, os.IsNotExist(err))

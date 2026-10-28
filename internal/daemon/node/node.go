@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/render"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
@@ -359,6 +360,9 @@ func newAgent(o Options, cfg *config.Config, cfgPath string, logger *slog.Logger
 		CPUs:     sysinfo.CPUs(o.Root),
 		MemTotal: sysinfo.Mem(o.Root).Total,
 		Virt:     sysinfo.Virt(o.Root),
+		// The hub sends the signed backends.yaml of its release with
+		// backend.install when it pins other entries (DR-03).
+		ManifestSHA256: manifestSHA256(backend.EmbeddedManifest()),
 	}
 	return a
 }
