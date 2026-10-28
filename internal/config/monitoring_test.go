@@ -75,10 +75,15 @@ func TestNewerKeysInUse(t *testing.T) {
 	tun0(c).Advanced = &Advanced{MonthlyQuotaGiB: 1}
 	c.Tuning = &Tuning{SysctlProfile: SysctlAuto, BBR: true, NodesAuto: true, BackendTier: BackendTierMedium, WGMTU: 1380}
 	c.Monitoring = &Monitoring{}
-	require.Equal(t, []string{
-		"nodes[].backend_tier", "tunnels[].advanced.monthly_quota_gib", "tuning.sysctl_profile: auto",
-		"tuning.nodes_auto", "tuning.backend_tier", "tuning.wg_mtu", "monitoring",
+	// Each key carries the first release that knows it; the monitoring and
+	// tuning keys all came with FirstTrafficVersion.
+	v := FirstTrafficVersion
+	require.Equal(t, "0.3.0-edge.15", v)
+	require.Equal(t, []NewerKey{
+		{"nodes[].backend_tier", v}, {"tunnels[].advanced.monthly_quota_gib", v}, {"tuning.sysctl_profile: auto", v},
+		{"tuning.nodes_auto", v}, {"tuning.backend_tier", v}, {"tuning.wg_mtu", v}, {"monitoring", v},
 	}, c.NewerKeysInUse())
+	require.Equal(t, "monitoring (since 0.3.0-edge.15)", NewerKey{"monitoring", v}.String())
 	var nilCfg *Config
 	require.Nil(t, nilCfg.NewerKeysInUse())
 }

@@ -44,6 +44,12 @@ service does not run any more (for example a bad update that keeps
 crashing) and on a node: the binaries are swapped locally and the service
 is restarted.
 
+While `config.yaml` uses a setting that an older release does not know,
+`--rollback` and `--version` to such a release are refused with `DEY-S011`:
+that release would refuse the file and the service would not start. The
+error names each setting with the first release that knows it; remove the
+setting first, then repeat the command.
+
 ## Automatic update
 
 On by default. Once a day at **04:00 server time** the hub installs the
@@ -55,7 +61,10 @@ node that was online before the update works again (it gives them up to 10
 minutes). If not — or if the new version does not even start — it puts the
 previous version back by itself, records a `DEY-S003` event and a dashboard
 line, and never installs that release automatically again (you still can,
-with `deyroute update`).
+with `deyroute update`). If the previous version does not know a setting
+that `config.yaml` now uses, it would refuse the file: then the new version
+keeps running and the dashboard shows `DEY-S011` for 7 days (details in
+`deyroute update auto`).
 
 ```bash
 deyroute update auto        # on or off, next release and when, last result

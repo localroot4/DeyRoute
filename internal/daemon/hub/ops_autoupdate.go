@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
@@ -413,10 +414,17 @@ func autoMissing(p autoPending, healthy func() (tunnels, nodes []string)) []stri
 }
 
 // autoRollback puts the previous binary back after a failed verification
-// and restarts the hub; the next start records the outcome.
+// and restarts the hub; the next start records the outcome. When the
+// previous binary does not know a key set in config.yaml, it would refuse
+// the file and the hub would not start: then the new binary is kept
+// (autoKeep).
 func (h *Hub) autoRollback(path string, p autoPending, reason string) {
 	h.ops.updMu.Lock()
 	defer h.ops.updMu.Unlock()
+	if keys := newerKeysUnknownTo(h.Config(), p.From); len(keys) > 0 {
+		h.autoKeep(path, p, reason, keys)
+		return
+	}
 	if err := (install.SelfUpdater{Root: h.o.Root}).Rollback(); err != nil {
 		_ = os.Remove(path)
 		h.editAutoRecord(func(r *autoUpdateRecord) {
@@ -438,6 +446,24 @@ func (h *Hub) autoRollback(path string, p autoPending, reason string) {
 	h.log.Warn("automatic update did not verify; rolling back and restarting the hub",
 		slog.String("from", p.To), slog.String("to", p.From), slog.String("reason", reason))
 	h.scheduleRestart()
+}
+
+// autoKeep ends an automatic update that did not verify but cannot be
+// rolled back because deyroute p.From does not know keys of config.yaml:
+// the new binary keeps running, nothing restarts, and the dashboard shows
+// DEY-S011 for autoWarnFor (updateWarnings: "was kept" in the record).
+func (h *Hub) autoKeep(path string, p autoPending, reason string, keys []config.NewerKey) {
+	e := deyerr.As(newerKeysErr("roll back to deyroute "+p.From,
+		"deyroute "+p.From+" is older than the first release that knows them", keys))
+	h.editAutoRecord(func(r *autoUpdateRecord) {
+		r.Last = "update to " + p.To + " did not verify (" + reason + ") and was kept: deyroute " + p.From +
+			" would refuse config.yaml with " + joinNewerKeys(keys)
+		r.LastAt = h.now()
+	})
+	_ = os.Remove(path)
+	h.log.Error("automatic update did not verify and cannot be rolled back: the previous binary would refuse config.yaml; it keeps running",
+		slog.String("version", p.To), slog.String("previous", p.From), slog.String("reason", reason),
+		dlog.Err(e), dlog.Code(e.Code))
 }
 
 // UpdateAuto implements api.Local (`deyroute update auto [on|off]`).
@@ -484,9 +510,14 @@ func (h *Hub) autoInfo(rec autoUpdateRecord) api.AutoUpdateInfo {
 	return info
 }
 
+// autoWarnFor is how long the dashboard shows the outcome of an automatic
+// update that went wrong.
+const autoWarnFor = 7 * 24 * time.Hour
+
 // updateWarnings are the dashboard lines of updates: a release that is
 // newer than this hub when the automatic update will not install it (off,
-// or the release was rolled back), and the last automatic rollback.
+// or the release was rolled back), the last automatic rollback, and an
+// automatic update kept because it could not be rolled back.
 func (h *Hub) updateWarnings() []api.Warning {
 	var out []api.Warning
 	rec := h.autoRecord()
@@ -495,8 +526,11 @@ func (h *Hub) updateWarnings() []api.Warning {
 		(rec.Disabled || slices.Contains(rec.Skipped, upd.Latest)) {
 		out = append(out, api.Warning{Message: "deyroute " + upd.Latest + " is available (running " + version.Version + "): run deyroute update"})
 	}
-	if strings.Contains(rec.Last, "rolled back") && h.now().Sub(rec.LastAt) < 7*24*time.Hour {
+	if recent := h.now().Sub(rec.LastAt) < autoWarnFor; recent && strings.Contains(rec.Last, "rolled back") {
 		out = append(out, api.Warning{Code: string(deyerr.S003),
+			Message: "automatic " + rec.Last + "; see deyroute update auto"})
+	} else if recent && strings.Contains(rec.Last, "was kept") {
+		out = append(out, api.Warning{Code: string(deyerr.S011),
 			Message: "automatic " + rec.Last + "; see deyroute update auto"})
 	}
 	return out

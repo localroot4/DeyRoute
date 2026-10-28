@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/state"
@@ -170,7 +171,13 @@ func TestAutoUpdateInstalls(t *testing.T) {
 // pendingEnv starts a hub that finds p in AutoPendingPath.
 func pendingEnv(t *testing.T, p autoPending) *testEnv {
 	t.Helper()
-	env, o := prepareEnv(t, nil, func(o *Options, _ string) {
+	return pendingEnvWith(t, nil, p)
+}
+
+// pendingEnvWith is pendingEnv with config.yaml changed by edit.
+func pendingEnvWith(t *testing.T, edit func(c *config.Config), p autoPending) *testEnv {
+	t.Helper()
+	env, o := prepareEnv(t, edit, func(o *Options, _ string) {
 		o.AutoUpdateSettle = 10 * time.Millisecond
 		o.AutoUpdateVerify = 200 * time.Millisecond
 	})
@@ -206,6 +213,51 @@ func TestAutoUpdateRollsBack(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Contains(t, p.Failed, "tunnel ghost")
+}
+
+// TestAutoRollbackKeptForNewerKeys: an automatic update that does not
+// verify is not rolled back to a binary that is older than a config.yaml
+// key in use (it would refuse the file and the hub would not start): the
+// new binary keeps running, nothing restarts, and the dashboard shows
+// DEY-S011.
+func TestAutoRollbackKeptForNewerKeys(t *testing.T) {
+	env := pendingEnvWith(t, func(c *config.Config) { c.Monitoring = &config.Monitoring{QuotaResetDay: 5} },
+		autoPending{From: "0.3.0-edge.14", To: version.Version, Tunnels: []string{"ghost"}})
+	restarted := func() bool { return env.runner.Called("systemctl restart --no-block deyroute-hub.service") }
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(env.h.path(AutoPendingPath))
+		return os.IsNotExist(err) || restarted()
+	}, testWait, 10*time.Millisecond)
+	require.False(t, restarted(), "no restart into the previous binary")
+	data, _ := os.ReadFile(filepath.Join(env.root, config.BinaryPath))
+	require.Equal(t, "#!new", string(data), "the new binary stays")
+	rec := env.h.autoRecord()
+	require.Contains(t, rec.Last, "kept")
+	require.Contains(t, rec.Last, "tunnel ghost")
+	require.Empty(t, rec.Skipped)
+	st, err := env.client.Status(ctxT(t))
+	require.NoError(t, err)
+	var warned *api.Warning
+	for i, w := range st.Warnings {
+		if w.Code == string(deyerr.S011) {
+			warned = &st.Warnings[i]
+		}
+		require.NotContains(t, w.Message, "rolled back")
+	}
+	require.NotNil(t, warned, "%+v", st.Warnings)
+	require.Contains(t, warned.Message, "monitoring (since 0.3.0-edge.15)")
+	require.Contains(t, warned.Message, "0.3.0-edge.14")
+
+	// With the key gone, the next failed verification rolls back again.
+	_, err = env.h.mutate(func(c *config.Config) error {
+		c.Monitoring = nil
+		return nil
+	})
+	require.NoError(t, err)
+	env.h.autoRollback(env.h.path(AutoPendingPath), autoPending{From: "0.3.0-edge.14", To: version.Version}, "test")
+	require.Eventually(t, restarted, testWait, 10*time.Millisecond)
+	data, _ = os.ReadFile(filepath.Join(env.root, config.BinaryPath))
+	require.Equal(t, "#!old", string(data))
 }
 
 func TestAutoUpdateRecordsRollback(t *testing.T) {

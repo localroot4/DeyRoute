@@ -578,7 +578,17 @@ the alias `quota`.
 - `optimize check` and a report-only job every `Options.TuneCheckInterval`
   (6 h) compare 99-deyroute.conf with the live values and find later
   sysctl.d overrides (`DEY-X067`, event `tune_drift`).
-- Rollback: an older binary refuses the new config keys (strict decoding),
-  so `update --rollback` and `update --version` below
-  `hub.FirstTrafficVersion` are refused with `DEY-S011` while
-  `config.NewerKeysInUse()` lists any.
+- Rollback: an older binary refuses the new config keys (strict decoding).
+  `config.NewerKeysInUse()` lists the keys set in `config.yaml` that older
+  releases do not know, each with the first release that knows it
+  (`config.FirstTrafficVersion` for the monitoring and tuning keys).
+  `update --rollback` (compared with the recorded version of the previous
+  binary; refused for every key in use when it is not recorded) and
+  `update --version V` (only a V older than the running build) are refused
+  with `DEY-S011` while a key in use is newer than the target. A failed
+  automatic update is not rolled back to such a binary either: the new
+  binary keeps running and the dashboard shows `DEY-S011`.
+- A new config key is registered with one line in `newerKeys`
+  (`internal/config/newerkeys.go`): the key, its `First<Item>Version`
+  constant and whether a configuration sets it. Such a key is written only
+  when it differs from its default (`omitempty`).

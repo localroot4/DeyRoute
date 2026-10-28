@@ -278,11 +278,10 @@ func (l *local) UpdateRollback(context.Context) (api.UpdateInfo, error) {
 	if err := h.refuseWhileFrontInUse("roll back", "the previous binary may predate front mode"); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
-	if err := h.refuseWhileNewerKeysInUse("roll back",
-		"the previous binary may predate traffic monitoring and automatic tuning"); err != nil {
+	prev := h.previousVersion()
+	if err := h.refuseRollbackForNewerKeys(prev); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
-	prev := h.previousVersion()
 	if err := (install.SelfUpdater{Root: h.o.Root}).Rollback(); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
@@ -341,36 +340,69 @@ func (h *Hub) refuseOlderThanFront(want string) error {
 		"version "+want+" is older than "+FirstFrontVersion+", the first release with front mode")
 }
 
-// FirstTrafficVersion is the first release that knows the monitoring and
-// automatic tuning keys of config.yaml (config.NewerKeysInUse). An older
-// binary refuses them, so rollback and downgrades below it are refused
-// while any is set (DEY-S011). It is the first edge build that has them:
-// every later 0.3.0-edge.N, the 0.3.0 pre-releases after it and 0.3.0
-// itself know them (a plain "0.3.0" here made every edge build of 0.3.0
-// look older, so `deyroute update` refused the newest edge build).
-const FirstTrafficVersion = "0.3.0-edge.15"
+// newerKeysUnknownTo lists the config.yaml keys set in cfg that the binary
+// of deyroute v (a rollback target) does not know: those whose first
+// release (config.NewerKeysInUse) is newer than v. A v that is not a
+// release version (not recorded, "dev") may predate every key, so then
+// every key in use is listed.
+func newerKeysUnknownTo(cfg *config.Config, v string) []config.NewerKey {
+	var out []config.NewerKey
+	for _, k := range cfg.NewerKeysInUse() {
+		if c, ok := install.CompareVersions(v, k.Since); !ok || c < 0 {
+			out = append(out, k)
+		}
+	}
+	return out
+}
 
-// refuseWhileNewerKeysInUse returns DEY-S011 while config.yaml sets keys
-// that a release before FirstTrafficVersion refuses (strict decoding).
-func (h *Hub) refuseWhileNewerKeysInUse(action, reason string) error {
-	keys := h.Config().NewerKeysInUse()
+// newerKeysErr is DEY-S011 for keys (nil when there are none): an older
+// binary refuses config.yaml with them (strict decoding).
+func newerKeysErr(action, reason string, keys []config.NewerKey) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	return deyerr.New(deyerr.S011, deyerr.Params{"action": action, "keys": strings.Join(keys, ", "), "reason": reason})
+	return deyerr.New(deyerr.S011, deyerr.Params{"action": action, "keys": joinNewerKeys(keys), "reason": reason})
 }
 
-// refuseOlderThanNewerKeys refuses `update --version V` for a V older than
-// FirstTrafficVersion while such keys are set.
+// joinNewerKeys names keys with their first releases.
+func joinNewerKeys(keys []config.NewerKey) string {
+	names := make([]string, len(keys))
+	for i, k := range keys {
+		names[i] = k.String()
+	}
+	return strings.Join(names, ", ")
+}
+
+// refuseRollbackForNewerKeys returns DEY-S011 when config.yaml sets a key
+// that the previous binary (version prev, "" = not recorded) does not know.
+func (h *Hub) refuseRollbackForNewerKeys(prev string) error {
+	reason := "the version of the previous binary is not recorded, so it may predate them"
+	if prev != "" {
+		reason = "deyroute " + prev + ", the previous binary, is older than the first release that knows them"
+	}
+	return newerKeysErr("roll back", reason, newerKeysUnknownTo(h.Config(), prev))
+}
+
+// refuseOlderThanNewerKeys refuses `update --version V` while config.yaml
+// sets a key that V does not know. A V that is not older than the running
+// build is never refused: it knows every key this build knows, even when a
+// key's first version is set later than the build that brought it (see
+// config.NewerKeysInUse). A V that is not a release version is left to the
+// release check.
 func (h *Hub) refuseOlderThanNewerKeys(want string) error {
 	if want == "" {
 		return nil
 	}
-	if c, ok := install.CompareVersions(want, FirstTrafficVersion); !ok || c >= 0 {
+	if c, ok := install.CompareVersions(want, version.Version); ok && c >= 0 {
 		return nil
 	}
-	return h.refuseWhileNewerKeysInUse("install an older version",
-		"version "+want+" is older than "+FirstTrafficVersion+", the first release with traffic monitoring and automatic tuning")
+	var keys []config.NewerKey
+	for _, k := range h.Config().NewerKeysInUse() {
+		if c, ok := install.CompareVersions(want, k.Since); ok && c < 0 {
+			keys = append(keys, k)
+		}
+	}
+	return newerKeysErr("install an older version", "version "+want+" is older than the first release that knows them", keys)
 }
 
 // markNodesForUpdate records that every node must run the hub's version

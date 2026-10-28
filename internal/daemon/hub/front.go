@@ -42,7 +42,7 @@ const DefaultRouteStable = 30 * time.Second
 // FirstFrontVersion is the first release that knows front mode. An older
 // binary refuses the front keys of config.yaml, so rollback and downgrades
 // below it are refused while the front is in use (DEY-S010).
-// It is the first edge build with front mode (see FirstTrafficVersion).
+// It is the first edge build with front mode (see config.FirstTrafficVersion).
 const FirstFrontVersion = "0.3.0-edge.15"
 
 // frontSecretMax bounds the front secret file that is read.
