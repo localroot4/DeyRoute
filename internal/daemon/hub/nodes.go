@@ -70,7 +70,7 @@ func (l *local) NodeJoinCommand(ctx context.Context, ttl time.Duration) (api.Joi
 	}
 	link := api.FormatJoinLink(jl)
 	mirror := firstNonEmpty(h.o.Getenv(install.MirrorEnv), cfg.Hub.Mirror)
-	cmd := setup.JoinCommand(setup.InstallerURL(mirror), link, version.Version)
+	cmd := setup.JoinCommand(setup.InstallerURL(mirror, version.Version), link, version.Version)
 	if err := h.applyFirewall(ctx); err != nil {
 		h.log.Warn("the join window could not be opened in the firewall", dlog.Err(err))
 	}

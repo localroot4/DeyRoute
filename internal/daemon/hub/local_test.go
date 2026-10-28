@@ -65,7 +65,8 @@ func TestNodeJoinCommandMirrorAndRelease(t *testing.T) {
 	env := startHub(t, func(c *config.Config) { c.Hub.Mirror = "https://cdn.example" })
 	jc, err := env.h.Local().NodeJoinCommand(ctxT(t), 0)
 	require.NoError(t, err)
-	require.Contains(t, jc.Command, "bash <(curl -fsSL https://cdn.example/latest/install.sh) join '")
+	// The installer of the pinned release, which stays downloadable (DR-02).
+	require.Contains(t, jc.Command, "bash <(curl -fsSL https://cdn.example/v1.4.2/install.sh) join '")
 	require.True(t, strings.HasSuffix(jc.Command, " --version 1.4.2"), jc.Command)
 }
 

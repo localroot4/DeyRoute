@@ -85,7 +85,7 @@ func screenEnv(t *testing.T, cols int) *env {
 		return api.DoctorData{Role: "hub", Sections: map[string]string{"os": "Ubuntu 24.04"}, Findings: demo.DoctorFindings()}, nil
 	}
 	e.stub.NodeJoinCommandFn = func(context.Context, time.Duration) (api.JoinCommand, error) {
-		return api.JoinCommand{Command: setup.JoinCommand(setup.InstallerURL(""), demo.JoinLink, demo.Version),
+		return api.JoinCommand{Command: setup.JoinCommand(setup.InstallerURL("", demo.Version), demo.JoinLink, demo.Version),
 			ExpiresAt: testNow.Add(15 * time.Minute)}, nil
 	}
 	e.g.Ops.SetupHub = func(_ context.Context, o setup.HubOptions) (*setup.HubResult, error) {

@@ -959,7 +959,7 @@ text{fill:#e6edf3;font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consol
 <text x="240" y="13652" textLength="336">bash</text>
 <text x="660" y="13652" textLength="504">&lt;(curl</text>
 <text x="1248" y="13652" textLength="420">-fsSL</text>
-<text x="1752" y="13652" textLength="6300">https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)</text>
+<text x="1752" y="13652" textLength="6300">https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh)</text>
 <text x="8136" y="13652" textLength="336">join</text>
 <text x="8556" y="13652" textLength="924">&#39;dey://EXAM</text>
 <text x="240" y="13828" textLength="3612">PLE-TOKEN@203.0.113.10:44433#sha256:3f9a5c&#39;</text>
