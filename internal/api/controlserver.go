@@ -540,11 +540,12 @@ func (s *ControlServer) handleRelease(w http.ResponseWriter, r *http.Request, no
 		}()
 		return s.Handler.Release(r.Context(), nodeID, arch)
 	}()
-	defer b.Close()
 	if err != nil {
+		b.Close() // whatever a failing handler opened
 		writeControlError(w, err)
 		return
 	}
+	defer b.Close()
 	for _, f := range b.Files {
 		if f.Reader == nil || f.Size < 0 || !releaseNameRe.MatchString(f.Name) {
 			writeControlError(w, deyerr.Wrap(deyerr.X000, fmt.Errorf("invalid release file %q", f.Name), nil))
