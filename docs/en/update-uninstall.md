@@ -36,7 +36,8 @@ What `deyroute update` does:
    or from your mirror;
 4. replaces `/usr/local/bin/deyroute`, keeping the old one as
    `/var/lib/deyroute/bin/deyroute.prev`, and restarts the deyroute service;
-5. the nodes follow the hub's version.
+5. the nodes follow the hub's version (see
+   [How the nodes follow](#how-the-nodes-follow)).
 
 Use only one of `--check`, `--version` and `--rollback` at a time.
 `--rollback` restores `deyroute.prev` (`DEY-S007` when there is none; then
@@ -54,6 +55,54 @@ the version it recorded for `deyroute.prev` when an update or rollback
 wrote that file. When the installer or a rollback without the service has
 replaced the file since, its version is unknown, and the rollback is
 refused while any such setting is in use.
+
+## How the nodes follow
+
+When a node connects with another version than the hub's after an update
+or a rollback, the hub tells it to install the hub's version. A node
+installs a new deyroute only when the release it comes from is signed
+with the DEYROUTE release key built into the node; what the hub says
+about it is not enough:
+
+- The hub keeps the signed files of its release in
+  `/var/lib/deyroute/bin/<version>/`: `SHA256SUMS`, `SHA256SUMS.minisig`,
+  the archive `deyroute_<version>_linux_<arch>.tar.gz` of each
+  architecture it serves, and `backends.yaml` with its signature.
+  `deyroute update` and the installer (also with `--local`) leave them
+  there. A hub without them (installed before this change, or with
+  `--skip-signature`) downloads them the first time a node needs them,
+  like the release itself: through a node or your mirror. When the hub
+  starts it removes the files of versions it neither runs nor rolls back
+  to.
+- The node downloads these files from the hub and checks them itself:
+  the signature of `SHA256SUMS`, that `SHA256SUMS` lists the archive of
+  exactly the hub's version, the checksum of the archive, and that the
+  archive holds one regular file `deyroute` (no link, no path outside the
+  archive, at most 200 MB) that runs on this server. Only then it replaces
+  its binary (the old one stays as `deyroute.prev`) and restarts; the
+  tunnels keep running.
+- When a check fails the node installs nothing and keeps running its
+  version. The hub's log has the line "node could not install the hub's
+  version" with `DEY-S001` and the check that failed (for example
+  "SHA256SUMS.minisig is not a valid signature …" or "… does not match the
+  signed SHA256SUMS"); the hub tries again when the node reconnects.
+
+**Update the hub first.** A node of this version updates only from a hub
+that serves signed releases. A hub of an earlier build cannot: the node
+refuses its update with `DEY-S001` ("update the hub first") and keeps
+running. Update the hub, then the nodes follow. A node of an earlier build
+still updates from a new hub as before.
+
+**Development builds.** A hub on a development build (`deyroute version`
+shows `dev`) has no signed release, so its nodes refuse with `DEY-S012`:
+install a release on the hub. Only in a test lab, the line
+`allow_unsigned_updates: true` under `node:` in a node's
+`/etc/deyroute/config.yaml` lets that node take the hub's binary without
+a signature (from an earlier hub too). Never set it on a server with real
+users: with it, whoever controls the hub controls the node again. While
+it is set, the node refuses to install a release older than **0.3.0**
+(`DEY-S011`, every `0.3.0-edge.N` older than the node included): such a
+release does not know the key and would not start.
 
 ## Automatic update
 

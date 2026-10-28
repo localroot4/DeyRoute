@@ -21,8 +21,9 @@ to a log.
 - A node takes no decisions of its own: it only renders files below
   `/etc/deyroute/backends/`, runs only the backend binaries deyroute installed
   (and deyroute's own relay and WireGuard setup) with no more privileges than
-  its built-in allowlist grants that backend (see Tunnel processes below), and
-  downloads only over https.
+  its built-in allowlist grants that backend (see Tunnel processes below),
+  installs a new deyroute only from a release signed with the key built into
+  it (see Downloads below), and downloads only over https.
 
 ## Join tokens
 
@@ -393,6 +394,24 @@ transport from inside the transport itself.
 
 - Releases are signed: `SHA256SUMS` with minisign; the installer and deyroute
   itself check the signature and the checksum.
+- **A node trusts the release key, not the hub.** When a node follows the
+  hub's version, the hub passes on the signed files of its release
+  (`SHA256SUMS`, `SHA256SUMS.minisig`, the archive), and the node checks
+  them itself with the release key built into its own binary: the
+  signature, that the release is exactly the announced version, the
+  checksum of the archive, and that the archive holds one regular file
+  `deyroute` and nothing that would land outside its directory. Anything
+  else is refused with `DEY-S001` and nothing is installed. So someone who
+  takes over the hub cannot make the nodes install a program of their own
+  through an update. A hub on a development build has no signed release
+  (`DEY-S012`); details in
+  [Update & uninstall](update-uninstall.md#how-the-nodes-follow).
+- `node.allow_unsigned_updates: true` in a node's `config.yaml` turns this
+  check off for that node (test labs only); never set it on a server with
+  real users.
+- Release binaries trust the release key only. Builds for the integration
+  lab may trust a second, throwaway key; `deyroute --json version` shows
+  `"test_key": true` for such a build and `false` for every release.
 - Backend binaries are installed only when their sha256 matches the signed
   manifest (`DEY-S001`, `DEY-S006`). No third-party script is ever piped into
   a shell.
