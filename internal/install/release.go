@@ -140,11 +140,12 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 // FetchManifest downloads backends.yaml and backends.yaml.minisig of version
 // ("" = latest) from the first source serving a validly signed pair, and
 // parses it strictly. Signature failure → DEY-S001; unreachable → DEY-I004.
-// It returns the parsed manifest and the raw bytes for InstallManifest.
-func FetchManifest(ctx context.Context, f Fetcher, sources []Source, version, pubKey string, ro RetryOptions) (*backend.ManifestFile, []byte, error) {
+// It returns the parsed manifest, and the raw bytes and the signature for
+// InstallManifest.
+func FetchManifest(ctx context.Context, f Fetcher, sources []Source, version, pubKey string, ro RetryOptions) (m *backend.ManifestFile, data, sig []byte, err error) {
 	var lastErr, sigErr error
 	for _, src := range sources {
-		data, _, bad, err := fetchManifestPair(ctx, f, src, version, pubKey, ro)
+		data, sig, bad, err := fetchManifestPair(ctx, f, src, version, pubKey, ro)
 		if err != nil {
 			if bad {
 				sigErr = err
@@ -158,9 +159,9 @@ func FetchManifest(ctx context.Context, f Fetcher, sources []Source, version, pu
 			sigErr = err
 			continue
 		}
-		return m, data, nil
+		return m, data, sig, nil
 	}
-	return nil, nil, firstErr(sigErr, lastErr,
+	return nil, nil, nil, firstErr(sigErr, lastErr,
 		deyerr.New(deyerr.I004, deyerr.Params{"file": ManifestFile}).WithDetail("no download source configured"))
 }
 
@@ -224,15 +225,27 @@ func firstErr(errs ...error) error {
 	return nil
 }
 
-// InstallManifest writes a verified manifest to Root/etc/deyroute/backends.yaml
-// (0644, atomic); backend.LoadManifestOverride activates it.
-func InstallManifest(root string, data []byte) error {
+// InstallManifest writes a verified manifest and its signature to
+// Root/etc/deyroute/backends.yaml and backends.yaml.minisig (0644, each
+// atomically, the signature first); backend.LoadManifestOverride activates
+// the manifest. The hub sends both to its nodes, which install a backend
+// only when a signed manifest pins it (DR-03), and a backup of
+// /etc/deyroute keeps both.
+func InstallManifest(root string, data, sig []byte) error {
 	if _, err := backend.ParseManifest(data); err != nil {
 		return err
 	}
-	p := Layout{Root: root}.Path(config.ManifestPath)
+	if len(sig) == 0 {
+		return deyerr.New(deyerr.S001, deyerr.Params{"file": ManifestSigFile}).
+			WithWhy("the manifest comes without its signature, which the nodes need")
+	}
+	l := Layout{Root: root}
+	p := l.Path(config.ManifestPath)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": filepath.Dir(p)})
+	}
+	if err := writeFileAtomic(l.Path(config.ManifestSigPath), sig, 0o644); err != nil {
+		return err
 	}
 	return writeFileAtomic(p, data, 0o644)
 }

@@ -241,6 +241,8 @@ type fakeNode struct {
 	lastError atomic.Value
 	// features is Hello.Features of the node (set before start).
 	features []string
+	// manifest is Hello.ManifestSHA256 of the node (set before start).
+	manifest string
 	// hubHello is the last hello the hub sent (api.Hello).
 	hubHello atomic.Value
 }
@@ -314,7 +316,8 @@ func (n *fakeNode) client() *api.ControlClient {
 		Dial:      n.dial,
 		TLSConfig: n.tls,
 		Hello: func() api.Hello {
-			return api.Hello{NodeID: n.id, Version: n.version, Arch: "amd64", OS: "Test OS", Kernel: "6.1", Features: n.features}
+			return api.Hello{NodeID: n.id, Version: n.version, Arch: "amd64", OS: "Test OS", Kernel: "6.1", Features: n.features,
+				ManifestSHA256: n.manifest}
 		},
 		OnHubHello: func(h api.Hello) { n.hubHello.Store(h) },
 		Heartbeat: func() api.Heartbeat {

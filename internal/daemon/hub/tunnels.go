@@ -721,7 +721,11 @@ func (h *Hub) installNode(ctx context.Context, node string, e backend.ManifestEn
 	ictx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 	var res api.BackendInstallResult
-	err := h.Call(ictx, node, api.CmdBackendInstall, api.BackendInstallArgs{Entry: e, Name: e.Name}, &res)
+	args := api.BackendInstallArgs{Entry: e, Name: e.Name}
+	// A node with signed updates installs only what a signed manifest pins
+	// (DR-03, manifest.go).
+	args.Manifest, args.ManifestSig = h.nodeManifest(ictx, node)
+	err := h.Call(ictx, node, api.CmdBackendInstall, args, &res)
 	if ctx.Err() != nil || deyerr.HasCode(err, deyerr.N003) || deyerr.HasCode(err, deyerr.N004) {
 		return err
 	}

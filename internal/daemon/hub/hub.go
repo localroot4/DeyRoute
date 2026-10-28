@@ -104,6 +104,9 @@ type Hub struct {
 	digestMu sync.Mutex
 	digests  map[string]fileDigest
 
+	// man is the manifest override sent with backend.install (manifest.go).
+	man manifestState
+
 	warnMu    sync.Mutex
 	certWarns []api.Warning
 	certAt    time.Time
@@ -185,10 +188,7 @@ func New(o Options) (_ *Hub, err error) {
 	if err := h.openState(); err != nil {
 		return nil, err
 	}
-	if err := backend.LoadManifestOverride(h.path(config.ManifestPath)); err != nil {
-		h.log.Error("the backend manifest override cannot be used; the built-in manifest stays active",
-			slog.String("path", h.path(config.ManifestPath)), dlog.Err(err), dlog.Code(deyerr.S001))
-	}
+	h.loadManifestOverride()
 	if err := h.loadTLS(); err != nil {
 		return nil, err
 	}

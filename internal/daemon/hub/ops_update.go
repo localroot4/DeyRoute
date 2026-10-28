@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
-	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/install"
@@ -549,20 +548,19 @@ func (h *Hub) selfUpdateNode(ctx context.Context, node string) {
 // UpdateManifest implements api.Local (`deyroute update manifest`, section
 // 5): the signed backends.yaml of the newest release is downloaded through
 // the fetcher chain, its signature verified, written to
-// /etc/deyroute/backends.yaml and activated. Running tunnels keep their
-// backend versions until `deyroute update backends`.
+// /etc/deyroute/backends.yaml with its signature next to it
+// (backends.yaml.minisig, which the hub sends to its nodes, DR-03) and
+// activated. Running tunnels keep their backend versions until
+// `deyroute update backends`.
 func (l *local) UpdateManifest(ctx context.Context) (api.ManifestInfo, error) {
 	h := l.h
 	h.ops.updMu.Lock()
 	defer h.ops.updMu.Unlock()
-	m, data, err := install.FetchManifest(ctx, h.Fetcher(), h.sources(), "", h.o.MinisignKey, install.RetryOptions{})
+	m, data, sig, err := install.FetchManifest(ctx, h.Fetcher(), h.sources(), "", h.o.MinisignKey, install.RetryOptions{})
 	if err != nil {
 		return api.ManifestInfo{}, withLog(err)
 	}
-	if err := install.InstallManifest(h.o.Root, data); err != nil {
-		return api.ManifestInfo{}, withLog(err)
-	}
-	if err := backend.LoadManifestOverride(h.path(config.ManifestPath)); err != nil {
+	if err := h.installManifest(data, sig); err != nil {
 		return api.ManifestInfo{}, withLog(err)
 	}
 	info := api.ManifestInfo{Source: config.ManifestPath, Versions: map[string]string{}}

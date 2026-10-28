@@ -18,6 +18,7 @@ const (
 	SecretsDir      = "/etc/deyroute/secrets" // #nosec G101 -- directory path, not a credential
 	BackendsConfDir = "/etc/deyroute/backends"
 	ManifestPath    = "/etc/deyroute/backends.yaml"
+	ManifestSigPath = "/etc/deyroute/backends.yaml.minisig"
 	LibDir          = "/var/lib/deyroute"
 	BinDir          = "/var/lib/deyroute/bin"
 	StatePath       = "/var/lib/deyroute/state.db"

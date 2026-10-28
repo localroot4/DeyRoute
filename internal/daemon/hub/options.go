@@ -236,6 +236,11 @@ type Options struct {
 	TrafficInterval   time.Duration
 	TrafficFlush      time.Duration
 	TuneCheckInterval time.Duration
+	// ManifestRetry (10 min) is how long the hub waits before it downloads
+	// again a signature for a manifest override that has none, or the
+	// signed backends.yaml of its release after a failed download
+	// (manifest.go).
+	ManifestRetry time.Duration
 }
 
 func (o Options) withDefaults() Options {
@@ -323,6 +328,7 @@ func (o Options) withDefaults() Options {
 	setDur(&o.TrafficInterval, DefaultTrafficInterval)
 	setDur(&o.TrafficFlush, DefaultTrafficFlush)
 	setDur(&o.TuneCheckInterval, DefaultTuneCheckInterval)
+	setDur(&o.ManifestRetry, DefaultManifestRetry)
 	if o.Location == nil {
 		o.Location = time.Local
 	}
