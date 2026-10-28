@@ -291,9 +291,10 @@ func rotatedPath(path string, n int) string { return path + "." + strconv.Itoa(n
 // and deleting those beyond keep. The rotated names live in the log
 // directory, where a tunnel backend may have planted anything: the
 // compressed file is first written to <path>.1.gz.tmp, created exclusively
-// (createExclusive), and a name that is not a regular file is removed, never
-// renamed along or renamed onto (renameRotated). refuse is told about each
-// such name (RefusedStaging).
+// (createExclusive), and a name that is not a regular file is removed (a
+// directory with what it holds, removeUntrusted), never renamed along or
+// renamed onto (renameRotated). refuse is told about each such name
+// (RefusedStaging).
 func compressAndShift(path string, keep int, in io.Reader, refuse func(reason string)) error {
 	tmp := rotatedPath(path, 1) + ".tmp"
 	if err := gzipFile(in, tmp, filepath.Base(path), refuse); err != nil {
@@ -302,11 +303,21 @@ func compressAndShift(path string, keep int, in io.Reader, refuse func(reason st
 	}
 	// Drop everything at or beyond keep, then shift keep-1 … 1 up by one.
 	for n := keep; ; n++ {
-		err := os.Remove(rotatedPath(path, n))
-		if err != nil && stderrors.Is(err, fs.ErrNotExist) && n > keep {
-			break
+		p := rotatedPath(path, n)
+		fi, err := os.Lstat(p)
+		if stderrors.Is(err, fs.ErrNotExist) {
+			if n > keep {
+				break
+			}
+			continue
 		}
-		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+		if err != nil {
+			return err
+		}
+		if !fi.Mode().IsRegular() {
+			refuse(RefusedStaging)
+		}
+		if err := removeUntrusted(p); err != nil {
 			return err
 		}
 	}
@@ -319,8 +330,8 @@ func compressAndShift(path string, keep int, in io.Reader, refuse func(reason st
 }
 
 // renameRotated renames the rotated file from to to. Both names are checked
-// with Lstat first: a from that is not a regular file (a link or a FIFO
-// planted in the directory) is removed instead of moved along, and a to
+// with Lstat first: a from that is not a regular file (a link, a FIFO or a
+// directory planted there) is removed instead of moved along, and a to
 // that is not a regular file is removed before the rename, so a rename
 // never lands on a link the rotator did not create. A missing from is
 // nothing to do.
@@ -334,11 +345,11 @@ func renameRotated(from, to string, refuse func(reason string)) error {
 	}
 	if !fi.Mode().IsRegular() {
 		refuse(RefusedStaging)
-		return removeName(from)
+		return removeUntrusted(from)
 	}
 	if ti, err := os.Lstat(to); err == nil && !ti.Mode().IsRegular() {
 		refuse(RefusedStaging)
-		if err := removeName(to); err != nil {
+		if err := removeUntrusted(to); err != nil {
 			return err
 		}
 	}
@@ -351,6 +362,25 @@ func removeName(p string) error {
 		return err
 	}
 	return nil
+}
+
+// removeUntrusted removes what stands at p, a name the rotator writes: a
+// directory goes with everything in it (os.RemoveAll works below p with
+// descriptors and O_NOFOLLOW, so a link inside is removed, never followed),
+// anything else is unlinked. A directory planted there with files in it must
+// not stop every later rotation. A missing p is not an error.
+func removeUntrusted(p string) error {
+	fi, err := os.Lstat(p)
+	if stderrors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() {
+		return os.RemoveAll(p)
+	}
+	return removeName(p)
 }
 
 // gzipFile compresses in into dst, created by createExclusive (mode 0600,
@@ -387,18 +417,22 @@ func gzipFile(in io.Reader, dst, name string, refuse func(reason string)) error 
 // told first (RefusedStaging).
 func createExclusive(p string, refuse func(reason string)) (*os.File, error) {
 	for retried := false; ; retried = true {
-		f, err := os.OpenFile(filepath.Clean(p), os.O_WRONLY|os.O_CREATE|os.O_EXCL|unix.O_NOFOLLOW, FileMode)
+		f, err := createFile(filepath.Clean(p), os.O_WRONLY|os.O_CREATE|os.O_EXCL|unix.O_NOFOLLOW, FileMode)
 		if err == nil || retried || !stderrors.Is(err, fs.ErrExist) {
 			return f, err
 		}
 		if fi, lerr := os.Lstat(p); lerr == nil && !ownLeftover(fi) {
 			refuse(RefusedStaging)
 		}
-		if err := removeName(p); err != nil {
+		if err := removeUntrusted(p); err != nil {
 			return nil, err
 		}
 	}
 }
+
+// createFile opens the files createExclusive creates (os.OpenFile; tests
+// make it fail as a full disk would).
+var createFile = os.OpenFile
 
 // ownLeftover reports whether fi is a file the rotator may have left behind
 // itself: a regular file owned by this process's user (root in the
@@ -660,7 +694,7 @@ func finishLeftover(p, path string, keep int, refuse func(reason string)) error 
 	}
 	if !ownLeftover(fi) {
 		refuse(RefusedStaging)
-		return removeName(p)
+		return removeUntrusted(p)
 	}
 	return finishStaged(p, path, keep, refuse)
 }
@@ -684,7 +718,7 @@ func finishStaged(p, path string, keep int, refuse func(reason string)) error {
 	}
 	if !ownLeftover(st) {
 		refuse(RefusedStaging)
-		return removeName(p)
+		return removeUntrusted(p)
 	}
 	if err := compressAndShift(path, keep, in, refuse); err != nil {
 		return err

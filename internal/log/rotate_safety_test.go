@@ -301,6 +301,76 @@ func TestRotateCopyTruncatePlantedRegularStaging(t *testing.T) {
 	})
 }
 
+// A directory with files in it, planted at a name the rotation writes or
+// shifts, is removed with what it holds (a link inside is removed, never
+// followed) and the rotation completes: it never stops with the live log
+// truncated and its copy stuck in the staging directory.
+func TestRotateCopyTruncatePlantedDirectory(t *testing.T) {
+	older := []byte("older rotation\n")
+	for _, tc := range []struct {
+		name string
+		// at is the planted name, relative to the log.
+		at string
+		// prior rotated files of the log before the rotation.
+		prior map[string][]byte
+		// want are the rotated files afterwards.
+		want map[string]string
+	}{
+		{name: "legacy staging", at: ".rotating",
+			want: map[string]string{".1.gz": string(liveContent)}},
+		{name: "temporary gz", at: ".1.gz.tmp",
+			want: map[string]string{".1.gz": string(liveContent)}},
+		{name: "shift target", at: ".2.gz", prior: map[string][]byte{".1.gz": older},
+			want: map[string]string{".1.gz": string(liveContent), ".2.gz": string(older)}},
+		{name: "shift source", at: ".1.gz",
+			want: map[string]string{".1.gz": string(liveContent)}},
+		{name: "beyond keep", at: ".3.gz", prior: map[string][]byte{".1.gz": older},
+			want: map[string]string{".1.gz": string(liveContent), ".2.gz": string(older)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRotFix(t)
+			live := f.live(t, "t.log", liveContent)
+			for suffix, data := range tc.prior {
+				var gz bytes.Buffer
+				zw := gzip.NewWriter(&gz)
+				_, err := zw.Write(data)
+				require.NoError(t, err)
+				require.NoError(t, zw.Close())
+				require.NoError(t, os.WriteFile(live+suffix, gz.Bytes(), 0o600))
+			}
+			victim := f.file(t, "cron", victimData)
+			planted := live + tc.at
+			require.NoError(t, os.MkdirAll(filepath.Join(planted, "sub"), 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(planted, "sub", "file"), victimData, 0o600))
+			require.NoError(t, os.Symlink(victim, filepath.Join(planted, "link")))
+			require.NoError(t, os.Symlink(f.outside, filepath.Join(planted, "dirlink")))
+
+			rotated, err := f.rotate(live, 10, 3)
+			require.NoError(t, err)
+			require.True(t, rotated)
+			requireContent(t, live, nil)
+			for suffix, want := range tc.want {
+				require.Equal(t, want, gunzipString(t, live+suffix), "content of t.log%s", suffix)
+			}
+			if _, ok := tc.want[tc.at]; !ok {
+				requireAbsent(t, planted)
+			}
+			requireContent(t, victim, victimData)
+			entries, err := os.ReadDir(f.staging)
+			require.NoError(t, err)
+			require.Empty(t, entries, "nothing is left in the staging directory")
+			require.Equal(t, []string{"t.log staging"}, f.refusals())
+
+			// The next rotation goes on as usual.
+			require.NoError(t, os.WriteFile(live, liveContent, 0o600))
+			rotated, err = f.rotate(live, 10, 3)
+			require.NoError(t, err)
+			require.True(t, rotated)
+			require.Equal(t, string(liveContent), gunzipString(t, live+".2.gz"))
+		})
+	}
+}
+
 // syncBuffer is a bytes.Buffer safe for the loop goroutine and the test.
 type syncBuffer struct {
 	mu  sync.Mutex
