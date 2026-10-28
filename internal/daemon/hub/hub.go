@@ -413,8 +413,9 @@ func (h *Hub) Serve(ctx context.Context) error {
 		}()
 	}
 	// Before any tunnel unit starts: tunnels/ of an older install gets the
-	// sticky bit.
+	// sticky bit, and the log of every tunnel is root's own file again.
 	h.tightenTunnelLogDir()
+	h.prepareTunnelLogs()
 	// The tunnel manager is ready before the Local API accepts calls; the
 	// startup reconcile (section 9: recovery after a hub restart) runs in
 	// its own goroutine.

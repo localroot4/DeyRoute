@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
@@ -869,6 +870,13 @@ func (a *agent) prepareTunnelLog(tunnel string) error {
 	if err := a.ensureTunnelLogDir(); err != nil {
 		return err
 	}
+	return a.ensureTunnelLog(tunnel)
+}
+
+// ensureTunnelLog makes <tunnel>.log the agent's own regular file with one
+// link (dlog.EnsureTunnelLog) and logs what it removed there as "tunnel log
+// replaced". Errors are DEY-X022.
+func (a *agent) ensureTunnelLog(tunnel string) error {
 	if !config.ValidID(tunnel) {
 		return nil
 	}
@@ -877,6 +885,31 @@ func (a *agent) prepareTunnelLog(tunnel string) error {
 		return deyerr.Wrap(deyerr.X022, err, deyerr.Params{"path": p})
 	}
 	return nil
+}
+
+// prepareTunnelLogs runs when the agent starts, right after
+// tightenTunnelLogDir: the log of every tunnel the node has instances of
+// becomes the agent's own regular file (ensureTunnelLog). systemd opens a
+// unit's log again as root on its own restarts (Restart=always), which
+// never go through unit.start, so a link a backend put at a log name while
+// tunnels/ was not sticky yet would stay there. A missing tunnel log
+// directory is left alone (no unit has run); a failure is logged and the
+// agent goes on.
+func (a *agent) prepareTunnelLogs() {
+	if _, err := os.Lstat(a.path(systemd.TunnelLogDir)); stderrors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	a.instMu.Lock()
+	tunnels := map[string]bool{}
+	for _, in := range a.st.Instances {
+		tunnels[in.Tunnel] = true
+	}
+	a.instMu.Unlock()
+	for _, t := range slices.Sorted(maps.Keys(tunnels)) {
+		if err := a.ensureTunnelLog(t); err != nil {
+			a.log.Warn("cannot prepare a tunnel log", dlog.Tunnel(t), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		}
+	}
 }
 
 // tightenTunnelLogDir adds the sticky bit to an existing

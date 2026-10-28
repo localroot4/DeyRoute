@@ -4,8 +4,10 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -421,6 +423,13 @@ func (h *Hub) prepareTunnelLog(tunnel string) error {
 	if err := h.ensureTunnelLogDir(); err != nil {
 		return err
 	}
+	return h.ensureTunnelLog(tunnel)
+}
+
+// ensureTunnelLog makes <tunnel>.log the hub's own regular file with one
+// link (dlog.EnsureTunnelLog) and logs what it removed there as "tunnel log
+// replaced". Errors are DEY-X022.
+func (h *Hub) ensureTunnelLog(tunnel string) error {
 	if !config.ValidID(tunnel) {
 		return nil
 	}
@@ -429,6 +438,26 @@ func (h *Hub) prepareTunnelLog(tunnel string) error {
 		return deyerr.Wrap(deyerr.X022, err, deyerr.Params{"path": p})
 	}
 	return nil
+}
+
+// prepareTunnelLogs runs when the hub starts, right after
+// tightenTunnelLogDir and before the startup reconcile: the log of every
+// tunnel in the configuration becomes the hub's own regular file
+// (ensureTunnelLog). systemd opens a unit's log again as root on its own
+// restarts (Restart=always), which never go through prepareTunnelLog, and
+// the reconcile adopts running units without starting them, so a link a
+// backend put at a log name while tunnels/ was not sticky yet would stay
+// there. A missing tunnel log directory is left alone (no unit has run);
+// a failure is logged and the hub goes on.
+func (h *Hub) prepareTunnelLogs() {
+	if _, err := os.Lstat(h.path(systemd.TunnelLogDir)); stderrors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	for _, t := range h.Config().Tunnels {
+		if err := h.ensureTunnelLog(t.ID); err != nil {
+			h.log.Warn("cannot prepare a tunnel log", dlog.Tunnel(t.ID), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		}
+	}
 }
 
 // tightenTunnelLogDir adds the sticky bit to an existing

@@ -373,8 +373,9 @@ func (a *agent) run(ctx context.Context) error {
 	a.loadState()
 	a.cleanDownloads()
 	// Before any tunnel unit starts: tunnels/ of an older install gets the
-	// sticky bit.
+	// sticky bit, and the log of every tunnel is root's own file again.
 	a.tightenTunnelLogDir()
+	a.prepareTunnelLogs()
 	a.registerFrontSecret()
 	start := []any{dlog.Node(a.nodeID), slog.String("version", version.Version), slog.String("hub", a.hubAddress())}
 	if a.frontMode() {

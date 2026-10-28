@@ -106,3 +106,47 @@ func TestNodeUnitStartReplacesPlantedTunnelLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "backend output\n", string(data))
 }
+
+// A backend planted a link at the log name of a tunnel that runs on this
+// node while tunnels/ was still 0770 (an install before the update, where
+// the backends' user can also remove root's log). systemd's own restarts of
+// a unit (Restart=always) open that name as root without a unit.start, so
+// when the agent starts, right after it made the directory sticky, it
+// prepares the log of every tunnel it has instances of: the link is
+// replaced by the agent's own regular file, the root file stays as it is
+// and node.log has "tunnel log replaced". The log name of a tunnel the node
+// does not run is left for its unit.start.
+func TestNodeStartReplacesPlantedLogOfKnownTunnel(t *testing.T) {
+	e := newEnv(t)
+	s, stop := e.startStoppable()
+	args := renderArgs("main", "backhaul", "wssmux")
+	_, err := call[json.RawMessage](t, s, api.CmdBackendRender, args)
+	require.NoError(t, err)
+	_, err = call[api.UnitStatus](t, s, api.CmdUnitStart, api.UnitArgs{Instance: args.Instance})
+	require.NoError(t, err)
+	stop()
+
+	dir := e.path(systemd.TunnelLogDir)
+	require.NoError(t, os.Chmod(dir, 0o770))
+	victimData := "* * * * * root /bin/true\n"
+	victim := e.path("/etc/cron.d/x")
+	writeFile(t, victim, victimData, 0o644)
+	logFile := e.path(systemd.TunnelLogFile("main"))
+	require.NoError(t, os.Remove(logFile))
+	require.NoError(t, os.Symlink(victim, logFile))
+	other := e.path(systemd.TunnelLogFile("other"))
+	require.NoError(t, os.Symlink(victim, other))
+
+	e.start()
+	requireOwnLog(t, logFile)
+	data, err := os.ReadFile(victim)
+	require.NoError(t, err)
+	require.Equal(t, victimData, string(data), "the root file is unchanged")
+	require.Equal(t, []string{logFile + " symlink"}, replacedWarnings(t, e))
+	fi, err := os.Lstat(other)
+	require.NoError(t, err)
+	require.NotZero(t, fi.Mode()&os.ModeSymlink, "the log name of another tunnel is left as it is")
+	fi, err = os.Stat(dir)
+	require.NoError(t, err)
+	require.Equal(t, os.ModeSticky|0o770, fi.Mode()&(os.ModePerm|os.ModeSticky))
+}
