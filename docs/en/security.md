@@ -301,13 +301,17 @@ security change. Menu: `8) Security` → `5) Audit`.
   the rotated `.gz` files). The installer, `deyroute setup` and the
   services create it so; on a server installed before, running the
   installer again (it repairs and keeps the configuration) sets the mode.
+  `deyroute update` alone does not change the mode of an existing
+  directory. Check it with `stat -c '%a %U:%G' /var/log/deyroute/tunnels`
+  (`1770 root:deyroute`).
 - The hub and the node rotate these logs as root (above 20 MB, checked
   every minute, 5 compressed files kept). The rotation never follows a
   symbolic link and never writes through a file name the `deyroute` user
   could create first: a `*.log` that is a link, not a regular file, or has
   a second hard link is skipped; the copy is made in the root-only
   `/var/lib/deyroute/tmp` (0700); and anything the rotation finds at one of
-  the names it writes in the tunnel log directory is removed.
+  the names it writes in the tunnel log directory is removed (a directory
+  with everything in it), so the rotation goes on.
 - Each such case is logged once per file and reason while the service
   runs, as a warning in `hub.log` or `node.log`:
 
