@@ -859,6 +859,22 @@ func (a *agent) ensureTunnelLogDir() error {
 	return systemd.EnsureTunnelLogDir(a.path(systemd.TunnelLogDir), gid, a.o.Chown)
 }
 
+// tightenTunnelLogDir adds the sticky bit to an existing
+// /var/log/deyroute/tunnels of root when the agent starts
+// (systemd.TightenTunnelLogDir): an install made before it became 01770
+// left it 0770.
+func (a *agent) tightenTunnelLogDir() {
+	dir := a.path(systemd.TunnelLogDir)
+	from, to, err := systemd.TightenTunnelLogDir(dir)
+	switch {
+	case err != nil:
+		a.log.Warn("cannot make the tunnel log directory sticky", slog.String("dir", dir), dlog.Err(err))
+	case from != to:
+		a.log.Info("tunnel log directory made sticky", slog.String("dir", dir),
+			slog.String("from", fmt.Sprintf("%04o", from)), slog.String("to", fmt.Sprintf("%04o", to)))
+	}
+}
+
 // reconcile runs at start: instances whose unit runs count as started
 // (their NAT is kept and their process is watched for PostStart; the
 // first monitor refresh records their MainPID) and the node table is

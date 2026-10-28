@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"golang.org/x/sys/unix"
+
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	deylog "github.com/localroot4/deyroute/internal/log"
 )
@@ -29,7 +31,9 @@ const TunnelLogDirMode = fs.ModeSticky | 0o770
 // its mode and owner (the installer and setup set them). systemd refuses to
 // start a tunnel unit whose StandardOutput=append: directory is missing
 // (209/STDOUT), and one with ReadWritePaths=/var/log/deyroute when that is
-// missing (226/NAMESPACE). Errors are DEY-X032.
+// missing (226/NAMESPACE). The hub and node services add the sticky bit to
+// an existing directory when they start (TightenTunnelLogDir). Errors are
+// DEY-X032.
 func EnsureTunnelLogDir(dir string, gid int, chown func(path string, uid, gid int) error) error {
 	fi, err := os.Stat(dir)
 	switch {
@@ -60,6 +64,42 @@ func EnsureTunnelLogDir(dir string, gid int, chown func(path string, uid, gid in
 		}
 	}
 	return nil
+}
+
+// TightenTunnelLogDir adds the sticky bit to an existing tunnel log
+// directory dir that belongs to this process's user (root in the hub and
+// node services, which call it when they start). An install made before
+// the directory became TunnelLogDirMode left it 0770, where the backends'
+// user can remove root's logs and plant a link at a log name that systemd
+// then follows as root; EnsureTunnelLogDir and the installer's repair run
+// keep an existing directory as it is. Only the sticky bit is added: no
+// other bit changes, and a missing dir, a link, anything that is not a
+// directory and a directory of another user are left alone (no error).
+// from and to are the mode bits (permissions, setuid, setgid, sticky)
+// before and after; from == to when nothing changed.
+func TightenTunnelLogDir(dir string) (from, to uint32, err error) {
+	fd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	switch {
+	case err == nil:
+	case stderrors.Is(err, unix.ENOENT), stderrors.Is(err, unix.ELOOP), stderrors.Is(err, unix.ENOTDIR):
+		return 0, 0, nil
+	default:
+		return 0, 0, &fs.PathError{Op: "open", Path: dir, Err: err}
+	}
+	defer func() { _ = unix.Close(fd) }()
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return 0, 0, &fs.PathError{Op: "fstat", Path: dir, Err: err}
+	}
+	from = st.Mode & 0o7777
+	if int64(st.Uid) != int64(os.Geteuid()) || from&unix.S_ISVTX != 0 {
+		return from, from, nil
+	}
+	to = from | unix.S_ISVTX
+	if err := unix.Fchmod(fd, to); err != nil {
+		return from, from, &fs.PathError{Op: "chmod", Path: dir, Err: err}
+	}
+	return from, to, nil
 }
 
 // lookupGroupID returns the numeric id of a system group (Manager.GroupID

@@ -368,6 +368,9 @@ func (a *agent) run(ctx context.Context) error {
 	a.ctx = ctx
 	a.loadState()
 	a.cleanDownloads()
+	// Before any tunnel unit starts: tunnels/ of an older install gets the
+	// sticky bit.
+	a.tightenTunnelLogDir()
 	a.registerFrontSecret()
 	start := []any{dlog.Node(a.nodeID), slog.String("version", version.Version), slog.String("hub", a.hubAddress())}
 	if a.frontMode() {

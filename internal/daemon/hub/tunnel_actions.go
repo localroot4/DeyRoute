@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"strconv"
@@ -408,6 +409,22 @@ func (h *Hub) ensureTunnelLogDir() error {
 		gid = g
 	}
 	return systemd.EnsureTunnelLogDir(h.path(systemd.TunnelLogDir), gid, h.o.Chown)
+}
+
+// tightenTunnelLogDir adds the sticky bit to an existing
+// /var/log/deyroute/tunnels of root when the hub starts
+// (systemd.TightenTunnelLogDir): an install made before it became 01770
+// left it 0770.
+func (h *Hub) tightenTunnelLogDir() {
+	dir := h.path(systemd.TunnelLogDir)
+	from, to, err := systemd.TightenTunnelLogDir(dir)
+	switch {
+	case err != nil:
+		h.log.Warn("cannot make the tunnel log directory sticky", slog.String("dir", dir), dlog.Err(err))
+	case from != to:
+		h.log.Info("tunnel log directory made sticky", slog.String("dir", dir),
+			slog.String("from", fmt.Sprintf("%04o", from)), slog.String("to", fmt.Sprintf("%04o", to)))
+	}
 }
 
 // ensureIPForward sets net.ipv4.ip_forward=1 for a NAT transport (runtime;
