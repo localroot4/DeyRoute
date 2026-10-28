@@ -376,6 +376,24 @@ TestReleaseEdgeWorkflowPublishesInOrder() {
     fail "release-edge.yml: the retention does not run one at a time"
 }
 
+# The signing key is a secret of two environments, not of the repository: an
+# older release-edge.yml on an older ref (a tag), which publishes on a manual
+# run without the ci gate, then finds no key. Only the jobs that sign name an
+# environment; their deployment rules (docs/dev/RELEASING.md) admit main and
+# the stable tags.
+TestReleaseWorkflowsSignInEnvironments() {
+  local wf job env
+  for wf in release-edge.yml:edge:edge-release ci.yml:release:release; do
+    IFS=: read -r wf job env <<<"$wf"
+    wf="$root/.github/workflows/$wf"
+    # The environment of each job, as "job environment" lines.
+    awk '/^  [a-z-]+:$/ { job = substr($1, 1, length($1) - 1) }
+         /^    environment: / { print job, $2 }' "$wf" >"$T/envs"
+    [ "$(cat "$T/envs")" = "$job $env" ] ||
+      fail "${wf##*/}: want only the job $job in the environment $env, got: $(cat "$T/envs")"
+  done
+}
+
 # ------------------------------------------------------------------- runner
 
 tests=("$@")

@@ -80,11 +80,37 @@ for the installer and for `deyroute update`.
 
 ## Signing key
 
-Signing needs the repository secret **`MINISIGN_SECRET_KEY`** (and
-`MINISIGN_PASSWORD` if the key is encrypted). The public half is in
-`internal/install/keys.go` and `installer/install.sh`. Generate a new pair with
+Signing needs the secret **`MINISIGN_SECRET_KEY`** (and `MINISIGN_PASSWORD`
+if the key is encrypted). The public half is in `internal/install/keys.go`
+and `installer/install.sh`. Generate a new pair with
 `go run ./scripts/minisign keygen`; if the key changes, update both files
 before the next release.
+
+The secrets belong to two **environments** (Settings → Environments), not to
+the repository:
+
+| Environment | Used by | Deployment branches and tags |
+| --- | --- | --- |
+| `edge-release` | the `edge` job of `release-edge.yml` | selected: the branch `main` only |
+| `release` | the `release` job of `ci.yml` (goreleaser) | selected: the tags `v*` only |
+
+Add both secrets to both environments, then delete the repository secrets
+`MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD`. A `workflow_run` run of
+release-edge has the ref of `main`, so builds of `dev` publish through
+`edge-release` too. Protect the `v*` tags with a tag ruleset (only
+maintainers create them; no deletion, no force-push), so that nobody else
+can push a tag that reaches `release`.
+
+Why: GitHub runs a manual run (`workflow_dispatch`) with the workflow file
+**of the chosen ref**. Older refs (the tag `backend-builds`, older edge tags)
+carry an older `release-edge.yml` that publishes on a manual run without the
+ci gate and then keeps only the five newest edge releases of both branches
+together. Those files name no environment: with the key only in the
+environments, such a run finds no key and skips both the publish and the
+deletion. A workflow changed on another branch and run from there does not
+get the key either, because the environments admit only `main` and the `v*`
+tags. Until the secrets are moved, anyone with write access can bypass the
+ci gate this way.
 
 ## Backend builds
 

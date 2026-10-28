@@ -14,7 +14,7 @@ set -Eeuo pipefail
 RELEASE_BASE=""
 GITHUB_BASE="https://github.com/localroot4/DeyRoute/releases"
 # Release public key; must equal internal/install.MinisignPublicKey (a test enforces it).
-# The secret key is the repository secret MINISIGN_SECRET_KEY (scripts/minisign keygen).
+# The secret key is MINISIGN_SECRET_KEY of the release environments (docs/dev/RELEASING.md).
 MINISIGN_PUBKEY="RWQtE2Hu1KwstgupEuPAWy+J2tiIgFVTIcReWI+Qh+yGMY3s2xWpyMuO"
 BIN_DIR=/usr/local/bin
 VERSION="" MIRROR="${DEYROUTE_MIRROR:-}" LOCAL="" NO_SETUP=0 SKIP_SIG=0
