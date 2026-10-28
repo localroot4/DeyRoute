@@ -85,7 +85,11 @@ about it is not enough:
   version. The hub's log has the line "node could not install the hub's
   version" with `DEY-S001` and the check that failed (for example
   "SHA256SUMS.minisig is not a valid signature …" or "… does not match the
-  signed SHA256SUMS"); the hub tries again when the node reconnects.
+  signed SHA256SUMS"); the hub tries again when the node reconnects. The
+  hub serves its files as they are: when a node keeps refusing them with
+  "… does not match the signed SHA256SUMS" (a damaged file on the hub),
+  delete `/var/lib/deyroute/bin/<version>/` on the hub, and it downloads
+  the release again the next time a node needs it.
 
 **Update the hub first.** A node of this version updates only from a hub
 that serves signed releases. A hub of an earlier build cannot: the node
