@@ -313,11 +313,30 @@ security change. Menu: `8) Security` → `5) Audit`.
   root:deyroute`: the `deyroute` user may add files there, but the sticky
   bit stops it from removing or renaming root's files (the live logs and
   the rotated `.gz` files). The installer, `deyroute setup` and the
-  services create it so; on a server installed before, running the
-  installer again (it repairs and keeps the configuration) sets the mode.
-  `deyroute update` alone does not change the mode of an existing
-  directory. Check it with `stat -c '%a %U:%G' /var/log/deyroute/tunnels`
-  (`1770 root:deyroute`).
+  services create it so. On a server installed before, the hub and node
+  services add the sticky bit to the existing directory when they start,
+  so `deyroute update` (which restarts them) is enough; running the
+  installer again (it repairs and keeps the configuration) also sets the
+  mode. The services only add the sticky bit, and never to a directory
+  root does not own. Check it with
+  `stat -c '%a %U:%G' /var/log/deyroute/tunnels` (`1770 root:deyroute`).
+- Before a transport starts, the hub and the node make sure that
+  `<tunnel>.log` is root's regular file with a single link: systemd would
+  follow a link at that name as root, or create the file it points to.
+  Anything else found there (a link, a FIFO, a directory, a second hard
+  link, a file of another user) is removed and an empty log is created
+  (`0644`, as systemd creates it). Each case is logged once per file and
+  reason while the service runs, as a warning in `hub.log` or `node.log`:
+
+  ```bash
+  grep 'tunnel log replaced' /var/log/deyroute/node.log
+  ```
+
+  The line carries `file` and `reason`: `symlink`, `not_regular`,
+  `hardlink` or `owner` (a file of another user).
+- `deyroute logs` and the log lines shown with a failed start (`DEY-B003`)
+  read only a regular file: they never follow a link and never wait on a
+  FIFO at a log name.
 - The hub and the node rotate these logs as root (above 20 MB, checked
   every minute, 5 compressed files kept). The rotation never follows a
   symbolic link and never writes through a file name the `deyroute` user
@@ -336,10 +355,12 @@ security change. Menu: `8) Security` → `5) Audit`.
   The line carries `file` and `reason`: `symlink`, `not_regular`,
   `hardlink` or `staging` (something stood at a name the rotation writes,
   or `/var/lib/deyroute/tmp` is not root-only). DEYROUTE never creates such
-  files itself: a process of the `deyroute` user, that is a tunnel backend,
-  did. Check that server (`ps -u deyroute -o pid,args`), and update or
-  replace the backend. The lab scenario S36 plants such links and checks
-  that root files stay unchanged and that normal rotation goes on.
+  files itself, for this warning or for `tunnel log replaced`: a process of
+  the `deyroute` user, that is a tunnel backend, did. Check that server
+  (`ps -u deyroute -o pid,args`), and update or replace the backend. The
+  lab scenario S36 plants such links, also at the log name of a tunnel
+  before it is added, and checks that root files stay unchanged, that
+  normal rotation goes on and that the tunnel comes up.
 
 ## A node is never an open proxy
 
