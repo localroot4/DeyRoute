@@ -33,6 +33,7 @@ type setupFlags struct {
 	port       int
 	yes        bool
 	repair     bool
+	autoUpdate string // on|off: hub.auto_update
 }
 
 func newSetupCmd(g *Globals) *cobra.Command {
@@ -56,6 +57,7 @@ func newSetupCmd(g *Globals) *cobra.Command {
 	cmd.Flags().StringVar(&f.name, "name", "", i18n.T(i18n.CLIFlagSetupName))
 	cmd.Flags().IntVar(&f.port, "control-port", 0, i18n.T(i18n.CLIFlagControlPort))
 	cmd.Flags().BoolVar(&f.yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
+	cmd.Flags().StringVar(&f.autoUpdate, "auto-update", "off", i18n.T(i18n.CLIFlagAutoUpdate))
 	cmd.Flags().BoolVar(&f.repair, "repair", false, i18n.T(i18n.CLIFlagRepair))
 	_ = cmd.Flags().MarkHidden("repair")
 	return cmd
@@ -124,6 +126,11 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 	case "", config.RoleHub, config.RoleNode:
 	default:
 		return deyerr.New(deyerr.C013, deyerr.Params{"field": "--role", "value": f.role, "allowed": "hub, node"})
+	}
+	switch strings.ToLower(strings.TrimSpace(f.autoUpdate)) {
+	case "on", "off":
+	default:
+		return deyerr.New(deyerr.C013, deyerr.Params{"field": "--auto-update", "value": f.autoUpdate, "allowed": "on, off"})
 	}
 	st := &stepper{}
 	if role == "" {
@@ -308,6 +315,7 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 	o := setup.HubOptions{
 		Root: g.Root, Runner: g.Runner, Name: strings.TrimSpace(f.name), ControlPort: f.port,
 		Mirror: strings.TrimSpace(g.Getenv(EnvMirror)), SysctlProfile: config.SysctlAuto,
+		AutoUpdate:  strings.EqualFold(strings.TrimSpace(f.autoUpdate), "on"),
 		ApplySysctl: f.yes, StartService: !g.NoService, SocketPath: g.Socket, Now: g.Now, Logger: g.logger(),
 		LookupUser: g.LookupUser, LookupGroup: g.LookupGroup, Chown: g.Chown,
 	}
@@ -384,6 +392,7 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 			"private_ip": res.PrivateIP, "control_port": res.ControlPort, "ca_fingerprint": res.CAFingerprint,
 			"config_path": res.ConfigPath, "sysctl_profile": res.SysctlProfile, "sysctl_warnings": nonNil(res.SysctlWarnings),
 			"firewall_managed": res.FirewallManaged, "service_started": res.ServiceStarted, "steps": p.steps,
+			"auto_update": o.AutoUpdate,
 		}
 		if jerr == nil {
 			doc["join"] = jc

@@ -52,6 +52,9 @@ type HubOptions struct {
 	ControlPort int
 	// Mirror is stored as hub.mirror (optional release base override).
 	Mirror string
+	// AutoUpdate is stored as hub.auto_update (setup --auto-update on): the
+	// hub installs new releases by itself. Off by default.
+	AutoUpdate bool
 	// ApplySysctl applies SysctlProfile (the owner confirmed; spec section
 	// 12). When false nothing is changed and tuning.sysctl_profile is off.
 	ApplySysctl bool
@@ -185,6 +188,7 @@ func SetupHub(ctx context.Context, o HubOptions) (*HubResult, error) {
 	cfg := config.NewHub(name, ip4, port)
 	cfg.Hub.PublicIP6 = ip6
 	cfg.Hub.Mirror = strings.TrimSpace(o.Mirror)
+	cfg.Hub.AutoUpdate = o.AutoUpdate
 	profile := strings.TrimSpace(o.SysctlProfile)
 	if profile == "" {
 		profile = config.SysctlBalanced

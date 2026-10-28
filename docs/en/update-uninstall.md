@@ -86,7 +86,12 @@ deyroute update auto off    # turn it off again
 The switch is `hub.auto_update` in `config.yaml`: `update auto on` writes
 `auto_update: true` (after an automatic backup), and `off` removes the
 key, so a backup keeps your choice and a restored hub has it again. Without
-the key the automatic update is off.
+the key the automatic update is off. To choose at setup, pass
+`--auto-update on` or `--auto-update off` (the default):
+
+```bash
+deyroute setup --role hub --name ir-1 --yes --auto-update on
+```
 
 `deyroute --json update auto` reports `"enabled"` and `"source": "config"`.
 

@@ -78,9 +78,10 @@ Hub:
 `{"schema", "role": "hub", "name", "public_ip", "public_ip6", "private_ip"
 (bool: the detected address is not public), "control_port", "ca_fingerprint",
 "config_path", "sysctl_profile", "sysctl_warnings": [string],
-"firewall_managed", "service_started", "steps": [Step], "join": JoinCommand}`
-— when the join command could not be obtained, `join_error` (ErrorDTO)
-replaces `join`.
+"firewall_managed", "service_started", "auto_update" (bool: `--auto-update
+on|off`, default off; stored as `hub.auto_update`), "steps": [Step], "join":
+JoinCommand}` — when the join command could not be obtained, `join_error`
+(ErrorDTO) replaces `join`.
 
 Node (`--role node`): the document of `deyroute join`.
 

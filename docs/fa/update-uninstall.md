@@ -56,7 +56,11 @@ deyroute update auto off    # خاموش کردن دوباره
   Last       updated 0.3.0-edge.39 → 0.3.0-edge.40; 1 tunnels and 1 nodes work (2026-10-09 04:03)
 ```
 
-کلید این تنظیم `hub.auto_update` در `config.yaml` است: `update auto on` (بعد از یک بکاپ خودکار) `auto_update: true` را می‌نویسد و `off` کلید را حذف می‌کند؛ پس بکاپ انتخاب شما را نگه می‌دارد و Hubی که از بکاپ ریستور شود همان حالت را دارد. بدون این کلید آپدیت خودکار خاموش است.
+کلید این تنظیم `hub.auto_update` در `config.yaml` است: `update auto on` (بعد از یک بکاپ خودکار) `auto_update: true` را می‌نویسد و `off` کلید را حذف می‌کند؛ پس بکاپ انتخاب شما را نگه می‌دارد و Hubی که از بکاپ ریستور شود همان حالت را دارد. بدون این کلید آپدیت خودکار خاموش است. برای انتخاب در زمان setup، `--auto-update on` یا `--auto-update off` (پیش‌فرض) بدهید:
+
+```bash
+deyroute setup --role hub --name ir-1 --yes --auto-update on
+```
 
 خروجی `deyroute --json update auto` فیلد `"enabled"` و `"source": "config"` را دارد.
 

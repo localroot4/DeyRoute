@@ -24,6 +24,7 @@ const (
 	CLIAutoHintOn         Key = "cli.auto.hint_on"
 	CLIAutoTurnedOn       Key = "cli.auto.turned_on"
 	CLIAutoTurnedOff      Key = "cli.auto.turned_off"
+	CLIFlagAutoUpdate     Key = "cli.flag_auto_update"
 )
 
 var autoUpdateEN = map[Key]string{
@@ -55,6 +56,7 @@ var autoUpdateEN = map[Key]string{
 	CLIAutoHintOn:         "Turn on: deyroute update auto on",
 	CLIAutoTurnedOn:       "Automatic update is on.",
 	CLIAutoTurnedOff:      "Automatic update is off; install releases with deyroute update.",
+	CLIFlagAutoUpdate:     "automatic update of the hub: on or off (default off; stored as hub.auto_update)",
 }
 
 // automatic update — merge the strings above into the English table.
