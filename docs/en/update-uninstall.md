@@ -257,8 +257,42 @@ versions. A backend binary is never installed without a matching sha256:
 `DEY-S001` means a file did not match (it was rejected, nothing changed),
 `DEY-S006` means the manifest has no checksum for a backend. The new manifest
 is saved as `/etc/deyroute/backends.yaml` (it overrides the one built into
-deyroute). Running tunnels keep their backend versions until you run
+deyroute), with its signature next to it as
+`/etc/deyroute/backends.yaml.minisig`; your backups keep both. Running
+tunnels keep their backend versions until you run
 `deyroute update backends`.
+
+### Backends on the nodes
+
+A node installs a backend only in a version a signed manifest pins: the
+version, download address and sha256 (for the node's architecture) the hub
+asks for must be exactly those in the manifest built into the node, or in a
+manifest the hub sends along whose signature the node checks itself with
+the release key built into it. Anything else is refused before a download:
+the hub's log has the line "backend installation on a node failed" with
+`DEY-N050` and the reason ("… is not pinned by this node's built-in
+backends.yaml …"), and the transports of that backend are not used on that
+node.
+
+- **Your manifest override.** The hub sends it with its signature to the
+  nodes. A hub that saved the override with an earlier build has no
+  signature for it: when it starts it downloads one that matches the file
+  (from the newest release, then from its own), and tries again every 10
+  minutes. Until it has one, its nodes install only the versions of their
+  own built-in manifest, and the hub's log warns "the backend manifest
+  override has no valid signature …". Run `deyroute update manifest` on
+  the hub to fix it at once. Do not edit `/etc/deyroute/backends.yaml` by
+  hand: the signature would no longer match, and the nodes would get none
+  of its versions.
+- **Hub and node on different builds.** Each build has its own built-in
+  manifest. When a node's differs from the hub's, the hub sends the signed
+  manifest of its own release, which it keeps in
+  `/var/lib/deyroute/bin/<version>/` and downloads the first time a node
+  needs it. A hub on a development build has none: its nodes install only
+  the versions of their own built-in manifest.
+- **A hub of an earlier build** sends no manifest; the nodes of this
+  version then install only the versions of their own built-in manifest.
+  Update the hub first (see [How the nodes follow](#how-the-nodes-follow)).
 
 ## Uninstall
 

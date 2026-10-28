@@ -23,7 +23,8 @@ to a log.
   (and deyroute's own relay and WireGuard setup) with no more privileges than
   its built-in allowlist grants that backend (see Tunnel processes below),
   installs a new deyroute only from a release signed with the key built into
-  it (see Downloads below), and downloads only over https.
+  it, and a backend only in the version a signed manifest pins (see
+  Downloads below), and downloads only over https.
 
 ## Join tokens
 
@@ -408,13 +409,24 @@ transport from inside the transport itself.
   [Update & uninstall](update-uninstall.md#how-the-nodes-follow).
 - `node.allow_unsigned_updates: true` in a node's `config.yaml` turns this
   check off for that node (test labs only); never set it on a server with
-  real users.
+  real users. It does not apply to the backends below.
 - Release binaries trust the release key only. Builds for the integration
   lab may trust a second, throwaway key; `deyroute --json version` shows
   `"test_key": true` for such a build and `false` for every release.
 - Backend binaries are installed only when their sha256 matches the signed
   manifest (`DEY-S001`, `DEY-S006`). No third-party script is ever piped into
   a shell.
+- **The same holds for the backends on a node.** The hub tells a node which
+  backend version to install, with its download address and sha256. The
+  node installs it only when exactly this version, address and sha256 (for
+  its architecture) are in the manifest built into its own binary, or in a
+  manifest the hub sends along whose signature the node checks with the
+  release key built into it: the hub's signed override
+  (`deyroute update manifest`), or the signed manifest of the hub's
+  release when the node runs another build. Anything else is refused with
+  `DEY-N050` before a download. So someone who takes over the hub cannot
+  make the nodes download a program of their own as a backend either;
+  details in [Update & uninstall](update-uninstall.md#backends-on-the-nodes).
 - **No telemetry.** DEYROUTE sends no data about you or your users anywhere.
   The only outside traffic is: downloading DEYROUTE releases and backend
   binaries from GitHub or your mirror (through a node when the hub cannot
