@@ -15,7 +15,9 @@
 # file stays byte-identical, the tunnel comes UP with its output in its log
 # and hub.log and node.log have the warning "tunnel log replaced".
 # Last, an existing 0770 directory gets the mode from the installer's repair
-# run, and from a restart of the services alone (what deyroute update does).
+# run, and from a restart of the services alone (what deyroute update does);
+# a link user deyroute put at the log name of the running tunnel while the
+# directory was 0770 is replaced when the services start.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -150,8 +152,19 @@ wait_tunnel_up "$T"
 
 # 5. ... and from a restart of the services alone, without the installer
 # (deyroute update restarts them): they add the sticky bit when they start.
+# In the 0770 directory user deyroute can remove root's log of the running
+# tunnel and put a link there, which systemd would follow as root on the
+# unit's next restart of its own (Restart=always): the services replace it
+# when they start, before they adopt the running units.
 on hub chmod 0770 "$D"
 on node1 chmod 0770 "$D"
+for s in hub node1; do
+  sh_on "$s" "printf 'root file 5\n' > /etc/s36-victim-5 && chmod 0644 /etc/s36-victim-5"
+  on "$s" runuser -u deyroute -- sh -c "rm -f '$L' && ln -s /etc/s36-victim-5 '$L'" ||
+    fail "user deyroute could not replace $L in the 0770 directory on $s"
+done
+sum5() { on "$1" sha256sum /etc/s36-victim-5; }
+hub5=$(sum5 hub) node5=$(sum5 node1)
 on hub systemctl restart deyroute-hub
 on node1 systemctl restart deyroute-node
 sticky() { [ "$(on "$1" stat -c '%a %U:%G' "$D")" = "1770 root:deyroute" ]; }
@@ -164,6 +177,14 @@ made_sticky() {
 }
 made_sticky hub hub || fail "hub.log does not say the tunnel log directory was made sticky"
 made_sticky node1 node || fail "node.log does not say the tunnel log directory was made sticky"
+own_log() { on "$1" test -f "$L" -a ! -L "$L" && [ "$(on "$1" stat -c '%U %h' "$L")" = "root 1" ]; }
+for s in hub node1; do
+  wait_for 30 "$L on $s is root's regular file again after the service restart" own_log "$s"
+done
+[ "$(sum5 hub)" = "$hub5" ] || fail "/etc/s36-victim-5 changed on the hub"
+[ "$(sum5 node1)" = "$node5" ] || fail "/etc/s36-victim-5 changed on node1"
+replaced hub hub | grep -qx "$L symlink" || fail "hub.log has no 'tunnel log replaced' for $L: $(replaced hub hub)"
+replaced node1 node | grep -qx "$L symlink" || fail "node.log has no 'tunnel log replaced' for $L: $(replaced node1 node)"
 wait_node_online "$NODE1" 90
 wait_tunnel_up "$T"
 wait_tunnel_up "$T2"
