@@ -222,6 +222,10 @@ func TestRenderRejectsUnsafePayloads(t *testing.T) {
 		"hidden bin":         mod(func(a *api.BackendRenderArgs) { a.Unit.ExecStart = []string{"/var/lib/deyroute/bin/backhaul/v1/.x"} }),
 		"LD_PRELOAD":         mod(func(a *api.BackendRenderArgs) { a.Unit.Env = map[string]string{"LD_PRELOAD": base.ConfigDir + "/x.so"} }),
 		"GLIBC_TUNABLES":     mod(func(a *api.BackendRenderArgs) { a.Unit.Env = map[string]string{"GLIBC_TUNABLES": "glibc.x=1"} }),
+		"backhaul as root":   mod(func(a *api.BackendRenderArgs) { a.Unit.RunAsRoot = true }),
+		"every capability": mod(func(a *api.BackendRenderArgs) {
+			a.Unit.DropHardening = map[string]string{"CapabilityBoundingSet": "the hub says so"}
+		}),
 		"pair shell": mod(func(a *api.BackendRenderArgs) {
 			a.Unit.ExecStart = []string{config.BinaryPath, "pair", "/var/lib/deyroute/bin/backhaul/v1/backhaul", "--", "/bin/sh", "-c", "id"}
 		}),
@@ -264,6 +268,9 @@ func TestRenderRejectsUnsafePayloads(t *testing.T) {
 			a.Unit.ExecStart = []string{config.BinaryPath, "relay", "--tunnel", "main", "--config", a.ConfigDir + "/relay.json"}
 		}),
 		"wg": mod(func(a *api.BackendRenderArgs) {
+			// Root is wireguard's alone (privilege allowlist).
+			wg := renderArgs("main", "wireguard", "kernel")
+			a.Instance, a.ConfigDir = wg.Instance, wg.ConfigDir
 			a.Unit = backend.UnitSpec{Type: "oneshot", RemainAfterExit: true, RunAsRoot: true,
 				ExecStart: []string{config.BinaryPath, "wg", "up", "--config", a.ConfigDir + "/wg.json"},
 				ExecStop:  [][]string{{config.BinaryPath, "wg", "down", "--config", a.ConfigDir + "/wg.json"}}}

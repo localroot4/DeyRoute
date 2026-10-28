@@ -234,7 +234,11 @@ func (a *agent) checkConfigDir(command, dir string, in systemd.Instance) (string
 // that backend's binaries installed by install.Layout
 // (/var/lib/deyroute/bin/<b>/<version>/<binary>) and the deyroute binary itself
 // with its data-plane subcommands (built-in relay, WireGuard setup). The
-// environment may not redirect the dynamic loader.
+// environment may not redirect the dynamic loader, and the unit gets no
+// privilege beyond the allowlist row of its backend and transport (the
+// transport named by the config directory dir; a canary directory names
+// none): root, capabilities, address families, relaxed hardening and
+// writable paths (render.CheckPrivileges).
 func (a *agent) checkCommands(command, b, dir string, u backend.UnitSpec) error {
 	if len(u.ExecStart) == 0 {
 		return a.refuse(command, "the unit has no ExecStart")
@@ -254,6 +258,9 @@ func (a *agent) checkCommands(command, b, dir string, u backend.UnitSpec) error 
 		if deniedEnv(k) {
 			return a.refuse(command, fmt.Sprintf("the unit may not set the environment variable %s", k))
 		}
+	}
+	if err := render.CheckPrivileges(b, render.ConfigDirTransport(dir), u); err != nil {
+		return a.refuse(command, err.Error())
 	}
 	if err := systemd.ValidateUnitSpec(u); err != nil {
 		return a.refuse(command, deyerr.As(err).Message())
