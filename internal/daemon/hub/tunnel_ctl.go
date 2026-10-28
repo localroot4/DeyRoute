@@ -794,7 +794,7 @@ func (c *tunnelCtl) renderAll(ctx context.Context, t config.Tunnel, plan *render
 	w := h.hubWriter()
 	for i := range plan.Candidates {
 		pc := &plan.Candidates[i]
-		changed, err := w.Write(ctx, pc.Hub)
+		changed, err := writeHubSide(ctx, w, pc)
 		if err != nil {
 			renderFail[pc.StateCandidate().Key()] = err
 			warn = err

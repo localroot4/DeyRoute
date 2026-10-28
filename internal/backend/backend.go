@@ -286,7 +286,10 @@ func (in RenderInput) PortsFor(proto string) []config.PortMap {
 // UnitSpec is the per-instance part of deyroute-tun@.service, written as a
 // drop-in by internal/systemd. Hardening lives in the shared template; a
 // backend that cannot run under an option lists it in DropHardening with a
-// documented reason (section 11).
+// documented reason (section 11). The privilege fields (RunAsRoot,
+// ExtraCaps, DropHardening, AddressFamilies, ReadWritePaths) are limited per
+// backend by the allowlist of render.CheckPrivileges: the node refuses, and
+// the hub never writes, a unit that asks for more than its row.
 type UnitSpec struct {
 	ExecStart        []string          // argv; first element absolute path
 	ExecStartPre     [][]string        // optional pre-start commands
