@@ -15,6 +15,9 @@
 # --dry-run prints the same decisions and deletes nothing. Needs gh with
 # GH_TOKEN (its --jq does the JSON work).
 set -euo pipefail
+shopt -s inherit_errexit
+# shellcheck source=scripts/edge-lib.sh
+. "$(dirname "$0")/edge-lib.sh"
 
 KEEP=10
 dry=0
@@ -24,10 +27,7 @@ case "${1:-}" in
   *) echo "usage: scripts/edge-prune.sh [--dry-run]" >&2; exit 2 ;;
 esac
 
-# createdAt, tag, isLatest, isPrerelease of every release, newest first.
-list=$(gh release list --limit 200 --json tagName,createdAt,isLatest,isPrerelease \
-  --jq '.[] | [.createdAt, .tagName, (.isLatest | tostring), (.isPrerelease | tostring)] | @tsv' |
-  sort -t "$(printf '\t')" -k1,1r -k2,2Vr)
+list=$(edge_releases)
 
 declare -A rank=()
 kept=0 gone=0
@@ -37,13 +37,8 @@ while IFS=$'\t' read -r created tag latest pre; do
     *-edge.*) ;;
     *) printf '%-12s %-26s not an edge build: never deleted\n' keep "$tag"; continue ;;
   esac
-  branch=$(gh release view "$tag" --json body --jq .body | tr -d '\r' |
-    sed -n 's/^branch: *\([A-Za-z0-9._/-]*\) *$/\1/p' | tail -n 1)
-  from="notes"
-  if [ -z "$branch" ]; then
-    from="legacy rule"
-    if [ "$pre" = true ]; then branch=dev; else branch=main; fi
-  fi
+  info=$(edge_branch "$tag" "$pre")
+  branch=${info%%$'\t'*} from=${info#*$'\t'}
   n=$((${rank[$branch]:-0} + 1))
   rank[$branch]=$n
   why="#$n of $branch ($from), $created"
