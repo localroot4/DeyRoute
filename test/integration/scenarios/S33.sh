@@ -51,6 +51,22 @@ for tr in "${transports[@]}"; do
   [ "$reply" = echo:it-ping ] || fail "$tr: no UDP echo through the tunnel (got '$reply')"
   log "$tr: interface $iface, TCP 8443 and UDP 27015 carried"
 
+  # Both sides passed the privilege allowlist (DR-04): root with
+  # CAP_NET_ADMIN and nothing more; NoNewPrivileges and the capability
+  # bounding set are never relaxed.
+  inst="$T.$NODE1.${tr/\//-}"
+  for s in hub node1; do
+    d=$(on "$s" cat "/etc/systemd/system/deyroute-tun@$inst.service.d/10-deyroute.conf") ||
+      fail "$tr: no drop-in for $inst on $s"
+    grep -qx 'User=root' <<<"$d" || fail "$tr: $inst does not run as root on $s"
+    grep -qx 'CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_ADMIN' <<<"$d" ||
+      fail "$tr: the capability bounding set of $inst on $s is not CAP_NET_BIND_SERVICE CAP_NET_ADMIN"
+    if grep -Eq '^(NoNewPrivileges=|CapabilityBoundingSet=~)' <<<"$d"; then
+      fail "$tr: $inst on $s relaxes NoNewPrivileges or the capability bounding set"
+    fi
+  done
+  log "$tr: hub and node units run as root with CAP_NET_ADMIN only"
+
   dey tunnel delete "$T" --yes --json >/dev/null || fail "tunnel delete $T failed"
   gone() { ! sh_on hub "ip link show dev $iface" && ! sh_on node1 "ip link show dev $iface"; }
   wait_for 30 "interface $iface removed" gone
