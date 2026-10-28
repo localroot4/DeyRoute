@@ -330,6 +330,12 @@ type NodeSelf struct {
 	// Front holds the front dial settings; the node is in front mode iff
 	// front.secret_file is set (hub_addr is then "<front domain>:<port>").
 	Front NodeFront `yaml:"front,omitempty"`
+	// AllowUnsignedUpdates lets self.update install a deyroute binary that
+	// no signed release proves, from a hub on a development build or a hub
+	// that serves no signed release (DR-03). For test labs only; off by
+	// default and written only when on, so a default install never blocks
+	// a rollback (NewerKeysInUse).
+	AllowUnsignedUpdates bool `yaml:"allow_unsigned_updates,omitempty"`
 }
 
 // HubInfo is the subset of hub data a backend renderer needs.

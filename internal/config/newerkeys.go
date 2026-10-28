@@ -27,6 +27,16 @@ const (
 	// build had loaded config.yaml with the key, and the hub records the
 	// keys in use when it starts the update.
 	FirstAutoUpdateVersion = "0.3.0"
+	// FirstAllowUnsignedUpdatesVersion is the first release that knows
+	// node.allow_unsigned_updates, for the same reason as
+	// FirstAutoUpdateVersion: the stable 0.3.0 is the first release cut
+	// after the key came, and every 0.3.0-edge.N sorts before it, so while
+	// a node sets the key it refuses a self.update to an older edge build
+	// of 0.3.0 too (DEY-S011). An edge build cannot be told apart by its
+	// version, and the key is meant for test labs only. A self.update to a
+	// version that is not older than the node's own is never refused: it
+	// knows every key this build knows.
+	FirstAllowUnsignedUpdatesVersion = "0.3.0"
 )
 
 // NewerKey is a config.yaml key in use that releases before Since refuse.
@@ -64,6 +74,9 @@ var newerKeys = []struct {
 	{"tuning.backend_tier", FirstTrafficVersion, func(c *Config) bool { return c.Tuning != nil && c.Tuning.BackendTier != "" }},
 	{"tuning.wg_mtu", FirstTrafficVersion, func(c *Config) bool { return c.Tuning != nil && c.Tuning.WGMTU != 0 }},
 	{"monitoring", FirstTrafficVersion, func(c *Config) bool { return c.Monitoring != nil }},
+	{"node.allow_unsigned_updates", FirstAllowUnsignedUpdatesVersion, func(c *Config) bool {
+		return c.Node != nil && c.Node.AllowUnsignedUpdates
+	}},
 }
 
 // NewerKeysInUse lists the config.yaml keys set in c that older releases

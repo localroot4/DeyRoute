@@ -97,6 +97,42 @@ func TestNewerKeysInUse(t *testing.T) {
 	require.Equal(t, []NewerKey{{"hub.auto_update", "0.3.0"}}, c.NewerKeysInUse())
 	var nilCfg *Config
 	require.Nil(t, nilCfg.NewerKeysInUse())
+
+	// A node's node.allow_unsigned_updates (on), with its own first release.
+	n := NewNode("de-1", "1.2.3.4:44433", "sha256:"+strings.Repeat("ab", 32))
+	require.Empty(t, n.NewerKeysInUse())
+	n.Node.AllowUnsignedUpdates = true
+	require.Equal(t, "0.3.0", FirstAllowUnsignedUpdatesVersion)
+	require.Equal(t, []NewerKey{{"node.allow_unsigned_updates", FirstAllowUnsignedUpdatesVersion}}, n.NewerKeysInUse())
+}
+
+// TestNodeAllowUnsignedUpdatesKey: node.allow_unsigned_updates is written
+// only when true, survives save, load and Clone, and takes only a YAML bool.
+func TestNodeAllowUnsignedUpdatesKey(t *testing.T) {
+	dir := t.TempDir()
+	c := NewNode("de-1", "1.2.3.4:44433", "sha256:"+strings.Repeat("ab", 32))
+	path := filepath.Join(dir, "off.yaml")
+	require.NoError(t, SaveWith(path, c, fakeOpts()))
+	raw, err := os.ReadFile(path) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "allow_unsigned_updates")
+
+	c.Node.AllowUnsignedUpdates = true
+	path = filepath.Join(dir, "on.yaml")
+	require.NoError(t, SaveWith(path, c, fakeOpts()))
+	raw, err = os.ReadFile(path) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "allow_unsigned_updates: true")
+	back, err := LoadWith(path, fakeOpts())
+	require.NoError(t, err)
+	require.True(t, back.Node.AllowUnsignedUpdates)
+	require.True(t, Clone(back).Node.AllowUnsignedUpdates)
+
+	bad := strings.Replace(string(raw), "allow_unsigned_updates: true", "allow_unsigned_updates: maybe", 1)
+	_, err = ParseWith([]byte(bad), fakeOpts())
+	require.Error(t, err)
+	require.Equal(t, deyerr.C013, deyerr.As(err).Code)
+	require.Contains(t, deyerr.As(err).Message(), "node.allow_unsigned_updates")
 }
 
 // TestHubAutoUpdateKey: hub.auto_update is written only when true (an older
