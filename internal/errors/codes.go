@@ -173,6 +173,7 @@ const (
 	S009 Code = "DEY-S009" // secret file unreadable or damaged {path} {reason}
 	S010 Code = "DEY-S010" // update or rollback refused while the front is in use {action} {reason}
 	S011 Code = "DEY-S011" // rollback or downgrade refused while newer config keys are set {action} {keys} {reason}
+	S012 Code = "DEY-S012" // node refuses self.update from a hub on a development build {version}
 )
 
 // Internal (DEY-X0xx).
@@ -636,6 +637,9 @@ var catalog = map[Code]Info{
 	S011: {S011, "Cannot {action} while config.yaml uses newer settings: {keys}",
 		"{reason}: an older deyroute does not know these keys, so it refuses config.yaml (DEY-C001) and the hub would not start",
 		"undo them first (automatic tuning: deyroute optimize revert; automatic update: deyroute update auto off; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command"},
+	S012: {S012, "Hub runs an unsigned development build",
+		"the hub runs deyroute {version}, which is not a signed release, so this node cannot prove that the binary it would install comes from DEYROUTE; nothing was installed",
+		"install a release on the hub (deyroute update --version V), then the node follows; only in a test lab: set node.allow_unsigned_updates: true in the node's /etc/deyroute/config.yaml"},
 
 	// ---------------------------------------------------------------- X
 	X000: {X000, "Unexpected error",
