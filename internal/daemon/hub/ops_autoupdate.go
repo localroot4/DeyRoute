@@ -93,6 +93,11 @@ type autoPending struct {
 	Nodes   []string  `json:"nodes,omitempty"`   // online before the update
 	Starts  int       `json:"starts,omitempty"`  // starts of To so far
 	Failed  string    `json:"failed,omitempty"`  // why To was rolled back
+	// Keys are the newer config.yaml keys (config.NewerKeysInUse) set when
+	// From started the update: From had loaded config.yaml with them, so it
+	// knows them whatever their first release. A record of an earlier
+	// build has none, so every key in use counts (autoRollback).
+	Keys []string `json:"keys,omitempty"`
 }
 
 func readAutoPending(path string) (autoPending, bool, error) {
@@ -360,6 +365,9 @@ func (h *Hub) autoApply(ctx context.Context, target string) {
 	path := h.path(AutoPendingPath)
 	tunnels, nodes := h.autoHealthy()
 	p := autoPending{From: version.Version, To: target, At: h.now(), Tunnels: tunnels, Nodes: nodes}
+	for _, k := range h.Config().NewerKeysInUse() {
+		p.Keys = append(p.Keys, k.Key)
+	}
 	if err := writeAutoPending(path, p); err != nil {
 		h.log.Warn("automatic update skipped: cannot record it", dlog.Err(err))
 		return
@@ -472,11 +480,16 @@ func autoMissing(p autoPending, healthy func() (tunnels, nodes []string)) []stri
 // and restarts the hub; the next start records the outcome. When the
 // previous binary does not know a key set in config.yaml, it would refuse
 // the file and the hub would not start: then the new binary is kept
-// (autoKeep).
+// (autoKeep). The keys recorded in p were in use when the previous binary
+// started the update, so it knows them; only keys set since then, or every
+// key when p lists none, are compared with its version.
 func (h *Hub) autoRollback(path string, p autoPending, reason string) {
 	h.ops.updMu.Lock()
 	defer h.ops.updMu.Unlock()
-	if keys := newerKeysUnknownTo(h.Config(), p.From); len(keys) > 0 {
+	keys := slices.DeleteFunc(newerKeysUnknownTo(h.Config(), p.From), func(k config.NewerKey) bool {
+		return slices.Contains(p.Keys, k.Key)
+	})
+	if len(keys) > 0 {
 		h.autoKeep(path, p, reason, keys)
 		return
 	}

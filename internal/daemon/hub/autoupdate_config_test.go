@@ -13,6 +13,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/install"
 	"github.com/localroot4/deyroute/internal/state"
+	"github.com/localroot4/deyroute/internal/version"
 )
 
 // The automatic update is off by default and its switch is hub.auto_update
@@ -243,4 +244,71 @@ func TestAutoUpdateSurvivesRestore(t *testing.T) {
 		require.Equal(t, on, info.Enabled, "restored with the key %v", on)
 		require.Equal(t, on, strings.Contains(readConfigFile(t, dst), "auto_update: true"))
 	}
+}
+
+// TestAutoRollbackKnowsKeysOfPreviousBinary: the previous binary had loaded
+// config.yaml with the keys in use when it started the automatic update, so
+// it knows them even when its version sorts before their first release
+// (hub.auto_update is always set then, and every 0.3.0-edge.N sorts before
+// 0.3.0): a failed update is rolled back to it. Only a key set after the
+// update, or every key when the record lists none (an earlier build wrote
+// it), keeps the new binary.
+func TestAutoRollbackKnowsKeysOfPreviousBinary(t *testing.T) {
+	old := version.Version
+	t.Cleanup(func() { version.Version = old }) // after the hub stopped
+	version.Version = "0.3.0-edge.61"
+	env, o, bin := autoEnv(t, func(c *config.Config) { c.Hub.AutoUpdate = true })
+	// A stale record of other versions: the start drops it, which shows
+	// that the start is done with the record before this test writes one.
+	path := filepath.Join(env.root, AutoPendingPath)
+	require.NoError(t, writeAutoPending(path, autoPending{From: "0.0.1", To: "0.0.2"}))
+	env.startEnv(o)
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(path)
+		return os.IsNotExist(err)
+	}, testWait, 10*time.Millisecond)
+	binary := func() string {
+		data, err := os.ReadFile(bin)
+		require.NoError(t, err)
+		return string(data)
+	}
+
+	env.h.autoApply(ctxT(t), "1.2.3")
+	require.Equal(t, "#!deyroute 1.2.3", binary())
+	p, ok, err := readAutoPending(path)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "0.3.0-edge.61", p.From)
+	env.h.autoRollback(path, p, "tunnel t1 did not come back")
+	require.Equal(t, "#!deyroute old", binary(), "rolled back to the edge build")
+	p, ok, err = readAutoPending(path)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Contains(t, p.Failed, "tunnel t1")
+	require.NotContains(t, env.h.autoRecord().Last, "was kept")
+
+	// A record of an earlier build lists no keys: kept, as before.
+	require.NoError(t, os.WriteFile(path, []byte(`{"from":"0.3.0-edge.61","to":"1.2.3"}`), 0o600))
+	p, _, err = readAutoPending(path)
+	require.NoError(t, err)
+	env.h.autoRollback(path, p, "tunnel t1 did not come back")
+	require.Equal(t, "#!deyroute old", binary(), "nothing swapped")
+	require.Contains(t, env.h.autoRecord().Last, "was kept")
+	require.Contains(t, env.h.autoRecord().Last, "hub.auto_update (since 0.3.0)")
+
+	// A key set after the update: only that key keeps the new binary.
+	_, err = env.h.mutate(func(c *config.Config) error {
+		c.Monitoring = &config.Monitoring{QuotaResetDay: 5}
+		return nil
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, []byte(`{"from":"0.3.0-edge.14","to":"1.2.3","keys":["hub.auto_update"]}`), 0o600))
+	p, _, err = readAutoPending(path)
+	require.NoError(t, err)
+	env.h.autoRollback(path, p, "tunnel t1 did not come back")
+	require.Equal(t, "#!deyroute old", binary(), "nothing swapped")
+	last := env.h.autoRecord().Last
+	require.Contains(t, last, "was kept")
+	require.Contains(t, last, "monitoring (since 0.3.0-edge.15)")
+	require.NotContains(t, last, "hub.auto_update", "the previous binary loaded it")
 }

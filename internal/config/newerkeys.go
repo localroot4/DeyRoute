@@ -22,7 +22,10 @@ const (
 	// That is conservative on purpose: an edge build cannot be told apart
 	// by its version, and refusing costs only `deyroute update auto off`
 	// first. Updates are not affected: a release that is not older than
-	// the running build knows every key that build writes.
+	// the running build knows every key that build writes. A failed
+	// automatic update still goes back to the build it came from: that
+	// build had loaded config.yaml with the key, and the hub records the
+	// keys in use when it starts the update.
 	FirstAutoUpdateVersion = "0.3.0"
 )
 

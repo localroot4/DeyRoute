@@ -93,8 +93,11 @@ func TestRollbackComparesPerKey(t *testing.T) {
 // on) is unknown to releases before 0.3.0, the first stable release that
 // knows it. Every 0.3.0-edge.N sorts before 0.3.0, so while the key is set
 // a rollback or downgrade to any edge build is refused (DEY-S011), and a
-// failed automatic update is kept rather than rolled back to one; updates
-// to newer builds are never refused. Without the key nothing is refused.
+// failed automatic update whose record does not list the keys the previous
+// binary loaded (an earlier build wrote it) is kept rather than rolled back
+// to one (TestAutoRollbackKnowsKeysOfPreviousBinary has the record that
+// lists them); updates to newer builds are never refused. Without the key
+// nothing is refused.
 func TestRollbackRefusedWithAutoUpdateKey(t *testing.T) {
 	old := version.Version
 	t.Cleanup(func() { version.Version = old }) // after the hub stopped
@@ -130,7 +133,8 @@ func TestRollbackRefusedWithAutoUpdateKey(t *testing.T) {
 		require.NotEqual(t, deyerr.S011, codeOf(err), v)
 	}
 
-	// A failed automatic update from an edge build is kept.
+	// A failed automatic update from an edge build, recorded without the
+	// keys in use then, is kept.
 	path := env.h.path(AutoPendingPath)
 	require.NoError(t, writeAutoPending(path, autoPending{From: "0.3.0-edge.60", To: version.Version}))
 	env.h.autoRollback(path, autoPending{From: "0.3.0-edge.60", To: version.Version}, "tunnel t1 did not come back")

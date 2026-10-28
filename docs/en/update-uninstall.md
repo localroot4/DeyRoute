@@ -63,10 +63,11 @@ node that was online before the update works again (it gives them up to 10
 minutes). If not — or if the new version does not even start — it puts the
 previous version back by itself, records a `DEY-S003` event and a dashboard
 line, and never installs that release automatically again (you still can,
-with `deyroute update`). If the previous version does not know a setting
-that `config.yaml` now uses, it would refuse the file: then the new version
-keeps running and the dashboard shows `DEY-S011` for 7 days (details in
-`deyroute update auto`).
+with `deyroute update`). The previous version ran with your `config.yaml`
+before the update, so it loads it again. Only when you set something after
+the update that the previous version does not know would it refuse the
+file: then the new version keeps running and the dashboard shows
+`DEY-S011` for 7 days (details in `deyroute update auto`).
 
 ```bash
 deyroute update auto        # on or off, next release and when, last result
@@ -99,7 +100,8 @@ While it is on, releases before **0.3.0** do not know the key, so
 `deyroute update --rollback` and `deyroute update --version V` to such a
 release (every `0.3.0-edge.N` build included) are refused with `DEY-S011`;
 run `deyroute update auto off` first. Updates to newer releases are not
-affected.
+affected, and a failed automatic update still goes back to the version it
+came from: that version ran with the key.
 
 **Hubs that ran an earlier build:** before this change the automatic update
 was on by default, and the switch was kept in the state database, which a

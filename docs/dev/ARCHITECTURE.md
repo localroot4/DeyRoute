@@ -587,7 +587,11 @@ the alias `quota`.
   `update --version V` (only a V older than the running build) are refused
   with `DEY-S011` while a key in use is newer than the target. A failed
   automatic update is not rolled back to such a binary either: the new
-  binary keeps running and the dashboard shows `DEY-S011`.
+  binary keeps running and the dashboard shows `DEY-S011`. The keys in
+  use when the automatic update starts are recorded in
+  `update-pending.json` (`keys`): the previous binary had loaded them, so
+  only keys set after the update are compared with its version (a record
+  without `keys`, from an earlier build, compares every key).
 - A new config key is registered with one line in `newerKeys`
   (`internal/config/newerkeys.go`): the key, its `First<Item>Version`
   constant and whether a configuration sets it. Such a key is written only
