@@ -57,7 +57,11 @@ const (
 // (install.CheckBackendEntry). An older hub sends no manifest: then only
 // the built-in entries are installed. Anything else is refused before a
 // download. Builtin and system backends install nothing and are not
-// checked.
+// checked, and neither is a version already installed exactly as the
+// entry pins it (Layout.HasBackend): nothing is installed then. A hub keeps
+// the version a running tunnel uses after it was updated, until `deyroute
+// update backends`, and this node's built-in manifest, updated with the
+// hub, may no longer pin it.
 func (a *agent) backendInstall(ctx context.Context, args api.BackendInstallArgs) (api.BackendInstallResult, error) {
 	e := args.Entry
 	if e.Name == "" {
@@ -70,7 +74,11 @@ func (a *agent) backendInstall(ctx context.Context, args api.BackendInstallArgs)
 		return api.BackendInstallResult{}, a.refuse(api.CmdBackendInstall, fmt.Sprintf("invalid backend name %q", e.Name))
 	}
 	var pinnedBy string
-	if !e.Builtin && !e.System {
+	switch {
+	case e.Builtin || e.System:
+	case a.o.Layout.HasBackend(e, a.o.Arch):
+		pinnedBy = "already installed"
+	default:
 		src, err := install.CheckBackendEntry(e, a.o.Arch, backend.EmbeddedManifest(), args.Manifest, args.ManifestSig, "")
 		if err != nil {
 			a.log.Warn("backend installation refused: no signed manifest pins it", slog.String("backend", e.Name),

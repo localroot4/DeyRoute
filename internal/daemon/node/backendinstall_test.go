@@ -234,3 +234,38 @@ func TestBackendInstallTrustsOnlyTheBuiltInKey(t *testing.T) {
 	require.Equal(t, int32(0), bs.hits.Load())
 	e.requireNoBackend(t, "v9.9.9", "release key only")
 }
+
+// A version already installed exactly as the entry pins it needs no signed
+// manifest: nothing is downloaded or installed. A hub keeps the version a
+// running tunnel uses after an update, and the node's new built-in
+// manifest may no longer pin it. Any other sha256 for that version is
+// checked as before.
+func TestBackendInstallKeepsInstalledVersion(t *testing.T) {
+	key := useTestKey(t)
+	bs := newBackendServer(t, "\x7fELF backhaul v9.9.9")
+	e := newEnv(t)
+	e.opts.HTTPClient = bs.Client()
+	s := e.start()
+	entry := bs.entry("v9.9.9")
+	manifest := manifestOf(entry, "")
+	_, err := call[api.BackendInstallResult](t, s, api.CmdBackendInstall,
+		api.BackendInstallArgs{Name: "backhaul", Entry: entry, Manifest: manifest, ManifestSig: signManifest(key, manifest)})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), bs.hits.Load())
+
+	res, err := call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: entry})
+	require.NoError(t, err, "the installed version needs no manifest")
+	require.Equal(t, "/var/lib/deyroute/bin/backhaul/v9.9.9", res.BinDir)
+	require.Equal(t, int32(1), bs.hits.Load(), "nothing is downloaded")
+
+	other := entry
+	other.SHA256 = map[string]string{"amd64": sum([]byte("another archive"))}
+	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: other})
+	de := requireCode(t, err, deyerr.N050)
+	require.Contains(t, de.Why(), "is not pinned by this node's built-in backends.yaml")
+	// A changed binary is not the installed version either.
+	writeFile(t, e.path("/var/lib/deyroute/bin/backhaul/v9.9.9/backhaul"), "changed", 0o755)
+	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: entry})
+	requireCode(t, err, deyerr.N050)
+	require.Equal(t, int32(1), bs.hits.Load())
+}
