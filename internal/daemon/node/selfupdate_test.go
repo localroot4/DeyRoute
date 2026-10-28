@@ -229,13 +229,22 @@ func TestSelfUpdateRejectsUnsignedBinary(t *testing.T) {
 	de := requireCode(t, err, deyerr.S001)
 	require.Contains(t, de.Why(), "announced")
 	e.requireNothingInstalled(t, "old binary", "announced sha256")
+}
 
-	// Only the release key (and here the lab key) counts: without the lab
-	// key built in, the lab release is refused too.
-	install.TestPublicKey = ""
-	_, err = call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: "9.9.9"})
-	de = requireCode(t, err, deyerr.S001)
+// A node built without the lab key trusts only the release key: the lab's
+// signed release is refused too.
+func TestSelfUpdateTrustsOnlyTheBuiltInKey(t *testing.T) {
+	require.False(t, install.HasTestKey())
+	e := newEnv(t)
+	bin := fakeELF(elf.EM_X86_64, elf.ET_EXEC)
+	archive := makeArchive(t, []tarFile{{name: "deyroute", body: bin}})
+	writeFile(t, e.path(config.BinaryPath), "old binary", 0o755)
+	e.signedHub("9.9.9", signedRelease(t, otherKey(t), "9.9.9", "9.9.9", "amd64", archive), bin)
+	s := e.start()
+	_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: "9.9.9", SHA256: sum(archive)})
+	de := requireCode(t, err, deyerr.S001)
 	require.Contains(t, de.Why(), "not with the DEYROUTE release key")
+	require.Equal(t, "nothing was installed; the running binary stays", de.Detail)
 	e.requireNothingInstalled(t, "old binary", "release key only")
 }
 
