@@ -19,8 +19,10 @@ to a log.
 - The connection always goes from the node to the hub. The hub never logs
   in to a node, and SSH is not used.
 - A node takes no decisions of its own: it only renders files below
-  `/etc/deyroute/backends/`, runs deyroute's own backend binaries, and downloads
-  only over https.
+  `/etc/deyroute/backends/`, runs only the backend binaries deyroute installed
+  (and deyroute's own relay and WireGuard setup) with no more privileges than
+  its built-in allowlist grants that backend (see Tunnel processes below), and
+  downloads only over https.
 
 ## Join tokens
 
@@ -287,9 +289,21 @@ security change. Menu: `8) Security` → `5) Audit`.
 - Each transport runs as its own systemd unit, as user `deyroute`, with only
   the right to bind low ports (`CAP_NET_BIND_SERVICE`) and a hardened sandbox
   (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, a
-  system-call filter …). Only WireGuard transports run as root with
-  `CAP_NET_ADMIN`.
+  system-call filter …).
+- A backend gets more only where the allowlist below says so. The list is
+  built into deyroute, so the hub cannot change it: a node refuses a unit that
+  asks for anything else (`DEY-N050`, naming the field), and the hub checks its
+  own units against the same list before it writes them (`DEY-X034`).
+- No backend may relax `NoNewPrivileges` or the capability bounding set.
 - A crash of one backend never takes the hub down; systemd restarts it.
+
+| Backend (transport) | Runs as root | Extra capability | Extra address family | Hardening it may relax | Extra writable path |
+| --- | --- | --- | --- | --- | --- |
+| `wireguard` (`wireguard/kernel`) | yes | `CAP_NET_ADMIN` | `AF_NETLINK` | `ProtectKernelTunables` (sets `route_localnet` when the node forwards to `127.0.0.1`) | none |
+| `awg` (`awg/userspace`) | yes | `CAP_NET_ADMIN` | `AF_NETLINK` | none | `/run/amneziawg` |
+| `rathole` | no | none | none | `MemoryDenyWriteExecute` (the release binaries are UPX-packed) | none |
+| `direct/haproxy` (the node's address check) | no | none | `AF_NETLINK` | none | none |
+| every other backend and transport | no | none | none | none | none |
 
 ## Tunnel logs
 
