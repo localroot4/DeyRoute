@@ -37,6 +37,10 @@ type Release struct {
 	SHA256  string // archive sha256 from the signed SHA256SUMS
 	Binary  string // path of the extracted deyroute binary (0755)
 	Source  string // name of the source that served SHA256SUMS
+	// Sums and SumsSig are the verified SHA256SUMS and SHA256SUMS.minisig
+	// (a hub keeps them with the archive for its nodes, DR-03).
+	Sums    []byte
+	SumsSig []byte
 }
 
 // DownloadRelease fetches SHA256SUMS and SHA256SUMS.minisig from the first
@@ -56,6 +60,7 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 	sigCode := ro.MismatchCode
 	var (
 		ver, file, sum  string
+		sums, sumsSig   []byte
 		srcIdx          = -1
 		lastErr, sigErr error
 	)
@@ -90,6 +95,7 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 			continue
 		}
 		ver, file, sum, srcIdx = v, fl, sm, i
+		sums, sumsSig = data, sig
 		break
 	}
 	if srcIdx < 0 {
@@ -126,6 +132,8 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 		SHA256:  sum,
 		Binary:  bins[BinaryName],
 		Source:  opt.Sources[srcIdx].Name,
+		Sums:    sums,
+		SumsSig: sumsSig,
 	}, nil
 }
 
@@ -134,26 +142,15 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 // parses it strictly. Signature failure → DEY-S001; unreachable → DEY-I004.
 // It returns the parsed manifest and the raw bytes for InstallManifest.
 func FetchManifest(ctx context.Context, f Fetcher, sources []Source, version, pubKey string, ro RetryOptions) (*backend.ManifestFile, []byte, error) {
-	if pubKey == "" {
-		pubKey = MinisignPublicKey
-	}
 	var lastErr, sigErr error
 	for _, src := range sources {
-		r := ro
-		r.File = ManifestFile
-		data, _, err := FetchBytes(ctx, f, []string{src.Manifest(version)}, r)
+		data, _, bad, err := fetchManifestPair(ctx, f, src, version, pubKey, ro)
 		if err != nil {
-			lastErr = err
-			continue
-		}
-		r.File = ManifestSigFile
-		sig, _, err := FetchBytes(ctx, f, []string{src.ManifestSig(version)}, r)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if err := VerifyMinisignAs(deyerr.S001, ManifestFile, data, sig, pubKey); err != nil {
-			sigErr = err
+			if bad {
+				sigErr = err
+			} else {
+				lastErr = err
+			}
 			continue
 		}
 		m, err := backend.ParseManifest(data)
@@ -165,6 +162,54 @@ func FetchManifest(ctx context.Context, f Fetcher, sources []Source, version, pu
 	}
 	return nil, nil, firstErr(sigErr, lastErr,
 		deyerr.New(deyerr.I004, deyerr.Params{"file": ManifestFile}).WithDetail("no download source configured"))
+}
+
+// FetchSignedManifest downloads backends.yaml and backends.yaml.minisig of
+// version ("" = latest) from the first source serving a pair whose signature
+// verifies with pubKey ("" = MinisignPublicKey), and returns both. The
+// manifest is not parsed: a hub keeps the signed pair of its release for
+// its nodes (DR-03), and a newer release's manifest may hold fields this
+// build does not know. Signature failure → DEY-S001; unreachable → DEY-I004.
+func FetchSignedManifest(ctx context.Context, f Fetcher, sources []Source, version, pubKey string, ro RetryOptions) (data, sig []byte, err error) {
+	var lastErr, sigErr error
+	for _, src := range sources {
+		data, sig, bad, err := fetchManifestPair(ctx, f, src, version, pubKey, ro)
+		if err == nil {
+			return data, sig, nil
+		}
+		if bad {
+			sigErr = err
+		} else {
+			lastErr = err
+		}
+	}
+	return nil, nil, firstErr(sigErr, lastErr,
+		deyerr.New(deyerr.I004, deyerr.Params{"file": ManifestFile}).WithDetail("no download source configured"))
+}
+
+// fetchManifestPair downloads backends.yaml and its signature from src and
+// verifies the signature with pubKey ("" = MinisignPublicKey). badSig is
+// true when the pair was downloaded but the signature does not verify
+// (DEY-S001).
+func fetchManifestPair(ctx context.Context, f Fetcher, src Source, version, pubKey string, ro RetryOptions) (data, sig []byte, badSig bool, err error) {
+	if pubKey == "" {
+		pubKey = MinisignPublicKey
+	}
+	r := ro
+	r.File = ManifestFile
+	data, _, err = FetchBytes(ctx, f, []string{src.Manifest(version)}, r)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	r.File = ManifestSigFile
+	sig, _, err = FetchBytes(ctx, f, []string{src.ManifestSig(version)}, r)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if err := VerifyMinisignAs(deyerr.S001, ManifestFile, data, sig, pubKey); err != nil {
+		return nil, nil, true, err
+	}
+	return data, sig, false, nil
 }
 
 // firstErr returns the first non-nil error. Verification failures are passed

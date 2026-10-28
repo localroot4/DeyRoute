@@ -58,7 +58,7 @@ func Extract(archivePath, kind string, names []string, dstDir string) (map[strin
 	}
 	switch strings.ToLower(kind) {
 	case KindTarGz, "tgz":
-		return extractTarGz(archivePath, names, dstDir)
+		return extractTarGz(archivePath, names, dstDir, extractLimit)
 	case KindZip:
 		return extractZip(archivePath, names, dstDir)
 	case KindGz:
@@ -103,7 +103,9 @@ func wantedSet(names []string) map[string]bool {
 	return m
 }
 
-func extractTarGz(archivePath string, names []string, dstDir string) (map[string]string, error) {
+// extractTarGz is Extract for tar.gz archives with every file capped at
+// limit bytes.
+func extractTarGz(archivePath string, names []string, dstDir string, limit int64) (map[string]string, error) {
 	f, err := os.Open(archivePath) // #nosec G304 -- verified download in our staging dir
 	if err != nil {
 		return nil, extractErr(err.Error())
@@ -148,10 +150,10 @@ func extractTarGz(archivePath string, names []string, dstDir string) (map[string
 		if _, dup := out[base]; dup {
 			return nil, extractErr(fmt.Sprintf("archive contains %q twice", base))
 		}
-		if h.Size > extractLimit {
-			return nil, extractErr(fmt.Sprintf("%s is larger than %d bytes", h.Name, extractLimit))
+		if h.Size > limit {
+			return nil, extractErr(fmt.Sprintf("%s is larger than %d bytes", h.Name, limit))
 		}
-		p, err := writeBinary(dstDir, base, tr)
+		p, err := writeBinary(dstDir, base, tr, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +213,7 @@ func extractZip(archivePath string, names []string, dstDir string) (map[string]s
 		if err != nil {
 			return nil, extractErr("corrupt zip entry " + zf.Name + ": " + err.Error())
 		}
-		p, err := writeBinary(dstDir, base, rc)
+		p, err := writeBinary(dstDir, base, rc, extractLimit)
 		_ = rc.Close()
 		if err != nil {
 			return nil, err
@@ -248,7 +250,7 @@ func extractSingle(archivePath string, gzipped bool, name, dstDir string) (map[s
 		gz.Multistream(false)
 		r = gz
 	}
-	p, err := writeBinary(dstDir, name, r)
+	p, err := writeBinary(dstDir, name, r, extractLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -256,8 +258,8 @@ func extractSingle(archivePath string, gzipped bool, name, dstDir string) (map[s
 }
 
 // writeBinary streams r into dstDir/name (0755) through a temp file, capped
-// at extractLimit.
-func writeBinary(dstDir, name string, r io.Reader) (string, error) {
+// at limit bytes.
+func writeBinary(dstDir, name string, r io.Reader, limit int64) (string, error) {
 	dst := filepath.Join(dstDir, name)
 	tmp, err := os.CreateTemp(dstDir, "."+name+".x-*")
 	if err != nil {
@@ -271,12 +273,12 @@ func writeBinary(dstDir, name string, r io.Reader) (string, error) {
 			_ = os.Remove(tmpName)
 		}
 	}()
-	n, err := io.Copy(tmp, io.LimitReader(r, extractLimit+1))
+	n, err := io.Copy(tmp, io.LimitReader(r, limit+1))
 	if err != nil {
 		return "", extractErr(fmt.Sprintf("reading %s: %v", name, err))
 	}
-	if n > extractLimit {
-		return "", extractErr(fmt.Sprintf("%s is larger than %d bytes", name, extractLimit))
+	if n > limit {
+		return "", extractErr(fmt.Sprintf("%s is larger than %d bytes", name, limit))
 	}
 	if n == 0 {
 		return "", extractErr(name + " is empty")
