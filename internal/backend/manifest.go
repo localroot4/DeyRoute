@@ -44,6 +44,23 @@ func ParseManifest(data []byte) (*ManifestFile, error) {
 	return &m, nil
 }
 
+// ParseSignedManifest decodes a backends.yaml whose signature was already
+// verified, for comparing its entries only (a node checks the hub's
+// backend.install entry against it, DR-03). Unlike ParseManifest it
+// ignores keys this build does not know: the release manifest of a newer
+// build may have more.
+func ParseSignedManifest(data []byte) (*ManifestFile, error) {
+	var m ManifestFile
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		return nil, deyerr.Wrap(deyerr.S005, err, deyerr.Params{"file": "backends.yaml"})
+	}
+	for name, e := range m.Backends {
+		e.Name = name
+		m.Backends[name] = e
+	}
+	return &m, nil
+}
+
 // SetManifest replaces the active manifest (after verifying an override).
 func SetManifest(m *ManifestFile) {
 	manMu.Lock()
