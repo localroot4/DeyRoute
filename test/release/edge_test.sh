@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Tests of the edge release scripts, with a fake gh and a local git origin (no
 # network, no GitHub):
-#   - scripts/edge-prune.sh: the retention.
+#   - scripts/edge-gate.sh: whether a green ci run publishes its commit;
+#   - scripts/edge-prune.sh: the retention;
+#   - the parts of .github/workflows/release-edge.yml that keep the publishes
+#     of a branch in order.
 # Run by ci.yml (lint job), or by hand from anywhere:
 #
 #   bash test/release/edge_test.sh [TestName ...]
@@ -71,6 +74,11 @@ new_repo() {
   git -C "$T/w" remote add origin "$T/origin.git"
 }
 
+# on BRANCH: the working clone switches to BRANCH (created at HEAD if new).
+on() {
+  git -C "$T/w" switch -q "$1" 2>/dev/null || git -C "$T/w" switch -q -c "$1"
+}
+
 # commit [-f]: one more commit on the current branch of the working clone,
 # pushed to origin (-f: force-pushed); prints its SHA.
 commit() {
@@ -102,8 +110,174 @@ release() {
   mv "$FAKE_RELEASES.new" "$FAKE_RELEASES"
 }
 
+# checkout: the job's checkout, a fresh clone of origin with its tags.
+checkout() {
+  rm -rf "$T/ci"
+  git clone -q "$T/origin.git" "$T/ci"
+}
+
+# want_gate WANT BRANCH SHA [REASON]: scripts/edge-gate.sh BRANCH SHA, run in
+# the checkout, prints publish=WANT; REASON is part of what it says (stderr).
+want_gate() {
+  local out
+  out=$(cd "$T/ci" && bash "$root/scripts/edge-gate.sh" "$2" "$3" 2>"$T/gate.err") ||
+    fail "edge-gate.sh $2 ${3:0:7} failed: $(cat "$T/gate.err")"
+  [ "$out" = "publish=$1" ] ||
+    fail "edge-gate.sh $2 ${3:0:7}: got '$out', want 'publish=$1' ($(cat "$T/gate.err"))"
+  [ -z "${4:-}" ] || grep -qF -- "$4" "$T/gate.err" ||
+    fail "edge-gate.sh $2 ${3:0:7}: '$4' missing in: $(cat "$T/gate.err")"
+}
+
 # left: the tags of the releases that are left, in version order.
 left() { jq -r '.[].tagName' "$FAKE_RELEASES" | sort -V | tr '\n' ' '; }
+
+# ---------------------------------------------------------------- edge-gate
+
+# The ci run of the tip of a branch ends: its commit is published, also when
+# older builds of the branch exist.
+TestEdgeGatePublishesNewTip() {
+  new_repo
+  local a b
+  a=$(commit)
+  b=$(commit)
+  release v0.3.0-edge.1 "$a" main false true
+  checkout
+  want_gate true main "$b" "publishing ${b:0:7}"
+}
+
+TestEdgeGatePublishesFirstBuildOfBranch() {
+  new_repo
+  local a
+  a=$(commit)
+  checkout
+  want_gate true main "$a"
+}
+
+# Push A, then B. The ci run of B ends first and B is published; the ci run of
+# A ends later (it was slower, or a flaky job of it was re-run). A is behind
+# the tip of main: it is not published, so main never goes back to A.
+TestEdgeGateSkipsCommitBehindBranchTip() {
+  new_repo
+  local a b
+  a=$(commit)
+  b=$(commit)
+  release v0.3.0-edge.7 "$b" main false true
+  checkout
+  want_gate false main "$a" "main moved on to ${b:0:7}"
+}
+
+# The same, while the ci run of B is still running: B publishes when it ends.
+TestEdgeGateSkipsCommitBehindTipBeforeTipIsPublished() {
+  new_repo
+  local a b
+  a=$(commit)
+  b=$(commit)
+  checkout
+  want_gate false main "$a" "main moved on to ${b:0:7}"
+  want_gate true main "$b"
+}
+
+# A re-run of the ci run of a commit that is already published (or of the
+# publishing workflow) publishes nothing: no second release of one commit.
+TestEdgeGateSkipsCommitAlreadyPublished() {
+  new_repo
+  local a b
+  a=$(commit)
+  b=$(commit)
+  release v0.3.0-edge.1 "$a" main false false
+  release v0.3.0-edge.2 "$b" main false true
+  checkout
+  want_gate false main "$b" "${b:0:7} is already in v0.3.0-edge.2"
+}
+
+# The newest release of the branch was published after the job's checkout
+# (the job waited for that publish): its tag is fetched for the comparison.
+TestEdgeGateFetchesTagPublishedAfterCheckout() {
+  new_repo
+  local b
+  commit >/dev/null
+  b=$(commit)
+  checkout
+  release v0.3.0-edge.2 "$b" main false true
+  want_gate false main "$b" "already in v0.3.0-edge.2"
+}
+
+# Only builds of the same branch count. dev was published at D; main then
+# moves to D (dev merged): main publishes its own build of D. dev publishes
+# nothing more for D.
+TestEdgeGateCountsOnlyItsBranch() {
+  new_repo
+  local a d
+  a=$(commit)
+  on dev
+  d=$(commit)
+  release v0.3.0-edge.1 "$a" main false true
+  release v0.3.0-edge.2 "$d" dev true false
+  git -C "$T/w" push -q origin "$d:refs/heads/main"
+  checkout
+  want_gate true main "$d"
+  want_gate false dev "$d" "already in v0.3.0-edge.2"
+}
+
+# Releases published before the "branch:" line: a non-pre-release is from
+# main, a pre-release from dev.
+TestEdgeGateLegacyReleasesByPrerelease() {
+  new_repo
+  local a d
+  a=$(commit)
+  on dev
+  d=$(commit)
+  release v0.3.0-edge.1 "$a" - false true
+  release v0.3.0-edge.2 "$d" - true false
+  checkout
+  want_gate false main "$a" "already in v0.3.0-edge.1"
+  want_gate false dev "$d" "already in v0.3.0-edge.2"
+}
+
+# After a force-push the published build is not in the branch's history any
+# more: the new tip is published.
+TestEdgeGatePublishesTipAfterForcePush() {
+  new_repo
+  local a b c
+  a=$(commit)
+  b=$(commit)
+  release v0.3.0-edge.1 "$b" dev true false
+  git -C "$T/w" branch -q -m dev
+  git -C "$T/w" push -q origin dev
+  git -C "$T/w" reset -q --hard "$a"
+  c=$(commit -f)
+  checkout
+  want_gate true dev "$c"
+}
+
+TestEdgeGateSkipsDeletedBranch() {
+  new_repo
+  local d
+  commit >/dev/null
+  on dev
+  d=$(commit)
+  git -C "$T/w" push -q origin --delete dev
+  checkout
+  want_gate false dev "$d" "dev no longer exists"
+}
+
+# A failing gh call fails the gate; it never guesses.
+TestEdgeGateFailsWhenGhFails() {
+  new_repo
+  local a
+  a=$(commit)
+  release v0.3.0-edge.1 "$a" main false true
+  checkout
+  local call
+  for call in list view; do
+    if (cd "$T/ci" && FAKE_FAIL=$call bash "$root/scripts/edge-gate.sh" main "$a") >"$T/out.gate" 2>&1; then
+      fail "edge-gate.sh succeeded although gh release $call failed: $(cat "$T/out.gate")"
+    fi
+    if grep -q '^publish=' "$T/out.gate"; then
+      fail "edge-gate.sh decided although gh release $call failed: $(cat "$T/out.gate")"
+    fi
+  done
+}
 
 # --------------------------------------------------------------- edge-prune
 
@@ -178,6 +352,28 @@ TestEdgePruneStopsWhenGhFails() {
     fail "edge-prune.sh succeeded although gh release view failed: $(cat "$T/out.prune")"
   fi
   [ ! -s "$FAKE_LOG" ] || fail "deleted although gh failed: $(cat "$FAKE_LOG")"
+}
+
+# ------------------------------------------------------------ release-edge.yml
+
+# The publishes of one branch run one at a time and none cancels another (a
+# newer one waits); the gate runs when the ci run ends and again when the
+# publishing job starts; the retention runs one at a time, in a job of its own.
+TestReleaseEdgeWorkflowPublishesInOrder() {
+  local wf="$root/.github/workflows/release-edge.yml"
+  # shellcheck disable=SC2016 # a workflow expression, not a shell one
+  grep -qF 'group: release-edge-${{ github.event.workflow_run.head_branch }}' "$wf" ||
+    fail "release-edge.yml: no concurrency group per branch"
+  if grep -qF 'cancel-in-progress: true' "$wf"; then
+    fail "release-edge.yml: a run cancels another one in progress"
+  fi
+  # shellcheck disable=SC2016
+  [ "$(grep -cF 'bash scripts/edge-gate.sh "$HEAD_BRANCH" "$HEAD_SHA"' "$wf")" = 2 ] ||
+    fail "release-edge.yml: edge-gate.sh must run in the gate job and when the edge job starts"
+  grep -qF "if: needs.gate.outputs.publish == 'true'" "$wf" ||
+    fail "release-edge.yml: the edge job does not wait for the gate"
+  grep -qF 'group: release-edge-retention' "$wf" ||
+    fail "release-edge.yml: the retention does not run one at a time"
 }
 
 # ------------------------------------------------------------------- runner

@@ -14,8 +14,8 @@ builds amd64 and arm64 from **the commit the ci run tested**, signs
 
 - Nothing is published for a ci run that failed or was cancelled, for a
   `pull_request` run (also one from a fork branch named `main` or `dev`), or
-  for a manual ci run. The job condition is: conclusion `success`, event
-  `push`, head repository = this repository.
+  for a manual ci run. The condition of the `gate` job is: conclusion
+  `success`, event `push`, head repository = this repository.
 - release-edge starts on `workflow_run` (ci completed). GitHub runs it with
   `release-edge.yml` **as it is on the default branch (`main`)**: a change to
   that file takes effect for both branches once it is merged to `main`. The
@@ -23,6 +23,23 @@ builds amd64 and arm64 from **the commit the ci run tested**, signs
 - An edge release appears after the whole ci run, about 20 to 40 minutes
   after the push. `<run>` counts every run of release-edge, including the
   ones that publish nothing, so the numbers have gaps.
+- The ci runs of a branch end in any order: they run in parallel, and an
+  old run can be re-run. `<run>` follows the runs of release-edge, not the
+  commits. So a green ci run publishes its commit only if, when the run has
+  ended, the commit is still the **tip of its branch** and is **not in the
+  newest edge release of that branch** yet (`scripts/edge-gate.sh`, job
+  `gate`, which says why it skips). An older commit, a commit whose branch
+  has moved on (the ci run of the newer commit publishes that one) and a
+  re-run of a commit already published publish nothing. Without this rule
+  an older commit could follow a newer one under a higher version, as
+  *latest*, and the installer and the automatic update would go back to
+  it. After a force-push the new tip is published. When the ci run of the
+  tip fails, nothing is published until a later push passes.
+- The publishing jobs of a branch run one at a time and never cancel each
+  other: a build waits until the one before it is done and then checks the
+  rule again (GitHub keeps one waiting build per branch; a newer one takes
+  its place). `main` and `dev` publish independently. The retention runs
+  after each publish, one at a time.
 - A manual run of release-edge (Actions → release-edge → Run workflow) never
   publishes: it prints the version a build of the chosen branch would get
   and the retention dry run (below).

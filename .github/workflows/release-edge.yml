@@ -20,6 +20,12 @@
 # never publishes either: it prints the version it would build and what the
 # retention would delete.
 #
+# The ci runs of a branch end in any order, so a commit is published only
+# while it is the tip of its branch and newer than the branch's newest edge
+# release (scripts/edge-gate.sh, checked when the ci run has ended and again
+# when the publishing job starts). The publishing jobs of a branch run one at
+# a time and never cancel each other; main and dev publish independently.
+#
 # Signing needs the repository secret MINISIGN_SECRET_KEY (the key whose public
 # half is internal/install.MinisignPublicKey). Without it the release step is
 # skipped with a notice instead of publishing unsigned files.
@@ -49,22 +55,51 @@ env:
   BASE_VERSION: 0.3.0
 
 jobs:
-  edge:
-    # Only a green ci run of a push to this repository. The branches filter
-    # matches the head branch name of the ci run, and ci also runs on
-    # pull_request: without the last two conditions a fork PR from a branch
-    # named main or dev would run this job, with the signing key and
-    # contents: write, on the fork's commit.
+  # Whether the commit of the ci run is published: only a green ci run of a
+  # push to this repository, and only while its commit is the tip of its
+  # branch and newer than the branch's newest edge release. The branches
+  # filter matches the head branch name of the ci run, and ci also runs on
+  # pull_request: without the last two conditions of the if, a fork PR from
+  # a branch named main or dev would run the edge job, with the signing key
+  # and contents: write, on the fork's commit. A run that publishes nothing
+  # stops here and never waits in the edge job's concurrency group, where it
+  # could take the place of a newer build waiting there.
+  gate:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    env:
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0 # history: is the commit in the newest release?
+      - name: tip of its branch, not published yet?
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/edge-gate.sh "$HEAD_BRANCH" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+  edge:
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
       contents: write
-    # One publish at a time; a newer green build cancels an older one still
-    # publishing. Set on the job, so that a ci run which publishes nothing
-    # (failed, pull_request) cancels nothing.
+    # The publishes of a branch run one at a time and none cancels another:
+    # a build waits until the one before it is done, then checks again
+    # (GitHub keeps one waiting job per group; a newer one takes its place).
+    # main and dev have a group each and publish independently.
     concurrency:
-      group: release-edge
-      cancel-in-progress: true
+      group: release-edge-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
     env:
       # The commit and the branch the ci run tested. Under workflow_run,
       # GITHUB_SHA and GITHUB_REF_NAME are the default branch and its head.
@@ -88,14 +123,22 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0 # tags: the last stable version
-      - uses: actions/setup-go@v5
+      # Again now that the build before it is published: this job may have
+      # waited for it, and the branch may have moved on meanwhile.
+      - name: still the tip of its branch, not published yet?
+        id: gate
         if: steps.key.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/edge-gate.sh "$HEAD_BRANCH" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        if: steps.gate.outputs.publish == 'true'
         with: { go-version: stable }
       - name: version
-        if: steps.key.outputs.ok == 'true'
+        if: steps.gate.outputs.publish == 'true'
         run: bash scripts/edge-version.sh "$HEAD_BRANCH" >> "$GITHUB_ENV"
       - name: build
-        if: steps.key.outputs.ok == 'true'
+        if: steps.gate.outputs.publish == 'true'
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -114,7 +157,7 @@ jobs:
           cp installer/install.sh internal/backend/backends.yaml CHANGELOG.md dist/
           (cd dist && sha256sum deyroute_*.tar.gz install.sh backends.yaml CHANGELOG.md > SHA256SUMS)
       - name: sign
-        if: steps.key.outputs.ok == 'true'
+        if: steps.gate.outputs.publish == 'true'
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
@@ -123,7 +166,8 @@ jobs:
           go run ./scripts/minisign sign -in dist/backends.yaml
           go run ./scripts/minisign verify -in dist/SHA256SUMS -pubkey "$(grep -o 'RW[A-Za-z0-9+/=]*' internal/install/keys.go)"
       - name: publish
-        if: steps.key.outputs.ok == 'true'
+        id: publish
+        if: steps.gate.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -175,8 +219,26 @@ jobs:
             --target "$HEAD_SHA" "${flags[@]}" \
             --title "$title" \
             --notes-file dist/NOTES.md
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+  # After each publish, one at a time: a retention after a build of main and
+  # one after a build of dev would otherwise delete the same releases at
+  # once. A waiting retention that a newer one replaces is not missed: the
+  # newer one applies the same rules.
+  retention:
+    needs: edge
+    if: needs.edge.outputs.published == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-edge-retention
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - name: retention
-        if: steps.key.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/edge-prune.sh
