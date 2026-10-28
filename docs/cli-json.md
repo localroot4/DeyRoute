@@ -69,8 +69,11 @@ three-line block is still printed on standard error):
 
 ### `deyroute version`
 
-`{"schema", "version", "commit", "date", "go"}` — `version` without a leading
-`v` (`"dev"` for local builds).
+`{"schema", "version", "commit", "date", "go", "test_key"}` — `version`
+without a leading `v` (`"dev"` for local builds). `test_key` (bool) is
+`true` only for a binary built with a lab signing key next to the release
+key (`-X …/internal/install.TestPublicKey=<key>`, the integration lab); a
+release binary always reports `false`.
 
 ### `deyroute setup`
 

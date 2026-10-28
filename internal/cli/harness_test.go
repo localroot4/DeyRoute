@@ -20,6 +20,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
+	"github.com/localroot4/deyroute/internal/install"
 	"github.com/localroot4/deyroute/internal/tui"
 )
 
@@ -208,4 +209,16 @@ func TestHarnessSanity(t *testing.T) {
 	doc := e.json("version")
 	require.Contains(t, doc, "go")
 	require.Contains(t, doc, "commit")
+}
+
+// `deyroute --json version` says whether the binary trusts a lab signing
+// key (install.TestPublicKey, set only with -ldflags -X): CI refuses a
+// release binary that reports true.
+func TestVersionTestKey(t *testing.T) {
+	e := newEnv(t)
+	require.Equal(t, false, e.json("version")["test_key"])
+	old := install.TestPublicKey
+	install.TestPublicKey = "RWQ-a-lab-public-key"
+	t.Cleanup(func() { install.TestPublicKey = old })
+	require.Equal(t, true, e.json("version")["test_key"])
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/i18n"
+	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/version"
 )
@@ -218,8 +219,11 @@ func newVersionCmd(g *Globals) *cobra.Command {
 		Args:    cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			if g.JSON {
+				// test_key: the binary also trusts a lab signing key
+				// (install.TestPublicKey); a release must say false.
 				return g.emitJSON(map[string]any{
 					"version": version.Version, "commit": version.Commit, "date": version.Date, "go": version.GoVersion(),
+					"test_key": install.HasTestKey(),
 				})
 			}
 			g.say(i18n.CLIVersionLine, version.Display(), version.Commit, version.Date,
