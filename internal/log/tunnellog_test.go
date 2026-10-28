@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
@@ -154,6 +157,82 @@ func TestEnsureTunnelLogCreatesRegularFile(t *testing.T) {
 	// A missing directory is an error, never a reason to create it here.
 	err = EnsureTunnelLog(filepath.Join(dir, "missing", "t3.log"), func(string) {})
 	require.ErrorIs(t, err, fs.ErrNotExist)
+}
+
+// The hub prepares the same <tunnel>.log from several goroutines (a
+// candidate start, the canary, a diagnosis). Two calls that both find the
+// same planted link never remove the file one of them left: the second
+// finds the first one's file and keeps it, so the name is never free again
+// once a call returned. The refusal callback runs between the look at the
+// name and its removal; there the test holds the first caller until the
+// second has looked too (when it can), and the second until the first has
+// returned.
+func TestEnsureTunnelLogConcurrentKeepsFile(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim")
+	require.NoError(t, os.WriteFile(victim, victimData, 0o644))
+	p := filepath.Join(dir, "t1.log")
+	require.NoError(t, os.Symlink(victim, p))
+
+	var (
+		mu        sync.Mutex
+		arrived   int
+		reasons   []string
+		both      = make(chan struct{})
+		firstDone = make(chan struct{})
+		closeOnce sync.Once
+		// left holds open what each call left at p, so its inode is not
+		// reused for a later file.
+		left = make([]*os.File, 2)
+	)
+	refused := func(r string) {
+		mu.Lock()
+		arrived++
+		n := arrived
+		reasons = append(reasons, r)
+		mu.Unlock()
+		if n == 1 {
+			select { // wait for the second caller, if it gets here
+			case <-both:
+			case <-time.After(500 * time.Millisecond):
+			}
+			return
+		}
+		close(both)
+		select { // the second caller goes on once the first returned
+		case <-firstDone:
+		case <-time.After(5 * time.Second):
+		}
+	}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range left {
+		wg.Go(func() {
+			<-start
+			assert.NoError(t, EnsureTunnelLog(p, refused))
+			f, err := os.OpenFile(p, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+			if assert.NoError(t, err) {
+				left[i] = f
+				t.Cleanup(func() { _ = f.Close() })
+			}
+			closeOnce.Do(func() { close(firstDone) })
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	fi := requireOwnLog(t, p)
+	for i, f := range left {
+		require.NotNil(t, f)
+		lfi, err := f.Stat()
+		require.NoError(t, err)
+		require.True(t, os.SameFile(fi, lfi), "the file call %d left was removed afterwards", i)
+	}
+	require.Equal(t, []string{RefusedSymlink}, reasons, "the link was found and removed once")
+	requireContent(t, victim, victimData)
+	tunnelLogLocks.mu.Lock()
+	defer tunnelLogLocks.mu.Unlock()
+	require.Empty(t, tunnelLogLocks.m, "no lock is kept for a path once its calls returned")
 }
 
 // The daemons log each replaced tunnel log once per file and reason while

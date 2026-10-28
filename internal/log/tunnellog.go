@@ -49,8 +49,14 @@ const TunnelLogReplaced = "tunnel log replaced"
 // the backends' user can then neither remove nor rename that file, so
 // systemd appends to root's file. A missing directory is an error matching
 // fs.ErrNotExist.
+//
+// Calls for the same path run one at a time in this process (the hub
+// prepares a tunnel's log from several goroutines): a second call that saw
+// the same planted link would otherwise remove the file the first had just
+// created, and the name would be free again while a unit starts.
 func EnsureTunnelLog(path string, refused func(reason string)) error {
 	path = filepath.Clean(path)
+	defer tunnelLogLocks.lock(path)()
 	for retried := false; ; retried = true {
 		fi, err := os.Lstat(path)
 		switch {
@@ -79,6 +85,42 @@ func EnsureTunnelLog(path string, refused func(reason string)) error {
 			return err
 		}
 		// Something appeared between the Lstat and the creation: look again.
+	}
+}
+
+// tunnelLogLocks serialises EnsureTunnelLog per path.
+var tunnelLogLocks = pathLocks{m: map[string]*pathLock{}}
+
+// pathLocks is a mutex per path; an entry lives while a call holds or
+// waits for it, so the map never grows with names seen once.
+type pathLocks struct {
+	mu sync.Mutex
+	m  map[string]*pathLock
+}
+
+type pathLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lock locks path and returns the function that unlocks it.
+func (l *pathLocks) lock(path string) (unlock func()) {
+	l.mu.Lock()
+	e := l.m[path]
+	if e == nil {
+		e = &pathLock{}
+		l.m[path] = e
+	}
+	e.refs++
+	l.mu.Unlock()
+	e.mu.Lock()
+	return func() {
+		e.mu.Unlock()
+		l.mu.Lock()
+		if e.refs--; e.refs == 0 {
+			delete(l.m, path)
+		}
+		l.mu.Unlock()
 	}
 }
 
