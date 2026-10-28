@@ -88,7 +88,10 @@ func (h *fakeHub) Join(context.Context, api.JoinRequest, string) (api.JoinRespon
 func (h *fakeHub) Authenticate(context.Context, string, string, string) error { return nil }
 
 func (h *fakeHub) Session(s *api.Session) {
-	_ = s.SendHello(h.hello)
+	h.mu.Lock()
+	hello := h.hello
+	h.mu.Unlock()
+	_ = s.SendHello(hello)
 	h.sessions <- s
 	<-s.Done()
 }

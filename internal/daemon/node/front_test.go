@@ -2,9 +2,7 @@ package node
 
 import (
 	"context"
-	"crypto/sha256"
 	"debug/elf"
-	"encoding/hex"
 	"encoding/json"
 	"net"
 	"os"
@@ -366,15 +364,16 @@ func TestFrontMissingSecretFileIsReportedAndRecovers(t *testing.T) {
 }
 
 func TestFrontUploadAndSelfUpdateUseTheFront(t *testing.T) {
+	key := useTestKey(t)
 	fe := newFrontEnv(t, fronttest.Options{})
 	newBin := fakeELF(elf.EM_X86_64, elf.ET_EXEC)
-	fe.hub.asset, fe.hub.assetV = newBin, "9.9.9"
+	archive := makeArchive(t, []tarFile{{name: "deyroute", body: newBin}})
+	fe.signedHub("9.9.9", signedRelease(t, key, "9.9.9", "9.9.9", "amd64", archive), nil)
 	writeFile(t, fe.path(config.BinaryPath), "old binary", 0o755)
 	s := fe.start()
 	before := fe.cdn.Stats().Upgrades
 
-	sum := sha256.Sum256(newBin)
-	_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: "9.9.9", SHA256: hex.EncodeToString(sum[:])})
+	_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: "9.9.9", SHA256: sum(archive)})
 	require.NoError(t, err)
 	data, err := os.ReadFile(fe.path(config.BinaryPath))
 	require.NoError(t, err)

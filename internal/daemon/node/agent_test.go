@@ -816,8 +816,14 @@ func TestLogsTailAndFollow(t *testing.T) {
 	}
 }
 
+// The hub's binary without a signed release (an older hub), taken only
+// with node.allow_unsigned_updates (test labs); the signed path is in
+// selfupdate_test.go.
 func TestSelfUpdate(t *testing.T) {
 	e := newEnv(t)
+	cfg := e.config()
+	cfg.Node.AllowUnsignedUpdates = true
+	require.NoError(t, config.Save(e.path(config.DefaultPath), cfg))
 	newBin := fakeELF(elf.EM_X86_64, elf.ET_EXEC)
 	e.hub.asset, e.hub.assetV = newBin, "9.9.9"
 	writeFile(t, e.path(config.BinaryPath), "old binary", 0o755)
@@ -909,16 +915,18 @@ func TestVerifyELF(t *testing.T) {
 }
 
 func TestIncompatibleHubRefusesCommands(t *testing.T) {
+	key := useTestKey(t)
 	e := newEnv(t)
-	e.hub.hello = api.Hello{Version: "99.0.0", Compatible: false}
-	e.hub.asset, e.hub.assetV = fakeELF(elf.EM_X86_64, elf.ET_EXEC), "99.0.0"
+	archive := makeArchive(t, []tarFile{{name: "deyroute", body: fakeELF(elf.EM_X86_64, elf.ET_EXEC)}})
+	e.signedHub("99.0.0", signedRelease(t, key, "99.0.0", "99.0.0", "amd64", archive), nil)
+	e.hub.hello.Compatible = false
 	s := e.start()
 	eventually(t, func() bool {
 		_, err := call[map[string]string](t, s, api.CmdSysinfo, nil)
 		return deyerr.HasCode(err, deyerr.N004)
 	}, "commands are refused with N004")
 	// self.update is still allowed: it is how the node becomes compatible.
-	_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{})
+	_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: "99.0.0"})
 	require.NoError(t, err)
 	l, err := api.Dial(e.socket, api.DialOptions{Service: ServiceName})
 	require.NoError(t, err)

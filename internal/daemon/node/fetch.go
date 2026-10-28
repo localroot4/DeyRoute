@@ -19,11 +19,13 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/health"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/systemd"
+	"github.com/localroot4/deyroute/internal/version"
 )
 
 // Download and relay limits.
@@ -287,11 +289,212 @@ func registerBotToken(p string) {
 	}
 }
 
+// nothingInstalled is the detail of a refused self.update.
+const nothingInstalled = "nothing was installed; the running binary stays"
+
 // selfUpdate answers self.update (section 5: nodes always update from the
-// hub): download the hub's deyroute binary for this architecture, verify it,
-// install it keeping deyroute.prev, then restart the service after the
-// answer was sent. Tunnel units are separate processes and keep running.
+// hub): install the hub's version, keeping deyroute.prev, then restart the
+// service after the answer was sent. Tunnel units are separate processes
+// and keep running.
+//
+// The node installs only what a signed DEYROUTE release proves (DR-03): it
+// fetches the hub's release of that version and checks it with the release
+// key built into this binary (selfUpdateSigned). A hub that cannot serve
+// one gets a refusal: a development build DEY-S012, an older hub (no
+// api.FeatureSignedUpdate in its hello) DEY-S001. Only a node whose
+// config.yaml sets node.allow_unsigned_updates (test labs) takes the hub's
+// binary then (selfUpdateUnsigned); while that key is set a version older
+// than its first release is refused (DEY-S011).
 func (a *agent) selfUpdate(ctx context.Context, args api.SelfUpdateArgs) error {
+	ver := strings.TrimPrefix(strings.TrimSpace(args.Version), "v")
+	cfg, err := config.Load(a.cfgPath)
+	if err != nil {
+		return err
+	}
+	if err := refuseOlderThanNodeKeys(cfg, ver); err != nil {
+		return err
+	}
+	allowUnsigned := cfg.Node != nil && cfg.Node.AllowUnsignedUpdates
+	hub := a.currentHubHello()
+	signedHub := hub.HasFeature(api.FeatureSignedUpdate)
+	switch {
+	case signedHub && (ver == "" || install.IsReleaseVersion(ver)):
+		return a.selfUpdateSigned(ctx, ver, args.SHA256)
+	case allowUnsigned:
+		a.log.Warn("installing a deyroute binary that no signed release proves (node.allow_unsigned_updates)",
+			slog.String("version", ver))
+		return a.selfUpdateUnsigned(ctx, args)
+	case signedHub:
+		return deyerr.New(deyerr.S012, deyerr.Params{"version": ver})
+	}
+	return deyerr.New(deyerr.S001, deyerr.Params{"file": install.ArchiveName(firstNonEmptyString(ver, "latest"), a.o.Arch)}).
+		WithWhy("the hub runs an older deyroute that serves no signed release, so this node cannot check what it would install; update the hub first (deyroute update on the hub), then the nodes follow").
+		WithDetail(nothingInstalled)
+}
+
+// currentHubHello is the hub's hello on the current connection (zero
+// before it arrived).
+func (a *agent) currentHubHello() api.Hello {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.hubHello == nil {
+		return api.Hello{}
+	}
+	return *a.hubHello
+}
+
+// refuseOlderThanNodeKeys returns DEY-S011 when this node's config.yaml
+// sets a node key that the binary of target does not know (its first
+// release, config.NewerKeysInUse, is newer than target): that binary would
+// refuse config.yaml (DEY-C001) and the node could not start again, out of
+// the hub's reach. A target that is not older than this build knows every
+// key this build knows, and a target that is not a release version cannot
+// be compared; neither is refused here.
+func refuseOlderThanNodeKeys(cfg *config.Config, target string) error {
+	if c, ok := install.CompareVersions(target, version.Version); ok && c >= 0 {
+		return nil
+	}
+	var keys []string
+	for _, k := range cfg.NewerKeysInUse() {
+		if !strings.HasPrefix(k.Key, "node.") {
+			continue
+		}
+		if c, ok := install.CompareVersions(target, k.Since); ok && c < 0 {
+			keys = append(keys, k.String())
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return deyerr.New(deyerr.S011, deyerr.Params{"action": "install deyroute " + target, "keys": strings.Join(keys, ", ")}).
+		WithWhy("version " + target + " is older than the first release that knows them: it would refuse this node's config.yaml (DEY-C001), and this node could not start again, out of the hub's reach").
+		WithFix("node.allow_unsigned_updates is for test labs only: remove it from /etc/deyroute/config.yaml on this node, then let the hub update it again").
+		WithDetail(nothingInstalled)
+}
+
+// firstNonEmptyString returns the first non-empty value.
+func firstNonEmptyString(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// selfUpdateSigned installs the deyroute binary of the hub's signed release
+// of ver: the release files (GET /v1/assets/release/{arch}) are staged in
+// the root-only DownloadDir, SHA256SUMS.minisig must verify SHA256SUMS
+// with the release key built into this binary (install.MinisignPublicKey,
+// or the lab's install.TestPublicKey), the signed SHA256SUMS must list
+// deyroute_<ver>_linux_<arch>.tar.gz and the archive must have that
+// sha256 (install.VerifyBundle), and only its regular file deyroute is
+// extracted (install.ExtractReleaseBinary) and checked to run here. Every
+// refusal is DEY-S001 naming the failed check; nothing is installed.
+// announced is the archive's sha256 the hub named ("" = none): it only
+// catches a broken transfer.
+func (a *agent) selfUpdateSigned(ctx context.Context, ver, announced string) error {
+	archive := install.ArchiveName(ver, a.o.Arch)
+	if ver == "" {
+		return deyerr.New(deyerr.S001, deyerr.Params{"file": install.SumsFile}).
+			WithWhy("the hub named no version to check its release against").WithDetail(nothingInstalled)
+	}
+	client, err := a.requestClient()
+	if err != nil {
+		return err
+	}
+	dir := a.path(DownloadDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": dir})
+	}
+	stage, err := os.MkdirTemp(dir, updateStagePrefix+"*")
+	if err != nil {
+		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": dir})
+	}
+	defer func() { _ = os.RemoveAll(stage) }()
+	wanted := map[string]bool{}
+	for _, f := range install.BundleFiles(ver, a.o.Arch) {
+		wanted[f] = true
+	}
+	served, err := client.FetchRelease(ctx, a.o.Arch, func(name string, r io.Reader) error {
+		if !wanted[name] {
+			return nil // a file of the release self.update does not need
+		}
+		return writeStaged(filepath.Join(stage, name), r)
+	})
+	if err != nil {
+		return err
+	}
+	refuse := func(err error) error {
+		de := deyerr.As(err)
+		if de.Detail == "" {
+			de = de.WithDetail(nothingInstalled)
+		}
+		return de
+	}
+	if served = strings.TrimPrefix(served, "v"); served != "" && served != ver {
+		return refuse(deyerr.New(deyerr.S001, deyerr.Params{"file": archive}).
+			WithWhy("the hub announced version " + ver + " but served the release of " + served))
+	}
+	if want := strings.ToLower(strings.TrimSpace(announced)); want != "" {
+		if got, err := install.SHA256File(filepath.Join(stage, archive)); err == nil && got != want {
+			return refuse(deyerr.New(deyerr.S001, deyerr.Params{"file": archive}).
+				WithWhy("the hub announced sha256 " + want + " for " + archive + " but served " + got))
+		}
+	}
+	archivePath, err := install.VerifyBundle(stage, a.o.Arch, ver, "")
+	if err != nil {
+		return refuse(err)
+	}
+	bin, err := install.ExtractReleaseBinary(archivePath, filepath.Join(stage, "bin"))
+	if err != nil {
+		return refuse(err)
+	}
+	if err := a.verifyRunnable(bin); err != nil {
+		return refuse(deyerr.New(deyerr.S001, deyerr.Params{"file": archive}).
+			WithWhy("the signed release holds a binary this node cannot run: " + err.Error()))
+	}
+	if err := (install.SelfUpdater{Root: a.o.Root}).Install(bin); err != nil {
+		return err
+	}
+	a.log.Info("deyroute binary of the signed release installed; restarting the node service", slog.String("version", ver))
+	a.later(a.o.RestartDelay, a.restartSelf)
+	return nil
+}
+
+// writeStaged writes r to the new file p (0600; an existing p is an error).
+func writeStaged(p string, r io.Reader) error {
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- a plain name in our staging dir
+	if err != nil {
+		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p})
+	}
+	if _, err := io.Copy(f, r); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p})
+	}
+	return nil
+}
+
+// verifyRunnable checks that this node can run the binary at p
+// (Options.VerifyBinary, default VerifyELF): a binary it cannot execute
+// would leave it restarting into a dead service, unreachable for the hub.
+func (a *agent) verifyRunnable(p string) error {
+	verify := a.o.VerifyBinary
+	if verify == nil {
+		verify = VerifyELF
+	}
+	return verify(p, a.o.Arch)
+}
+
+// selfUpdateUnsigned is the self.update of nodes before signed updates,
+// kept for node.allow_unsigned_updates: download the hub's deyroute binary
+// for this architecture (GET /v1/assets/deyroute/{arch}), compare it with
+// the sha256 and version the hub announced, check that it runs here and
+// install it. No signature proves it.
+func (a *agent) selfUpdateUnsigned(ctx context.Context, args api.SelfUpdateArgs) error {
 	client, err := a.requestClient()
 	if err != nil {
 		return err
@@ -331,21 +534,16 @@ func (a *agent) selfUpdate(ctx context.Context, args api.SelfUpdateArgs) error {
 	if err := tmp.Close(); err != nil {
 		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": name})
 	}
-	// A binary this node cannot execute would leave it restarting into a
-	// dead service, unreachable for the hub: refuse it before installing.
-	verify := a.o.VerifyBinary
-	if verify == nil {
-		verify = VerifyELF
-	}
-	if err := verify(name, a.o.Arch); err != nil {
+	if err := a.verifyRunnable(name); err != nil {
 		return deyerr.New(deyerr.S001, deyerr.Params{"file": file}).
 			WithWhy("the hub served a file this node cannot run: " + err.Error()).
-			WithDetail("nothing was installed; the running binary stays")
+			WithDetail(nothingInstalled)
 	}
 	if err := (install.SelfUpdater{Root: a.o.Root}).Install(name); err != nil {
 		return err
 	}
-	a.log.Info("deyroute binary updated; restarting the node service", slog.String("version", meta.Version))
+	a.log.Info("unsigned deyroute binary installed (node.allow_unsigned_updates); restarting the node service",
+		slog.String("version", meta.Version))
 	a.later(a.o.RestartDelay, a.restartSelf)
 	return nil
 }
