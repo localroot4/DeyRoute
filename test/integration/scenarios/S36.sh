@@ -6,8 +6,9 @@
 # log over 20 MB becomes <log>.1.gz and the live file is truncated, while
 # systemd keeps feeding StandardOutput=append: files it opens as root. Then
 # user deyroute plants links to root files at the names the rotation uses and
-# as a *.log of its own; after the next rotation the root files are
-# byte-identical and node.log has the warning "tunnel log rotation refused".
+# as a *.log of its own, and a directory with files in it at the next shift
+# target; after the next rotation the root files are byte-identical, the
+# rotation went on and node.log has the warning "tunnel log rotation refused".
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -64,12 +65,16 @@ as_backend() { on node1 runuser -u deyroute -- "$@"; }
 as_backend ln -s /etc/s36-victim-1 "$L.rotating"
 as_backend ln -s /etc/s36-victim-2 "$L.1.gz.tmp"
 as_backend ln -s /etc/s36-victim-3 "$D/s36-evil.log"
+# A directory with files in it where <log>.1.gz moves next: it must not stop
+# the rotation (the rotation removes it, with the link inside, unfollowed).
+as_backend mkdir -p "$L.2.gz/sub"
+as_backend ln -s /etc/s36-victim-1 "$L.2.gz/sub/link"
 # The sticky bit: user deyroute cannot replace root's live log.
 if as_backend ln -sf /etc/s36-victim-3 "$L" 2>/dev/null; then fail "user deyroute replaced $L"; fi
 on node1 test -f "$L" -a ! -L "$L" || fail "$L is no longer a regular file"
 
 grow "$L" s36-after-plant-line
-rotated_twice() { on node1 test -s "$L.2.gz" && [ "$(size "$L")" -lt "$MB22" ]; }
+rotated_twice() { on node1 test -f "$L.2.gz" -a -s "$L.2.gz" && [ "$(size "$L")" -lt "$MB22" ]; }
 wait_for 150 "$L rotated again with the links planted (two rotation ticks)" rotated_twice
 refused() {
   on node1 cat /var/log/deyroute/node.log |
@@ -87,6 +92,7 @@ on node1 test -L "$D/s36-evil.log" || fail "the planted s36-evil.log link was to
 if on node1 test -e "$D/s36-evil.log.1.gz"; then fail "the linked s36-evil.log was rotated"; fi
 on node1 sh -c "gzip -dc '$L.1.gz' | grep -q s36-after-plant-line" || fail "$L.1.gz does not hold the new lines"
 on node1 sh -c "gzip -dc '$L.2.gz' | grep -q s36-control-line" || fail "$L.2.gz does not hold the control lines"
+[ -z "$(on node1 find /var/lib/deyroute/tmp -maxdepth 1 -name 'tunnel-log-*')" ] || fail "a staged copy was left behind"
 # Once per file and reason while the daemon runs.
 dups=$(refused | sort | uniq -d)
 [ -z "$dups" ] || fail "warned more than once: $dups"
