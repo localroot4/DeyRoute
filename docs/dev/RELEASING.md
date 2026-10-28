@@ -5,10 +5,27 @@ Notes for maintainers. Users: see the [README](../../README.md).
 ## Development builds
 
 Each push to `main` or to the development branch (`dev`) runs
-`.github/workflows/release-edge.yml`. It tests, builds amd64 and arm64, signs
+`.github/workflows/ci.yml`: lint, race tests, coverage, govulncheck, build,
+smoke and the integration lab on every distribution (the lab runs for `dev`
+pushes too). When that run passed, `.github/workflows/release-edge.yml`
+builds amd64 and arm64 from **the commit the ci run tested**, signs
 `SHA256SUMS` and `backends.yaml` with minisign and publishes
-`v<ver>-edge.<run>`.
+`v<ver>-edge.<run>` with its tag on that commit.
 
+- Nothing is published for a ci run that failed or was cancelled, for a
+  `pull_request` run (also one from a fork branch named `main` or `dev`), or
+  for a manual ci run. The job condition is: conclusion `success`, event
+  `push`, head repository = this repository.
+- release-edge starts on `workflow_run` (ci completed). GitHub runs it with
+  `release-edge.yml` **as it is on the default branch (`main`)**: a change to
+  that file takes effect for both branches once it is merged to `main`. The
+  build steps and `scripts/edge-*.sh` come from the tested commit.
+- An edge release appears after the whole ci run, about 20 to 40 minutes
+  after the push. `<run>` counts every run of release-edge, including the
+  ones that publish nothing, so the numbers have gaps.
+- A manual run of release-edge (Actions → release-edge → Run workflow) never
+  publishes: it prints the version a build of the chosen branch would get
+  and the retention dry run (below).
 - A build of `main` is marked *latest* until the first stable release, so the
   one-line installer URLs point to the newest `main` build.
 - A build of `dev` is always a pre-release. Install one with
@@ -32,9 +49,9 @@ Each push to `main` or to the development branch (`dev`) runs
   therefore stays downloadable until 10 newer builds of its branch exist.
   For a fleet pinned for longer, use a stable release.
 - To see what the retention would delete, run the workflow by hand
-  (Actions → release-edge → Run workflow, `dry_run` checked, the default):
-  it prints every edge release with its branch, its rank and the decision,
-  and publishes and deletes nothing. From a shell with `gh`:
+  (Actions → release-edge → Run workflow; a manual run is always a dry
+  run): it prints every edge release with its branch, its rank and the
+  decision, and publishes and deletes nothing. From a shell with `gh`:
   `bash scripts/edge-prune.sh --dry-run`.
 
 ## Stable releases
