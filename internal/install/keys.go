@@ -1,5 +1,7 @@
 package install
 
+import "strings"
+
 // MinisignPublicKey is the DEYROUTE release signing key (minisign format, the
 // base64 line of minisign.pub). SHA256SUMS and backends.yaml of every release
 // are signed with the matching secret key; self-update, `deyroute update
@@ -13,3 +15,18 @@ package install
 // To rotate: go run ./scripts/minisign keygen, update this constant and
 // MINISIGN_PUBKEY in installer/install.sh, and replace the secret.
 const MinisignPublicKey = "RWQtE2Hu1KwstgupEuPAWy+J2tiIgFVTIcReWI+Qh+yGMY3s2xWpyMuO"
+
+// TestPublicKey is a second key that signatures checked against
+// MinisignPublicKey may come from, for the integration lab only: the lab
+// signs its own release with a throwaway key. It is empty in every release
+// build and is set only at link time, never in code:
+//
+//	go build -ldflags "-X github.com/localroot4/deyroute/internal/install.TestPublicKey=RW…" ./cmd/deyroute
+//
+// `deyroute --json version` reports "test_key": true while it is set (CI
+// refuses a release binary that does), and VerifyMinisignAs accepts it only
+// where the release key is expected, never in place of another key.
+var TestPublicKey string
+
+// HasTestKey reports whether this binary was built with a TestPublicKey.
+func HasTestKey() bool { return strings.TrimSpace(TestPublicKey) != "" }

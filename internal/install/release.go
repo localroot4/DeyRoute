@@ -49,10 +49,6 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 		return nil, deyerr.New(deyerr.I004, deyerr.Params{"file": SumsFile}).
 			WithDetail("download not configured (fetcher, sources and work dir are required)")
 	}
-	pub := opt.PublicKey
-	if pub == "" {
-		pub = MinisignPublicKey
-	}
 	if err := os.MkdirAll(opt.WorkDir, 0o700); err != nil {
 		return nil, deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": opt.WorkDir})
 	}
@@ -77,7 +73,7 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 			lastErr = err
 			continue
 		}
-		if err := VerifyMinisignAs(sigCode, SumsFile, data, sig, pub); err != nil {
+		if err := verifySumsAs(sigCode, data, sig, opt.PublicKey); err != nil {
 			sigErr = err
 			continue
 		}

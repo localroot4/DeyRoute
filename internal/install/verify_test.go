@@ -114,3 +114,58 @@ func TestReleaseFromSums(t *testing.T) {
 	_, _, _, err = ReleaseFromSums(sums, "riscv64", "")
 	requireCode(t, err, deyerr.I004)
 }
+
+// setTestPublicKey sets TestPublicKey for the test (as -ldflags -X does in
+// the lab) and restores it after.
+func setTestPublicKey(t *testing.T, key string) {
+	t.Helper()
+	old := TestPublicKey
+	TestPublicKey = key
+	t.Cleanup(func() { TestPublicKey = old })
+}
+
+func TestVerifySums(t *testing.T) {
+	k := newTestKey(t)
+	sums := []byte(sha([]byte("a")) + "  " + ArchiveName("1.0.0", "amd64") + "\n")
+	require.NoError(t, VerifySums(sums, k.signHashed(t, sums), k.pubString()))
+	require.NoError(t, VerifySums(sums, k.signLegacy(sums), k.pubString()))
+
+	de := requireCode(t, VerifySums(append([]byte("x"), sums...), k.signLegacy(sums), k.pubString()), deyerr.S001)
+	require.Equal(t, "Signature or checksum invalid: SHA256SUMS", de.Message())
+	requireCode(t, VerifySums(sums, []byte("not a signature"), k.pubString()), deyerr.S001)
+	// "" is the release key: a signature by any other key is refused.
+	de = requireCode(t, VerifySums(sums, k.signLegacy(sums), ""), deyerr.S001)
+	require.Contains(t, de.Why(), "not with the DEYROUTE release key")
+}
+
+// A binary built with a TestPublicKey accepts its signatures where the
+// release key is expected, and nowhere else.
+func TestTestPublicKey(t *testing.T) {
+	k := newTestKey(t)
+	msg := []byte(sha([]byte("a")) + "  " + ArchiveName("1.0.0", "amd64") + "\n")
+	sig := k.signHashed(t, msg)
+	require.False(t, HasTestKey(), "release and test builds have no test key")
+	requireCode(t, VerifySums(msg, sig, ""), deyerr.S001)
+
+	setTestPublicKey(t, k.pubString())
+	require.True(t, HasTestKey())
+	require.NoError(t, VerifySums(msg, sig, ""))
+	require.NoError(t, VerifySums(msg, sig, MinisignPublicKey))
+	require.NoError(t, VerifyMinisignAs(deyerr.I006, ManifestFile, msg, sig, MinisignPublicKey))
+	// A tampered file still fails.
+	requireCode(t, VerifySums(append([]byte("x"), msg...), sig, ""), deyerr.S001)
+	// Only in place of the release key: a hub configured with another key
+	// does not take the test key's signatures.
+	other := newTestKey(t)
+	requireCode(t, VerifySums(msg, sig, other.pubString()), deyerr.S001)
+	// A third key is still refused where the release key is expected.
+	de := requireCode(t, VerifySums(msg, other.signLegacy(msg), ""), deyerr.S001)
+	require.Contains(t, de.Why(), "not with the DEYROUTE release key")
+
+	// A test key that does not parse is ignored.
+	setTestPublicKey(t, "RWQnotakey")
+	require.True(t, HasTestKey())
+	requireCode(t, VerifySums(msg, sig, ""), deyerr.S001)
+	setTestPublicKey(t, "  ")
+	require.False(t, HasTestKey())
+}
