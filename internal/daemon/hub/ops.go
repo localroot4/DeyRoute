@@ -37,6 +37,9 @@ const (
 	metaNodeUpdate = "update/nodes"
 	// metaUpdatePrevious is the version an update replaced.
 	metaUpdatePrevious = "update/previous"
+	// metaPreviousBinary is that version with the sha256 of deyroute.prev
+	// when it was recorded (previousBinaryVersion).
+	metaPreviousBinary = "update/previous-binary"
 	// metaUpdateCheck is the result of the last release check.
 	metaUpdateCheck = "update/check"
 	// metaAutoUpdate is the automatic update's runtime record (releases

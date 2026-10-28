@@ -583,7 +583,10 @@ the alias `quota`.
   releases do not know, each with the first release that knows it
   (`config.FirstTrafficVersion` for the monitoring and tuning keys).
   `update --rollback` (compared with the recorded version of the previous
-  binary; refused for every key in use when it is not recorded) and
+  binary, `update/previous-binary` in state.db: the version with the
+  sha256 of `deyroute.prev` when an update or rollback wrote it; refused
+  for every key in use when it is not recorded so or the file changed
+  since, as the installer and a rollback without the service do) and
   `update --version V` (only a V older than the running build) are refused
   with `DEY-S011` while a key in use is newer than the target. A failed
   automatic update is not rolled back to such a binary either: the new

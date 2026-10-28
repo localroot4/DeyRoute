@@ -161,6 +161,49 @@ func (h *Hub) previousVersion() string {
 	return ""
 }
 
+// previousBinary is metaPreviousBinary.
+type previousBinary struct {
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+}
+
+// recordPrevious records v as the version of deyroute.prev, which an
+// update or a rollback has just written: metaUpdatePrevious (shown, and
+// read by earlier builds) and metaPreviousBinary with the file's sha256.
+func (h *Hub) recordPrevious(v string) {
+	if err := h.st.PutMeta(metaUpdatePrevious, v); err != nil {
+		h.log.Warn("cannot record the replaced version", dlog.Err(err))
+	}
+	rec := previousBinary{Version: v}
+	sum, err := install.SHA256File(install.SelfUpdater{Root: h.o.Root}.PrevPath())
+	if err != nil {
+		h.log.Warn("cannot record the checksum of the previous binary", dlog.Err(err))
+	} else {
+		rec.SHA256 = sum
+	}
+	if err := h.st.PutMeta(metaPreviousBinary, rec); err != nil {
+		h.log.Warn("cannot record the replaced version", dlog.Err(err))
+	}
+}
+
+// previousBinaryVersion is the version of deyroute.prev as the rollback
+// guard trusts it: recorded together with the file's sha256, and the file
+// unchanged since. "" (unknown) when it was not recorded so (earlier
+// builds recorded only the version) or the file changed: the installer
+// copies the running binary there and `update --rollback` without the
+// service swaps it, and neither records a version.
+func (h *Hub) previousBinaryVersion() string {
+	var rec previousBinary
+	if ok, err := h.st.GetMeta(metaPreviousBinary, &rec); err != nil || !ok || rec.Version == "" || rec.SHA256 == "" {
+		return ""
+	}
+	sum, err := install.SHA256File(install.SelfUpdater{Root: h.o.Root}.PrevPath())
+	if err != nil || sum != rec.SHA256 {
+		return ""
+	}
+	return rec.Version
+}
+
 // UpdateCheck implements api.Local (`deyroute update --check`): the newest
 // release, whether it is newer than this hub and its release notes (the
 // CHANGELOG.md text, or the release page when it has none).
@@ -251,9 +294,7 @@ func (h *Hub) updateApply(ctx context.Context, want string, progress func(api.St
 	}); err != nil {
 		return info, withLog(err)
 	}
-	if err := h.st.PutMeta(metaUpdatePrevious, version.Version); err != nil {
-		h.log.Warn("cannot record the replaced version", dlog.Err(err))
-	}
+	h.recordPrevious(version.Version)
 	_ = rep.run(stepNodes, func() (string, error) { return h.markNodesForUpdate(), nil })
 	how := "deyroute updated"
 	if auto {
@@ -279,16 +320,14 @@ func (l *local) UpdateRollback(context.Context) (api.UpdateInfo, error) {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
 	prev := h.previousVersion()
-	if err := h.refuseRollbackForNewerKeys(prev); err != nil {
+	if err := h.refuseRollbackForNewerKeys(h.previousBinaryVersion()); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
 	if err := (install.SelfUpdater{Root: h.o.Root}).Rollback(); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
 	// A second rollback returns to the binary running now.
-	if err := h.st.PutMeta(metaUpdatePrevious, version.Version); err != nil {
-		h.log.Warn("cannot record the replaced version", dlog.Err(err))
-	}
+	h.recordPrevious(version.Version)
 	h.markNodesForUpdate()
 	// The automatic update does not install the release the owner left.
 	h.editAutoRecord(func(r *autoUpdateRecord) { r.skip(version.Version) })
@@ -374,9 +413,11 @@ func joinNewerKeys(keys []config.NewerKey) string {
 }
 
 // refuseRollbackForNewerKeys returns DEY-S011 when config.yaml sets a key
-// that the previous binary (version prev, "" = not recorded) does not know.
+// that the previous binary (version prev, "" = unknown, see
+// previousBinaryVersion) does not know.
 func (h *Hub) refuseRollbackForNewerKeys(prev string) error {
-	reason := "the version of the previous binary is not recorded, so it may predate them"
+	reason := "the version of the previous binary is not known (not recorded, or deyroute.prev was replaced since, " +
+		"for example by the installer), so it may predate them"
 	if prev != "" {
 		reason = "deyroute " + prev + ", the previous binary, is older than the first release that knows them"
 	}

@@ -49,7 +49,11 @@ While `config.yaml` uses a setting that an older release does not know,
 `--rollback` and `--version` to such a release are refused with `DEY-S011`:
 that release would refuse the file and the service would not start. The
 error names each setting with the first release that knows it; remove the
-setting first, then repeat the command.
+setting first, then repeat the command. For `--rollback` the hub compares
+the version it recorded for `deyroute.prev` when an update or rollback
+wrote that file. When the installer or a rollback without the service has
+replaced the file since, its version is unknown, and the rollback is
+refused while any such setting is in use.
 
 ## Automatic update
 

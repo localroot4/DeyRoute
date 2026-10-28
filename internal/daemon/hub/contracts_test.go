@@ -75,12 +75,16 @@ func TestRollbackComparesPerKey(t *testing.T) {
 	require.NoError(t, os.WriteFile(prev, []byte("#!old"), 0o755)) // #nosec G306 -- test binary
 	_, err = l.UpdateRollback(ctx)
 	require.Equal(t, deyerr.S011, codeOf(err), "the previous binary's version is not recorded")
-	require.NoError(t, env.h.st.PutMeta(metaUpdatePrevious, "0.3.0-edge.14"))
+	require.NoError(t, env.h.st.PutMeta(metaUpdatePrevious, "0.3.0-edge.15"))
+	_, err = l.UpdateRollback(ctx)
+	require.Equal(t, deyerr.S011, codeOf(err), "recorded without the file's checksum, as earlier builds do")
+	require.Contains(t, deyerr.As(err).Why(), "not known")
+	env.h.recordPrevious("0.3.0-edge.14")
 	_, err = l.UpdateRollback(ctx)
 	require.Equal(t, deyerr.S011, codeOf(err))
 	require.Contains(t, deyerr.As(err).Why(), "0.3.0-edge.14")
 
-	require.NoError(t, env.h.st.PutMeta(metaUpdatePrevious, "0.3.0-edge.15"))
+	env.h.recordPrevious("0.3.0-edge.15")
 	info, err := l.UpdateRollback(ctx)
 	require.NoError(t, err, "the previous binary knows every key in use")
 	require.Equal(t, "0.3.0-edge.15", info.Current)
@@ -111,7 +115,7 @@ func TestRollbackRefusedWithAutoUpdateKey(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(prev), 0o755))
 	require.NoError(t, os.WriteFile(bin, []byte("#!new"), 0o755))  // #nosec G306 -- test binary
 	require.NoError(t, os.WriteFile(prev, []byte("#!old"), 0o755)) // #nosec G306 -- test binary
-	require.NoError(t, env.h.st.PutMeta(metaUpdatePrevious, "0.3.0-edge.60"))
+	env.h.recordPrevious("0.3.0-edge.60")
 
 	_, err := l.UpdateApply(ctx, "0.3.0-edge.60", nil)
 	require.NotEqual(t, deyerr.S011, codeOf(err), "off: the key is not written")
@@ -153,6 +157,51 @@ func TestRollbackRefusedWithAutoUpdateKey(t *testing.T) {
 	data, err = os.ReadFile(bin)
 	require.NoError(t, err)
 	require.Equal(t, "#!old", string(data))
+}
+
+// TestRollbackRefusedWhenPreviousBinaryReplaced: the version the hub
+// recorded for deyroute.prev counts only while that file is unchanged. The
+// installer copies the running binary there and `update --rollback`
+// without the service swaps it, and neither records a version: then the
+// version of deyroute.prev is unknown, and a rollback is refused for every
+// key in use, as before keys were compared one by one.
+func TestRollbackRefusedWhenPreviousBinaryReplaced(t *testing.T) {
+	old := version.Version
+	t.Cleanup(func() { version.Version = old }) // after the hub stopped
+	version.Version = "0.3.0-edge.61"
+	rs := newReleaseServer(t)
+	rs.release(t, "0.3.0-edge.62", []byte("#!deyroute 0.3.0-edge.62"), false)
+	env, o := prepareEnv(t, func(c *config.Config) {
+		c.Monitoring = &config.Monitoring{QuotaResetDay: 5}
+	}, releaseOpts(rs))
+	bin := filepath.Join(env.root, config.BinaryPath)
+	prev := filepath.Join(env.root, config.PrevBinaryPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(bin), 0o755))
+	require.NoError(t, os.WriteFile(bin, []byte("#!deyroute 0.3.0-edge.61"), 0o755)) // #nosec G306 -- test binary
+	env.startEnv(o)
+	l := env.h.Local()
+	ctx := ctxT(t)
+
+	_, err := l.UpdateApply(ctx, "0.3.0-edge.62", nil)
+	require.NoError(t, err)
+	// The installer of an old build ran meanwhile: deyroute.prev is a
+	// build that predates the monitoring key.
+	require.NoError(t, os.WriteFile(prev, []byte("#!deyroute 0.3.0-edge.10"), 0o755)) // #nosec G306 -- test binary
+	_, err = l.UpdateRollback(ctx)
+	require.Equal(t, deyerr.S011, codeOf(err), "deyroute.prev is not the binary recorded as 0.3.0-edge.61")
+	require.Contains(t, deyerr.As(err).Message(), "monitoring (since 0.3.0-edge.15)")
+	data, err := os.ReadFile(bin)
+	require.NoError(t, err)
+	require.Equal(t, "#!deyroute 0.3.0-edge.62", string(data), "not rolled back")
+
+	// The recorded binary is back: its version counts again.
+	require.NoError(t, os.WriteFile(prev, []byte("#!deyroute 0.3.0-edge.61"), 0o755)) // #nosec G306 -- test binary
+	info, err := l.UpdateRollback(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "0.3.0-edge.61", info.Current)
+	data, err = os.ReadFile(bin)
+	require.NoError(t, err)
+	require.Equal(t, "#!deyroute 0.3.0-edge.61", string(data))
 }
 
 // TestMonitoringAndTuningStubs: Traffic checks its query (DEY-C027) and,

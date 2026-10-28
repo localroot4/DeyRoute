@@ -507,9 +507,7 @@ func (h *Hub) autoRollback(path string, p autoPending, reason string) {
 	if err := writeAutoPending(path, p); err != nil {
 		h.log.Warn("cannot record the automatic rollback", dlog.Err(err))
 	}
-	if err := h.st.PutMeta(metaUpdatePrevious, version.Version); err != nil {
-		h.log.Warn("cannot record the replaced version", dlog.Err(err))
-	}
+	h.recordPrevious(version.Version)
 	h.markNodesForUpdate()
 	h.log.Warn("automatic update did not verify; rolling back and restarting the hub",
 		slog.String("from", p.To), slog.String("to", p.From), slog.String("reason", reason))
