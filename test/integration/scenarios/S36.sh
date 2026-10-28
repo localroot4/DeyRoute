@@ -9,6 +9,7 @@
 # as a *.log of its own, and a directory with files in it at the next shift
 # target; after the next rotation the root files are byte-identical, the
 # rotation went on and node.log has the warning "tunnel log rotation refused".
+# Last, the installer's repair run gives an existing 0770 directory the mode.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -98,4 +99,14 @@ dups=$(refused | sort | uniq -d)
 [ -z "$dups" ] || fail "warned more than once: $dups"
 log "refused: $(refused | tr '\n' ';')"
 tunnel_up "$T" || fail "tunnel not UP after the rotations"
+
+# 3. An existing directory of an older install (0770, no sticky bit) gets the
+# mode from the installer's repair run (install -d on an existing directory);
+# deyroute update alone keeps it.
+on node1 chmod 0770 "$D"
+on node1 bash /dist/install.sh --skip-signature --local "$ARCHIVE" >&2 || fail "the installer's repair run failed"
+m=$(on node1 stat -c '%a %U:%G' "$D")
+[ "$m" = "1770 root:deyroute" ] || fail "after the installer's repair run $D is $m, want 1770 root:deyroute"
+wait_node_online "$NODE1" 90
+wait_tunnel_up "$T"
 pass
