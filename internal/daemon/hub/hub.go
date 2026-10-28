@@ -447,7 +447,9 @@ func (h *Hub) Serve(ctx context.Context) error {
 	run(func() { h.firewallLoop(ctx) })
 	run(func() { h.notifyLoop(ctx) })
 	run(func() { h.snapshotLoop(ctx) })
-	run(func() { dlog.RotateDirLoop(ctx, h.path(systemd.TunnelLogDir), dlog.RotateDirInterval, h.log) })
+	run(func() {
+		dlog.RotateDirLoop(ctx, h.path(systemd.TunnelLogDir), h.path(DownloadDir), dlog.RotateDirInterval, h.log)
+	})
 	h.startJobs(ctx, run)
 	h.requestFirewall()
 

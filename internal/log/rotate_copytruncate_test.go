@@ -25,7 +25,9 @@ func TestRotateCopyTruncate(t *testing.T) {
 	_, err = w.Write(big)
 	require.NoError(t, err)
 
-	rotated, err := RotateCopyTruncate(p, 0, 0)
+	// The copy is staged in a root-only directory, created on demand.
+	staging := filepath.Join(t.TempDir(), "tmp")
+	rotated, err := RotateCopyTruncate(p, CopyTruncateOptions{Staging: staging})
 	require.NoError(t, err)
 	require.True(t, rotated)
 	fi, err := os.Stat(p)
@@ -37,15 +39,25 @@ func TestRotateCopyTruncate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "after\n", string(data), "the writer appends at offset 0 again")
 	require.Equal(t, int64(len(big)), gunzipLen(t, p+".1.gz"))
+	gz, err := os.Stat(p + ".1.gz")
+	require.NoError(t, err)
+	require.Equal(t, FileMode, gz.Mode().Perm())
 	require.NoFileExists(t, p+".rotating")
+	require.NoFileExists(t, p+".1.gz.tmp")
+	st, err := os.Stat(staging)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), st.Mode().Perm())
+	staged, err := os.ReadDir(staging)
+	require.NoError(t, err)
+	require.Empty(t, staged, "nothing is left in the staging directory")
 
 	// Below the limit nothing happens; older files shift up to keep.
-	rotated, err = RotateCopyTruncate(p, 0, 0)
+	rotated, err = RotateCopyTruncate(p, CopyTruncateOptions{Staging: staging})
 	require.NoError(t, err)
 	require.False(t, rotated)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, os.WriteFile(p, []byte("0123456789"), 0o600))
-		rotated, err = RotateCopyTruncate(p, 5, 2)
+		rotated, err = RotateCopyTruncate(p, CopyTruncateOptions{MaxBytes: 5, Keep: 2, Staging: staging})
 		require.NoError(t, err)
 		require.True(t, rotated)
 	}
@@ -59,11 +71,13 @@ func TestRotateDirAndLoop(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.log"), bytes.Repeat([]byte("a"), 100), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.log"), []byte("b"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "c.txt"), bytes.Repeat([]byte("c"), 100), 0o600))
-	rotated, err := RotateDir(dir, 10, 5)
+	staging := filepath.Join(t.TempDir(), "tmp")
+	o := CopyTruncateOptions{MaxBytes: 10, Keep: 5, Staging: staging}
+	rotated, err := RotateDir(dir, o)
 	require.NoError(t, err)
 	require.Equal(t, []string{filepath.Join(dir, "a.log")}, rotated)
 	require.NoFileExists(t, filepath.Join(dir, "c.txt.1.gz"))
-	none, err := RotateDir(filepath.Join(dir, "missing"), 10, 5)
+	none, err := RotateDir(filepath.Join(dir, "missing"), o)
 	require.NoError(t, err)
 	require.Empty(t, none)
 
@@ -74,7 +88,7 @@ func TestRotateDirAndLoop(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		RotateDirLoop(ctx, dir, time.Hour, Discard())
+		RotateDirLoop(ctx, dir, staging, time.Hour, Discard())
 	}()
 	require.Eventually(t, func() bool { _, err := os.Stat(big + ".1.gz"); return err == nil }, 10*time.Second, 10*time.Millisecond)
 	cancel()

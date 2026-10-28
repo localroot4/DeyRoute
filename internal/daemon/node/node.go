@@ -45,7 +45,9 @@ const (
 	// StateFile remembers the rendered instances (config dir, backend, NAT)
 	// and the hub-supplied NAT rules across agent restarts (0600).
 	StateFile = "/var/lib/deyroute/node-state.json"
-	// DownloadDir is where fetch.proxy and self.update stage downloads.
+	// DownloadDir is where fetch.proxy and self.update stage downloads and
+	// the tunnel log rotation stages its copies; root-only (0700), created
+	// on demand.
 	DownloadDir = "/var/lib/deyroute/tmp"
 )
 
@@ -372,8 +374,9 @@ func (a *agent) run(ctx context.Context) error {
 	wg.Add(4)
 	go func() {
 		defer wg.Done()
-		// Tunnel logs: copy-and-truncate rotation (section 12).
-		dlog.RotateDirLoop(ctx, a.path(systemd.TunnelLogDir), dlog.RotateDirInterval, a.log)
+		// Tunnel logs: copy-and-truncate rotation (section 12), the copy
+		// staged in the root-only DownloadDir.
+		dlog.RotateDirLoop(ctx, a.path(systemd.TunnelLogDir), a.path(DownloadDir), dlog.RotateDirInterval, a.log)
 	}()
 	go func() {
 		defer wg.Done()

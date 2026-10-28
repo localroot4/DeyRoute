@@ -36,7 +36,8 @@ const (
 	// deyroute-<version>-<arch> (section 5, GET /v1/assets/deyroute/<arch>).
 	AssetCacheDir = config.BinDir
 	// DownloadDir stages downloads (release archives for other
-	// architectures).
+	// architectures) and the copies of the tunnel log rotation; root-only
+	// (0700), created on demand.
 	DownloadDir = config.LibDir + "/tmp"
 	// AutoBackupKeep is how many automatic backups are kept (section 5).
 	AutoBackupKeep = 20
