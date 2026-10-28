@@ -14,12 +14,23 @@
 # Signing needs the repository secret MINISIGN_SECRET_KEY (the key whose public
 # half is internal/install.MinisignPublicKey). Without it the release step is
 # skipped with a notice instead of publishing unsigned files.
+#
+# Retention (scripts/edge-prune.sh): a tag without "-edge." (the stable
+# channel), the release marked latest and the 10 newest edge builds of each
+# branch are never deleted. Each release's notes end with "branch: <name>".
+# A manual run with dry_run (the default) prints what the retention would
+# delete and publishes nothing.
 name: release-edge
 
 on:
   push:
     branches: [main, dev]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "only print the edge releases the retention would delete; build and publish nothing"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -34,6 +45,7 @@ env:
 
 jobs:
   edge:
+    if: github.event_name == 'push' || !inputs.dry_run
     runs-on: ubuntu-24.04
     steps:
       - name: signing key present?
@@ -141,13 +153,31 @@ jobs:
             echo "\`SHA256SUMS\` is signed with minisign; the installer and \`deyroute update\` check it before anything is installed. Public key: \`${key}\`"
             echo
             echo "Built from \`${GITHUB_SHA::7}\` (Linux amd64 and arm64, static binary)."
+            echo
+            # Read by the retention (scripts/edge-prune.sh): the last line.
+            echo "branch: ${GITHUB_REF_NAME}"
           } > dist/NOTES.md
           gh release create "v${VERSION}" dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.minisig \
             dist/install.sh dist/backends.yaml dist/backends.yaml.minisig dist/CHANGELOG.md \
             --target "$GITHUB_SHA" "${flags[@]}" \
             --title "$title" \
             --notes-file dist/NOTES.md
-          # Keep only the 5 newest edge releases.
-          gh release list --limit 100 --json tagName,createdAt \
-            --jq '[.[] | select(.tagName | test("-edge\\."))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
-            while read -r tag; do gh release delete "$tag" --cleanup-tag --yes; done
+      - name: retention
+        if: steps.key.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/edge-prune.sh
+
+  # workflow_dispatch with dry_run: the edge releases the retention would
+  # delete now. Nothing is built, published or deleted.
+  retention-dry-run:
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: retention (dry run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/edge-prune.sh --dry-run

@@ -16,8 +16,26 @@ Each push to `main` or to the development branch (`dev`) runs
 - After a stable tag exists, edge builds are numbered after it
   (`v1.0.1-edge.N`) and published as pre-releases that never become *latest*:
   the installer and `deyroute update` keep resolving to the stable release.
-- Only the five newest edge releases are kept; older ones are deleted with
-  their tags.
+- Retention (`scripts/edge-prune.sh`, run after each publish) deletes old
+  edge releases with their tags, but never:
+  - a tag without `-edge.` (the stable channel, and `backend-builds`);
+  - the release currently marked *latest*;
+  - the **10 newest edge builds of each branch** (`main` and `dev` are
+    counted separately, so pushes to `dev` never push a `main` build out).
+
+  The same rules hold before and after the first stable tag. The branch of a
+  release is the last line of its notes, `branch: <name>`. Releases published
+  before that line existed have none: a non-pre-release edge build counts as
+  `main` and a pre-release as `dev` (true for every edge build published
+  before the first stable tag).
+- A version that a hub pins (`join … --version`, `install.sh --version`)
+  therefore stays downloadable until 10 newer builds of its branch exist.
+  For a fleet pinned for longer, use a stable release.
+- To see what the retention would delete, run the workflow by hand
+  (Actions → release-edge → Run workflow, `dry_run` checked, the default):
+  it prints every edge release with its branch, its rank and the decision,
+  and publishes and deletes nothing. From a shell with `gh`:
+  `bash scripts/edge-prune.sh --dry-run`.
 
 ## Stable releases
 
