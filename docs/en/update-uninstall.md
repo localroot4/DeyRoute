@@ -115,7 +115,12 @@ backup does not contain. After the update it is **off** until you turn it
 on with `deyroute update auto on`, also on a hub where it ran before. Such a
 hub records the event `auto_update_default_off` once, and `deyroute status`
 shows "automatic update is now off by default; turn it on with: deyroute
-update auto on" for 7 days. A new installation shows neither.
+update auto on" for 7 days. A new installation shows neither. deyroute
+also keeps writing the switch where earlier builds read it (in the state
+database, with every change of the automatic update's record and with
+`update auto on|off`), so after `update --rollback` or `update --version`
+to an earlier build the automatic update stays as it was here: off unless
+you turned it on.
 
 While it is on, `deyroute status` does not list a new release as something
 that needs attention: it is installed on schedule. A manual

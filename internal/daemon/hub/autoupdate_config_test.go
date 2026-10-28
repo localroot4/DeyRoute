@@ -152,7 +152,9 @@ func TestAutoUpdateOnFromConfig(t *testing.T) {
 // TestAutoUpdateLegacyRecordIgnored: the switch earlier builds kept in
 // state.db is ignored: a record that says on ({"disabled": false}) leaves
 // it off without the config key, a record that says off does not override
-// the key, and the next write of the record drops the field.
+// the key, and the next write of the record keeps the runtime fields and
+// puts this build's switch in that field for earlier builds
+// (TestAutoUpdateLegacyFieldForEarlierBuilds).
 func TestAutoUpdateLegacyRecordIgnored(t *testing.T) {
 	env, o, bin := autoEnv(t, nil)
 	seen := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339Nano)
@@ -173,7 +175,7 @@ func TestAutoUpdateLegacyRecordIgnored(t *testing.T) {
 	ok, err := env.h.st.GetMeta(metaAutoUpdate, &raw)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NotContains(t, string(raw), "disabled")
+	require.Contains(t, string(raw), `"disabled":true`, "off here, for earlier builds")
 	require.Contains(t, string(raw), "1.2.3", "the runtime fields stay")
 
 	on, o2, _ := autoEnv(t, func(c *config.Config) { c.Hub.AutoUpdate = true })
@@ -311,4 +313,56 @@ func TestAutoRollbackKnowsKeysOfPreviousBinary(t *testing.T) {
 	require.Contains(t, last, "was kept")
 	require.Contains(t, last, "monitoring (since 0.3.0-edge.15)")
 	require.NotContains(t, last, "hub.auto_update", "the previous binary loaded it")
+}
+
+// TestAutoUpdateLegacyFieldForEarlierBuilds: earlier builds read the switch
+// from the state record ("disabled", on when absent), and an update or a
+// rollback can start one of them. Every write of the record therefore
+// carries this build's switch in that field: "disabled": true while
+// hub.auto_update is off, nothing while it is on; `update auto` writes it
+// too. This build still reads only config.yaml.
+func TestAutoUpdateLegacyFieldForEarlierBuilds(t *testing.T) {
+	env, o, bin := autoEnv(t, nil)
+	// An earlier build where it was on by default.
+	const onByDefault = `{"checked_at":"2026-10-01T00:00:00Z"}`
+	seedAutoRecord(t, env.root, onByDefault)
+	env.startEnv(o)
+	ctx := ctxT(t)
+	raw := func() string {
+		var r json.RawMessage
+		ok, err := env.h.st.GetMeta(metaAutoUpdate, &r)
+		require.NoError(t, err)
+		require.True(t, ok)
+		return string(r)
+	}
+	const off = `"disabled":true`
+
+	_, err := env.client.UpdateApply(ctx, "1.2.3", nil)
+	require.NoError(t, err)
+	data, err := os.ReadFile(bin)
+	require.NoError(t, err)
+	require.Equal(t, "#!deyroute 1.2.3", string(data))
+	require.Contains(t, raw(), off, "after update --version")
+
+	require.NoError(t, env.h.st.PutMeta(metaAutoUpdate, json.RawMessage(onByDefault)))
+	_, err = env.client.UpdateRollback(ctx)
+	require.NoError(t, err)
+	data, err = os.ReadFile(bin)
+	require.NoError(t, err)
+	require.Equal(t, "#!deyroute old", string(data))
+	require.Contains(t, raw(), off, "after update --rollback")
+
+	require.NoError(t, env.h.st.PutMeta(metaAutoUpdate, json.RawMessage(onByDefault)))
+	_, err = env.client.UpdateAuto(ctx, "off")
+	require.NoError(t, err)
+	require.Contains(t, raw(), off, "update auto off, although config.yaml does not change")
+	_, err = env.client.UpdateAuto(ctx, "on")
+	require.NoError(t, err)
+	require.NotContains(t, raw(), "disabled")
+	_, err = env.client.UpdateAuto(ctx, "off")
+	require.NoError(t, err)
+	require.Contains(t, raw(), off)
+	info, err := env.client.UpdateAuto(ctx, "")
+	require.NoError(t, err)
+	require.False(t, info.Enabled)
 }

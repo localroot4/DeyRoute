@@ -72,10 +72,15 @@ const AutoUpdateDefaultOffEvent = "auto_update_default_off"
 // autoNoticeText tells the owner of such a hub what changed.
 const autoNoticeText = "automatic update is now off by default; turn it on with: deyroute update auto on"
 
-// autoUpdateRecord is metaAutoUpdate: runtime fields only; the switch is
+// autoUpdateRecord is metaAutoUpdate: runtime fields; the switch is
 // hub.auto_update. Earlier builds kept the switch here as "disabled" (on
-// when absent): it is ignored when read and dropped on the next write.
+// when absent).
 type autoUpdateRecord struct {
+	// LegacyOff is that field, for earlier builds only: this build never
+	// acts on it and writes !hub.auto_update into it on every write
+	// (editAutoRecord), so an earlier build that a rollback or `update
+	// --version` starts keeps the automatic update as this build had it.
+	LegacyOff bool                 `json:"disabled,omitempty"`
 	CheckedAt time.Time            `json:"checked_at,omitzero"`
 	Seen      map[string]time.Time `json:"seen,omitempty"` // first sighting of each release
 	Skipped   []string             `json:"skipped,omitempty"`
@@ -176,12 +181,14 @@ func (h *Hub) autoRecord() autoUpdateRecord {
 	return r
 }
 
-// editAutoRecord changes metaAutoUpdate under autoMu.
+// editAutoRecord changes metaAutoUpdate under autoMu; LegacyOff follows
+// hub.auto_update.
 func (h *Hub) editAutoRecord(edit func(*autoUpdateRecord)) autoUpdateRecord {
 	h.ops.autoMu.Lock()
 	defer h.ops.autoMu.Unlock()
 	r := h.autoRecord()
 	edit(&r)
+	r.LegacyOff = !h.autoUpdateOn()
 	if err := h.st.PutMeta(metaAutoUpdate, r); err != nil {
 		h.log.Warn("cannot record the automatic update", dlog.Err(err))
 	}
@@ -553,25 +560,26 @@ func (l *local) UpdateAuto(_ context.Context, mode string) (api.AutoUpdateInfo, 
 	return h.autoInfo(h.autoRecord()), nil
 }
 
-// setAutoUpdate writes hub.auto_update (omitted when off).
+// setAutoUpdate writes hub.auto_update (omitted when off) and, also when
+// it does not change, the switch of earlier builds in metaAutoUpdate.
 func (h *Hub) setAutoUpdate(on bool) error {
-	if h.autoUpdateOn() == on {
-		return nil
+	if h.autoUpdateOn() != on {
+		if _, err := h.autoBackup(); err != nil {
+			return err
+		}
+		if _, err := h.mutate(func(c *config.Config) error {
+			c.Hub.AutoUpdate = on
+			return nil
+		}); err != nil {
+			return err
+		}
+		if on {
+			h.log.Info("automatic update turned on (hub.auto_update: true)")
+		} else {
+			h.log.Info("automatic update turned off (hub.auto_update removed)")
+		}
 	}
-	if _, err := h.autoBackup(); err != nil {
-		return err
-	}
-	if _, err := h.mutate(func(c *config.Config) error {
-		c.Hub.AutoUpdate = on
-		return nil
-	}); err != nil {
-		return err
-	}
-	if on {
-		h.log.Info("automatic update turned on (hub.auto_update: true)")
-	} else {
-		h.log.Info("automatic update turned off (hub.auto_update removed)")
-	}
+	h.editAutoRecord(func(*autoUpdateRecord) {})
 	return nil
 }
 
