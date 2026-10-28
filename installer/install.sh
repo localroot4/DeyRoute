@@ -210,6 +210,13 @@ install_binary() {
   ln -sfn deyroute "$BIN_DIR/dey"
   say "installed $("$BIN_DIR/deyroute" version 2>/dev/null | awk 'NR == 1')"
 }
+# keep_bundle: the verified release files stay in /var/lib/deyroute/bin/<ver>/ (other versions' go) for the hub's nodes (DR-03).
+keep_bundle() {
+  local d=${ARCHIVE%/*} k=/var/lib/deyroute/bin v=${ARCHIVE##*/deyroute_} o; v=${v%_linux_*}
+  [[ $SKIP_SIG = 0 && $v =~ ^[0-9][0-9A-Za-z.+-]*$ ]] || return 0; for o in "$k"/[0-9]*.*/; do [ "$o" = "$k/$v/" ] || rm -rf "${o%/}"; done
+  install -d -m 0755 "$k/$v" && install -m 0644 "$d/SHA256SUMS" "$d/SHA256SUMS.minisig" "$ARCHIVE" "$k/$v/" || return 0
+  { [ -f "$d/backends.yaml.minisig" ] && (sig_ok "$d/backends.yaml" "$d/backends.yaml.minisig"); } 2>/dev/null && install -m 0644 "$d"/backends.yaml{,.minisig} "$k/$v/" || :
+}
 launch() { rm -rf "$TMP"; exec "$BIN_DIR/deyroute" "$@"; }
 run_setup() {
   local -a args=()
@@ -235,7 +242,7 @@ main() {
   trap 'rm -rf "$TMP"' EXIT
   if [ -n "$LOCAL" ]; then use_local; else fetch_release; fi
   setup_user_dirs
-  install_binary
+  install_binary; keep_bundle
   run_setup
 }
 trap 'echo "install.sh: unexpected failure at line $LINENO" >&2' ERR

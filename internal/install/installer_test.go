@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 )
 
@@ -73,6 +74,16 @@ func TestInstallerStatic(t *testing.T) {
 	require.Contains(t, s, `[ "$VERSION" != latest ] || VERSION=""`)
 	// Setup flags on an existing installation are reported, not silently dropped.
 	require.Contains(t, s, "setup/join options ignored: this server is already set up")
+	// The verified release stays in the hub's asset cache (AssetCacheDir =
+	// config.BinDir) for its nodes, also with --local, and only when its
+	// signature was checked; other versions' release directories go, never
+	// a backend's (DR-03).
+	require.Contains(t, s, "k="+config.BinDir+" ")
+	require.Contains(t, s, `[[ $SKIP_SIG = 0 && $v =~ ^[0-9][0-9A-Za-z.+-]*$ ]] || return 0`)
+	require.Contains(t, s, `for o in "$k"/[0-9]*.*/; do [ "$o" = "$k/$v/" ] || rm -rf "${o%/}"; done`)
+	require.Contains(t, s, `install -m 0644 "$d/SHA256SUMS" "$d/SHA256SUMS.minisig" "$ARCHIVE" "$k/$v/"`)
+	require.Contains(t, s, `(sig_ok "$d/backends.yaml" "$d/backends.yaml.minisig")`)
+	require.Contains(t, s, "\n  install_binary; keep_bundle\n")
 
 	// Directory modes of section 2.
 	for _, want := range []string{
