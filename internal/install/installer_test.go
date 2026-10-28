@@ -64,6 +64,11 @@ func TestInstallerStatic(t *testing.T) {
 	require.Contains(t, s, `need_val() { case "${2:-}" in "" | -*)`)
 	// wget must not multiply the 3 tries by its own default of 20.
 	require.Contains(t, s, "wget -q --tries=1 ")
+	// The HTTP status is read from curl (-w) and wget (--server-response):
+	// a 404 ends the tries of that source at once (DR-02).
+	require.Contains(t, s, `-w '%{http_code}'`)
+	require.Contains(t, s, "--server-response")
+	require.Contains(t, s, `[ "$code" != 404 ] ||`)
 	// --version latest means the newest release, as in Source.URL.
 	require.Contains(t, s, `[ "$VERSION" != latest ] || VERSION=""`)
 	// Setup flags on an existing installation are reported, not silently dropped.
@@ -117,10 +122,15 @@ func TestInstallerErrorCodes(t *testing.T) {
 		}
 	}
 	for _, code := range []deyerr.Code{deyerr.I001, deyerr.I002, deyerr.I003, deyerr.I004, deyerr.I005,
-		deyerr.I006, deyerr.I008, deyerr.I009, deyerr.I012} {
+		deyerr.I006, deyerr.I008, deyerr.I009, deyerr.I012, deyerr.I024} {
 		info, _ := deyerr.Lookup(code)
 		require.Contains(t, s, `"`+info.Why+`"`, "%s Why differs from the catalog", code)
 	}
+	// A pinned release that every source answers 404 for is named (DR-02).
+	i024, _ := deyerr.Lookup(deyerr.I024)
+	require.Contains(t, s, `die DEY-I024 "Release v$VERSION not found"`)
+	require.Equal(t, "Release v{version} not found", i024.Message)
+	require.Contains(t, s, `"`+i024.Fix+`"`, "DEY-I024 Fix differs from the catalog")
 	// The three-line format of section 13.
 	require.Contains(t, s, `printf '✖ %s  %s\n  Why:  %s\n  Fix:  %s\n'`)
 }

@@ -3,7 +3,7 @@
 # running it again repairs/upgrades (config untouched). See --help, e.g.:
 #   curl -fsSL https://raw.githubusercontent.com/localroot4/DeyRoute/main/installer/install.sh | sudo bash -s -- --role hub --name ir-1 --yes
 # Sources in order: --mirror URL (or $DEYROUTE_MIRROR) -> RELEASE_BASE -> GitHub releases, each tried
-# 3 times (backoff 2s, 4s); mirror layout <base>/latest/<file> and <base>/v<ver>/<file>. curl/wget
+# 3 times (backoff 2s, 4s; an HTTP 404 is final); mirror layout <base>/latest/<file> and <base>/v<ver>/<file>. curl/wget
 # honour https_proxy. Only DEYROUTE release files are downloaded; nothing is installed unless
 # SHA256SUMS matches and its minisign signature verifies (unless --skip-signature). Without the
 # minisign tool OpenSSL >= 3 checks it: legacy "Ed" signatures (minisign -S -l) directly and
@@ -60,13 +60,11 @@ parse_args() {
 
 check_system() {
   local sv kr kmaj kmin
-  [ "$(id -u)" -eq 0 ] || die DEY-I001 "This command must run as root" \
-    "deyroute manages systemd units, nftables and files under /etc and /var/lib" "re-run with sudo, e.g.: sudo bash install.sh"
+  [ "$(id -u)" -eq 0 ] || die DEY-I001 "This command must run as root" "deyroute manages systemd units, nftables and files under /etc and /var/lib" "re-run with sudo, e.g.: sudo bash install.sh"
   case "$(uname -m)" in
     x86_64 | amd64) ARCH=amd64 ;;
     aarch64 | arm64) ARCH=arm64 ;;
-    *) die DEY-I003 "Unsupported CPU architecture: $(uname -m)" \
-      "release binaries exist only for linux/amd64 and linux/arm64" "use an amd64 or arm64 server" ;;
+    *) die DEY-I003 "Unsupported CPU architecture: $(uname -m)" "release binaries exist only for linux/amd64 and linux/arm64" "use an amd64 or arm64 server" ;;
   esac
   { have systemctl && [ -d /run/systemd/system ]; } || die DEY-I002 "systemd was not found" \
     "deyroute runs its hub, node and tunnel processes as systemd units" "use a distribution with systemd 245 or newer (Ubuntu 22.04+, Debian 12+)"
@@ -76,12 +74,9 @@ check_system() {
   kr=$(uname -r) kmaj=${kr%%.*} kmin=${kr#*.} kmin=${kmin%%[!0-9]*}
   { [ "$kmaj" -gt 5 ] || { [ "$kmaj" -eq 5 ] && [ "${kmin:-0}" -ge 4 ]; }; } 2>/dev/null || die DEY-I009 \
     "Linux kernel is too old ($kr)" "deyroute needs kernel 5.4 or newer (BBR, nftables features)" "upgrade the kernel or the distribution"
-  [ -n "$LOCAL" ] || have curl || have wget || die DEY-I007 "Neither curl nor wget is installed" \
-    "the installer needs one of them to download release files" "$(pkg curl)"
-  have ip || die DEY-I010 "iproute2 (the ip command) is missing" \
-    "public IP detection and WireGuard transports use iproute2" "$(pkg iproute2 iproute)"
-  have nft || have iptables || die DEY-I011 "Neither nftables nor iptables is installed" \
-    "deyroute manages its own firewall table and needs one of them" "$(pkg nftables)"
+  [ -n "$LOCAL" ] || have curl || have wget || die DEY-I007 "Neither curl nor wget is installed" "the installer needs one of them to download release files" "$(pkg curl)"
+  have ip || die DEY-I010 "iproute2 (the ip command) is missing" "public IP detection and WireGuard transports use iproute2" "$(pkg iproute2 iproute)"
+  have nft || have iptables || die DEY-I011 "Neither nftables nor iptables is installed" "deyroute manages its own firewall table and needs one of them" "$(pkg nftables)"
   [ -s /etc/ssl/certs/ca-certificates.crt ] || [ -s /etc/pki/tls/certs/ca-bundle.crt ] || [ -s /etc/ssl/cert.pem ] ||
     die DEY-I012 "ca-certificates is missing" "HTTPS downloads cannot be verified without the system CA bundle" "$(pkg ca-certificates)"
 }
@@ -92,16 +87,19 @@ fail() {
       "pass --mirror URL, set DEYROUTE_MIRROR, or download the archive elsewhere and use --local /path/file.tar.gz" ;;
     DEY-I005) die DEY-I005 "Checksum mismatch for $2" "the downloaded file does not match SHA256SUMS; it is corrupt or was tampered with" \
       "retry; if it persists use another mirror or --local with a file you verified" ;;
+    DEY-I024) die DEY-I024 "Release v$VERSION not found" "the release was removed or never existed: every download source answered HTTP 404 for its SHA256SUMS" \
+      "install a version that exists, or use --local with a cached copy of that release" ;;
     *) die DEY-I006 "Signature invalid for SHA256SUMS" "SHA256SUMS.minisig was not produced by the DEYROUTE release key" \
       "use the official mirror; only for testing, --skip-signature bypasses this check" ;;
   esac
 }
-# dl URL FILE: 3 tries with backoff 2s, 4s.
+# dl URL FILE: 3 tries with backoff 2s, 4s; HTTP 404 (not on this source) returns 4 at once, no retry.
 dl() {
-  local try
+  local try code
   for try in 1 2 3; do
-    if have curl; then curl -fsSL --connect-timeout 15 --max-time 900 -A deyroute-installer -o "$2" "$1" && return 0
-    else wget -q --tries=1 --timeout=15 -U deyroute-installer -O "$2" "$1" && return 0; fi
+    if have curl; then code=$(curl -fsSL --connect-timeout 15 --max-time 900 -A deyroute-installer -w '%{http_code}' -o "$2" "$1") && return 0
+    else code=$(wget -q --tries=1 --timeout=15 --server-response -U deyroute-installer -O "$2" "$1" 2>&1 | awk '$1 ~ /^HTTP\// {c = $2} END {print c}') && return 0; fi
+    [ "$code" != 404 ] || { warn "not found (HTTP 404): $1"; return 4; }
     [ "$try" -eq 3 ] || { warn "download failed: $1 (retry in $((try * 2))s)"; sleep $((try * 2)); }
   done
   return 1
@@ -120,13 +118,11 @@ sum_ok() {
   [ -n "$want" ] && [ "$want" = "$got" ]
 }
 ossl_ok() { openssl pkeyutl -verify -pubin -inkey "$TMP/sig/pub.der" -keyform DER -rawin -in "$1" -sigfile "$2" >/dev/null 2>&1; }
-
 # sig_ok MSG SIG: SIG is a valid minisign signature of MSG by MINISIGN_PUBKEY.
 sig_ok() {
   if have minisign; then minisign -V -q -m "$1" -x "$2" -P "$MINISIGN_PUBKEY" >/dev/null 2>&1; return; fi
   local d="$TMP/sig" ov; ov=$(openssl version 2>/dev/null | awk '{print $2}')
-  [ "${ov%%.*}" -ge 3 ] 2>/dev/null || die DEY-I006 "Signature invalid for SHA256SUMS" \
-    "it cannot be checked: neither minisign nor OpenSSL 3 is installed" "$(pkg minisign) or use --skip-signature"
+  [ "${ov%%.*}" -ge 3 ] 2>/dev/null || die DEY-I006 "Signature invalid for SHA256SUMS" "it cannot be checked: neither minisign nor OpenSSL 3 is installed" "$(pkg minisign) or use --skip-signature"
   mkdir -p "$d"
   base64 -d <<<"$MINISIGN_PUBKEY" >"$d/pk" 2>/dev/null || return 1 # "Ed" | key id (8) | Ed25519 key (32)
   sed -n 2p "$2" | base64 -d >"$d/s" 2>/dev/null || return 1        # algorithm (2) | key id (8) | signature (64)
@@ -148,7 +144,7 @@ sig_ok() {
 }
 
 fetch_release() {
-  local err=DEY-I004 s kind base name
+  local err=DEY-I004 s kind base name gone=0
   local -a srcs=()
   if [ -n "$MIRROR" ]; then srcs+=("mirror ${MIRROR%/}"); fi
   if [ -n "$RELEASE_BASE" ]; then srcs+=("base ${RELEASE_BASE%/}"); fi
@@ -156,7 +152,7 @@ fetch_release() {
   for s in "${srcs[@]}"; do
     kind=${s%% *} base=${s#* }
     say "downloading from $base"
-    dl "$(url_for "$kind" "$base" SHA256SUMS)" "$TMP/SHA256SUMS" || continue
+    dl "$(url_for "$kind" "$base" SHA256SUMS)" "$TMP/SHA256SUMS" || { [ $? -ne 4 ] || gone=$((gone + 1)); continue; }
     if [ "$SKIP_SIG" = 1 ]; then warn "--skip-signature: the SHA256SUMS signature is NOT verified"
     else
       dl "$(url_for "$kind" "$base" SHA256SUMS.minisig)" "$TMP/SHA256SUMS.minisig" || continue
@@ -170,18 +166,17 @@ fetch_release() {
     sum_ok "$TMP/$name" "$TMP/SHA256SUMS" || { err=DEY-I005; warn "checksum mismatch from $base"; continue; }
     ARCHIVE="$TMP/$name"; return 0
   done
+  [ -z "$VERSION" ] || [ "$gone" -lt ${#srcs[@]} ] || err=DEY-I024 # --version V that no source has
   fail "$err" "deyroute_${VERSION:-latest}_linux_${ARCH}.tar.gz"
 }
 use_local() {
   local dir
-  [ -f "$LOCAL" ] || die DEY-I004 "Download failed from every source: $LOCAL" \
-    "the file given to --local does not exist" "pass the path of deyroute_<version>_linux_${ARCH}.tar.gz"
+  [ -f "$LOCAL" ] || die DEY-I004 "Download failed from every source: $LOCAL" "the file given to --local does not exist" "pass the path of deyroute_<version>_linux_${ARCH}.tar.gz"
   dir=$(cd "$(dirname "$LOCAL")" && pwd) ARCHIVE="$dir/${LOCAL##*/}"
   [ -f "$dir/SHA256SUMS" ] || die DEY-I005 "Checksum mismatch for ${LOCAL##*/}" "SHA256SUMS of the release is not next to it" \
     "copy SHA256SUMS and SHA256SUMS.minisig of the same release into $dir"
   if [ "$SKIP_SIG" = 1 ]; then warn "--skip-signature: the SHA256SUMS signature is NOT verified"
-  elif [ ! -f "$dir/SHA256SUMS.minisig" ]; then die DEY-I006 "Signature invalid for SHA256SUMS" \
-    "SHA256SUMS.minisig is not next to ${LOCAL##*/}" "copy SHA256SUMS.minisig of the same release into $dir"
+  elif [ ! -f "$dir/SHA256SUMS.minisig" ]; then die DEY-I006 "Signature invalid for SHA256SUMS" "SHA256SUMS.minisig is not next to ${LOCAL##*/}" "copy SHA256SUMS.minisig of the same release into $dir"
   else sig_ok "$dir/SHA256SUMS" "$dir/SHA256SUMS.minisig" || fail DEY-I006; fi
   sum_ok "$ARCHIVE" "$dir/SHA256SUMS" || fail DEY-I005 "${ARCHIVE##*/}"
 }
@@ -230,8 +225,7 @@ run_setup() {
   if [ "$YES" = 1 ]; then args+=(--yes); fi
   if [ ${#args[@]} -gt 0 ]; then launch setup "${args[@]}"; fi
   if { : </dev/tty; } 2>/dev/null; then launch setup </dev/tty; fi
-  die DEY-I014 "Setup step failed: wizard" "no terminal is available for the interactive setup" \
-    "run: deyroute setup   (or re-run with --role hub --name NAME --yes)"
+  die DEY-I014 "Setup step failed: wizard" "no terminal is available for the interactive setup" "run: deyroute setup   (or re-run with --role hub --name NAME --yes)"
 }
 
 main() {

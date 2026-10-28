@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S03: join with an expired token / a wrong fingerprint: DEY-N001 / DEY-N002, nothing registered
+# S03: join with an expired token / a wrong fingerprint: DEY-N001 / DEY-N002, nothing registered; a gone --version: DEY-I024
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -32,4 +32,24 @@ log "deyroute join: node online after ${jms}ms"
 [ "$jms" -lt 30000 ] || fail "join took ${jms}ms (limit 30s)"
 expect_code DEY-N001 dey --on node2 join "$link" --yes >&2
 [ "$(dey node list --json | jq '.nodes | length')" = 1 ] || fail "the reused token registered a second node"
+
+# A pinned release that is gone (DR-02): when every source answers HTTP 404
+# for SHA256SUMS of --version V, the installer stops at once with DEY-I024
+# (no retry). Without --version, or when a source fails otherwise (retried),
+# it stays DEY-I004. A local server stands in for GitHub in a lab copy of the
+# installer, so the step needs no internet. Nothing is installed.
+sh_on node2 "mkdir -p /srv/it-gone && sed 's|^GITHUB_BASE=.*|GITHUB_BASE=\"http://127.0.0.1:8099/gh\"|' /dist/install.sh >/tmp/install-gone.sh"
+it_unit node2 gone "/usr/bin/python3 -m http.server 8099 --bind 127.0.0.1 --directory /srv/it-gone"
+wait_for 20 "404 server on node2" sh_on node2 "ss -Hltn 'sport = :8099' | grep -q ."
+install_gone() { on node2 bash /tmp/install-gone.sh --no-setup "$@"; }
+t0=$SECONDS
+out=$(expect_code DEY-I024 install_gone --version 9.9.9 --mirror http://127.0.0.1:8099/mirror)
+grep -q 'Release v9.9.9 not found' <<<"$out" || fail "DEY-I024 does not name the version:"$'\n'"$out"
+if grep -q 'retry in' <<<"$out"; then fail "a 404 was retried:"$'\n'"$out"; fi
+[ $((SECONDS - t0)) -lt 5 ] || fail "DEY-I024 took $((SECONDS - t0))s: a 404 must not wait for retries"
+out=$(expect_code DEY-I004 install_gone --mirror http://127.0.0.1:8099/mirror)
+if grep -q DEY-I024 <<<"$out"; then fail "DEY-I024 without --version:"$'\n'"$out"; fi
+out=$(expect_code DEY-I004 install_gone --version 9.9.9 --mirror http://127.0.0.1:1)
+grep -q 'retry in' <<<"$out" || fail "an unreachable mirror was not retried:"$'\n'"$out"
+on node2 deyroute version >/dev/null || fail "the failed installs touched the installed binary"
 pass "join ${jms}ms"

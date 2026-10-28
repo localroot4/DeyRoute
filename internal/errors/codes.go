@@ -6,8 +6,8 @@ package errors
 //
 // Placeholders used by templates are listed next to each code.
 
-// Installer / environment (DEY-I0xx). Codes I001-I012 are also used verbatim
-// by installer/install.sh.
+// Installer / environment (DEY-I0xx). Codes I001-I012 and I024 are also used
+// verbatim by installer/install.sh.
 const (
 	I001 Code = "DEY-I001" // not root
 	I002 Code = "DEY-I002" // no systemd
@@ -27,6 +27,7 @@ const (
 	I021 Code = "DEY-I021" // detected IP is private/CGNAT/loopback {ip}
 	I022 Code = "DEY-I022" // uninstall step failed {step}
 	I023 Code = "DEY-I023" // this server is not set up
+	I024 Code = "DEY-I024" // pinned release not found (HTTP 404 from every source) {version}
 )
 
 // Configuration (DEY-C0xx).
@@ -266,6 +267,9 @@ var catalog = map[Code]Info{
 	I023: {I023, "This server is not set up yet",
 		"/etc/deyroute/config.yaml does not exist, so no deyroute service runs here",
 		"on the Iran server run: deyroute setup   on a foreign server run the join command your hub shows"},
+	I024: {I024, "Release v{version} not found",
+		"the release was removed or never existed: every download source answered HTTP 404 for its SHA256SUMS",
+		"install a version that exists, or use --local with a cached copy of that release"},
 
 	// ---------------------------------------------------------------- C
 	C001: {C001, "Unknown key in config: {key}",
