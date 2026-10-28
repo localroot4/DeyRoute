@@ -19,7 +19,7 @@ The command line prints:
 ```text
 Run this command on the new node (one node per command, valid until 12:15, 15m):
 
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
 ```
 
 In the menu, `3) Nodes` → `1) Show join command` shows the same line on a
@@ -28,7 +28,7 @@ plain screen, so that it can be copied whole (Enter returns to the menu):
 ```text
  Run this one line on the new node (as root):
 
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
 
  Single use; expires at 12:15:00 (in 15 minutes). Press r for a new command.
 
@@ -45,9 +45,17 @@ Back in the menu, `r` makes a new command.
   `24h`: `deyroute node join-command --ttl 1h`.
 - `--version` makes the node install the same release as the hub. Without
   it the installer would take the newest release, and a hub on an older
-  major.minor could not use the node (`DEY-N004`).
+  major.minor could not use the node (`DEY-N004`). The installer in the line
+  is that release's own (`…/releases/download/v<version>/install.sh`), not
+  the newest one. A development build of the hub (`dev`) pins nothing and
+  uses the newest installer.
 - When the hub was set up with `DEYROUTE_MIRROR`, the command downloads the
-  installer from that mirror.
+  installer from that mirror (`<mirror>/v<version>/install.sh`).
+- If the hub's release is no longer published (an old development build,
+  see [which versions stay available](update-uninstall.md#which-versions-stay-available)),
+  the line cannot download its installer (`curl: (22) The requested URL
+  returned error: 404`) and installs nothing. Update the hub
+  (`deyroute update`) and make a new join command.
 
 ## 2. Run it on the node
 
@@ -55,7 +63,7 @@ On the foreign server, as root, paste the line. To choose the node's id, add
 `--name` at the end:
 
 ```bash
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0 --name de-1
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0 --name de-1
 ```
 
 If `deyroute` is already installed on the node, the short form works too:
@@ -170,7 +178,7 @@ only after updating one side. To fix it, bring both to the same release:
   place, the configuration stays):
 
   ```bash
-  bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) --version 1.0.0
+  bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) --version 1.0.0
   ```
 
 `deyroute version` prints the version on each server.

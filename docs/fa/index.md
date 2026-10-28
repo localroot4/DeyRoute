@@ -21,7 +21,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 ۲. **روی سرور خارج (Node)** با کاربر root همان Join command را بزنید. شکلش این است و فقط یک بار و تا ۱۵ دقیقه معتبر است:
 
 ```bash
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@HUB_IP:44433#sha256:…' --version 1.0.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://TOKEN@HUB_IP:44433#sha256:…' --version 1.0.0
 ```
 
 معمولاً ظرف ۳۰ ثانیه Node روی Hub ظاهر می‌شود (`deyroute node list`).

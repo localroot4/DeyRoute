@@ -107,7 +107,7 @@ Summary
 Next: add a node (the server abroad that runs your VPN service)
    1. Run this command on the node (one node per command, valid until 12:15, 15m):
 
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://…@5.6.7.8:44433#sha256:…' --version 1.0.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://…@5.6.7.8:44433#sha256:…' --version 1.0.0
 
    2. When the node is online (deyroute node list), create a tunnel on this hub:
       in the menu: run deyroute, then 2) Tunnels → 1) Add tunnel
@@ -141,7 +141,7 @@ deyroute setup --role hub --name ir-1 --control-port 44500
 | --- | --- |
 | `join 'dey://…' [--name N]` | نصب و وصل شدن به Hub به‌عنوان Node (صفحه [Join](join.md)) |
 | `--role hub\|node --name N --yes` | راه‌اندازی بدون سؤال |
-| `--version V` | نصب نسخه `V` به‌جای آخرین نسخه |
+| `--version V` | نصب نسخه `V` به‌جای آخرین نسخه (اگر هیچ منبعی آن را نداشته باشد `DEY-I024`) |
 | `--mirror URL` | اول از این Mirror دانلود کن (همان متغیر محیطی `DEYROUTE_MIRROR`) |
 | `--local FILE` | نصب آفلاین از فایل `deyroute_<ver>_linux_<arch>.tar.gz` |
 | `--no-setup` | فقط نصب؛ بعد `deyroute setup` یا `deyroute restore FILE` را بزنید |
@@ -169,7 +169,7 @@ GitHub از دیتاسنترهای ایران معمولاً بسته یا کن�
 DEYROUTE_MIRROR=https://dl.example.com/deyroute bash <(curl -fsSL https://dl.example.com/deyroute/latest/install.sh)
 ```
 
-فایل‌ها باز هم با امضای ریلیز بررسی می‌شوند، پس Mirror نمی‌تواند آن‌ها را عوض کند. اگر هنگام راه‌اندازی Hub متغیر `DEYROUTE_MIRROR` تنظیم باشد، به‌عنوان `hub.mirror` ذخیره می‌شود و Join commandهایی که Hub می‌سازد هم نصاب را از `<mirror>/latest/install.sh` می‌گیرند. (گزینه `--mirror URL` فقط روی همان یک بار اجرای نصاب اثر دارد.)
+فایل‌ها باز هم با امضای ریلیز بررسی می‌شوند، پس Mirror نمی‌تواند آن‌ها را عوض کند. اگر هنگام راه‌اندازی Hub متغیر `DEYROUTE_MIRROR` تنظیم باشد، به‌عنوان `hub.mirror` ذخیره می‌شود و Join commandهایی که Hub می‌سازد هم نصاب را از همان Mirror می‌گیرند: `<mirror>/v<version>/install.sh`، یعنی نصاب همان نسخه‌ای که روی Hub نصب است (برای بیلد توسعه `<mirror>/latest/install.sh`). پس پوشه `v<version>/` هر نسخه‌ای را که Hubهایتان رویش هستند روی Mirror نگه دارید. (گزینه `--mirror URL` فقط روی همان یک بار اجرای نصاب اثر دارد.)
 
 **راه ۲ — فایل آفلاین.** روی کامپیوتری که اینترنت آزاد دارد، از [صفحه ریلیزها](https://github.com/localroot4/DeyRoute/releases) این چهار فایل را بگیرید: `install.sh`، `SHA256SUMS`، `SHA256SUMS.minisig` و آرشیو مخصوص پردازنده سرورتان. هر چهار را در یک پوشه روی Hub بگذارید و بزنید:
 
@@ -186,7 +186,7 @@ bash /root/install.sh --local /root/deyroute_1.0.0_linux_amd64.tar.gz
 
 ۱. پیش‌نیازهای بالا.
 
-۲. منبع دانلود به این ترتیب: `--mirror` یا `DEYROUTE_MIRROR`، بعد آدرس پیش‌فرضی که داخل نصاب ساخته شده (در بیلدهای فعلی خالی است)، بعد GitHub. هر منبع ۳ بار امتحان می‌شود (با ۲ و بعد ۴ ثانیه صبر) و بعد منبع بعدی.
+۲. منبع دانلود به این ترتیب: `--mirror` یا `DEYROUTE_MIRROR`، بعد آدرس پیش‌فرضی که داخل نصاب ساخته شده (در بیلدهای فعلی خالی است)، بعد GitHub. هر منبع ۳ بار امتحان می‌شود (با ۲ و بعد ۴ ثانیه صبر) و بعد منبع بعدی. فایلی که منبع اصلاً ندارد (HTTP 404) دوباره امتحان نمی‌شود.
 
 ۳. فایل `SHA256SUMS` باید امضای minisign معتبر کلید ریلیز DEYROUTE را داشته باشد (کلید عمومی داخل خود `install.sh` است). اگر ابزار `minisign` نصب باشد از آن استفاده می‌شود، وگرنه از OpenSSL 3.
 
@@ -194,7 +194,7 @@ bash /root/install.sh --local /root/deyroute_1.0.0_linux_amd64.tar.gz
 
 ۵. باینری جدید قبل از جایگزینی باید روی همین سرور اجرا شود. جایگزینی اتمیک است و باینری قبلی در `/var/lib/deyroute/bin/deyroute.prev` نگه داشته می‌شود.
 
-فقط فایل‌های ریلیز DEYROUTE دانلود می‌شوند و هیچ چیزی به جایی فرستاده نمی‌شود. خطاها: `DEY-I004` (دانلود از همه منبع‌ها ناموفق: از `--mirror` یا `--local` استفاده کنید)، `DEY-I005` (checksum نمی‌خواند: فایل خراب یا دست‌کاری شده)، `DEY-I006` (امضا نامعتبر: فقط فایل‌های رسمی؛ `--skip-signature` فقط برای تست است).
+فقط فایل‌های ریلیز DEYROUTE دانلود می‌شوند و هیچ چیزی به جایی فرستاده نمی‌شود. خطاها: `DEY-I004` (دانلود از همه منبع‌ها ناموفق: از `--mirror` یا `--local` استفاده کنید)، `DEY-I024` (نسخه‌ای که با `--version` خواسته‌اید روی هیچ منبعی نیست: حذف شده یا اصلاً وجود نداشته؛ نسخه‌ای را نصب کنید که موجود است، یا با `--local` از نسخه‌ای که خودتان نگه داشته‌اید)، `DEY-I005` (checksum نمی‌خواند: فایل خراب یا دست‌کاری شده)، `DEY-I006` (امضا نامعتبر: فقط فایل‌های رسمی؛ `--skip-signature` فقط برای تست است). اینکه کدام نسخه‌ها قابل دانلود می‌مانند: صفحه [آپدیت و حذف](update-uninstall.md)، بخش «کدام نسخه‌ها در دسترس می‌مانند».
 
 ## اجرای دوباره نصاب
 

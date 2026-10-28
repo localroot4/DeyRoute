@@ -132,11 +132,29 @@ the configuration. It works even when the service is down, and on a node:
 
 ```bash
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) --version 1.2.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.2.0/install.sh) --version 1.2.0
 ```
 
 Hub and nodes must stay on the same major.minor version (see
 [Join](join.md#incompatible-versions)).
+
+## Which versions stay available
+
+- Stable releases (`vX.Y.Z`) are never removed.
+- Development builds (`…-edge.N`) are removed once 10 newer builds of the
+  same branch exist (`main` and `dev` are counted separately); the release
+  marked *latest* is never removed. A hub on a development build can join
+  nodes and reinstall its own version until then.
+- A release that is no longer published cannot be installed: its own
+  installer is gone too (`curl` reports `404`), and an installer run with
+  `--version` of it stops with `DEY-I024`. Pick a version from the
+  [releases page](https://github.com/localroot4/DeyRoute/releases), or
+  install from a copy you saved (`--local`, see
+  [Install](install.md#when-github-is-not-reachable-from-the-hub)).
+
+To keep servers on one version for a long time, use a stable release, or
+keep its files (`install.sh`, `SHA256SUMS`, `SHA256SUMS.minisig` and the
+archives) yourself.
 
 ## Update the backends
 

@@ -134,7 +134,7 @@ Everything else is automatic. The wizard shows each step:
 Next: add a node (the server abroad that runs your VPN service)
    1. Run this command on the node (one node per command, valid until 12:15, 15m):
 
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://…@5.6.7.8:44433#sha256:…' --version 1.0.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://…@5.6.7.8:44433#sha256:…' --version 1.0.0
 
    2. When the node is online (deyroute node list), create a tunnel on this hub:
       in the menu: run deyroute, then 2) Tunnels → 1) Add tunnel
@@ -174,7 +174,7 @@ with the link from the hub (`install.sh join 'dey://…'`).
 | --- | --- |
 | `join 'dey://…' [--name N]` | install and join a hub as a node (see [Join](join.md)) |
 | `--role hub\|node --name N --yes` | non-interactive setup |
-| `--version V` | install release `V` instead of the latest |
+| `--version V` | install release `V` instead of the latest (`DEY-I024` when no source has it) |
 | `--mirror URL` | try this mirror first (same as the environment variable `DEYROUTE_MIRROR`) |
 | `--local FILE` | offline install from `deyroute_<ver>_linux_<arch>.tar.gz` |
 | `--no-setup` | install only; then run `deyroute setup` or `deyroute restore FILE` |
@@ -209,8 +209,10 @@ DEYROUTE_MIRROR=https://dl.example.com/deyroute bash <(curl -fsSL https://dl.exa
 The files are still verified against the release signature, so a mirror
 cannot change them. When `DEYROUTE_MIRROR` is set in the environment during
 setup, it is saved as `hub.mirror` and the join commands the hub prints use
-`<mirror>/latest/install.sh` too. (`--mirror URL` affects only the installer
-run itself.)
+the mirror too: `<mirror>/v<version>/install.sh`, the installer of the hub's
+own release (`<mirror>/latest/install.sh` for a development build). Keep the
+`v<version>/` directory of every release your hubs run. (`--mirror URL`
+affects only the installer run itself.)
 
 **Option 2 — offline file.** On a computer with internet access, download
 from the [releases page](https://github.com/localroot4/DeyRoute/releases)
@@ -233,7 +235,8 @@ The installer honours `https_proxy` if you need a proxy.
 2. Download sources, in this order: `--mirror` / `DEYROUTE_MIRROR`, then the
    release base built into the installer (none in current builds), then
    GitHub releases. Each source is tried 3 times (waiting 2 s, then 4 s)
-   before the next one.
+   before the next one. A file the source does not have (HTTP 404) is not
+   tried again.
 3. `SHA256SUMS` must carry a valid minisign signature of the DEYROUTE release
    key (the public key is inside `install.sh`). The `minisign` tool is used
    when installed, otherwise OpenSSL 3.
@@ -244,9 +247,12 @@ The installer honours `https_proxy` if you need a proxy.
 
 Only DEYROUTE release files are downloaded and nothing is sent anywhere.
 Failures: `DEY-I004` (every source failed: use `--mirror` or `--local`),
-`DEY-I005` (checksum mismatch: corrupt or tampered file), `DEY-I006`
-(signature invalid: use the official files; `--skip-signature` is for
-testing only).
+`DEY-I024` (the release given with `--version` is on no source: it was
+removed or never existed; install a version that exists, or use `--local`
+with a copy you saved), `DEY-I005` (checksum mismatch: corrupt or tampered
+file), `DEY-I006` (signature invalid: use the official files;
+`--skip-signature` is for testing only). Which releases stay downloadable:
+[Update & uninstall](update-uninstall.md#which-versions-stay-available).
 
 ## Running the installer again
 

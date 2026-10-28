@@ -74,10 +74,18 @@ deyroute setup --role hub --name ir-1 --yes --auto-update on
 
 ```bash
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) --version 1.2.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.2.0/install.sh) --version 1.2.0
 ```
 
 Hub و Nodeها باید نسخه major.minor یکسان داشته باشند (صفحه [Join](join.md)، بخش «نسخه ناسازگار»).
+
+## کدام نسخه‌ها در دسترس می‌مانند
+
+- نسخه‌های پایدار (`vX.Y.Z`) هیچ‌وقت حذف نمی‌شوند.
+- بیلدهای توسعه (`…-edge.N`) وقتی حذف می‌شوند که ۱۰ بیلد جدیدتر از همان شاخه منتشر شده باشد (`main` و `dev` جدا شمرده می‌شوند)؛ نسخه‌ای که *latest* علامت خورده هیچ‌وقت حذف نمی‌شود. پس Hubی که روی یک بیلد توسعه است تا آن موقع می‌تواند Node وصل کند و نسخه خودش را دوباره نصب کند.
+- نسخه‌ای که دیگر منتشرشده نیست نصب نمی‌شود: نصاب خود آن نسخه هم دیگر نیست (`curl` خطای `404` می‌دهد) و نصابی که با `--version` آن نسخه اجرا شود با `DEY-I024` متوقف می‌شود. نسخه‌ای را از [صفحه ریلیزها](https://github.com/localroot4/DeyRoute/releases) انتخاب کنید، یا از نسخه‌ای که خودتان ذخیره کرده‌اید با `--local` نصب کنید (صفحه [نصب](install.md)، بخش «وقتی سرور ایران به GitHub دسترسی ندارد»).
+
+برای اینکه سرورها مدت طولانی روی یک نسخه بمانند، از نسخه پایدار استفاده کنید، یا فایل‌هایش (`install.sh`، `SHA256SUMS`، `SHA256SUMS.minisig` و آرشیوها) را خودتان نگه دارید.
 
 ## آپدیت بک‌اندها
 
