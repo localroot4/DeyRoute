@@ -59,3 +59,15 @@ func TestUpdateAutoJSONGolden(t *testing.T) {
 	require.Equal(t, false, doc["enabled"])
 	require.Equal(t, "config", doc["source"])
 }
+
+// TestUpdateHelpAutoUpdateOffByDefault: `deyroute update --help` says that
+// the hub updates itself only after the owner turns that on, and its
+// example turns it on.
+func TestUpdateHelpAutoUpdateOffByDefault(t *testing.T) {
+	e := newEnv(t)
+	out := e.ok("update", "--help")
+	require.NotContains(t, out, "The hub also updates itself once a day")
+	require.Contains(t, out, "off by default")
+	require.Contains(t, out, "deyroute update auto on")
+	require.NotContains(t, out, "deyroute update auto off")
+}
