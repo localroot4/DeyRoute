@@ -291,6 +291,38 @@ security change. Menu: `8) Security` → `5) Audit`.
   `CAP_NET_ADMIN`.
 - A crash of one backend never takes the hub down; systemd restarts it.
 
+## Tunnel logs
+
+- The transports of a tunnel write to `/var/log/deyroute/tunnels/<tunnel>.log`.
+  systemd opens that file as root before it starts the backend, which only
+  writes through the file it was given. The directory is `1770
+  root:deyroute`: the `deyroute` user may add files there, but the sticky
+  bit stops it from removing or renaming root's files (the live logs and
+  the rotated `.gz` files). The installer, `deyroute setup` and the
+  services create it so; on a server installed before, running the
+  installer again (it repairs and keeps the configuration) sets the mode.
+- The hub and the node rotate these logs as root (above 20 MB, checked
+  every minute, 5 compressed files kept). The rotation never follows a
+  symbolic link and never writes through a file name the `deyroute` user
+  could create first: a `*.log` that is a link, not a regular file, or has
+  a second hard link is skipped; the copy is made in the root-only
+  `/var/lib/deyroute/tmp` (0700); and anything the rotation finds at one of
+  the names it writes in the tunnel log directory is removed.
+- Each such case is logged once per file and reason while the service
+  runs, as a warning in `hub.log` or `node.log`:
+
+  ```bash
+  grep 'tunnel log rotation refused' /var/log/deyroute/node.log
+  ```
+
+  The line carries `file` and `reason`: `symlink`, `not_regular`,
+  `hardlink` or `staging` (something stood at a name the rotation writes,
+  or `/var/lib/deyroute/tmp` is not root-only). DEYROUTE never creates such
+  files itself: a process of the `deyroute` user, that is a tunnel backend,
+  did. Check that server (`ps -u deyroute -o pid,args`), and update or
+  replace the backend. The lab scenario S36 plants such links and checks
+  that root files stay unchanged and that normal rotation goes on.
+
 ## A node is never an open proxy
 
 Transports where the hub connects to the node (`xray/reality`,
