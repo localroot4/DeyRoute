@@ -864,3 +864,28 @@ func TestControlStatus(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, controlStatus(deyerr.New(deyerr.C001, nil)))
 	require.Equal(t, http.StatusUnauthorized, controlStatus(deyerr.New(deyerr.N013, nil)))
 }
+
+// The signed manifest of backend.install and the node's manifest sha256
+// are additive (DR-03): an older peer neither sends nor expects them, and
+// a message without them decodes as before.
+func TestBackendInstallManifestAdditive(t *testing.T) {
+	data, err := json.Marshal(BackendInstallArgs{Name: "backhaul"})
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "manifest")
+	data, err = json.Marshal(Hello{Version: "0.3.0"})
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "manifest")
+
+	in := BackendInstallArgs{Name: "backhaul", Manifest: []byte("manifest_version: 1\n"), ManifestSig: []byte("sig\n")}
+	data, err = json.Marshal(in)
+	require.NoError(t, err)
+	var out BackendInstallArgs
+	require.NoError(t, json.Unmarshal(data, &out))
+	require.Equal(t, in, out)
+	// What an older hub sends.
+	var old BackendInstallArgs
+	require.NoError(t, json.Unmarshal([]byte(`{"entry":{"Version":"v1"},"name":"backhaul"}`), &old))
+	require.Equal(t, "v1", old.Entry.Version)
+	require.Nil(t, old.Manifest)
+	require.Nil(t, old.ManifestSig)
+}

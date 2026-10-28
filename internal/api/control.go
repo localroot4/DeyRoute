@@ -131,6 +131,11 @@ type Hello struct {
 	// it lists what the hub serves (FeatureSignedUpdate), so a node can
 	// tell an older hub apart the same way.
 	Features []string `json:"features,omitempty"`
+	// ManifestSHA256 is the hex sha256 of the backends.yaml built into the
+	// node (FeatureSignedUpdate nodes): when it differs from the hub's own,
+	// the hub sends the signed backends.yaml of its release with
+	// backend.install (BackendInstallArgs.Manifest).
+	ManifestSHA256 string `json:"manifest_sha256,omitempty"`
 }
 
 // Optional features announced in Hello.Features.
@@ -145,6 +150,9 @@ const (
 	// release key built into it; a hub announces it in the hello it sends
 	// to the node when it serves that endpoint. A hub on a release build
 	// never serves its own binary to such a node in place of the release.
+	// Such a node also installs a backend only when a signed manifest pins
+	// it (its built-in one, or BackendInstallArgs.Manifest), and the hub
+	// sends that manifest only to such a node.
 	FeatureSignedUpdate = "signed-update"
 )
 
@@ -223,10 +231,19 @@ const (
 	CmdSpeedServe      = "speed.serve"             // SpeedServeArgs → nil (built-in generator for diag speed)
 )
 
-// BackendInstallArgs installs a pinned backend on the node.
+// BackendInstallArgs installs a pinned backend on the node. A node with
+// FeatureSignedUpdate installs Entry only when it equals the entry in the
+// node's built-in backends.yaml or in Manifest, a backends.yaml whose
+// signature ManifestSig verifies with the release key built into the node
+// (DR-03). The hub sends Manifest and ManifestSig (the bytes of the files)
+// only to such nodes: its signed manifest override, or the backends.yaml
+// of its own release when the node's built-in one differs
+// (Hello.ManifestSHA256). An older hub sends neither.
 type BackendInstallArgs struct {
-	Entry backend.ManifestEntry `json:"entry"`
-	Name  string                `json:"name"`
+	Entry       backend.ManifestEntry `json:"entry"`
+	Name        string                `json:"name"`
+	Manifest    []byte                `json:"manifest,omitempty"`
+	ManifestSig []byte                `json:"manifest_sig,omitempty"`
 }
 
 // BackendInstallResult reports installed paths.
