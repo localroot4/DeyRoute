@@ -221,8 +221,8 @@ func TestAutoUpdateRollsBack(t *testing.T) {
 // TestAutoRollbackKeptForNewerKeys: an automatic update that does not
 // verify is not rolled back to a binary that is older than a config.yaml
 // key in use (it would refuse the file and the hub would not start): the
-// new binary keeps running, nothing restarts, and the dashboard shows
-// DEY-S011.
+// new binary keeps running, nothing restarts, and the dashboard and an
+// update_rolled_back event show DEY-S011.
 func TestAutoRollbackKeptForNewerKeys(t *testing.T) {
 	env := pendingEnvWith(t, func(c *config.Config) { c.Monitoring = &config.Monitoring{QuotaResetDay: 5} },
 		autoPending{From: "0.3.0-edge.14", To: version.Version, Tunnels: []string{"ghost"}})
@@ -250,6 +250,13 @@ func TestAutoRollbackKeptForNewerKeys(t *testing.T) {
 	require.NotNil(t, warned, "%+v", st.Warnings)
 	require.Contains(t, warned.Message, "monitoring (since 0.3.0-edge.15)")
 	require.Contains(t, warned.Message, "0.3.0-edge.14")
+	// Telegram's update group hears of it too.
+	ev := env.waitEvent(state.EvUpdateRolledBack, "")
+	require.Equal(t, state.LevelWarn, ev.Level)
+	require.Equal(t, string(deyerr.S011), ev.Code)
+	require.Contains(t, ev.Message, "was kept")
+	require.Contains(t, ev.Message, "deyroute "+version.Version+" keeps running")
+	require.Contains(t, ev.Message, "monitoring (since 0.3.0-edge.15)")
 
 	// With the key gone, the next failed verification rolls back again.
 	_, err = env.h.mutate(func(c *config.Config) error {

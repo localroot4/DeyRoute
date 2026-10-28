@@ -156,7 +156,10 @@ a tuned kernel value was changed or overridden, DEY-X067) are event types
 too; Telegram sends them when `hub.notify.telegram.events` selects `quota`
 or `tuning` (or the full names). `auto_update_default_off` (warn) is recorded
 once by a hub that ran a build with the automatic update on by default: it
-is off now (see `update auto`).
+is off now (see `update auto`). `update_rolled_back` with `"code":
+"DEY-S011"` means an automatic update did not verify and was kept, because
+the previous version would refuse `config.yaml` (its `message` names the
+keys); the new version keeps running.
 
 ## Nodes and hub
 

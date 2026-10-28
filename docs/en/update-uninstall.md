@@ -66,8 +66,10 @@ line, and never installs that release automatically again (you still can,
 with `deyroute update`). The previous version ran with your `config.yaml`
 before the update, so it loads it again. Only when you set something after
 the update that the previous version does not know would it refuse the
-file: then the new version keeps running and the dashboard shows
-`DEY-S011` for 7 days (details in `deyroute update auto`).
+file: then the new version keeps running, the event `update_rolled_back`
+is recorded with the code `DEY-S011` (Telegram sends it with the `update`
+events), and the dashboard shows `DEY-S011` for 7 days (details in
+`deyroute update auto`).
 
 ```bash
 deyroute update auto        # on or off, next release and when, last result

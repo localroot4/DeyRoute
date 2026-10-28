@@ -518,20 +518,22 @@ func (h *Hub) autoRollback(path string, p autoPending, reason string) {
 
 // autoKeep ends an automatic update that did not verify but cannot be
 // rolled back because deyroute p.From does not know keys of config.yaml:
-// the new binary keeps running, nothing restarts, and the dashboard shows
-// DEY-S011 for autoWarnFor (updateWarnings: "was kept" in the record).
+// the new binary keeps running, nothing restarts, the dashboard shows
+// DEY-S011 for autoWarnFor (updateWarnings: "was kept" in the record), and
+// update_rolled_back with DEY-S011 is emitted, as for an automatic update
+// that failed before the restart (the update group of Telegram has it).
 func (h *Hub) autoKeep(path string, p autoPending, reason string, keys []config.NewerKey) {
 	e := deyerr.As(newerKeysErr("roll back to deyroute "+p.From,
 		"deyroute "+p.From+" is older than the first release that knows them", keys))
-	h.editAutoRecord(func(r *autoUpdateRecord) {
-		r.Last = "update to " + p.To + " did not verify (" + reason + ") and was kept: deyroute " + p.From +
-			" would refuse config.yaml with " + joinNewerKeys(keys)
-		r.LastAt = h.now()
-	})
+	last := "update to " + p.To + " did not verify (" + reason + ") and was kept: deyroute " + p.From +
+		" would refuse config.yaml with " + joinNewerKeys(keys)
+	h.editAutoRecord(func(r *autoUpdateRecord) { r.Last, r.LastAt = last, h.now() })
 	_ = os.Remove(path)
 	h.log.Error("automatic update did not verify and cannot be rolled back: the previous binary would refuse config.yaml; it keeps running",
 		slog.String("version", p.To), slog.String("previous", p.From), slog.String("reason", reason),
 		dlog.Err(e), dlog.Code(e.Code))
+	h.Emit(state.Event{Type: state.EvUpdateRolledBack, Level: state.LevelWarn, Code: string(e.Code),
+		Message: "automatic " + last + "; deyroute " + version.Version + " keeps running"})
 }
 
 // UpdateAuto implements api.Local (`deyroute update auto [on|off]`): on and
