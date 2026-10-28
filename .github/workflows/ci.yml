@@ -98,11 +98,13 @@ jobs:
     runs-on: ubuntu-24.04
     needs: build
     # Every scenario of spec section 17 in systemd containers (test/integration).
-    # Runs for main and release tags; any branch can run it by hand
-    # (workflow_dispatch, optionally one distro and a scenario list).
+    # Runs for main, dev and release tags: release-edge publishes a build of
+    # main or dev only after the whole run, this job included, passed. Any
+    # branch can run it by hand (workflow_dispatch, optionally one distro and
+    # a scenario list).
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'))
+      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'))
     timeout-minutes: 150
     strategy:
       fail-fast: false
