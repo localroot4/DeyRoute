@@ -247,6 +247,8 @@ stated default until the owner decides · **[ANSWERED]** closed.
     gets only by joining, and the hub sends `self.update` to its nodes only
     to finish its own `deyroute update`. `docs/en/join.md` and
     `docs/fa/join.md` show the flag and say why it is there.
+    (Changed by C.52: a release build now uses the installer of the pinned
+    release.)
 37. **[DEFAULT] The integration lab's blocker and client (spec 17).** The
     spec's `blocker` is a separate container with `NET_ADMIN` on the same
     network; on a Docker bridge such a container is not on the path between
@@ -354,6 +356,155 @@ stated default until the owner decides · **[ANSWERED]** closed.
     5 s.
     `tunnel reset` and `tunnel switch` still clear the history of the rung
     they move to. Owner decision: keep this, or reword the criterion.
+47. **[DEFAULT] The automatic update is off by default; its switch is
+    `hub.auto_update` in `config.yaml` (DR-05).** Spec section 5 says an
+    update never runs without asking, but the automatic update shipped on
+    by default with its switch in `state.db`, which no backup contains (a
+    restored hub was silently on again). Now `hub.auto_update` (bool,
+    default false, written only when true) decides: `update auto on|off`
+    changes it through the normal config path with an automatic backup, and
+    `setup --auto-update on|off` (default off) sets it at setup. The key is
+    registered in the rollback guard (`FirstAutoUpdateVersion`, see C.49). A
+    hub with a record of an earlier build is told once (event
+    `auto_update_default_off`, a dashboard line for 7 days while off); a
+    fresh install is not. Deviation from the brief ("ignore the old
+    `disabled` field when reading; drop it on the next write"): the field is
+    kept, written as `!hub.auto_update` on every write of the record and by
+    `update auto on|off`, and never acted on. Earlier builds read it as the
+    switch (on when absent), and `update --version` and `update --rollback`
+    write the record right before restarting into one of them; dropping it
+    would turn the automatic update back on there (section 2.2: new versions
+    must not break a rollback).
+48. **[DEFAULT] Tunnel log directory and rotation staging.**
+    `/var/log/deyroute/tunnels` is now `root:deyroute` with mode `01770`
+    (sticky) wherever it is created: the installer, `setup`,
+    `InstallTemplates` and the hub and node `ensureTunnelLogDir`
+    (`systemd.TunnelLogDirMode`; without the deyroute group the group bits
+    are cleared, `01700`). Before, the installer and setup made it `0770`
+    and the other three `root:root 0750`. The brief allowed `0770` or
+    `01770`; the sticky bit keeps the backends' user from removing or
+    renaming root's live and rotated logs, and group write stays. An
+    existing directory keeps its mode and owner, as setup's other
+    directories do: re-running the installer applies `1770` (`install -d`),
+    `deyroute update` alone does not. Of the brief's two staging designs
+    the rotation uses the root-only one: the copy is staged as
+    `/var/lib/deyroute/tmp/tunnel-log-<log>.rotating` (`0700`, created on
+    demand and refused unless private to root), so a leftover there is the
+    rotator's own and is finished first. The brief's rule for a leftover
+    `<log>.rotating` (finish root's regular file with one link, remove
+    anything else) applies to the one an older version left in the log
+    directory. Anything else at a name the rotation writes in the log
+    directory, a directory included, is removed and reported. The
+    "tunnel log rotation refused" warnings are remembered per file and
+    reason up to 1024 pairs per daemon run; beyond that they are not
+    logged, so planted names cannot grow the daemon's memory. The node
+    agent now looks up the deyroute ids and changes ownership like the hub
+    (`Options.DeyrouteIDs`, `Options.Chown`). DR-01.
+49. **[OPEN] `hub.auto_update` counts from 0.3.0, so edge builds are
+    treated as not knowing it (DR-05).** The edge builds that carry the key
+    cannot be told apart by version from those before it (every
+    `0.3.0-edge.N` sorts before `0.3.0`), so `FirstAutoUpdateVersion` is the
+    stable 0.3.0. While the key is set, `update --rollback` and
+    `update --version` to any `0.3.0-edge.N` are refused with `DEY-S011`
+    (fix: `update auto off` first). `update --version V` is never refused
+    for keys when V is not older than the running build, which knows every
+    key the running build writes. A failed automatic update still rolls back
+    to the build it came from: `update-pending.json` records the keys in use
+    when the update started (that build had loaded them), and only keys set
+    after that are compared; a record without them (written by an earlier
+    build) compares every key and keeps the new binary when one is unknown
+    (event `update_rolled_back` with `DEY-S011`, a dashboard line for 7
+    days). Owner decision: keep 0.3.0, or set the constant to the first
+    edge build that carries the key once its number is known.
+50. **[OPEN] Who sees the "now off by default" notice (DR-05).** The notice
+    (one `auto_update_default_off` event, a dashboard line for 7 days) goes
+    to every hub that has a state record of an earlier build, also one that
+    had already turned the automatic update off there (`"disabled": true`):
+    the brief keys the notice on the record alone, so the field is not used
+    to tell the two apart. The dashboard line is hidden while
+    `hub.auto_update` is on. Owner decision: skip the notice on hubs that
+    had it off already.
+51. **[OPEN] Rollback paths that do not check config keys (DR-05, section
+    2.2).** `update --rollback` without the daemon (`rollbackLocal` in
+    `internal/cli/system.go`, used when the service is down and on nodes)
+    swaps the binaries without checking `config.yaml` keys, and so does the
+    installer when it replaces the binary; the start guard of the automatic
+    update (`AutoUpdateStartGuard`) rolls back before the config is loaded.
+    The start guard goes back to the build the update came from, which had
+    loaded the config, so only keys set by hand in between can break it;
+    `rollbackLocal` and the installer can start a binary that refuses
+    `config.yaml` (`DEY-C001`). The hub's own guard now trusts the recorded
+    version of `deyroute.prev` only with a matching sha256
+    (`update/previous-binary` in state.db) and otherwise refuses for every
+    newer key. Not changed: `update --check` (`previous`) and the answer and
+    event of `update --rollback` still name the plain recorded version
+    (`update/previous`), which can be stale after the installer replaced
+    `deyroute.prev`. Owner decision: add the key check to `rollbackLocal`
+    (it can read `config.yaml` without the daemon) and show the checked
+    version.
+52. **[DEFAULT] The join command uses the installer of the pinned release.**
+    C.36 chose the `latest` installer next to ` --version X.Y.Z`. That pairs
+    the newest installer with an older release, and once a pinned edge build
+    was pruned the line failed with `DEY-I004`, whose hint points to
+    `--mirror` and `--local`. A release build of the hub now prints
+    `bash <(curl -fsSL <github>/releases/download/vX.Y.Z/install.sh) join 'dey://…' --version X.Y.Z`,
+    or `<mirror>/vX.Y.Z/install.sh` when `hub.mirror` is set; a development
+    build pins nothing and keeps the `latest` installer (DR-02). This
+    replaces the sentence of C.36 that names the `latest` installer; the
+    rest of C.36 stands. A mirror must keep the `vX.Y.Z/` directory of every
+    release its hubs run. The JSON field `command` keeps its name; the panel
+    uses only `.link`.
+53. **[OPEN] The join line exits 0 when the pinned release is gone.** With
+    the versioned installer (C.52), a hub whose release is no longer
+    published prints a line whose `curl -fsSL` fails (`curl: (22) The
+    requested URL returned error: 404`); `bash <(…)` then runs an empty
+    script and the line exits 0 without the installer's three-line error.
+    DR-02 asks that the installer say so when the pinned version is missing;
+    on this path the installer itself is the missing file, so it cannot.
+    `install.sh --version X.Y.Z` run from any other installer does stop with
+    `DEY-I024`. Today the behaviour is documented (`docs/en/join.md`,
+    `docs/fa/join.md` and "Which versions stay available" in
+    `update-uninstall.md`: update the hub and make a new join command), and
+    the retention keeps a pinned edge build until 10 newer builds of its
+    branch exist; stable releases are never removed. Options for the owner:
+    (a) keep the join format of spec 3 (Join 1) and the documented
+    behaviour; (b) change the format so the line fails loudly, for example
+    `bash <(curl -fsSL URL || echo 'echo "✖ DEY-I024  Release vX.Y.Z not found" >&2; exit 1') join …`,
+    which changes the spec's join format and the text of
+    `api.JoinCommand.Command`. The panel is not affected: it never runs
+    `.command`.
+54. **[DEFAULT] Which green ci run publishes an edge build.** Under
+    `workflow_run` (DR-06) the ci runs of a branch end in any order (they
+    run in parallel, and an old run can be re-run), and an edge version is
+    numbered by release-edge's own run, not by its commit. A green ci run
+    therefore publishes its commit only while that commit is the tip of its
+    branch and is not in the newest edge release of that branch
+    (`scripts/edge-gate.sh`, checked when the ci run ends and again when the
+    publishing job starts). The publishes of a branch run one at a time and
+    never cancel each other, `main` and `dev` independently, and the
+    retention runs one at a time. Consequences, by design: edge numbers
+    have gaps (every run of release-edge counts, also one that publishes
+    nothing); a re-run of a published commit publishes nothing; when the ci
+    run of the tip fails, nothing new is published until a later push
+    passes, even if an earlier commit was green; a push that starts no ci
+    run (`[skip ci]`) holds back the publish of the green commit before it.
+    Documented in `docs/dev/RELEASING.md`.
+55. **[OPEN] Move the signing key into GitHub environments.** GitHub runs a
+    manual run with the workflow file of the chosen ref. The tag
+    `backend-builds` (fe816ca) and the tags `v0.3.0-edge.56` to `60` carry a
+    `release-edge.yml` that, on `gh workflow run release-edge.yml --ref
+    <that ref>`, builds, signs and publishes an edge release without the ci
+    gate and then deletes every edge release but the 5 newest of both
+    branches, pinned `main` builds included. The workflows now read the key
+    in the environments `edge-release` (edge job of release-edge.yml) and
+    `release` (release job of ci.yml), but the bypass closes only when the
+    owner, in the repository settings, creates `edge-release` limited to the
+    branch `main` (a workflow_run run has the ref of `main`, also for `dev`
+    builds) and `release` limited to the tags `v*`, adds
+    `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` to both, deletes the two
+    repository secrets, and protects the `v*` tags with a ruleset (steps in
+    `docs/dev/RELEASING.md`, "Signing key"). Until then anyone with write
+    access can use this path. Owner action (DR-06, DR-02).
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

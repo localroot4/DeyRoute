@@ -6,6 +6,118 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Security — tunnel log rotation
+
+- The hub and the node rotate the tunnel logs in `/var/log/deyroute/tunnels`
+  as root. The rotation no longer follows symbolic links and never writes
+  through a file name that the backends' user `deyroute` can create first:
+  a `*.log` that is a link, not a regular file or has a second hard link is
+  skipped, the copy is staged in the root-only `/var/lib/deyroute/tmp`
+  (0700, created when needed), and anything else found at a name the
+  rotation writes is removed. Each case is logged once per file and reason
+  as the warning `tunnel log rotation refused` in `hub.log` or `node.log`
+  (docs/en/security.md, lab S36).
+- `/var/log/deyroute/tunnels` is created as `root:deyroute` with mode `1770`
+  (sticky) by the installer, `deyroute setup` and the services, which
+  created a missing one as `root:root 0750` before. The backends' user can
+  still add files there but can no longer remove or rename root's live and
+  rotated logs (QUESTIONS.md C.48).
+- Migration: `deyroute update` alone keeps the mode of an existing
+  directory. On a server installed before, run the installer again (it
+  repairs and keeps the configuration), or run
+  `chown root:deyroute /var/log/deyroute/tunnels && chmod 1770 /var/log/deyroute/tunnels`.
+  Check it with `stat -c '%a %U:%G' /var/log/deyroute/tunnels`
+  (`1770 root:deyroute`).
+
+### Security — per-backend privilege allowlist
+
+- A node now checks every backend unit the hub sends against a list of
+  privileges built into its binary. Only `wireguard` and `awg` run as root,
+  with `CAP_NET_ADMIN` and `AF_NETLINK`. `wireguard` may relax
+  `ProtectKernelTunables`, and `awg` may also write to `/run/amneziawg`.
+  `rathole` may relax `MemoryDenyWriteExecute`. The node side of
+  `direct/haproxy` may open `AF_NETLINK`. Every other backend runs as user
+  `deyroute` with `CAP_NET_BIND_SERVICE` only. No backend may relax
+  `NoNewPrivileges` or the capability bounding set, or get a writable path
+  its entry does not list.
+- A unit that asks for more is refused: the node answers `DEY-N050` and names
+  the field. The hub checks its own units against the same list before it
+  writes them (`DEY-X034`). In both cases only that rung is skipped, with the
+  code; the other rungs keep working. Every unit DEYROUTE's own backends
+  render passes the check, so a working install does not change. The list
+  is in `docs/en/security.md` (Tunnel processes).
+
+### Changed — the automatic update is off by default
+
+- **The automatic update is now off by default** (spec section 5: an update
+  never runs without asking). Its switch moved from the state database,
+  which no backup contains, to `config.yaml` as `hub.auto_update: true`
+  (written only when on), so a backup keeps it and a restored hub has it
+  again. `deyroute update auto on|off` sets it after an automatic backup,
+  `deyroute --json update auto` adds `"source": "config"`, and
+  `deyroute setup --auto-update on|off` (default `off`) chooses it at
+  setup. A hub that ran an earlier build records the event
+  `auto_update_default_off` once and shows "automatic update is now off by
+  default; turn it on with: deyroute update auto on" on the dashboard for 7
+  days while it is off. The switch is also still written where earlier
+  builds read it, so a rollback to one of them keeps it as it was.
+- **Migration:** a hub that relied on the old default no longer installs
+  releases by itself; run `deyroute update auto on` once to keep that.
+- While `hub.auto_update` is set, `deyroute update --rollback` and
+  `deyroute update --version` to a release before 0.3.0 (every
+  `0.3.0-edge.N` included) are refused with `DEY-S011`; run
+  `deyroute update auto off` first. The rollback guard now compares each
+  newer `config.yaml` key with the first release that knows it (`DEY-S011`
+  names both), never refuses `--version` to a release that is not older
+  than the running one, and trusts the recorded version of
+  `deyroute.prev` only while that file is unchanged (after the installer
+  or a rollback without the service replaced it, every newer key counts).
+- A failed automatic update still goes back to the version it came from.
+  Only when a setting added after the update is unknown to that version
+  is the new version kept; the event `update_rolled_back` with the code
+  `DEY-S011` and a dashboard line for 7 days say so.
+
+### Fixed — the join command installs the hub's own release
+
+- A hub on a release now prints a join command with the installer of that
+  release:
+  `bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v<ver>/install.sh) join '…' --version <ver>`
+  (with `DEYROUTE_MIRROR`: `<mirror>/v<ver>/install.sh`). It used the newest
+  installer (`…/releases/latest/download/install.sh`) with an older
+  `--version`. A development build pins no version and keeps the `latest`
+  installer. The JSON field `command` of `node join-command` keeps its name;
+  only its text changes. Hubs on older builds print the old form until they
+  are updated.
+- Migration for mirror owners: keep the `v<ver>/` directory, with its
+  `install.sh`, of every release your hubs run. A mirror that keeps only
+  `latest/` answers the new join command with 404.
+
+### Added — DEY-I024
+
+- `install.sh --version <ver>` of a release that no download source has
+  stops with `DEY-I024` "Release v{version} not found" (it was removed or
+  never existed; install a version that exists, or use `--local` with a copy
+  you saved) instead of `DEY-I004`, whose hint pointed to `--mirror` and
+  `--local`. An HTTP 404 ends the tries of that source at once; any other
+  failure keeps the three tries per source and still ends in `DEY-I004`.
+
+### Changed — edge releases: kept longer, published after the whole ci run
+
+- Retention keeps the 10 newest edge builds of each branch (`main` and `dev`
+  counted apart), the release marked latest and every release whose tag has
+  no `-edge.` (stable releases). It kept the 5 newest edge builds of both
+  branches together, so a few pushes to `dev` removed the `main` build that
+  hubs pin. A pinned edge build now stays installable until 10 newer builds
+  of its branch exist; pin a stable release for longer.
+- An edge release is published only after the whole ci run of a push to
+  `main` or `dev` passed (lint, race tests, coverage, govulncheck, build,
+  smoke and the integration lab, which now runs for `dev` too), from the
+  commit that run tested. It appears 20 to 40 minutes after the push;
+  before, it followed `go test` alone. Only the tip of the branch is
+  published, never a commit that is already in the branch's newest edge
+  release, and a manual run of release-edge publishes nothing. Edge version
+  numbers have gaps.
+
 ### Security — HTTP/2 fixes
 
 - `golang.org/x/net` is updated to v0.61.0 for the HTTP/2 advisories
@@ -156,8 +268,9 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ### Added — automatic update
 
-- **Automatic update, on by default:** once a day at 04:00 server time the
-  hub installs the newest release that has been out for at least 24 hours,
+- **Automatic update** (off by default, see "Changed — the automatic
+  update is off by default"): once a day at 04:00 server time the hub
+  installs the newest release that has been out for at least 24 hours,
   and the nodes follow. After the restart it checks that every tunnel that
   was UP and every node that was online works again within 10 minutes; if
   not, or if the new version does not start (counted before anything else
