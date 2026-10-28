@@ -293,6 +293,14 @@ node.
 - **A hub of an earlier build** sends no manifest; the nodes of this
   version then install only the versions of their own built-in manifest.
   Update the hub first (see [How the nodes follow](#how-the-nodes-follow)).
+- **Versions already installed.** After `deyroute update`, running tunnels
+  keep their backend versions until you run `deyroute update backends`, and
+  the new build's manifest may pin newer ones. A node that already has such
+  a version installed (its files match the sha256 the hub names) keeps
+  using it without a manifest: nothing is downloaded. A node that does not
+  have it yet (a new node) cannot install it, so those transports are not
+  used there: run `deyroute update backends` after an update that brings
+  new backend versions.
 
 ## Uninstall
 
