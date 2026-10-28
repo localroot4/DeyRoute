@@ -46,8 +46,13 @@ func (c controlHandler) Upload(ctx context.Context, id, nodeID string, body io.R
 }
 
 // Asset implements api.ControlHandler.
-func (c controlHandler) Asset(ctx context.Context, arch string) (api.AssetInfo, error) {
+func (c controlHandler) Asset(ctx context.Context, _, arch string) (api.AssetInfo, error) {
 	return c.h.asset(ctx, arch)
+}
+
+// Release implements api.ControlHandler.
+func (c controlHandler) Release(context.Context, string, string) (api.ReleaseBundle, error) {
+	return api.ReleaseBundle{}, deyerr.New(deyerr.X008, deyerr.Params{"feature": "signed release"})
 }
 
 // errNoChange aborts a config mutation that would not change anything.

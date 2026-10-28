@@ -1,6 +1,7 @@
 package api
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -620,6 +621,99 @@ func (c *ControlClient) FetchAsset(ctx context.Context, arch string, w io.Writer
 			WithDetail("sha256 " + got + " differs from the expected " + want)
 	}
 	return meta, nil
+}
+
+// errReleaseTooLarge ends a release bundle longer than MaxReleaseBundle.
+var errReleaseTooLarge = deyerr.Plain("api: release bundle larger than the limit")
+
+// capReader reads at most n bytes from r, then errReleaseTooLarge.
+type capReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	if c.n <= 0 {
+		return 0, errReleaseTooLarge
+	}
+	if int64(len(p)) > c.n {
+		p = p[:c.n]
+	}
+	n, err := c.r.Read(p)
+	c.n -= int64(n)
+	return n, err
+}
+
+// FetchRelease downloads the hub's signed release for arch
+// (GET /v1/assets/release/{arch}, FeatureSignedUpdate) and hands each file
+// of it to file, in the order served, with its base name; it returns the
+// version the hub named (X-Deyroute-Version). Only regular files with a
+// plain name (no path, no leading dot), each name once, at most 16 files
+// and MaxReleaseBundle bytes are accepted; anything else, or a tar that is
+// cut short inside a file, is DEY-S001 and file is not called for it.
+// Nothing here is trusted: the caller checks that every file it needs came
+// and the signature before it uses any of them. A transfer that breaks is
+// DEY-N009; an error of file is returned as is.
+func (c *ControlClient) FetchRelease(ctx context.Context, arch string, file func(name string, r io.Reader) error) (string, error) {
+	if !archRe.MatchString(arch) {
+		return "", protoErr(c.hello().NodeID, "invalid architecture "+strconv.Quote(arch))
+	}
+	resp, tr, err := c.request(ctx, http.MethodGet, PathReleasePrefix+arch, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tr.CloseIdleConnections()
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", readControlResponse(resp, nil)
+	}
+	ver := resp.Header.Get(HeaderVersion)
+	return ver, readReleaseTar(ctx, resp.Body, arch, c.addr(), file)
+}
+
+// releaseBundleLimit is the byte cap in effect (tests lower it).
+var releaseBundleLimit int64 = MaxReleaseBundle
+
+// readReleaseTar reads the release bundle of arch from body (see
+// FetchRelease); addr names the hub in DEY-N009.
+func readReleaseTar(ctx context.Context, body io.Reader, arch, addr string, file func(name string, r io.Reader) error) error {
+	bad := func(detail string) error {
+		return deyerr.New(deyerr.S001, deyerr.Params{"file": "deyroute release " + arch}).
+			WithWhy("the hub served a release bundle that is not well formed: " + detail)
+	}
+	trd := tar.NewReader(&capReader{r: body, n: releaseBundleLimit})
+	seen := map[string]bool{}
+	for {
+		h, err := trd.Next()
+		if err == io.EOF {
+			return nil
+		}
+		switch {
+		case err == nil:
+		case ctx.Err() != nil:
+			return deyerr.Wrap(deyerr.N009, ctx.Err(), deyerr.Params{"addr": addr})
+		case errors.Is(err, errReleaseTooLarge):
+			return bad("it is larger than " + strconv.FormatInt(releaseBundleLimit, 10) + " bytes")
+		case errors.Is(err, tar.ErrHeader), errors.Is(err, io.ErrUnexpectedEOF):
+			return bad("the tar archive is broken or cut short (" + err.Error() + ")")
+		default:
+			return deyerr.Wrap(deyerr.N009, err, deyerr.Params{"addr": addr})
+		}
+		switch {
+		case h.Typeflag != tar.TypeReg:
+			return bad("entry " + strconv.Quote(h.Name) + " is not a regular file")
+		case !releaseNameRe.MatchString(h.Name):
+			return bad("entry " + strconv.Quote(h.Name) + " is not a plain file name")
+		case seen[h.Name]:
+			return bad(h.Name + " is listed twice")
+		case len(seen) >= maxReleaseFiles:
+			return bad("it has more than " + strconv.Itoa(maxReleaseFiles) + " files")
+		}
+		seen[h.Name] = true
+		if err := file(h.Name, trd); err != nil {
+			return err
+		}
+	}
 }
 
 // Join sends POST /v1/join to hubAddr before the node has any certificate,
