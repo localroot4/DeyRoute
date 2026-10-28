@@ -55,6 +55,11 @@ func TestTunnelAddHappyPath(t *testing.T) {
 		require.FileExists(t, (&systemd.Manager{Root: te.root}).DropInPath(inst))
 	}
 	require.Equal(t, []string{hubUnit(id, "de-1", trAlpha)}, te.sd.active())
+	// The tunnel log directory is created root:deyroute 01770 (QUESTIONS.md
+	// C.48), like the installer does.
+	ld, err := os.Stat(filepath.Join(te.root, systemd.TunnelLogDir))
+	require.NoError(t, err)
+	require.Equal(t, os.ModeSticky|0o770, ld.Mode()&(os.ModePerm|os.ModeSticky))
 	order := te.order()
 	require.GreaterOrEqual(t, len(order), 2)
 	require.Equal(t, "hub start "+id+".de-1.tfa-alpha", order[0])

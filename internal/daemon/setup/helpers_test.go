@@ -249,12 +249,12 @@ func serveSocket(t *testing.T, path string) {
 	})
 }
 
-// mode returns the permission bits of path.
+// mode returns the permission bits and the sticky bit of path.
 func mode(t *testing.T, path string) os.FileMode {
 	t.Helper()
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	return info.Mode().Perm()
+	return info.Mode() & (os.ModePerm | os.ModeSticky)
 }
 
 func fixedNow() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) }

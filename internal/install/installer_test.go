@@ -76,7 +76,9 @@ func TestInstallerStatic(t *testing.T) {
 		"install -d -m 0750 -o root -g deyroute /etc/deyroute/backends /var/lib/deyroute /var/log/deyroute\n",
 		"install -d -m 0755 -o root -g root /var/lib/deyroute/bin\n",
 		"install -d -m 0700 -o root -g root /var/lib/deyroute/backups\n",
-		"install -d -m 0770 -o root -g deyroute /var/log/deyroute/tunnels\n",
+		// Sticky: the backends' user may add files but never remove or
+		// rename root's (QUESTIONS.md C.48).
+		"install -d -m 1770 -o root -g deyroute /var/log/deyroute/tunnels\n",
 	} {
 		require.Contains(t, s, want)
 	}

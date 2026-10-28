@@ -187,7 +187,7 @@ use_local() {
 }
 
 # Paths of spec section 2. /etc/deyroute and /var/lib/deyroute belong to group deyroute so backend
-# processes (user deyroute) can reach backends/ and bin/ (QUESTIONS.md C.16).
+# processes (user deyroute) can reach backends/ and bin/ (QUESTIONS.md C.16); tunnels/ is sticky (C.48).
 setup_user_dirs() {
   local -a g=(--user-group)
   if ! getent passwd deyroute >/dev/null 2>&1; then
@@ -200,7 +200,7 @@ setup_user_dirs() {
   install -d -m 0750 -o root -g deyroute /etc/deyroute/backends /var/lib/deyroute /var/log/deyroute
   install -d -m 0755 -o root -g root /var/lib/deyroute/bin
   install -d -m 0700 -o root -g root /var/lib/deyroute/backups
-  install -d -m 0770 -o root -g deyroute /var/log/deyroute/tunnels
+  install -d -m 1770 -o root -g deyroute /var/log/deyroute/tunnels
 }
 install_binary() {
   local bin; mkdir -p "$TMP/x"

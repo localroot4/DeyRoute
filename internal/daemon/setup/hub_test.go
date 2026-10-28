@@ -93,7 +93,7 @@ func TestSetupHubEndToEnd(t *testing.T) {
 		"var/lib/deyroute/bin":     0o755,
 		"var/lib/deyroute/backups": 0o700,
 		"var/log/deyroute":         0o750,
-		"var/log/deyroute/tunnels": 0o770,
+		"var/log/deyroute/tunnels": os.ModeSticky | 0o770,
 	} {
 		require.Equalf(t, want, mode(t, filepath.Join(root, dir)), "mode of %s", dir)
 	}
@@ -432,7 +432,7 @@ func TestSetupHubCreatesBackendUser(t *testing.T) {
 	require.Contains(t, st.Error.Fix, "installer again")
 	require.Contains(t, st.Error.Why, "deyroute does not exist")
 	require.Equal(t, os.FileMode(0o700), mode(t, filepath.Join(root2, "etc/deyroute")))
-	require.Equal(t, os.FileMode(0o700), mode(t, filepath.Join(root2, "var/log/deyroute/tunnels")))
+	require.Equal(t, os.ModeSticky|0o700, mode(t, filepath.Join(root2, "var/log/deyroute/tunnels")))
 
 	// On the real root the command is exactly the installer's.
 	e := newEnv(envOptions{Runner: f2, LookupGroup: noGroup, LookupUser: withUser})

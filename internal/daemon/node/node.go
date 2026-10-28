@@ -186,6 +186,12 @@ func (o Options) withDefaults() Options {
 	if o.Systemd == nil {
 		o.Systemd = &systemd.Manager{Runner: o.Runner, Root: o.Root}
 	}
+	if o.DeyrouteIDs == nil {
+		o.DeyrouteIDs = render.LookupDeyrouteIDs
+	}
+	if o.Chown == nil {
+		o.Chown = os.Lchown
+	}
 	if o.SelfBinary == "" {
 		o.SelfBinary = config.BinaryPath
 	}

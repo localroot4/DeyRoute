@@ -841,15 +841,15 @@ func natKey(rs []backend.NATRule) string {
 	return strings.Join(keys, ";")
 }
 
-// ensureTunnelLogDir creates /var/log/deyroute/tunnels (0750): systemd
-// refuses to start a unit whose StandardOutput=append: directory is
-// missing.
+// ensureTunnelLogDir creates a missing /var/log/deyroute/tunnels as the
+// installer does (root:deyroute, systemd.TunnelLogDirMode): systemd refuses
+// to start a unit whose StandardOutput=append: directory is missing.
 func (a *agent) ensureTunnelLogDir() error {
-	p := a.path(systemd.TunnelLogDir)
-	if err := os.MkdirAll(p, dlog.DirMode); err != nil {
-		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p})
+	gid := -1
+	if _, g, err := a.o.DeyrouteIDs(); err == nil {
+		gid = g
 	}
-	return nil
+	return systemd.EnsureTunnelLogDir(a.path(systemd.TunnelLogDir), gid, a.o.Chown)
 }
 
 // reconcile runs at start: instances whose unit runs count as started

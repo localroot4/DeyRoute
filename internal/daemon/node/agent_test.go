@@ -114,8 +114,11 @@ func TestRenderStartStopRemove(t *testing.T) {
 	require.Contains(t, string(dropIn), "append:/var/log/deyroute/tunnels/main.log")
 	reloads := e.runner.Count("systemctl daemon-reload")
 	require.Equal(t, 1, reloads)
-	_, err = os.Stat(e.path(systemd.TunnelLogDir))
+	// The tunnel log directory is created root:deyroute 01770 (QUESTIONS.md
+	// C.48), like the installer does.
+	ld, err := os.Stat(e.path(systemd.TunnelLogDir))
 	require.NoError(t, err)
+	require.Equal(t, os.ModeSticky|0o770, ld.Mode()&(os.ModePerm|os.ModeSticky))
 
 	// Rendering the same payload again changes nothing: no reload.
 	_, err = call[json.RawMessage](t, s, api.CmdBackendRender, args)

@@ -5,7 +5,6 @@ import (
 	stderrors "errors"
 	"log/slog"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -400,14 +399,15 @@ func startFailureCode(unit string) deyerr.Code {
 	return deyerr.B003
 }
 
-// ensureTunnelLogDir creates /var/log/deyroute/tunnels: systemd refuses to
-// start a unit whose StandardOutput=append: directory is missing.
+// ensureTunnelLogDir creates a missing /var/log/deyroute/tunnels as the
+// installer does (root:deyroute, systemd.TunnelLogDirMode): systemd refuses
+// to start a unit whose StandardOutput=append: directory is missing.
 func (h *Hub) ensureTunnelLogDir() error {
-	p := h.path(systemd.TunnelLogDir)
-	if err := os.MkdirAll(p, dlog.DirMode); err != nil {
-		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p})
+	gid := -1
+	if _, g, err := h.o.DeyrouteIDs(); err == nil {
+		gid = g
 	}
-	return nil
+	return systemd.EnsureTunnelLogDir(h.path(systemd.TunnelLogDir), gid, h.o.Chown)
 }
 
 // ensureIPForward sets net.ipv4.ip_forward=1 for a NAT transport (runtime;

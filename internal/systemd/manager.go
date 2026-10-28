@@ -14,7 +14,6 @@ import (
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
-	deylog "github.com/localroot4/deyroute/internal/log"
 )
 
 // DefaultTimeout bounds one systemctl call when the caller's context has no
@@ -61,6 +60,12 @@ type Manager struct {
 	Root   string
 	// Timeout per systemctl call when ctx has no deadline; 0 = DefaultTimeout.
 	Timeout time.Duration
+	// GroupID returns the id of a system group: the group of the tunnel
+	// log directory InstallTemplates creates (deyroute); nil = the system
+	// group database.
+	GroupID func(name string) (int, error)
+	// Chown changes ownership; nil = os.Lchown.
+	Chown func(path string, uid, gid int) error
 }
 
 func (m *Manager) root() string {
@@ -112,13 +117,21 @@ func (m *Manager) systemctl(ctx context.Context, args ...string) ([]byte, error)
 // /var/log/deyroute and /var/log/deyroute/tunnels exist: every tunnel unit has
 // ReadWritePaths=/var/log/deyroute and StandardOutput=append: into tunnels/,
 // and systemd refuses to start it (226/NAMESPACE, 209/STDOUT) when they are
-// missing.
+// missing. A missing tunnels/ is created as EnsureTunnelLogDir does.
 func (m *Manager) InstallTemplates(ctx context.Context) error {
-	for _, d := range []string{config.LogDir, TunnelLogDir} {
-		p := filepath.Join(m.root(), d)
-		if err := os.MkdirAll(p, deylog.DirMode); err != nil {
-			return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p})
-		}
+	lookup, chown := m.GroupID, m.Chown
+	if lookup == nil {
+		lookup = lookupGroupID
+	}
+	if chown == nil {
+		chown = os.Lchown
+	}
+	gid, err := lookup(config.SystemUser)
+	if err != nil || gid < 0 {
+		gid = -1
+	}
+	if err := EnsureTunnelLogDir(filepath.Join(m.root(), TunnelLogDir), gid, chown); err != nil {
+		return err
 	}
 	changed := false
 	for _, name := range UnitNames {
