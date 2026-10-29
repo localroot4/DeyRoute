@@ -14,10 +14,15 @@
 # with root's own regular file before systemd opens it as root, so the root
 # file stays byte-identical, the tunnel comes UP with its output in its log
 # and hub.log and node.log have the warning "tunnel log replaced".
-# Last, an existing 0770 directory gets the mode from the installer's repair
+# Then an existing 0770 directory gets the mode from the installer's repair
 # run, and from a restart of the services alone (what deyroute update does);
 # a link user deyroute put at the log name of the running tunnel while the
-# directory was 0770 is replaced when the services start.
+# directory was 0770 is replaced when the services start, so systemd's own
+# restart of a killed backend appends to root's file. A chain of directories
+# user deyroute builds at the next tunnel's log name is moved aside at once
+# (the tunnel comes UP) and deleted by the rotation loop in the background.
+# Last, a file with a second hard link at a log name is not read by
+# deyroute logs (DEY-X022).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -187,5 +192,70 @@ replaced hub hub | grep -qx "$L symlink" || fail "hub.log has no 'tunnel log rep
 replaced node1 node | grep -qx "$L symlink" || fail "node.log has no 'tunnel log replaced' for $L: $(replaced node1 node)"
 wait_node_online "$NODE1" 90
 wait_tunnel_up "$T"
+# The running backends still write to what systemd opened before. When one
+# exits, systemd restarts it by itself (Restart=always, 2 s later) and opens
+# $L again as root, without the services: it finds root's file now.
+unit=$(unit_of "$T")
+{ [ -n "$unit" ] && [ "$unit" != null ]; } || fail "no active unit for $T"
+restarted() { p=$(main_pid "$1" "$unit"); [ "${p:-0}" -gt 0 ] && [ "$p" != "$2" ]; }
+for s in hub node1; do
+  pid=$(main_pid "$s" "$unit")
+  [ "${pid:-0}" -gt 0 ] || fail "no main pid for $unit on $s"
+  on "$s" kill -9 "$pid"
+  wait_for 30 "$unit restarted by systemd on $s" restarted "$s" "$pid"
+  own_log "$s" || fail "$L on $s is not root's regular file after systemd restarted $unit"
+done
+[ "$(sum5 hub)" = "$hub5" ] || fail "/etc/s36-victim-5 changed on the hub after systemd restarted $unit"
+[ "$(sum5 node1)" = "$node5" ] || fail "/etc/s36-victim-5 changed on node1 after systemd restarted $unit"
+wait_tunnel_up "$T"
 wait_tunnel_up "$T2"
+
+# 6. User deyroute builds a chain of directories at the log name of the next
+# tunnel on both sides. The services rename it aside at once instead of
+# walking it (the start does not wait for it) and the rotation loop deletes
+# it in the background, a bounded amount every minute.
+T3=s36-deep
+L3=$D/$T3.log
+serve_http node1 8445 1
+for s in hub node1; do
+  sh_on "$s" "printf 'root file 6\n' > /etc/s36-victim-6 && chmod 0644 /etc/s36-victim-6"
+  on "$s" runuser -u deyroute -- python3 -c 'import os, sys
+os.mkdir(sys.argv[1])
+os.chdir(sys.argv[1])
+for _ in range(3000):
+    os.mkdir("d")
+    os.chdir("d")
+os.symlink("/etc/s36-victim-6", "link")' "$L3" || fail "user deyroute could not build a directory chain at $L3 on $s"
+done
+sum6() { on "$1" sha256sum /etc/s36-victim-6; }
+hub6=$(sum6 hub) node6=$(sum6 node1)
+id=$(add_tunnel "$NODE1" 8445 --name "$T3")
+[ "$id" = "$T3" ] || fail "the new tunnel is $id, want $T3"
+wait_tunnel_up "$T3"
+for s in hub node1; do
+  on "$s" test -f "$L3" -a ! -L "$L3" || fail "$L3 on $s is not a regular file"
+  m=$(on "$s" stat -c '%U %h' "$L3")
+  [ "$m" = "root 1" ] || fail "$L3 on $s is $m, want root's with one link"
+done
+replaced hub hub | grep -qx "$L3 not_regular" || fail "hub.log has no 'tunnel log replaced' for $L3: $(replaced hub hub)"
+replaced node1 node | grep -qx "$L3 not_regular" || fail "node.log has no 'tunnel log replaced' for $L3: $(replaced node1 node)"
+[ "$(fetch_via_hub 8445)" = "$(blob_sha node1)" ] || fail "no traffic through $T3"
+aside_gone() { [ -z "$(on "$1" find "$D" -maxdepth 1 -name "$T3.log.removed-*")" ]; }
+for s in hub node1; do
+  wait_for 200 "the chain moved aside on $s deleted by the rotation loop" aside_gone "$s"
+done
+[ "$(sum6 hub)" = "$hub6" ] || fail "/etc/s36-victim-6 changed on the hub"
+[ "$(sum6 node1)" = "$node6" ] || fail "/etc/s36-victim-6 changed on node1"
+log "chain at $L3 moved aside and deleted on both sides"
+
+# 7. A file with a second hard link at a log name is not read: the node
+# answers deyroute logs (and its hub's logs.tail) with DEY-X022. With
+# fs.protected_hardlinks=1 (the default) user deyroute can link only its
+# own files; with 0 it could link /etc/shadow, which the node reads as root.
+# (Both names in $D: /tmp may be another file system.)
+on node1 runuser -u deyroute -- sh -c "printf 's36-hardlink-secret\n' > '$D/s36-hl.src' && ln '$D/s36-hl.src' '$D/s36-hl.log'" ||
+  fail "user deyroute could not hard-link a file in $D"
+out=$(expect_code DEY-X022 dey --on node1 logs s36-hl)
+if grep -q s36-hardlink-secret <<<"$out"; then fail "deyroute logs read a file with a second hard link: $out"; fi
+on node1 rm -f "$D/s36-hl.log" "$D/s36-hl.src"
 pass
