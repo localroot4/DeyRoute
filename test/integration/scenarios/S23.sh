@@ -48,10 +48,11 @@ on node1 grep -qx "$rkey = $live_rp" /etc/sysctl.d/99-deyroute.conf ||
   fail "99-deyroute.conf does not reserve $live_rp: $(on node1 cat /etc/sysctl.d/99-deyroute.conf)"
 NODE1=$(node_id_of node1)
 wait_node_online "$NODE1"
-# The hub (set up with --yes: profile auto) tunes every node; the node keeps
-# its reservation.
-dey optimize auto --yes --json >/dev/null || fail "optimize auto failed"
-has_reserved node1 || fail "the reservation did not survive optimize auto: $(on node1 sysctl -n "$rkey")"
+# A profile the hub pushes keeps the node's reservation. Balanced, not
+# auto: in a container the automatic plan leaves every kernel value to the
+# host, the reservation included, so it would take the join's values back.
+dey optimize apply --profile balanced --json >/dev/null || fail "optimize apply --profile balanced failed"
+has_reserved node1 || fail "the reservation did not survive the hub's balanced profile: $(on node1 sysctl -n "$rkey")"
 T=$(add_tunnel "$NODE1" 8443)
 wait_tunnel_up "$T"
 
