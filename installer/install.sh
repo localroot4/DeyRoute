@@ -215,7 +215,7 @@ keep_bundle() {
   local d=${ARCHIVE%/*} k=/var/lib/deyroute/bin v=${ARCHIVE##*/deyroute_} o; v=${v%_linux_*}
   [[ $SKIP_SIG = 0 && $v =~ ^[0-9][0-9A-Za-z.+-]*$ ]] || return 0; for o in "$k"/[0-9]*.*/; do [ "$o" = "$k/$v/" ] || rm -rf "${o%/}"; done
   install -d -m 0755 "$k/$v" && install -m 0644 "$d/SHA256SUMS" "$d/SHA256SUMS.minisig" "$ARCHIVE" "$k/$v/" || return 0
-  { [ -f "$d/backends.yaml.minisig" ] && (sig_ok "$d/backends.yaml" "$d/backends.yaml.minisig"); } 2>/dev/null && install -m 0644 "$d"/backends.yaml{,.minisig} "$k/$v/" || :
+  if { [ -f "$d/backends.yaml.minisig" ] && (sig_ok "$d/backends.yaml" "$d/backends.yaml.minisig"); } 2>/dev/null; then install -m 0644 "$d"/backends.yaml{,.minisig} "$k/$v/" || :; fi
 }
 launch() { rm -rf "$TMP"; exec "$BIN_DIR/deyroute" "$@"; }
 run_setup() {

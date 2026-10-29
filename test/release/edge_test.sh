@@ -527,9 +527,9 @@ TestReleaseBuildsRefuseLabKey() {
   check=$(grep -nF 'bash scripts/no-test-key.sh dist/deyroute_*_linux_*/deyroute' "$wf" | cut -d: -f1 || true)
   pack=$(grep -n 'tar -C dist -czf' "$wf" | cut -d: -f1 || true)
   sign=$(grep -n 'minisign sign -in dist/SHA256SUMS' "$wf" | cut -d: -f1 || true)
-  [ -n "$build" ] && [ -n "$check" ] && [ -n "$pack" ] && [ -n "$sign" ] ||
+  { [ -n "$build" ] && [ -n "$check" ] && [ -n "$pack" ] && [ -n "$sign" ]; } ||
     fail "release-edge.yml: build ($build), key check ($check), archives ($pack) or signature ($sign) not found"
-  [ "$build" -lt "$check" ] && [ "$check" -lt "$pack" ] && [ "$pack" -lt "$sign" ] ||
+  { [ "$build" -lt "$check" ] && [ "$check" -lt "$pack" ] && [ "$pack" -lt "$sign" ]; } ||
     fail "release-edge.yml: the key check (line $check) must come after the build ($build) and before the archives ($pack)"
   grep -q 'apt-get install .*qemu-user-static' "$wf" || fail "release-edge.yml: no qemu-user-static for the arm64 binary"
   awk '/^builds:/ { b = 1 } /^[a-z]/ && !/^builds:/ { b = 0 }
