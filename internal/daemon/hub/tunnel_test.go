@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/backend"
+	"github.com/localroot4/deyroute/internal/backend/wireguard"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/render"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
@@ -562,6 +564,46 @@ func TestPortAddRefreshesHubNAT(t *testing.T) {
 	_, err := te.client.PortAdd(ctxT(t), id, []api.PortSpec{{Listen: p2}}, log.add)
 	require.NoError(t, err, "%v", log.finished())
 	requireNATOfPlan(t, te, id, p1, p2)
+	te.waitActive(id, "de-1", trNAT)
+}
+
+// A change of one side of a rung whose sides share a session (WireGuard)
+// restarts both: the node side alone would leave the hub's peer sending
+// with keys the fresh node instance no longer knows (lab S33, port add).
+func TestRestartSidesOfAPairedRung(t *testing.T) {
+	wg := backend.Transport{Backend: "wireguard", Name: "kernel", RestartTogether: true}
+	other := backend.Transport{Backend: "backhaul", Name: "tcpmux"}
+	for _, c := range []struct {
+		tr                  backend.Transport
+		hubCh, nodeCh, h, n bool
+	}{
+		{wg, false, true, true, true},
+		{wg, true, false, true, true},
+		{wg, false, false, false, false},
+		{other, false, true, false, true},
+		{other, true, false, true, false},
+	} {
+		h, n := restartSides(c.tr, c.hubCh, c.nodeCh)
+		require.Equal(t, [2]bool{c.h, c.n}, [2]bool{h, n}, "%s hub=%v node=%v", c.tr.ID(), c.hubCh, c.nodeCh)
+	}
+	require.True(t, wireguard.New().Transports()[0].RestartTogether, "wireguard/kernel")
+	require.True(t, wireguard.NewAWG().Transports()[0].RestartTogether, "awg/userspace")
+}
+
+// A restart of a changed hub side runs its post-start step like a start
+// does: it configures the device the restart recreates (WireGuard keys,
+// address, link up); systemctl restart alone left it down (lab S33).
+func TestRestartChangedRunsHubPostStart(t *testing.T) {
+	te, id := natTunnel(t, freePort(t))
+	part := "/tfa/" + id + "/"
+	before := postStartsUnder(part)
+	require.Positive(t, before, "the start ran the post-start step")
+	unit := hubUnit(id, "de-1", trNAT)
+	restarts := te.sd.count("restart", unit)
+	_, err := te.client.PortAdd(ctxT(t), id, []api.PortSpec{{Listen: freePort(t)}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, restarts+1, te.sd.count("restart", unit))
+	require.Equal(t, before+1, postStartsUnder(part), "the restart ran the post-start step")
 	te.waitActive(id, "de-1", trNAT)
 }
 

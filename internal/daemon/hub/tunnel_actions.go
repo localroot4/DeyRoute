@@ -299,6 +299,17 @@ func (h *Hub) releaseCtlPorts(tunnel, node, transportID string) {
 // startHubSide starts one hub unit: the backend's pre-start step, systemctl
 // start, the start check, the post-start step (awg device configuration).
 func (h *Hub) startHubSide(ctx context.Context, tunnel, backendName string, side render.Side) error {
+	return h.runHubSide(ctx, tunnel, backendName, side, false)
+}
+
+// restartHubSide restarts one hub unit with the same steps: the post-start
+// step configures the device a restart recreates (WireGuard keys,
+// address, link up), which systemctl restart alone leaves down.
+func (h *Hub) restartHubSide(ctx context.Context, tunnel, backendName string, side render.Side) error {
+	return h.runHubSide(ctx, tunnel, backendName, side, true)
+}
+
+func (h *Hub) runHubSide(ctx context.Context, tunnel, backendName string, side render.Side, restart bool) error {
 	unit := systemd.UnitName(side.Instance)
 	if err := h.prepareTunnelLog(tunnel); err != nil {
 		return err
@@ -306,7 +317,11 @@ func (h *Hub) startHubSide(ctx context.Context, tunnel, backendName string, side
 	if err := h.hubHook(ctx, hookPreStart, backendName, side.ConfigDir); err != nil {
 		return err
 	}
-	if err := h.o.Systemd.Start(ctx, unit); err != nil {
+	start := h.o.Systemd.Start
+	if restart {
+		start = h.o.Systemd.Restart
+	}
+	if err := start(ctx, unit); err != nil {
 		if ctx.Err() != nil {
 			return err
 		}

@@ -59,7 +59,7 @@ func init() {
 		{Backend: "tfa", Name: "beta", Direction: backend.Reverse, Protos: []string{"tcp", "udp"}, Stealth: 2},
 		{Backend: "tfa", Name: "gamma", Direction: backend.Forward, Protos: []string{"tcp", "udp"}, NeedsUDP: true, Stealth: 3},
 		{Backend: "tfa", Name: "delta", Direction: backend.Reverse, Protos: []string{"tcp"}, Stealth: 1},
-		{Backend: "tfa", Name: "nat", Direction: backend.Forward, Protos: []string{"tcp"}, Stealth: 1},
+		{Backend: "tfa", Name: "nat", Direction: backend.Forward, Protos: []string{"tcp"}, Stealth: 1, RestartTogether: true},
 	}})
 	backend.Register(&testBackend{name: "tfdl", version: "9.9.9", transports: []backend.Transport{
 		{Backend: "tfdl", Name: "one", Direction: backend.Reverse, Protos: []string{"tcp"}, Stealth: 1},
@@ -82,6 +82,34 @@ type testBackend struct {
 
 func (b *testBackend) Name() string                    { return b.name }
 func (b *testBackend) Transports() []backend.Transport { return b.transports }
+
+// postStarts counts the hub's post-start steps per config dir (the awg
+// device configuration of the real backends).
+var postStarts = struct {
+	sync.Mutex
+	n map[string]int
+}{n: map[string]int{}}
+
+func (b *testBackend) PostStart(_ context.Context, configDir string, _ hookRunner) error {
+	postStarts.Lock()
+	defer postStarts.Unlock()
+	postStarts.n[configDir]++
+	return nil
+}
+
+// postStartsUnder sums the post-start steps of the config dirs that contain
+// part.
+func postStartsUnder(part string) int {
+	postStarts.Lock()
+	defer postStarts.Unlock()
+	n := 0
+	for d, c := range postStarts.n {
+		if strings.Contains(d, part) {
+			n += c
+		}
+	}
+	return n
+}
 func (b *testBackend) Probe(context.Context, backend.RenderInput) (backend.ProbeResult, error) {
 	return backend.ProbeResult{}, backend.ErrNoProbe
 }

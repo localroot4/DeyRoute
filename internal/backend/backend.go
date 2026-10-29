@@ -83,6 +83,11 @@ type Transport struct {
 	// carries TCP itself and its UDP maps through backhaul/udp. Empty: the
 	// transport carries only Protos.
 	UDPCompanion string
+	// RestartTogether: a restart of one side drops the session the other
+	// side holds (WireGuard: the peer keeps sending with keys the fresh
+	// instance no longer knows until its handshake times out, about 15 s).
+	// A change of either side then restarts both.
+	RestartTogether bool
 }
 
 // ID returns "backend/name".

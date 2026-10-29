@@ -1365,6 +1365,17 @@ func (c *tunnelCtl) update(ctx context.Context, o updateOpts) error {
 
 // restartChanged restarts the sides of the active candidate whose rendered
 // files changed (server side first); done (optional) learns of a restart.
+// restartSides reports which sides of a candidate restart after a change:
+// the changed ones, and both when the transport's sides share a session
+// (WireGuard), since one restarted side alone breaks the tunnel until its
+// peer's session times out.
+func restartSides(t backend.Transport, hubChanged, nodeChanged bool) (hub, node bool) {
+	if t.RestartTogether && (hubChanged || nodeChanged) {
+		return true, true
+	}
+	return hubChanged, nodeChanged
+}
+
 func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, res applyResult, rep *steps, done func(string)) {
 	// The engine cannot start or stop a candidate meanwhile: the restart
 	// never revives a unit it has just stopped.
@@ -1372,8 +1383,10 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 	defer c.unitMu.Unlock()
 	active := eng.State().Active
 	pc, ok := c.candidate(active)
-	hubCh := ok && res.changedHub[pc.Hub.Instance]
-	nodeCh := ok && res.changedNode[pc.NodeSide.Instance]
+	var hubCh, nodeCh bool
+	if ok {
+		hubCh, nodeCh = restartSides(pc.Transport, res.changedHub[pc.Hub.Instance], res.changedNode[pc.NodeSide.Instance])
+	}
 	if !c.isStarted(active) || (!hubCh && !nodeCh) {
 		if rep != nil {
 			rep.emit(api.Step{ID: stepRestart, Status: api.StepSkipped, Detail: "the active transport did not change"})
@@ -1387,14 +1400,7 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 			if !hubCh {
 				return nil
 			}
-			unit := systemd.UnitName(pc.Hub.Instance)
-			if err := h.prepareTunnelLog(c.id); err != nil {
-				return err
-			}
-			if err := h.o.Systemd.Restart(ctx, unit); err != nil {
-				return h.unitFailed(unit, c.id, err)
-			}
-			return h.watchStart(ctx, unit, c.id)
+			return h.restartHubSide(ctx, c.id, pc.Backend, pc.Hub)
 		}
 		restartNode := func() error {
 			if !nodeCh {

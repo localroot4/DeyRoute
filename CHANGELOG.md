@@ -171,6 +171,10 @@ All notable changes to DEYROUTE are documented here. The format follows
   traffic at once and a removed port loses its NAT rule. Before, the NAT
   rules followed only after a failover, `tunnel restart` or a hub restart
   (DR-10).
+- The same change restarts both sides of the rung, and the hub side runs
+  its start steps again (keys, address, link up). Before, only the hub
+  unit restarted, its interface stayed down without an address, and the
+  tunnel lost traffic.
 
 ### Added — join-token revoke, setup without a join window
 
