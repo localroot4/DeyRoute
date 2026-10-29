@@ -105,6 +105,14 @@ func (l *local) PortAdd(ctx context.Context, tunnel string, specs []api.PortSpec
 		if err := c.update(ctx, updateOpts{rep: rep, restartActive: true, quietInstall: true}); err != nil {
 			return api.TunnelInfo{}, withLog(err)
 		}
+		// The first pass opened the new port in the input chain; this one
+		// installs its NAT on an active NAT rung (WireGuard), whose hub side
+		// the update has just refreshed.
+		if t.Enabled {
+			if err := h.firewallStep(ctx, rep); err != nil {
+				return api.TunnelInfo{}, withLog(err)
+			}
+		}
 	}
 	return h.tunnelInfoOf(t.ID), nil
 }

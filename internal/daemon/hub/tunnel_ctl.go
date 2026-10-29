@@ -257,6 +257,31 @@ func (c *tunnelCtl) markStarted(sc state.Candidate) {
 	c.mu.Unlock()
 }
 
+// refreshStartedLocked replaces the cached hub side of every started
+// candidate that plan still has with its side in plan, so the firewall's
+// NAT follows a port change on an active NAT rung (WireGuard: the DNAT is
+// the only data path). A candidate the plan dropped keeps its cached side
+// until it stops. It reports whether NAT or masquerade rules changed.
+// Needs c.mu.
+func (c *tunnelCtl) refreshStartedLocked(plan *render.TunnelPlan) bool {
+	changed := false
+	for k, old := range c.started {
+		node, tr, ok := strings.Cut(k, "/")
+		if !ok {
+			continue
+		}
+		pc, ok := plan.Candidate(node, tr)
+		if !ok {
+			continue
+		}
+		if !slices.Equal(old.NAT, pc.Hub.NAT) || !slices.Equal(old.Masquerade, pc.Hub.Masquerade) {
+			changed = true
+		}
+		c.started[k] = pc.Hub
+	}
+	return changed
+}
+
 // markStopped forgets sc and returns its hub side (and whether it was
 // started).
 func (c *tunnelCtl) markStopped(sc state.Candidate) (render.Side, bool) {
@@ -543,6 +568,9 @@ type applyResult struct {
 	changedNode map[string]bool       // instance → its node payload changed
 	stale       []render.Candidate    // planned before, not any more
 	fatal       error                 // the failed step (reported, not fatal for the controller)
+	// natChanged: the NAT or masquerade rules of a started candidate's hub
+	// side changed with the new plan (a port change on a NAT rung).
+	natChanged bool
 }
 
 // apply plans the tunnel from the current config.yaml and makes the hub
@@ -646,6 +674,7 @@ func (c *tunnelCtl) apply(ctx context.Context, o applyOpts) (applyResult, error)
 	c.mu.Lock()
 	old, hadOld := c.plan, c.planned
 	c.plan, c.planned, c.problem = plan, true, ""
+	res.natChanged = c.refreshStartedLocked(&plan)
 	for n := range c.pending {
 		if o.only == "" || n == o.only {
 			delete(c.pending, n)
@@ -1274,6 +1303,9 @@ func (c *tunnelCtl) update(ctx context.Context, o updateOpts) error {
 	if err != nil {
 		c.setProblem(err)
 		return err
+	}
+	if res.natChanged {
+		c.h.requestFirewall()
 	}
 	eng := c.eng()
 	if eng == nil {
