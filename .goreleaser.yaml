@@ -19,6 +19,15 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
+    # A release binary trusts the release key only: a binary built with the
+    # integration lab's signing key (-X …/internal/install.TestPublicKey)
+    # says "test_key": true in `deyroute --json version` and fails the build
+    # before anything is packed, signed or published. The arm64 binary runs
+    # through qemu-user-static (the release job of ci.yml installs it).
+    hooks:
+      post:
+        - cmd: bash scripts/no-test-key.sh "{{ .Path }}"
+          output: true
 
 archives:
   - id: deyroute

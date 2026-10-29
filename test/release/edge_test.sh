@@ -4,12 +4,13 @@
 #   - scripts/edge-gate.sh: whether a green ci run publishes its commit;
 #   - scripts/edge-prune.sh: the retention;
 #   - the parts of .github/workflows/release-edge.yml that keep the publishes
-#     of a branch in order.
+#     of a branch in order;
+#   - scripts/no-test-key.sh and where the release builds run it.
 # Run by ci.yml (lint job), or by hand from anywhere:
 #
 #   bash test/release/edge_test.sh [TestName ...]
 #
-# Needs bash, git and jq.
+# Needs bash, git, jq and go (the no-test-key tests build a tiny fake binary).
 set -euo pipefail
 shopt -s inherit_errexit
 
@@ -392,6 +393,153 @@ TestReleaseWorkflowsSignInEnvironments() {
     [ "$(cat "$T/envs")" = "$job $env" ] ||
       fail "${wf##*/}: want only the job $job in the environment $env, got: $(cat "$T/envs")"
   done
+}
+
+# --------------------------------------------------------------- no-test-key
+
+# fake_deyroute GOARCH DIR JSON [RC]: DIR/deyroute, a tiny static binary for
+# linux/GOARCH that answers exactly `--json version` with JSON and exit
+# status RC (default 0), as a deyroute release binary answers it. The
+# program is built once per run and per GOARCH.
+fake_deyroute() {
+  local arch=$1 dir=$2 bin="$tmp/fake-deyroute/$1/deyroute"
+  if [ ! -x "$bin" ]; then
+    mkdir -p "$tmp/fake-deyroute/src" "${bin%/*}"
+    cat >"$tmp/fake-deyroute/src/main.go" <<'EOF'
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	if len(os.Args) != 3 || os.Args[1] != "--json" || os.Args[2] != "version" {
+		fmt.Fprintln(os.Stderr, "fake deyroute: unexpected arguments:", os.Args[1:])
+		os.Exit(2)
+	}
+	exe, _ := os.Executable()
+	out, _ := os.ReadFile(filepath.Join(filepath.Dir(exe), "version.json"))
+	rc, _ := os.ReadFile(filepath.Join(filepath.Dir(exe), "version.rc"))
+	fmt.Print(string(out))
+	n, _ := strconv.Atoi(strings.TrimSpace(string(rc)))
+	os.Exit(n)
+}
+EOF
+    (cd "$tmp/fake-deyroute/src" && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o "$bin" main.go) ||
+      fail "cannot build the fake deyroute for $arch"
+  fi
+  mkdir -p "$dir"
+  cp "$bin" "$dir/deyroute"
+  printf '%s\n' "$3" >"$dir/version.json"
+  printf '%s\n' "${4:-0}" >"$dir/version.rc"
+}
+
+# host_goarch / foreign_goarch: this machine's GOARCH and the other one of
+# the two release architectures (amd64, arm64); foreign_cpu is the latter as
+# uname -m and qemu name it.
+host_goarch() { case $(uname -m) in aarch64 | arm64) echo arm64 ;; *) echo amd64 ;; esac; }
+foreign_goarch() { case $(host_goarch) in amd64) echo arm64 ;; *) echo amd64 ;; esac; }
+foreign_cpu() { case $(foreign_goarch) in arm64) echo aarch64 ;; *) echo x86_64 ;; esac; }
+
+# want_key_check WANT BINARY... [-- TEXT]: scripts/no-test-key.sh BINARY...
+# exits 0 (WANT pass) or not (WANT fail); TEXT is part of what it prints.
+want_key_check() {
+  local want=$1 rc=0 text="" args=()
+  shift
+  while [ $# -gt 0 ]; do
+    if [ "$1" = -- ]; then text=$2; break; fi
+    args+=("$1")
+    shift
+  done
+  bash "$root/scripts/no-test-key.sh" "${args[@]}" >"$T/check.out" 2>&1 || rc=$?
+  case $want in
+    pass) [ "$rc" = 0 ] || fail "no-test-key.sh ${args[*]}: exit $rc, want 0: $(cat "$T/check.out")" ;;
+    fail) [ "$rc" != 0 ] || fail "no-test-key.sh ${args[*]}: exit 0, want a failure: $(cat "$T/check.out")" ;;
+  esac
+  [ -z "$text" ] || grep -qF -- "$text" "$T/check.out" ||
+    fail "no-test-key.sh ${args[*]}: '$text' missing in: $(cat "$T/check.out")"
+}
+
+# A release binary ("test_key": false) passes.
+TestNoTestKeyPassesReleaseBinary() {
+  fake_deyroute "$(host_goarch)" "$T/rel" '{"schema":1,"version":"0.3.0","test_key":false}'
+  want_key_check pass "$T/rel/deyroute" -- "$T/rel/deyroute"
+}
+
+# A binary built with the lab's test key ("test_key": true) is refused, and
+# so is one of several binaries.
+TestNoTestKeyRefusesLabBinary() {
+  fake_deyroute "$(host_goarch)" "$T/rel" '{"schema":1,"version":"0.3.0","test_key":false}'
+  fake_deyroute "$(host_goarch)" "$T/lab" '{"schema":1,"version":"0.3.0","test_key":true}'
+  want_key_check fail "$T/lab/deyroute" -- "test_key is true"
+  want_key_check fail "$T/rel/deyroute" "$T/lab/deyroute" -- "$T/lab/deyroute"
+}
+
+# What cannot be checked is refused: no test_key field (a build that
+# predates it), an answer that is not JSON, a failing binary, a file that is
+# not an ELF binary.
+TestNoTestKeyRefusesWhatItCannotCheck() {
+  fake_deyroute "$(host_goarch)" "$T/old" '{"schema":1,"version":"0.3.0"}'
+  want_key_check fail "$T/old/deyroute" -- "test_key is absent"
+  fake_deyroute "$(host_goarch)" "$T/text" 'deyroute 0.3.0'
+  want_key_check fail "$T/text/deyroute" -- "test_key is unreadable"
+  fake_deyroute "$(host_goarch)" "$T/bad" '{"schema":1,"version":"0.3.0","test_key":false}' 3
+  want_key_check fail "$T/bad/deyroute" -- "cannot be checked"
+  printf '#!/bin/sh\necho %s\n' "'{\"test_key\":false}'" >"$T/script"
+  chmod +x "$T/script"
+  want_key_check fail "$T/script" -- "not an x86_64 or aarch64 ELF binary"
+  want_key_check fail "$T/missing" -- "no such file"
+}
+
+# A binary of the other architecture runs through qemu-<cpu>-static (here a
+# fake that answers for it and records its arguments).
+TestNoTestKeyRunsForeignBinaryThroughQemu() {
+  local cpu
+  cpu=$(foreign_cpu)
+  mkdir -p "$T/qemu"
+  cat >"$T/qemu/qemu-$cpu-static" <<EOF
+#!/bin/sh
+echo "\$*" >>"$T/qemu.log"
+cat "\$(dirname "\$1")/version.json"
+EOF
+  chmod +x "$T/qemu/qemu-$cpu-static"
+  fake_deyroute "$(foreign_goarch)" "$T/rel" '{"schema":1,"version":"0.3.0","test_key":false}'
+  fake_deyroute "$(foreign_goarch)" "$T/lab" '{"schema":1,"version":"0.3.0","test_key":true}'
+  PATH="$T/qemu:$PATH" want_key_check pass "$T/rel/deyroute"
+  PATH="$T/qemu:$PATH" want_key_check fail "$T/lab/deyroute" -- "test_key is true"
+  [ "$(cat "$T/qemu.log")" = "$T/rel/deyroute --json version"$'\n'"$T/lab/deyroute --json version" ] ||
+    fail "qemu-$cpu-static was not used as expected: $(cat "$T/qemu.log")"
+}
+
+# Both release paths check every binary before it is packed and signed:
+# the edge build of release-edge.yml (a step between the build and the
+# archives) and goreleaser (a build hook of .goreleaser.yaml, run by the
+# release job of ci.yml); both jobs install qemu-user-static first for the
+# arm64 binary.
+TestReleaseBuildsRefuseLabKey() {
+  local wf="$root/.github/workflows/release-edge.yml" build check pack sign
+  build=$(grep -n 'go build -trimpath' "$wf" | head -n 1 | cut -d: -f1 || true)
+  check=$(grep -nF 'bash scripts/no-test-key.sh dist/deyroute_*_linux_*/deyroute' "$wf" | cut -d: -f1 || true)
+  pack=$(grep -n 'tar -C dist -czf' "$wf" | cut -d: -f1 || true)
+  sign=$(grep -n 'minisign sign -in dist/SHA256SUMS' "$wf" | cut -d: -f1 || true)
+  [ -n "$build" ] && [ -n "$check" ] && [ -n "$pack" ] && [ -n "$sign" ] ||
+    fail "release-edge.yml: build ($build), key check ($check), archives ($pack) or signature ($sign) not found"
+  [ "$build" -lt "$check" ] && [ "$check" -lt "$pack" ] && [ "$pack" -lt "$sign" ] ||
+    fail "release-edge.yml: the key check (line $check) must come after the build ($build) and before the archives ($pack)"
+  grep -q 'apt-get install .*qemu-user-static' "$wf" || fail "release-edge.yml: no qemu-user-static for the arm64 binary"
+  awk '/^builds:/ { b = 1 } /^[a-z]/ && !/^builds:/ { b = 0 }
+       b && /^ *post:/ { p = 1; next }
+       b && p && /- cmd: bash scripts\/no-test-key.sh "\{\{ \.Path \}\}"$/ { found = 1 }
+       END { exit !found }' "$root/.goreleaser.yaml" ||
+    fail ".goreleaser.yaml: no post-build hook running scripts/no-test-key.sh on each binary"
+  awk '/^  [a-z-]+:$/ { job = $1 } job == "release:" && /apt-get install .*qemu-user-static/ { q = NR }
+       job == "release:" && /goreleaser\/goreleaser-action/ { g = NR }
+       END { exit !(q && g && q < g) }' "$root/.github/workflows/ci.yml" ||
+    fail "ci.yml: the release job does not install qemu-user-static before goreleaser"
 }
 
 # ------------------------------------------------------------------- runner

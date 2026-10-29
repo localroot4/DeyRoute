@@ -156,6 +156,25 @@ jobs:
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
               -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${HEAD_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -o "$d/deyroute" ./cmd/deyroute
+          done
+      # A release binary trusts the release key only: a binary built with the
+      # integration lab's signing key (-X …/internal/install.TestPublicKey)
+      # says "test_key": true in `deyroute --json version` and stops the
+      # release here, before anything is packed or signed. The arm64 binary
+      # runs through qemu.
+      - name: no lab signing key in the binaries
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-user-static
+          bash scripts/no-test-key.sh dist/deyroute_*_linux_*/deyroute
+      - name: archives
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            d="dist/deyroute_${VERSION}_linux_${arch}"
             cp README.md README.en.md CHANGELOG.md LICENSE "$d/"
             tar -C dist -czf "dist/deyroute_${VERSION}_linux_${arch}.tar.gz" "deyroute_${VERSION}_linux_${arch}"
             rm -rf "$d"

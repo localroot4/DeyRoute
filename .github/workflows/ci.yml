@@ -143,6 +143,14 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
         with: { go-version: stable }
+      # goreleaser checks every binary it builds for the integration lab's
+      # signing key (scripts/no-test-key.sh, a build hook in .goreleaser.yaml)
+      # before anything is packed, signed or published; the arm64 binary runs
+      # through qemu.
+      - name: qemu for the arm64 binary
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-user-static
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
