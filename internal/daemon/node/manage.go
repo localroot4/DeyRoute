@@ -143,7 +143,17 @@ func (a *agent) uninstall(ctx context.Context) error {
 // records the inputs hash for Hello.TuneHash; the answer carries the facts,
 // the changes made, the skipped items and the plan hash. Any other profile
 // removes the drop-ins and the recorded hash (the node left auto).
+//
+// Every profile but off reserves the hub's entries, the control range and
+// the entries of join --reserve-ports (setup.NodeTuneReserved). A node
+// whose join opted out (setup.HubTuningOffFile) refuses every profile but
+// off with DEY-N052 and a warning.
 func (a *agent) sysctlApply(ctx context.Context, args api.SysctlArgs) (api.SysctlResult, error) {
+	if args.Profile != config.SysctlOff {
+		if err := a.refuseHubTuning(api.CmdSysctlApply, args.Profile); err != nil {
+			return api.SysctlResult{}, err
+		}
+	}
 	if args.Profile == config.SysctlAuto {
 		t := setup.PlanHostTune(a.o.Root, config.RoleNode, a.tuneOptions(args))
 		warnings, err := setup.ApplyHostTune(ctx, a.o.Root, a.sd, t)
@@ -160,9 +170,11 @@ func (a *agent) sysctlApply(ctx context.Context, args api.SysctlArgs) (api.Sysct
 		a.log.Info("automatic tuning applied", slog.Int("changes", len(host.Changes)), slog.String("plan", t.Hash))
 		return api.SysctlResult{Warnings: warnings, Facts: host.Facts, Changes: host.Changes, Skips: host.Skips, Hash: t.Hash}, nil
 	}
-	applied, warnings, err := sysctl.Manager{Root: a.o.Root}.ApplyWith(sysctl.ApplyOptions{
-		Profile: args.Profile, BBR: a.tuneBBR(args), IPForward: args.IPForward,
-	})
+	o := sysctl.ApplyOptions{Profile: args.Profile, BBR: a.tuneBBR(args), IPForward: args.IPForward}
+	if args.Profile != config.SysctlOff {
+		o.Reserved = a.tuneReserved(args)
+	}
+	applied, warnings, err := sysctl.Manager{Root: a.o.Root}.ApplyWith(o)
 	for _, w := range warnings {
 		a.log.Warn("sysctl: "+w, slog.String("profile", args.Profile))
 	}
@@ -184,12 +196,39 @@ func (a *agent) sysctlApply(ctx context.Context, args api.SysctlArgs) (api.Sysct
 // command of its own, not a flag of sysctl.apply, so an agent that does not
 // know it refuses instead of applying.
 func (a *agent) tunePlan(args api.SysctlArgs) (api.SysctlResult, error) {
+	if err := a.refuseHubTuning(api.CmdTunePlan, args.Profile); err != nil {
+		return api.SysctlResult{}, err
+	}
 	if args.Profile != config.SysctlAuto {
 		return api.SysctlResult{}, a.refuse(api.CmdTunePlan, "only the profile auto has a plan")
 	}
 	t := setup.PlanHostTune(a.o.Root, config.RoleNode, a.tuneOptions(args))
 	host := t.API(a.nodeID)
 	return api.SysctlResult{Facts: host.Facts, Changes: host.Changes, Skips: host.Skips, Hash: t.Hash}, nil
+}
+
+// refuseHubTuning returns DEY-N052 (and logs a warning) while this node's
+// join opted out of kernel tuning (setup.HubTuningOffFile, read without
+// following links); nil otherwise.
+func (a *agent) refuseHubTuning(command, profile string) error {
+	if !setup.HubTuningOff(a.o.Root) {
+		return nil
+	}
+	err := deyerr.New(deyerr.N052, deyerr.Params{"node": a.nodeID, "command": command})
+	a.log.Warn("the hub's kernel tuning is refused: this node opted out at join", slog.String("command", command),
+		slog.String("profile", profile), slog.String("marker", setup.HubTuningOffFile), dlog.Err(err))
+	return err
+}
+
+// tuneReserved are the port entries this node reserves for a profile the
+// hub sent: the hub's, the control range and the saved --reserve-ports
+// entries (a saved list that cannot be read is left out with a warning).
+func (a *agent) tuneReserved(args api.SysctlArgs) []string {
+	reserved, err := setup.NodeTuneReserved(a.o.Root, args.Reserved)
+	if err != nil {
+		a.log.Warn("the ports of join --reserve-ports cannot be read; reserving the rest", dlog.Err(err))
+	}
+	return reserved
 }
 
 // tuneCheck answers tune.check: drift and findings of this node's tuning.
@@ -222,7 +261,7 @@ func (a *agent) tuneOptions(args api.SysctlArgs) sysctl.ApplyOptions {
 	nat = nat || len(a.st.HubNAT) > 0
 	a.instMu.Unlock()
 	return sysctl.ApplyOptions{Profile: config.SysctlAuto, BBR: a.tuneBBR(args), IPForward: args.IPForward,
-		UDPRungs: udp, Conntrack: nat || args.IPForward, Reserved: args.Reserved}
+		UDPRungs: udp, Conntrack: nat || args.IPForward, Reserved: a.tuneReserved(args)}
 }
 
 // TuneHashFile holds SysctlArgs.InputsHash of the hub's last automatic

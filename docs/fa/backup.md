@@ -74,7 +74,7 @@ deyroute restore /root/deyroute-backup-20260930T120000Z.tar.gz.age
 
 ۲. `config.yaml` داخل بکاپ اعتبارسنجی می‌شود و اگر قدیمی باشد به شکل جدید تبدیل (migrate) می‌شود.
 
-۳. اگر بکاپ مال Hub باشد و IP عمومی این سرور فرق داشته باشد، می‌پرسد آیا Hub به اینجا منتقل شده ([جابه‌جایی Hub](hub-move.md)). منو هم همین سؤال را می‌پرسد. اگر جواب بله باشد، متن تأیید پایین این را هم می‌گوید: `The hub address changes from 5.6.7.8 to 7.7.7.7; the hub certificate is re-issued.`
+۳. اگر بکاپ مال Hub باشد و IP عمومی این سرور فرق داشته باشد، می‌پرسد آیا Hub به اینجا منتقل شده ([جابه‌جایی Hub](hub-move.md)). منو هم همین سؤال را می‌پرسد. اگر جواب بله باشد، متن تأیید پایین این را هم می‌گوید: `The hub address changes from 5.6.7.8 to 7.7.7.7; the hub certificate is re-issued.` اگر آدرسی که برای این سرور پیدا می‌شود خصوصی باشد (NAT یا IP شناور) یا اصلاً پیدا نشود، به‌جای آن می‌خواهد IP عمومی این سرور را تایپ کنید؛ Enter خالی آدرس داخل بکاپ را نگه می‌دارد. منو هم همین را می‌پرسد.
 
 ۴. با تایپ `yes` تأیید می‌کنید:
 
@@ -87,8 +87,19 @@ Restoring deyroute-backup-….tar.gz.age (hub ir-1, created 2026-09-30 12:00 wit
 `/etc/deyroute` قبلی به اسم `/etc/deyroute.pre-restore-<time>` نگه داشته می‌شود؛ وقتی دیگر لازمش نداشتید پاکش کنید. در اسکریپت `--yes` بدهید (و `DEYROUTE_BACKUP_PASSPHRASE` را تنظیم کنید):
 
 ```bash
-DEYROUTE_BACKUP_PASSPHRASE='long secret phrase' deyroute restore /root/hub.tar.gz.age --yes
+DEYROUTE_BACKUP_PASSPHRASE='long secret phrase' deyroute restore /root/hub.tar.gz.age --yes --public-ip 203.0.113.7
 ```
+
+بک‌اندهای Nodeها به `hub.public_ip` وصل می‌شوند؛ پس اسکریپتی که Hub را ریستور می‌کند باید بگوید Hub چه آدرسی بگیرد:
+
+| فلگ | `hub.public_ip` در Hub ریستورشده |
+|---|---|
+| `--public-ip A.B.C.D` | همین آدرس. اگر `--public-ip6` هم داده نشود، `hub.public_ip6` پاک می‌شود و `warnings` در خروجی این را می‌گوید. آدرسی که عمومی نباشد همان‌طور که داده‌اید استفاده می‌شود، با یک هشدار. |
+| `--public-ip6 X` | `hub.public_ip6` را تنظیم می‌کند؛ فقط همراه `--public-ip`. |
+| `--keep-address` | آدرس‌های داخل بکاپ (IPv4 و IPv6): بازسازی همان سرور یا IP شناور. با `--public-ip`/`--public-ip6` با هم نمی‌شود (`DEY-C013`). |
+| هیچ‌کدام | IP عمومی‌ای که برای این سرور پیدا می‌شود. ریستور روی همان سرور آدرس را نگه می‌دارد. |
+
+بدون فلگ، با `--yes` یا بدون ترمینال، اگر بکاپ Hub روی سرور دیگری ریستور شود و آدرس پیداشده خصوصی باشد یا اصلاً پیدا نشود، ریستور پیش از هر تغییری با `DEY-I025` متوقف می‌شود: ریستور آدرسی را که Nodeها به آن وصل می‌شوند حدس نمی‌زند. دوباره با `--public-ip` (یا `--keep-address`) اجرا کنید. تا پیش از این نسخه، چنین ریستوری بی‌صدا آدرس قدیم را نگه می‌داشت.
 
 بکاپ Node هم به همین شکل روی Node ریستور می‌شود و Node خودش دوباره به Hubش وصل می‌شود. ریستور روی سروری که با `install.sh --no-setup` نصب شده هم کار می‌کند.
 

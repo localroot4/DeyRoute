@@ -102,6 +102,8 @@ On a terminal it first shows a summary and asks `Create the tunnel?` (y or n; En
 | `--node <id>` | primary node (required) |
 | `--ports …` | listen ports (required), see the table below |
 | `--name N` | display name; the tunnel **id** is derived from it (`main`) |
+| `--id <id>` | the exact tunnel id (`[a-z0-9-]`, 2–32 characters); a taken id fails with `DEY-C002` |
+| `--allow-rename` | without a terminal or with `--yes`: give a taken `--name` a numbered id instead of failing |
 | `--ladder default` | a ladder profile, or an inline list such as `backhaul/wssmux,rathole/noise` |
 | `--backup <id>` | backup node(s); repeat the flag or separate ids with commas |
 | `--yes` | do not show the summary first |
@@ -109,6 +111,25 @@ On a terminal it first shows a summary and asks `Create the tunnel?` (y or n; En
 The tunnel id is what all other commands use (`deyroute tunnel show main`).
 Without `--name` the id is `tunnel` (then `tunnel-2`, …); `deyroute tunnel list`
 shows it.
+
+When the id derived from `--name` is taken, the result depends on who runs
+the command:
+
+- On a terminal, without `--yes`, the tunnel gets a numbered id (`main-2`)
+  and the summary is shown as usual.
+- Without a terminal or with `--yes` (a script), the command stops with
+  `DEY-C002` and exit code 1 and creates nothing. `--allow-rename` brings
+  back the numbered id.
+
+Scripts pass the id with `--id`: then the id is always the one you gave, and
+a second identical call fails with `DEY-C002` instead of creating a second
+tunnel. A retry after a lost answer is therefore safe:
+
+```bash
+deyroute tunnel add --id t5 --name "Panel 5" --node de-1 --ports 2083 --yes --json
+```
+
+An invalid id fails with `DEY-C007`.
 
 More examples:
 
@@ -221,6 +242,7 @@ deyroute port set main 443 --probe tls                # change the probe kind
 deyroute port remove main 8443
 deyroute tunnel edit main --name "Main 443"
 deyroute tunnel edit main --probe-port 2053           # which port the health probe uses
+deyroute tunnel edit main --node nl-1 --node de-1     # node order, primary first (backup-node.md)
 deyroute tunnel restart main
 deyroute tunnel disable main                          # stops forwarding (asks for yes)
 deyroute tunnel enable main
@@ -245,11 +267,35 @@ kind (Advanced):
 | `tcp` | the TCP connection opens |
 | `tls` | a TLS handshake completes or a TLS alert comes back |
 | `http` | `HEAD /` gets an HTTP status line back |
+| `echo` | a random nonce goes through the tunnel to the node and comes back, and the node reaches the service (a TCP connect) |
 
-`auto` suits almost every VPN service. Choose `tcp` for a service that stays
-silent or closes the connection when it gets a TLS hello (some proxies do),
-`tls` or `http` to make sure that the right kind of service answers. UDP port
-maps are always `auto` (they are checked through the transport's units).
+`auto` suits almost every VPN service, also one that stays silent. Some
+services without TLS wait for their own client and never answer a TLS
+hello: VMess over TCP without TLS times out (for some UUIDs), Shadowsocks-2022
+resets the connection. Before it starts the tunnel the hub asks the node:
+when the node's own TLS hello to the target times out or is reset while a
+TCP connect succeeds, the target is **silent**, and `auto` uses the `echo`
+probe for that node. `deyroute tunnel show main` then shows the port as
+`443/tcp → 127.0.0.1:443 (auto → echo)`; with `--json` the probe port has
+`"probe_effective": "echo"` and `"probe_reason"` says why. A target that
+starts to answer the TLS hello later goes back to `auto` the same way.
+
+The `echo` probe does not talk to the service. Every rung of that node
+carries one extra, hidden port map: a hub port in the backend control range
+30000-31999 (the firewall admits it from the nodes and from the hub only)
+forwarded to a small echo service on the node's `127.0.0.1`. It does not
+appear among the tunnel's ports. A rung that black-holes the traffic fails
+it like any other probe, so a block is still found and the tunnel switches.
+A node running an older deyroute (without `echo-probe`) keeps `auto` and
+the dashboard says so; it gets the feature when it follows the hub's version
+([Update](update-uninstall.md)).
+
+Choose `echo` yourself to use it for any service; `tls` or `http` to make
+sure that the right kind of service answers. `tcp` proves little through a
+reverse tunnel: the hub side accepts the connection itself. UDP port maps
+are always `auto` (they are checked through the transport's units). While a
+port uses `echo`, a rollback to a release before 0.3.1 is refused
+(`DEY-S011`): set the port back to `auto` first.
 
 Set it with `deyroute port add … --probe <kind>` or `deyroute port set <tunnel>
 <port> --probe <kind>`; in the menu, in Advanced mode: `4) Ports` →

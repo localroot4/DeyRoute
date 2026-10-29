@@ -5,6 +5,7 @@ package backend
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -82,6 +83,11 @@ type Transport struct {
 	// carries TCP itself and its UDP maps through backhaul/udp. Empty: the
 	// transport carries only Protos.
 	UDPCompanion string
+	// RestartTogether: a restart of one side drops the session the other
+	// side holds (WireGuard: the peer keeps sending with keys the fresh
+	// instance no longer knows until its handshake times out, about 15 s).
+	// A change of either side then restarts both.
+	RestartTogether bool
 }
 
 // ID returns "backend/name".
@@ -315,13 +321,36 @@ type PortUse struct {
 
 // NATRule is a DNAT the renderer needs in table inet deyroute (WireGuard
 // port forwarding on the hub, Hysteria2 port hopping on the node).
+//
+// SAddr and DAddr scope a rule (DR-18): only packets from one of SAddr
+// (IPv4 and IPv6 addresses, empty = any source) to DAddr (empty = any
+// local address) are translated. A node applies DAddr only when it is one
+// of its own addresses. Both are omitted from the JSON when empty, and the
+// hub sends them only to nodes announcing api.FeatureNATScope: an older
+// node would ignore them and apply the rule unscoped.
 type NATRule struct {
 	Proto     string // "tcp" | "udp"
 	DportLow  int
 	DportHigh int    // == DportLow for a single port
 	ToAddr    string // e.g. 10.77.3.2 (empty = local redirect)
 	ToPort    int
-	Iface     string // optional input interface
+	Iface     string   // optional input interface
+	SAddr     []string `json:",omitempty"` // optional source addresses
+	DAddr     string   `json:",omitempty"` // optional destination address
+}
+
+// Unscoped returns r without SAddr and DAddr: the rule as a node that does
+// not announce api.FeatureNATScope knows it.
+func (r NATRule) Unscoped() NATRule {
+	r.SAddr, r.DAddr = nil, ""
+	return r
+}
+
+// Equal reports whether r and o are the same rule, scope included.
+func (r NATRule) Equal(o NATRule) bool {
+	return r.Proto == o.Proto && r.DportLow == o.DportLow && r.DportHigh == o.DportHigh &&
+		r.ToAddr == o.ToAddr && r.ToPort == o.ToPort && r.Iface == o.Iface &&
+		r.DAddr == o.DAddr && slices.Equal(r.SAddr, o.SAddr)
 }
 
 // Rendered is one side's output.

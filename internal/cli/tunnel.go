@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -65,9 +66,9 @@ func portSpecs(in []ports.Spec) []api.PortSpec {
 }
 
 func newTunnelAddCmd(g *Globals) *cobra.Command {
-	var node, portsIn, name, ladder, tlsMode string
+	var node, portsIn, name, id, ladder, tlsMode string
 	var backups []string
-	var yes bool
+	var yes, allowRename bool
 	cmd := &cobra.Command{
 		Use:     "add --node <id> --ports 443,2053[,27015/udp]",
 		Short:   i18n.T(i18n.CLITunnelAddShort),
@@ -86,6 +87,15 @@ func newTunnelAddCmd(g *Globals) *cobra.Command {
 				return err
 			}
 			req := api.TunnelAddRequest{Name: strings.TrimSpace(name), Node: strings.TrimSpace(node), Ports: portSpecs(specs)}
+			if cmd.Flags().Changed("id") {
+				req.ID = strings.TrimSpace(id)
+				if !config.ValidID(req.ID) {
+					return deyerr.New(deyerr.C007, deyerr.Params{"kind": "tunnel", "id": req.ID})
+				}
+			}
+			// Only a person at a terminal accepts a numbered id for a taken
+			// --name; a script gets DEY-C002 instead (DR-12).
+			req.NoRename = req.ID == "" && req.Name != "" && (yes || !g.IsTTY) && !allowRename
 			if cmd.Flags().Changed("tls-mode") {
 				// custom needs certificate files, which TunnelAdd does not
 				// take: it is set afterwards with tunnel edit.
@@ -139,6 +149,8 @@ func newTunnelAddCmd(g *Globals) *cobra.Command {
 	f.StringVar(&node, "node", "", i18n.T(i18n.CLIFlagTunnelNode))
 	f.StringVar(&portsIn, "ports", "", i18n.T(i18n.CLIFlagPorts))
 	f.StringVar(&name, "name", "", i18n.T(i18n.CLIFlagTunnelName))
+	f.StringVar(&id, "id", "", i18n.T(i18n.CLIFlagTunnelID))
+	f.BoolVar(&allowRename, "allow-rename", false, i18n.T(i18n.CLIFlagAllowRename))
 	f.StringVar(&ladder, "ladder", "", i18n.T(i18n.CLIFlagLadder))
 	f.StringArrayVar(&backups, "backup", nil, i18n.T(i18n.CLIFlagBackupNode))
 	f.StringVar(&tlsMode, "tls-mode", "", i18n.T(i18n.CLIFlagTLSModeAdd))
@@ -330,7 +342,12 @@ func (g *Globals) printTunnelDetail(d api.TunnelDetail, tr *api.TrafficReport) {
 	var ps []string
 	for _, p := range d.Ports {
 		x := fmt.Sprintf("%d/%s %s %s", p.Listen, p.Proto, s.arrow, p.Target)
-		if p.Probe != "" {
+		switch {
+		case p.ProbeEffective != "" && p.ProbeEffective != cmp.Or(p.Probe, config.ProbeAuto):
+			// The hub probes differently (DR-17: auto on a silent target
+			// uses echo; echo without node support falls back to auto).
+			x += " (" + cmp.Or(p.Probe, config.ProbeAuto) + " " + s.arrow + " " + p.ProbeEffective + ")"
+		case p.Probe != "":
 			x += " (" + p.Probe + ")"
 		}
 		ps = append(ps, x)
@@ -445,7 +462,9 @@ func humanBytes(n uint64) string { return tui.FormatBytes(n) }
 
 func newTunnelEditCmd(g *Globals) *cobra.Command {
 	var name, ladder, policy, tlsMode, tlsCert, tlsKey string
+	var nodes []string
 	var probePort int
+	var yes bool
 	cmd := &cobra.Command{
 		Use:     "edit <id>",
 		Short:   i18n.T(i18n.CLITunnelEditShort),
@@ -468,6 +487,17 @@ func newTunnelEditCmd(g *Globals) *cobra.Command {
 					req.Rungs = rungs
 				} else {
 					req.Ladder = &profile
+				}
+				changed = true
+			}
+			if fl.Changed("node") {
+				// The exact ordered list, primary first (DR-13).
+				req.Nodes = []string{}
+				for _, n := range nodes {
+					req.Nodes = append(req.Nodes, splitList(n)...)
+				}
+				if len(req.Nodes) == 0 {
+					return deyerr.New(deyerr.C008, deyerr.Params{"tunnel": args[0]})
 				}
 				changed = true
 			}
@@ -505,6 +535,11 @@ func newTunnelEditCmd(g *Globals) *cobra.Command {
 			if !changed {
 				return usageErr(i18n.T(i18n.CLIEditNothing))
 			}
+			if req.Nodes != nil && !yes {
+				if err := g.confirmActiveNodeKept(cmd.Context(), args[0], req.Nodes); err != nil {
+					return err
+				}
+			}
 			p := g.newProgress()
 			var t api.TunnelInfo
 			err := g.callLong(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
@@ -530,7 +565,28 @@ func newTunnelEditCmd(g *Globals) *cobra.Command {
 	f.StringVar(&tlsMode, "tls-mode", "", i18n.T(i18n.CLIFlagTLSMode))
 	f.StringVar(&tlsCert, "tls-cert", "", i18n.T(i18n.CLIFlagTLSCert))
 	f.StringVar(&tlsKey, "tls-key", "", i18n.T(i18n.CLIFlagTLSKey))
+	f.StringArrayVar(&nodes, "node", nil, i18n.T(i18n.CLIFlagEditNodes))
+	f.BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
 	return cmd
+}
+
+// confirmActiveNodeKept asks before a new node list leaves out the node
+// that carries tunnel id now: the engine then moves the tunnel at once.
+// A list that keeps it only changes the order; the canary fails back to
+// the new primary on its schedule (DR-13).
+func (g *Globals) confirmActiveNodeKept(ctx context.Context, id string, nodes []string) error {
+	var d api.TunnelDetail
+	err := g.call(ctx, func(ctx context.Context, l api.Local) (err error) {
+		d, err = l.TunnelShow(ctx, id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if d.ActiveNode == "" || slices.Contains(nodes, d.ActiveNode) {
+		return nil
+	}
+	return g.confirm(i18n.T(i18n.CLITunnelEditActiveLost, d.ActiveNode, id, nodes[0]), false)
 }
 
 func newTunnelEnableCmd(g *Globals, enable bool) *cobra.Command {

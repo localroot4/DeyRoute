@@ -85,12 +85,26 @@ out the same way.
 
 Hub:
 `{"schema", "role": "hub", "name", "public_ip", "public_ip6", "private_ip"
-(bool: the detected address is not public), "control_port", "ca_fingerprint",
+(bool: the detected address is not public), "public_ip_source" (where
+`public_ip` came from: `"flag"` = `--public-ip`, `"detected"` = detected
+without a question, `"wizard"` = typed in the wizard), "control_port", "ca_fingerprint",
 "config_path", "sysctl_profile", "sysctl_warnings": [string],
 "firewall_managed", "service_started", "auto_update" (bool: `--auto-update
 on|off`, default off; stored as `hub.auto_update`), "steps": [Step], "join":
-JoinCommand}` — when the join command could not be obtained, `join_error`
-(ErrorDTO) replaces `join`.
+JoinCommand, "join_window" (bool: a join command was made, so the control
+port accepts every address until it is used or expires)}` — when the join
+command could not be obtained, `join_error` (ErrorDTO) replaces `join` and
+`join_window` is false. With `--no-join` no join command is made and no join
+window opens at setup: the document has neither `join` nor `join_error`, and
+`"join_window": false`.
+
+Flags: `--public-ip A.B.C.D` and `--public-ip6 X` store exactly that address
+(canonical form) as `hub.public_ip` / `hub.public_ip6`; a private, CGNAT,
+loopback or link-local address is `DEY-C013` (field `--public-ip` or
+`--public-ip6`) unless `--allow-private-ip` (test labs: private, CGNAT and
+loopback, never link-local). The three flags are `DEY-C013` with `--role
+node` and on `deyroute join`; so is `--no-join` with `--role node`. Every refusal comes before any setup step
+(and before any question, unless the wizard has to ask for the role).
 
 Node (`--role node`): the document of `deyroute join`.
 
@@ -98,7 +112,22 @@ Node (`--role node`): the document of `deyroute join`.
 
 `{"schema", "role": "node", "node", "hub_name", "hub_addr", "hub_version",
 "public_ip", "ca_fingerprint", "compatible", "config_path", "sysctl_profile",
-"sysctl_warnings", "service_started", "steps": [Step]}`
+"sysctl_warnings", "service_started", "steps": [Step], "reserved_ports":
+[string]}` — `reserved_ports` (never null) lists the entries the applied
+profile added to `net.ipv4.ip_local_reserved_ports`: the control range
+`30000-31999` and the `--reserve-ports` entries; `[]` when no profile was
+applied (`sysctl_profile: "off"`).
+
+Flags: `--sysctl off|balanced|auto` (default `balanced`; given, there is no
+kernel question; `off` writes nothing under `/etc/sysctl.d` and, like "no"
+to the question, makes the node refuse the hub's tuning with `DEY-N052`
+until `/var/lib/deyroute/hub-tuning-off` is removed). `--reserve-ports
+LIST` (repeatable, merged): ports 1-65535 and ranges `a-b`, at most 64
+entries after duplicates and entries inside the control range are dropped,
+leaving at least 1024 ports of the profile's ephemeral range free. Errors:
+`DEY-C013` with field `--sysctl` or `--reserve-ports` (also for
+`--reserve-ports` with `--sysctl off` or "no"), before the join starts.
+`--public-ip`, `--public-ip6` and `--allow-private-ip` are `DEY-C013` here.
 
 ### `deyroute status`
 
@@ -170,11 +199,31 @@ is off now (see `update auto`). `update_rolled_back` with `"code":
 the previous version would refuse `config.yaml` (its `message` names the
 keys); the new version keeps running.
 
+`firewall_reapplied` (warn) means the periodic check found table `inet
+deyroute` missing or changed and applied it again
+(`security.firewall_reassert_s`); `reason` is `missing` or `drift`, and each
+reason is recorded at most once per 10 minutes. Telegram sends it when
+`hub.notify.telegram.events` names `firewall_reapplied`.
+
+`join_tokens_revoked` (info) is recorded by `deyroute node join-revoke`; its
+`message` names how many tokens were live. Telegram sends it when
+`hub.notify.telegram.events` names `join_tokens_revoked`; releases before
+0.3.1 refuse that name, so `update --rollback` to them is refused
+(`DEY-S011`) while the list names it.
+
 ## Nodes and hub
 
 ### `deyroute node join-command`
 
 `{"schema", "command", "link", "expires_at"}`
+
+### `deyroute node join-revoke`
+
+`{"schema": 1, "ok": true, "revoked"}` — `revoked` (int) is the number of
+unexpired join tokens deleted (`0` when there was none). No flags: every
+join token is revoked. The firewall is applied before the command returns,
+so the join window is closed; a failed apply is an error document (the
+tokens are deleted all the same).
 
 ### `deyroute node list`
 
@@ -210,6 +259,24 @@ a direct address: "front: unchanged")
 
 `{"schema", "tunnel": TunnelInfo, "steps": [Step]}`
 
+Flags: `--id <id>` (the exact tunnel id), `--allow-rename`, besides `--node`,
+`--ports`, `--name`, `--ladder`, `--backup`, `--tls-mode` and `--yes`.
+
+- **Scripts must pass `--id`.** The id is then exactly the one given;
+  `tunnel.id` repeats it. A taken id is `DEY-C002` (exit 1) and nothing is
+  created, so two identical calls create one tunnel. An invalid id
+  (`[a-z0-9-]{2,32}`) is `DEY-C007`.
+- Without `--id` the id is derived from `--name`. When that id is taken and
+  the command runs without a terminal or with `--yes`, it is `DEY-C002`
+  (exit 1), checked before the ports (never `DEY-C003` for this case), and
+  nothing is created. `--allow-rename` accepts a numbered id instead
+  (`t5-2`); read it from `tunnel.id`. On a terminal without `--yes` the
+  numbered id is used as before. Without `--name` the default id `tunnel`
+  is still numbered (`tunnel-2`, …).
+- The Local API field behind this is `TunnelAddRequest.no_rename` (bool,
+  omitted when false): the CLI sets it for a `--name` without `--id` in
+  non-interactive mode unless `--allow-rename`; the menu never sets it.
+
 ### `deyroute tunnel list`
 
 `{"schema", "tunnels": [TunnelInfo]}`
@@ -226,6 +293,16 @@ The `TunnelDetail` DTO: every TunnelInfo field plus
 {"at", "bytes_in", "bytes_out", "active_conns", "source", "bytes_since"}?`,
 `"failback_delay"` (ns) and `"events": [Event]`.
 
+- The probe port (`probe_port`) has two more fields in `ports[]` (DR-17):
+  `"probe_effective"`, the probe kind the hub uses now on the active node
+  (the primary node while no candidate runs): `auto`, `tcp`, `tls`, `http`
+  or `echo`; and `"probe_reason"`, why it differs from `probe` (absent when
+  it does not). `auto` is `echo` for a silent target (its TLS hello timed
+  out or was reset on the node while a TCP connect succeeded); `echo` or a
+  silent `auto` stays `auto` when the echo probe is not available (a node
+  without `echo-probe`, a rung that cannot carry the echo port), and the
+  reason says why. Other ports and `tunnel list` do not have these fields.
+
 - `metrics.source` is `nft` when the hub counts bytes (traffic monitoring):
   `bytes_in` / `bytes_out` are then the real byte counters of the tunnel's
   listen ports since `bytes_since` (the last counter reset: a reboot or a
@@ -236,6 +313,20 @@ The `TunnelDetail` DTO: every TunnelInfo field plus
 ### `deyroute tunnel edit <id>`
 
 `{"schema", "tunnel": TunnelInfo, "steps": [Step]}`
+
+Flags: `--node <id>` (repeatable, or ids separated by commas) and `--yes`,
+besides `--name`, `--ladder`, `--policy`, `--probe-port`, `--tls-mode`,
+`--tls-cert` and `--tls-key`.
+
+- `--node` sets the exact ordered node list, primary first; `tunnel.nodes`
+  is that list at once. Reordering moves no traffic: `tunnel.active_node`
+  stays the same, and the canary fails back to the new `nodes[0]` on its
+  normal schedule (`active_node` reaches it then). An empty list is
+  `DEY-C008`, a duplicate `DEY-C002`, an invalid id `DEY-C007`, a node that
+  has not joined `DEY-C010` (exit 1, nothing changed).
+- When the list leaves out the active node, the command needs a
+  confirmation: `--yes`, or exit 3 without a terminal (nothing changed).
+  The tunnel then moves to another node at once.
 
 ### `deyroute tunnel enable|disable <id>`
 
@@ -276,9 +367,10 @@ for `remove`).
 
 ### `deyroute port set <tunnel> <ports> --probe <kind>`
 
-`{"schema", "tunnel": TunnelInfo, "steps": [Step]}`. The new kinds are in
-`tunnel.ports[].probe`; an invalid kind or a port the tunnel does not have
-is the error document `DEY-C013`.
+`{"schema", "tunnel": TunnelInfo, "steps": [Step]}`. The kind is `auto`,
+`tcp`, `tls`, `http` or `echo` (since 0.3.1; UDP ports only `auto`). The
+new kinds are in `tunnel.ports[].probe`; an invalid kind or a port the
+tunnel does not have is the error document `DEY-C013`.
 
 ### `deyroute port check <port>`
 
@@ -486,14 +578,37 @@ written either way.
 
 ### `deyroute restore FILE`
 
-`{"schema", "role", "hub_name", "node", "public_ip", "address_changed",
+Flags: `--yes`, `--public-ip IPv4`, `--public-ip6 IPv6` (only with
+`--public-ip`), `--keep-address`.
+
+`{"schema", "role", "hub_name", "node", "public_ip", "public_ip6",
+"address_changed", "address_source", "warnings": [string],
 "backup_version", "created", "previous_dir", "migrated", "sysctl_profile",
 "service_started", "steps": [Step]}`
+
+- `public_ip`, `public_ip6`: the hub addresses in effect after the restore
+  (`""` for a node backup, and `public_ip6` when the hub has none).
+- `address_source` (hub backup; `""` for a node backup): `flag`
+  (`--public-ip`), `detected` (this server's public IP, also when it equals
+  the backup's address), `kept` (`--keep-address`, or the owner kept the
+  backup's address at the terminal question), `same_server` (this server
+  already is that hub) or `asked` (typed at the terminal question).
+- `warnings` (never `null`): an address given or typed that is not public
+  (it is used as given), and a backup `hub.public_ip6` cleared because only
+  the IPv4 address was set.
+- A hub backup on another server whose detected address is private or
+  missing, with `--yes` or without a terminal and without `--public-ip` or
+  `--keep-address`: `DEY-I025`, exit 1, nothing restored. `--keep-address`
+  with `--public-ip` or `--public-ip6`, `--public-ip6` alone, an address of
+  the wrong family, or `--public-ip` with a node backup: `DEY-C013`, exit 1.
 
 ### `deyroute update`
 
 - `--check`, or nothing to update: the UpdateInfo DTO `{"schema", "current",
-  "latest", "available", "changelog", "previous"}`. With a newer release,
+  "latest", "available", "changelog", "previous", "nodes_queued"}`.
+  `nodes_queued` (absent when 0): without `--check` and with nothing newer,
+  the hub installs nothing but tells every known node of another version
+  to install its version; this is how many. With a newer release,
   `changelog` is the text of its `CHANGELOG.md` after the running version
   (at most 40 lines, then `… <release page>`), or the release page address
   when the release has no verified `CHANGELOG.md`.

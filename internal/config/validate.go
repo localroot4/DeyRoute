@@ -41,7 +41,7 @@ var (
 	Policies       = []string{PolicyTransportOnly, PolicyTransportThenNode, PolicyNodeOnly}
 	TLSModes       = []string{TLSModeAuto, TLSModeACME, TLSModeCustom}
 	Protos         = []string{ProtoTCP, ProtoUDP}
-	ProbeKinds     = []string{ProbeAuto, ProbeTCP, ProbeTLS, ProbeHTTP}
+	ProbeKinds     = []string{ProbeAuto, ProbeTCP, ProbeTLS, ProbeHTTP, ProbeEcho}
 	SysctlProfiles = []string{SysctlOff, SysctlBalanced, SysctlAggressive, SysctlAuto}
 	// TelegramEventAliases are the short names allowed in
 	// hub.notify.telegram.events; internal/notify maps each alias to the
@@ -62,8 +62,21 @@ var (
 		"service_down", "backend_crash", "probe_error", "update_applied", "update_rolled_back",
 		"backend_update_rolled_back", "node_ip_changed", "acme_failed", "rung_skipped",
 		"rung_restored", "config_applied", "traffic_quota", "tune_drift",
+		EventFirewallReapplied, EventJoinTokensRevoked,
 	}
 )
+
+// EventFirewallReapplied is the event of a table inet deyroute applied again
+// because it was missing or changed (state.EvFirewallReapplied, DR-14).
+// Releases before FirstFirewallReassertVersion refuse it in
+// hub.notify.telegram.events (NewerKeysInUse).
+const EventFirewallReapplied = "firewall_reapplied"
+
+// EventJoinTokensRevoked is the event of `deyroute node join-revoke`
+// (state.EvJoinTokensRevoked, DR-16). Releases before
+// FirstJoinTokensRevokedVersion refuse it in hub.notify.telegram.events
+// (NewerKeysInUse).
+const EventJoinTokensRevoked = "join_tokens_revoked" // #nosec G101 -- event name, not a credential
 
 // ValidTelegramEvent reports whether e may appear in
 // hub.notify.telegram.events (an alias or a full event name).
@@ -228,6 +241,9 @@ func (c *Config) Validate(opt ValidateOptions) error {
 	}
 	if c.Monitoring != nil {
 		v.monitoring(c.Monitoring)
+	}
+	if c.Security != nil {
+		v.security(c.Security)
 	}
 	if c.Node != nil {
 		v.nodeSelf(c.Node)
@@ -453,6 +469,30 @@ func (v *validator) tuning(t *Tuning) {
 func (v *validator) backendTier(field, tier string) {
 	if tier != "" && !contains(BackendTiers, tier) {
 		v.bad(field, tier, strings.Join(BackendTiers, ", ")+" (or empty for the defaults)")
+	}
+}
+
+// rateRe is an nft `limit rate` argument: packets per unit with an
+// optional packet burst (firewall renders exactly what matches it).
+var rateRe = regexp.MustCompile(`^[1-9][0-9]{0,8}/(second|minute|hour|day)( burst [1-9][0-9]{0,8} packets)?$`)
+
+// ValidRate reports whether r can be rendered as nft `limit rate <r>`
+// ("3/minute", "10/second burst 20 packets").
+func ValidRate(r string) bool { return rateRe.MatchString(r) }
+
+// security checks the security: section.
+func (v *validator) security(s *Security) {
+	for _, f := range [...]struct{ field, rate string }{
+		{"security.unknown_control_rate_per_source", s.UnknownControlRatePerSource},
+		{"security.unknown_control_rate", s.UnknownControlRate},
+	} {
+		if f.rate != "" && !ValidRate(f.rate) {
+			v.bad(f.field, f.rate, "an nft rate such as 3/minute or 10/second burst 20 packets")
+		}
+	}
+	if p := s.FirewallReassertS; p != nil && *p != 0 && (*p < MinFirewallReassertS || *p > MaxFirewallReassertS) {
+		v.bad("security.firewall_reassert_s", *p,
+			fmt.Sprintf("0 (off) or %d-%d seconds", MinFirewallReassertS, MaxFirewallReassertS))
 	}
 }
 

@@ -26,9 +26,12 @@ const renderHeader = "# Managed by deyroute. Do not edit: this table is replaced
 // normalized is a Spec with invalid entries dropped, duplicates removed and
 // everything sorted, so Render is deterministic whatever the input order.
 type normalized struct {
-	controlPort     int
-	restrict        bool
-	unknownRate     string
+	controlPort int
+	restrict    bool
+	unknownRate string
+	// perSource is the per-source rate with its burst ("" = the single
+	// global rule at unknownRate).
+	perSource       string
 	v4, v6          []netip.Addr
 	withV6          bool
 	ctlLow, ctlHigh int
@@ -49,6 +52,9 @@ func normalize(s Spec) normalized {
 	n := normalized{restrict: s.RestrictControl, clampMSS: s.clampMSS()}
 	if validRate(s.UnknownControlRate) {
 		n.unknownRate = s.UnknownControlRate
+		if s.RestrictControl && validRate(s.UnknownControlRatePerSource) {
+			n.perSource = withBurst(s.UnknownControlRatePerSource)
+		}
 	}
 	if validPort(s.ControlPort) {
 		n.controlPort = s.ControlPort
@@ -141,8 +147,12 @@ func compareNAT(a, b natRule) int {
 		return strings.Compare(a.iface, b.iface)
 	case a.to != b.to:
 		return a.to.Compare(b.to)
+	case a.toPort != b.toPort:
+		return a.toPort - b.toPort
+	case a.saddr != b.saddr:
+		return strings.Compare(a.saddr, b.saddr)
 	}
-	return a.toPort - b.toPort
+	return a.daddr.Compare(b.daddr)
 }
 
 func uniquePorts(in []int) []int {
@@ -167,6 +177,9 @@ func Render(s Spec) string {
 	if n.withV6 {
 		blocks = append(blocks, renderSet(SetNodes6, "ipv6_addr", n.v6))
 	}
+	if n.perSource != "" && n.controlPort != 0 {
+		blocks = append(blocks, renderDynamicSet(SetCtlUnknown4, "ipv4_addr"), renderDynamicSet(SetCtlUnknown6, "ipv6_addr"))
+	}
 	if len(n.cf4) > 0 {
 		blocks = append(blocks, renderIntervalSet(SetCF4, "ipv4_addr", n.cf4))
 	}
@@ -179,9 +192,9 @@ func Render(s Spec) string {
 	if len(n.nat) > 0 {
 		var pre, out []string
 		for _, r := range n.nat {
-			pre = append(pre, natRuleText(r))
+			pre = append(pre, natRuleTexts(r)...)
 			if r.to.IsValid() && r.iface == "" {
-				out = append(out, natRuleText(r))
+				out = append(out, natRuleTexts(r)...)
 			}
 		}
 		blocks = append(blocks, renderChain("prerouting", hdrPrerouting, pre))
@@ -244,7 +257,16 @@ func inputRules(n normalized) []string {
 		m := "tcp dport " + strconv.Itoa(n.controlPort)
 		if n.restrict {
 			fromNodes(m)
-			if n.unknownRate != "" {
+			switch {
+			case n.perSource != "":
+				// Both families always: an unknown source may come over
+				// IPv6 even when the hub announces no IPv6 address, as it
+				// could through the single global rule.
+				for _, f := range [...]struct{ set, saddr string }{{SetCtlUnknown4, "ip saddr"}, {SetCtlUnknown6, "ip6 saddr"}} {
+					rules = append(rules, m+" ct state new add @"+f.set+" { "+f.saddr+" limit rate "+n.perSource+
+						" } limit rate "+n.unknownRate+" accept")
+				}
+			case n.unknownRate != "":
 				rules = append(rules, m+" ct state new limit rate "+n.unknownRate+" accept")
 			}
 			rules = append(rules, m+" drop")
@@ -334,14 +356,45 @@ func (n normalized) clampIfaces() []string {
 	return out
 }
 
-// natRuleText renders one prerouting/output NAT rule.
-func natRuleText(r natRule) string {
+// natRuleTexts renders one prerouting/output NAT rule: one line, or with
+// a source scope one line per source family that the destination and the
+// target allow (normalizeScope guarantees at least one).
+func natRuleTexts(r natRule) []string {
+	if r.saddr == "" {
+		return []string{natRuleText(r, "")}
+	}
+	var out []string
+	for _, fam := range []struct {
+		n    int
+		addr netip.Addr
+		kw   string
+	}{{4, netip.IPv4Unspecified(), "ip"}, {6, netip.IPv6Unspecified(), "ip6"}} {
+		src := r.sources(fam.n)
+		if len(src) == 0 || (r.daddr.IsValid() && !sameFamily(r.daddr, fam.addr)) ||
+			(r.to.IsValid() && !sameFamily(r.to, fam.addr)) {
+			continue
+		}
+		out = append(out, natRuleText(r, fam.kw+" saddr { "+strings.Join(src, ", ")+" }"))
+	}
+	return out
+}
+
+// natRuleText renders one NAT rule line with the source match saddr ("" =
+// any source).
+func natRuleText(r natRule, saddr string) string {
 	var parts []string
 	if r.iface != "" {
 		parts = append(parts, "iifname "+quote(r.iface))
 	}
 	parts = append(parts, "fib daddr type local")
+	if saddr != "" {
+		parts = append(parts, saddr)
+	}
 	switch {
+	case r.daddr.Is4():
+		parts = append(parts, "ip daddr "+r.daddr.String())
+	case r.daddr.Is6():
+		parts = append(parts, "ip6 daddr "+r.daddr.String())
 	case r.to.Is4():
 		parts = append(parts, "ip daddr != 127.0.0.0/8")
 	case r.to.Is6():
@@ -381,6 +434,13 @@ func renderIntervalSet(name, typ string, prefixes []netip.Prefix) string {
 		s[i] = p.String()
 	}
 	return renderSetBody(name, typ, true, s)
+}
+
+// renderDynamicSet renders a set the packet path fills (`add @set { … }`),
+// whose elements expire after ctlUnknownTimeout.
+func renderDynamicSet(name, typ string) string {
+	return "\tset " + name + " {\n\t\ttype " + typ + "\n\t\tsize " + strconv.Itoa(ctlUnknownSize) +
+		"\n\t\tflags dynamic,timeout\n\t\ttimeout " + ctlUnknownTimeout + "\n\t}\n"
 }
 
 func renderSetBody(name, typ string, interval bool, elems []string) string {

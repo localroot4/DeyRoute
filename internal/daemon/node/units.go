@@ -138,6 +138,10 @@ type nodeState struct {
 	// and not stopped yet: they are opened again when the agent restarts
 	// (self.update, crash), since the canary unit keeps running.
 	Echo []int `json:"echo,omitempty"`
+	// ProbeEcho are the loopback ports of probe echoes (echo.start with
+	// Probe, DR-17), kept and reopened the same way: the active rung of a
+	// tunnel keeps using them.
+	ProbeEcho []int `json:"probe_echo,omitempty"`
 }
 
 // loadState reads StateFile; a missing or damaged file starts empty.
@@ -339,6 +343,16 @@ func (a *agent) checkNAT(command string, rules []backend.NATRule) error {
 	}
 	var local []netip.Addr
 	for _, r := range rules {
+		// The scope (DR-18) names the hub and this node: plain unicast
+		// addresses, never loopback, link-local or multicast.
+		for _, s := range r.SAddr {
+			if !scopeAddr(s) {
+				return a.refuse(command, fmt.Sprintf("NAT source %q is not a unicast address", s))
+			}
+		}
+		if r.DAddr != "" && !scopeAddr(r.DAddr) {
+			return a.refuse(command, fmt.Sprintf("NAT destination %q is not a unicast address", r.DAddr))
+		}
 		hi := r.DportHigh
 		if hi == 0 {
 			hi = r.DportLow
@@ -372,6 +386,14 @@ func (a *agent) checkNAT(command string, rules []backend.NATRule) error {
 		}
 	}
 	return nil
+}
+
+// scopeAddr reports whether s is an address a NAT scope may name: a
+// global unicast address (private ranges included, as in a lab or behind
+// NAT).
+func scopeAddr(s string) bool {
+	a, err := netip.ParseAddr(strings.TrimSpace(s))
+	return err == nil && a.Zone() == "" && a.Unmap().IsGlobalUnicast()
 }
 
 // interfaceAddrs returns the addresses of this host's interfaces (the
@@ -792,7 +814,54 @@ func (a *agent) desiredNAT() (rules []backend.NATRule, ipForward bool) {
 		add(rec.NAT)
 		ipForward = ipForward || rec.IPForward
 	}
-	return rules, ipForward
+	return a.localDAddr(rules), ipForward
+}
+
+// localDAddr drops the destination (DAddr) of every rule whose destination
+// is not an address of this node (DR-18): on a VPS behind 1:1 NAT the
+// packets arrive with the private interface address as destination, so
+// `ip daddr <public_ip>` would never match and port hopping would break;
+// the source scope stays. The addresses are read on every apply, so a
+// floating IP added later is matched again. Each address (and an
+// unreadable address list) is logged once per process. rules is the
+// caller's copy; the caller holds instMu.
+func (a *agent) localDAddr(rules []backend.NATRule) []backend.NATRule {
+	var local []netip.Addr
+	var lerr error
+	read := false
+	for i, r := range rules {
+		if r.DAddr == "" {
+			continue
+		}
+		if !read {
+			local, lerr = a.o.LocalAddrs()
+			read = true
+		}
+		d, err := netip.ParseAddr(r.DAddr) // valid: checkNAT
+		if err == nil && lerr == nil && slices.Contains(local, d.Unmap()) {
+			continue
+		}
+		rules[i].DAddr = ""
+		if a.daddrLogged == nil {
+			a.daddrLogged = map[string]bool{}
+		}
+		key := r.DAddr
+		if lerr != nil {
+			key = ""
+		}
+		if a.daddrLogged[key] {
+			continue
+		}
+		a.daddrLogged[key] = true
+		if lerr != nil {
+			a.log.Warn("the addresses of this node cannot be read: NAT rules are applied without their destination address",
+				slog.String("daddr", r.DAddr), dlog.Err(lerr))
+			continue
+		}
+		a.log.Warn("NAT destination "+r.DAddr+" is not an address of this node (behind NAT?): the rule matches its source addresses only",
+			slog.String("daddr", r.DAddr))
+	}
+	return rules
 }
 
 // syncFirewall makes the node's table inet deyroute hold exactly the desired
@@ -821,13 +890,108 @@ func (a *agent) syncFirewall(ctx context.Context, force bool) error {
 	} else {
 		err = firewall.Apply(fctx, a.o.Runner, firewall.Spec{NAT: rules})
 	}
+	a.fwLive = ""
 	if err != nil {
 		a.natApply = nil
 		return err
 	}
 	a.natApply = keys
+	if len(rules) > 0 && a.reassertEvery > 0 {
+		// Unknown ("") when nft cannot list it now: the next check takes it.
+		a.fwLive, _ = firewall.Fingerprint(fctx, a.o.Runner)
+	}
 	a.log.Info("node NAT table updated", slog.Int("rules", len(rules)))
 	return nil
+}
+
+// Reasons of reassertFirewall (firewall_reapplied).
+const (
+	reassertMissing = firewall.ReasonMissing
+	reassertDrift   = firewall.ReasonDrift
+)
+
+// firewallReassertLoop runs reassertFirewall every
+// security.firewall_reassert_s seconds (read at start; off when 0 or
+// with security.firewall_managed false).
+func (a *agent) firewallReassertLoop(ctx context.Context) {
+	if a.reassertEvery <= 0 {
+		return
+	}
+	t := time.NewTicker(a.reassertEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.reassertFirewall(ctx)
+		}
+	}
+}
+
+// reassertFirewall compares the live table inet deyroute with the NAT
+// table the agent applied last and applies it again when it is missing or
+// changed (DR-14): firewall.apply with unchanged rules short-circuits on
+// the cached rule set, so a flushed table would otherwise stay gone until
+// the rules change. It returns the reason ("missing", "drift") or "" when
+// nothing was applied. It holds instMu like every NAT change and only
+// acts while the last apply holds the desired rules; a node without NAT
+// rules has no table to restore. The warning firewall_reapplied is logged
+// at most once per 10 minutes per reason (the node keeps no events).
+func (a *agent) reassertFirewall(ctx context.Context) string {
+	if a.reassertEvery <= 0 {
+		return ""
+	}
+	a.instMu.Lock()
+	reason := a.reassertFirewallLocked(ctx)
+	report := reason != "" && a.fwReport.Due(reason, a.o.Now())
+	a.instMu.Unlock()
+	if reason == "" {
+		return ""
+	}
+	msg := "table " + firewall.TableRef + " was missing; NAT rules applied again"
+	if reason == reassertDrift {
+		msg = "table " + firewall.TableRef + " was changed by something else; NAT rules applied again"
+	}
+	attrs := []any{slog.String("event", "firewall_reapplied"), slog.String("reason", reason)}
+	if report {
+		a.log.Warn(msg, attrs...)
+	} else {
+		a.log.Info(msg+" (reported less often)", attrs...)
+	}
+	return reason
+}
+
+// reassertFirewallLocked is reassertFirewall's check and apply (instMu
+// held).
+func (a *agent) reassertFirewallLocked(ctx context.Context) string {
+	rules, _ := a.desiredNAT()
+	if len(rules) == 0 || a.natApply == nil || natKey(rules) != strings.Join(a.natApply, ";") {
+		return ""
+	}
+	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	live, err := firewall.Fingerprint(qctx, a.o.Runner)
+	cancel()
+	var reason string
+	switch {
+	case err != nil:
+		a.log.Warn("cannot list table "+firewall.TableRef+" to check it", dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		return ""
+	case live == "":
+		reason = reassertMissing
+	case a.fwLive == "":
+		a.fwLive = live // not listed after the apply: this is the table
+		return ""
+	case live != a.fwLive:
+		reason = reassertDrift
+	default:
+		return ""
+	}
+	if err := a.syncFirewall(ctx, true); err != nil {
+		a.log.Error("cannot apply table "+firewall.TableRef+" again", dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		return ""
+	}
+	return reason
 }
 
 // ensureIPForward sets net.ipv4.ip_forward=1 when an instance needs it
@@ -838,7 +1002,12 @@ func (a *agent) ensureIPForward() error {
 }
 
 func natRuleKey(r backend.NATRule) string {
-	return fmt.Sprintf("%s|%d|%d|%s|%d|%s", r.Proto, r.DportLow, r.DportHigh, r.ToAddr, r.ToPort, r.Iface)
+	k := fmt.Sprintf("%s|%d|%d|%s|%d|%s", r.Proto, r.DportLow, r.DportHigh, r.ToAddr, r.ToPort, r.Iface)
+	if len(r.SAddr) > 0 || r.DAddr != "" {
+		// The scope (DR-18) makes another rule; unscoped keys stay as before.
+		k += "|" + strings.Join(r.SAddr, ",") + "|" + r.DAddr
+	}
+	return k
 }
 
 func natKey(rs []backend.NATRule) string {

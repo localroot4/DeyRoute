@@ -38,7 +38,7 @@ func (e *env) fakeSetup(got *setup.HubOptions) {
 		if o.ApplySysctl {
 			profile = o.SysctlProfile
 		}
-		return &setup.HubResult{PublicIP: ip, ControlPort: port, SysctlProfile: profile, SysctlWarnings: []string{"BBR missing"}, CAFingerprint: "sha256:ab"}, nil
+		return &setup.HubResult{PublicIP: ip, PublicIP6: o.PublicIP6, ControlPort: port, SysctlProfile: profile, SysctlWarnings: []string{"BBR missing"}, CAFingerprint: "sha256:ab"}, nil
 	}
 	e.stub.NodeJoinCommandFn = func(_ context.Context, ttl time.Duration) (api.JoinCommand, error) {
 		require.Equal(e.t, time.Duration(0), ttl)

@@ -44,7 +44,11 @@
 // tunnel interface so replies return through the hub. Only packets
 // addressed to this host are translated (fib daddr type local), so traffic
 // the host routes for others (containers, other networks) and the host's own
-// outgoing connections to remote port 443 are never hijacked. The same DNAT
+// outgoing connections to remote port 443 are never hijacked. A rule can be
+// scoped further to source addresses and one destination address
+// (backend.NATRule SAddr, DAddr; Hysteria2 port hopping matches only the
+// hub's addresses, DR-18): it renders once per source family, as
+// `ip saddr { … } ip daddr X …` and `ip6 saddr { … } …`. The same DNAT
 // runs in the nat output hook so locally generated traffic to one of the
 // host's own addresses traverses the tunnel too; that is how the hub's path
 // probe reaches the node for NAT-based transports. Loopback (127.0.0.0/8,
@@ -77,9 +81,11 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/localroot4/deyroute/internal/backend"
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 )
 
@@ -106,6 +112,19 @@ const (
 const (
 	SetNodes  = "nodes"
 	SetNodes6 = "nodes6"
+)
+
+// Names of the dynamic sets of the per-source admission of unknown
+// control-port sources (Spec.UnknownControlRatePerSource): one element
+// with its own rate bucket per source address, forgotten after
+// ctlUnknownTimeout.
+const (
+	SetCtlUnknown4 = "ctl_unknown4"
+	SetCtlUnknown6 = "ctl_unknown6"
+	// ctlUnknownSize bounds each set; ctlUnknownTimeout is how long a
+	// source's bucket lives.
+	ctlUnknownSize    = 65535
+	ctlUnknownTimeout = "10m"
 )
 
 // Names of the interval sets holding the Cloudflare edge ranges (rendered
@@ -150,7 +169,19 @@ type Spec struct {
 	// before the control-port drop, so a node whose public IP changed can
 	// reconnect with its certificate (section 11, QUESTIONS.md C.23). mTLS
 	// and the join limiter protect the port. "" = drop everyone else.
+	// With UnknownControlRatePerSource it is the global cap behind the
+	// per-source limit.
 	UnknownControlRate string
+	// UnknownControlRatePerSource, when non-empty together with
+	// UnknownControlRate, limits the admission per source address (DR-15):
+	// each source is added to the dynamic set @ctl_unknown4/@ctl_unknown6
+	// with its own bucket at this rate (without a burst, a burst of the
+	// rate's count), and UnknownControlRate caps all of them together, so
+	// one scanner can no longer use up the admission of a node whose IP
+	// changed. "" = the single global rule at UnknownControlRate (the
+	// fallback for an nft that cannot render the per-source form, see
+	// Applier).
+	UnknownControlRatePerSource string
 	// FrontPort is the hub's CDN front listener port (front mode, 0 = none).
 	// It is reachable from the Internet side only, never through @nodes: the
 	// traffic comes from the CDN edges, not from the nodes.
@@ -195,12 +226,22 @@ func (s Spec) clampMSS() int {
 	return DefaultClampMSS
 }
 
-// rateRe is an nft `limit rate` argument deyroute renders: packets per unit
-// with an optional packet burst.
-var rateRe = regexp.MustCompile(`^[1-9][0-9]{0,8}/(second|minute|hour|day)( burst [1-9][0-9]{0,8} packets)?$`)
+// validRate reports whether r can be rendered as `limit rate <r>`: packets
+// per unit with an optional packet burst (config.ValidRate, which checks
+// the configuration keys the same way).
+func validRate(r string) bool { return config.ValidRate(r) }
 
-// validRate reports whether r can be rendered as `limit rate <r>`.
-func validRate(r string) bool { return rateRe.MatchString(r) }
+// withBurst returns rate r with a burst of its own count when it has none
+// ("3/minute" → "3/minute burst 3 packets"): nft's default burst of 5
+// packets would let a source open more connections at once than its rate
+// allows in a whole interval.
+func withBurst(r string) string {
+	if strings.Contains(r, " burst ") {
+		return r
+	}
+	n, _, _ := strings.Cut(r, "/")
+	return r + " burst " + n + " packets"
+}
 
 // ifaceRe is a Linux interface name (IFNAMSIZ-1 = 15 bytes; no '/', ':',
 // whitespace or quotes).
@@ -229,6 +270,9 @@ func (s Spec) Validate() error {
 	}
 	if s.UnknownControlRate != "" && !validRate(s.UnknownControlRate) {
 		add("unknown control rate %q invalid (want e.g. 6/minute)", s.UnknownControlRate)
+	}
+	if s.UnknownControlRatePerSource != "" && !validRate(s.UnknownControlRatePerSource) {
+		add("unknown control rate per source %q invalid (want e.g. 3/minute)", s.UnknownControlRatePerSource)
 	}
 	if s.CtlLow != 0 || s.CtlHigh != 0 {
 		if !validPort(s.CtlLow) || !validPort(s.CtlHigh) || s.CtlLow > s.CtlHigh {
@@ -295,14 +339,36 @@ func parseNodeIP(s string) (netip.Addr, bool) {
 	return a.Unmap(), true
 }
 
-// natRule is a validated, normalized backend.NATRule.
+// MaxNATSources is the most source addresses (backend.NATRule.SAddr) one
+// NAT rule may name.
+const MaxNATSources = 16
+
+// natRule is a validated, normalized backend.NATRule. It is comparable, so
+// the source scope is kept as the sorted, deduplicated addresses joined by
+// ", " (sources splits it again).
 type natRule struct {
 	proto  string
 	lo, hi int
 	to     netip.Addr // invalid = redirect to a local port
 	toPort int        // 0 = keep the destination port
 	iface  string
+	saddr  string     // "" = any source
+	daddr  netip.Addr // invalid = any local address
 }
+
+// sources returns the source addresses of family 4 or 6.
+func (n natRule) sources(family int) []string {
+	var out []string
+	for s := range strings.SplitSeq(n.saddr, ", ") {
+		if a, err := netip.ParseAddr(s); err == nil && (a.Is4() == (family == 4)) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// sameFamily reports whether a and b are both IPv4 or both IPv6.
+func sameFamily(a, b netip.Addr) bool { return a.Is4() == b.Is4() }
 
 // normalizeNAT validates r; the second result is the problem ("" = ok).
 func normalizeNAT(r backend.NATRule) (natRule, string) {
@@ -329,5 +395,51 @@ func normalizeNAT(r backend.NATRule) (natRule, string) {
 	if n.iface != "" && !validIface(n.iface) {
 		return n, "interface name invalid"
 	}
+	return normalizeScope(n, r)
+}
+
+// normalizeScope validates and adds the source and destination scope of r
+// (DR-18): plain addresses, no loopback destination (see the package doc on
+// loopback), and families that can match together: a source of the
+// destination's and of the target's family, and a destination of the
+// target's family.
+func normalizeScope(n natRule, r backend.NATRule) (natRule, string) {
+	if len(r.SAddr) > MaxNATSources {
+		return n, fmt.Sprintf("more than %d source addresses", MaxNATSources)
+	}
+	var src []netip.Addr
+	for _, s := range r.SAddr {
+		a, ok := parseNodeIP(s)
+		if !ok {
+			return n, fmt.Sprintf("source address %q invalid", s)
+		}
+		if !slices.Contains(src, a) {
+			src = append(src, a)
+		}
+	}
+	slices.SortFunc(src, netip.Addr.Compare)
+	if r.DAddr != "" {
+		a, ok := parseNodeIP(r.DAddr)
+		if !ok || a.IsLoopback() {
+			return n, fmt.Sprintf("destination address %q invalid", r.DAddr)
+		}
+		n.daddr = a
+	}
+	hasFamily := func(b netip.Addr) bool {
+		return slices.ContainsFunc(src, func(a netip.Addr) bool { return sameFamily(a, b) })
+	}
+	switch {
+	case n.daddr.IsValid() && n.to.IsValid() && !sameFamily(n.daddr, n.to):
+		return n, "destination and target address families differ"
+	case len(src) > 0 && n.daddr.IsValid() && !hasFamily(n.daddr):
+		return n, "no source address of the destination's family"
+	case len(src) > 0 && n.to.IsValid() && !hasFamily(n.to):
+		return n, "no source address of the target's family"
+	}
+	parts := make([]string, len(src))
+	for i, a := range src {
+		parts[i] = a.String()
+	}
+	n.saddr = strings.Join(parts, ", ")
 	return n, ""
 }

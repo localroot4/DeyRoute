@@ -573,6 +573,7 @@ const (
 	TUIProbeTCP     Key = "tui.probe.tcp"
 	TUIProbeTLS     Key = "tui.probe.tls"
 	TUIProbeHTTP    Key = "tui.probe.http"
+	TUIProbeEcho    Key = "tui.probe.echo"
 
 	// port check (Ports -> Check port, Diagnostics -> Port check)
 	TUIPCPort          Key = "tui.pc.port"
@@ -1106,6 +1107,7 @@ var tuiEN = map[Key]string{
 	TUIProbeTCP:     "tcp   the TCP connection opens",
 	TUIProbeTLS:     "tls   a TLS handshake or TLS alert comes back",
 	TUIProbeHTTP:    "http  an HTTP status line comes back (HEAD /)",
+	TUIProbeEcho:    "echo  a nonce returns through the tunnel; the node checks the service",
 
 	TUIPCPort:          "Port (e.g. 443 or 27015/udp)",
 	TUIPCNode:          "Node id (empty = first online node)",
@@ -1434,6 +1436,7 @@ const (
 	CLIFlagSetupName             Key = "cli.flag_setup_name"
 	CLIFlagControlPort           Key = "cli.flag_control_port"
 	CLIFlagYesSetup              Key = "cli.flag_yes_setup"
+	CLIFlagYesJoin               Key = "cli.flag_yes_join"
 	CLIFlagRepair                Key = "cli.flag_repair"
 	CLISetupRepaired             Key = "cli.setup_repaired"
 	CLIFlagJoinName              Key = "cli.flag_join_name"
@@ -1446,6 +1449,8 @@ const (
 	CLIFlagBackupNodeOne         Key = "cli.flag_backup_node_one"
 	CLIOneBackupNode             Key = "cli.one_backup_node"
 	CLIFlagYesAdd                Key = "cli.flag_yes_add"
+	CLIFlagTunnelID              Key = "cli.flag_tunnel_id"
+	CLIFlagAllowRename           Key = "cli.flag_allow_rename"
 	CLIFlagPolicy                Key = "cli.flag_policy"
 	CLIFlagProbePort             Key = "cli.flag_probe_port"
 	CLIFlagSwitchTransport       Key = "cli.flag_switch_transport"
@@ -1642,6 +1647,8 @@ const (
 	CLITunnelEditShort           Key = "cli.tunnel_edit_short"
 	CLITunnelEditExample         Key = "cli.tunnel_edit_example"
 	CLIEditNothing               Key = "cli.edit_nothing"
+	CLIFlagEditNodes             Key = "cli.flag_edit_nodes"
+	CLITunnelEditActiveLost      Key = "cli.tunnel_edit_active_lost"
 	CLITunnelUpdated             Key = "cli.tunnel_updated"
 	CLITunnelEnableShort         Key = "cli.tunnel_enable_short"
 	CLITunnelEnableExample       Key = "cli.tunnel_enable_example"
@@ -2025,7 +2032,8 @@ var cliEN = map[Key]string{
 	CLIFlagRole:                  "role of this server: hub (Iran, users connect here) or node (abroad)",
 	CLIFlagSetupName:             "server name, e.g. ir-1 (default: the host name)",
 	CLIFlagControlPort:           "hub control port (default: 44433, or the next free port)",
-	CLIFlagYesSetup:              "ask nothing: use the defaults and apply the balanced kernel profile",
+	CLIFlagYesSetup:              "ask nothing: use the defaults and apply the automatic kernel profile (deyroute optimize status shows it)",
+	CLIFlagYesJoin:               "ask nothing: use the defaults and apply the balanced kernel profile",
 	CLIFlagRepair:                "repair a set-up server (unit files, directories, service restart); the config is untouched",
 	CLISetupRepaired:             "Repaired: unit files are current and %s was restarted; the configuration is unchanged.",
 	CLIFlagJoinName:              "node name, e.g. de-1 (default: the host name)",
@@ -2038,13 +2046,15 @@ var cliEN = map[Key]string{
 	CLIFlagBackupNodeOne:         "backup node id, e.g. nl-1 (one node per command)",
 	CLIOneBackupNode:             "give one backup node per command (--node nl-1); run the command again for the next node",
 	CLIFlagYesAdd:                "create at once, without showing the summary first",
+	CLIFlagTunnelID:              "exact tunnel id, e.g. t5 (scripts: always pass it; a taken id fails with DEY-C002)",
+	CLIFlagAllowRename:           "without a terminal or with --yes: give a taken --name a numbered id (t5-2) instead of failing with DEY-C002",
 	CLIFlagPolicy:                "failover policy: transport_then_node, transport_only or node_only",
 	CLIFlagProbePort:             "listen port used by the health probe (0 = first TCP port)",
 	CLIFlagSwitchTransport:       "transport to switch to, e.g. backhaul/tcpmux",
 	CLIFlagSwitchNode:            "node to switch to, e.g. nl-1",
 	CLIFlagTarget:                "target on the node (default 127.0.0.1:<port>)",
-	CLIFlagProbe:                 "probe kind of the port maps: auto (default), tcp, tls or http; UDP maps are always auto",
-	CLIProbeFix:                  "run it again with --probe auto, tcp, tls or http (UDP ports: auto only)",
+	CLIFlagProbe:                 "probe kind of the port maps: auto (default), tcp, tls, http or echo; UDP maps are always auto",
+	CLIProbeFix:                  "run it again with --probe auto, tcp, tls, http or echo (UDP ports: auto only)",
 	CLIFlagCheckNode:             "node that tests reachability from outside (default: the first online node)",
 	CLIFlagOpenFirewall:          "open the port in the external firewall that blocks it (ufw, firewalld, iptables, nftables); asks first unless --yes",
 	CLIFlagCount:                 "how many free ports to suggest",
@@ -2194,8 +2204,8 @@ var cliEN = map[Key]string{
 	CLIHubAnnounceOffline:        "! Offline, not told: %s. Run on each of them: deyroute node set-hub %s",
 	CLITunnelShort:               "Manage tunnels: add, list, show, edit, enable/disable, switch, failover",
 	CLITunnelAddShort:            "Create a tunnel to a node (default ladder, ports checked and opened)",
-	CLITunnelAddLong:             "Create a tunnel from this hub to a node. Every port is checked first; the tunnel\nstarts on the first rung of its ladder, all other rungs are warmed, the firewall\nis opened and the tunnel TLS certificate is created. Backup nodes take over when\nthe primary node fails (the same service must run on both).",
-	CLITunnelAddExample:          "  deyroute tunnel add --node de-1 --ports 443,2053\n  deyroute tunnel add --node de-1 --ports 443,27015/udp --name \"Main\" --backup nl-1 --yes\n  deyroute tunnel add --node de-1 --ports 443 --ladder backhaul/wssmux,rathole/noise",
+	CLITunnelAddLong:             "Create a tunnel from this hub to a node. Every port is checked first; the tunnel\nstarts on the first rung of its ladder, all other rungs are warmed, the firewall\nis opened and the tunnel TLS certificate is created. Backup nodes take over when\nthe primary node fails (the same service must run on both).\n\nThe id is --id, or derived from --name. At a terminal a taken name gets a\nnumbered id (main-2); without a terminal or with --yes it fails with DEY-C002\nunless --allow-rename is given. Scripts pass --id.",
+	CLITunnelAddExample:          "  deyroute tunnel add --node de-1 --ports 443,2053\n  deyroute tunnel add --node de-1 --ports 443,27015/udp --name \"Main\" --backup nl-1 --yes\n  deyroute tunnel add --id t5 --node de-1 --ports 2083 --yes --json\n  deyroute tunnel add --node de-1 --ports 443 --ladder backhaul/wssmux,rathole/noise",
 	CLITunnelAddSummary:          "New tunnel\n  node:    %s\n  ports:   %s\n  ladder:  %s\n  backup:  %s",
 	CLILadderDefault:             "default (by protocol)",
 	CLIAskCreateTunnel:           "Create the tunnel?",
@@ -2231,9 +2241,11 @@ var cliEN = map[Key]string{
 	CLIProbesNone:                "No probe results yet.",
 	CLIProbesLine:                "%d probes: %d ok, %d failed, median RTT %s",
 	CLIProbesLastFail:            "last failure %s (%s)",
-	CLITunnelEditShort:           "Change a tunnel's name, ladder, failover policy or probe port",
-	CLITunnelEditExample:         "  deyroute tunnel edit main --name \"Main 443\"\n  deyroute tunnel edit main --ladder stealth --policy transport_only\n  deyroute tunnel edit main --probe-port 2053\n  deyroute tunnel edit main --tls-mode acme",
-	CLIEditNothing:               "nothing to change: give --name, --ladder, --policy, --probe-port or --tls-mode",
+	CLITunnelEditShort:           "Change a tunnel's name, ladder, node order, failover policy or probe port",
+	CLITunnelEditExample:         "  deyroute tunnel edit main --name \"Main 443\"\n  deyroute tunnel edit main --ladder stealth --policy transport_only\n  deyroute tunnel edit main --probe-port 2053\n  deyroute tunnel edit main --tls-mode acme\n  deyroute tunnel edit main --node nl-1 --node de-1",
+	CLIEditNothing:               "nothing to change: give --name, --ladder, --node, --policy, --probe-port or --tls-mode",
+	CLIFlagEditNodes:             "the complete node list in order, primary first (repeat the flag: --node nl-1 --node de-1); traffic stays on the active node until failback",
+	CLITunnelEditActiveLost:      "Node %s carries tunnel %s now and is not in the new node list: the tunnel moves to %s and its users lose their connections.",
 	CLITunnelUpdated:             "Tunnel %s updated.",
 	CLITunnelEnableShort:         "Enable a tunnel",
 	CLITunnelEnableExample:       "  deyroute tunnel enable main",
@@ -2288,7 +2300,7 @@ var cliEN = map[Key]string{
 	CLIPortRemoveExample:         "  deyroute port remove main 8443\n  deyroute port remove main 27015/udp",
 	CLIPortRemoved:               "Port %s removed from tunnel %s.",
 	CLIPortSetShort:              "Change the probe kind of ports of a tunnel",
-	CLIPortSetLong:               "Change how the health probe tests ports a tunnel already has (Advanced; config.yaml\nports[].probe): auto sends a TLS hello and accepts any answer, tcp only connects, tls\nneeds a TLS handshake or alert, http needs an HTTP status line. UDP maps are always\nauto. Nothing restarts.",
+	CLIPortSetLong:               "Change how the health probe tests ports a tunnel already has (Advanced; config.yaml\nports[].probe): auto sends a TLS hello and accepts any answer, tcp only connects, tls\nneeds a TLS handshake or alert, http needs an HTTP status line, echo sends a nonce\nthrough the tunnel to the node and has the node check the service (for services\nthat stay silent). auto switches to echo by itself when the service stays silent.\nUDP maps are always auto. Nothing restarts.",
 	CLIPortSetExample:            "  deyroute port set main 443 --probe tls\n  deyroute port set main 8080,8081 --probe http\n  deyroute port set main 443 --probe auto",
 	CLIPortCheckShort:            "Check a port in four stages: local bind, firewall, from a node, via the tunnel",
 	CLIPortCheckLong:             "The most important troubleshooting tool: is the port free on this server, does a\nfirewall block it, can a node reach it from the internet, and does traffic pass\nthrough the tunnel. Filtering inside Iran is not measured.\n\nWith --open, deyroute opens the port in the external firewall that blocks it: it\nshows the exact command (ufw allow 443/tcp, firewall-cmd ..., iptables ...,\nnft ...) and runs it only after you type yes (or with --yes).",
@@ -2437,8 +2449,8 @@ var cliEN = map[Key]string{
 	CLIBackupKeepPass:            "Keep the passphrase safe: the backup cannot be restored without it.",
 	CLIBackupPlainWarn:           "! This file is not encrypted and holds the CA key and every secret: keep it private.",
 	CLIRestoreShort:              "Restore a backup (replaces this server's configuration)",
-	CLIRestoreLong:               "Replace /etc/deyroute with a backup: the file is decrypted and validated first, an\nolder schema is migrated, then the service restarts and re-renders every tunnel.\nThe current directory is kept as /etc/deyroute.pre-restore-<time>. A hub restored on\na new server takes the new public IP; tell the nodes with deyroute hub announce-move\non the old hub or deyroute node set-hub on each node.",
-	CLIRestoreExample:            "  deyroute restore /var/lib/deyroute/backups/deyroute-backup-20260930T120000Z.tar.gz.age\n  DEYROUTE_BACKUP_PASSPHRASE=... deyroute restore backup.tar.gz.age --yes",
+	CLIRestoreLong:               "Replace /etc/deyroute with a backup: the file is decrypted and validated first, an\nolder schema is migrated, then the service restarts and re-renders every tunnel.\nThe current directory is kept as /etc/deyroute.pre-restore-<time>. A hub restored on\na new server takes this server's public IP: --public-ip [--public-ip6] sets it,\n--keep-address keeps the backup's (same server, floating IP). Without either, a public\ndetected address is used; a private or failed detection is asked on a terminal and is\nDEY-I025 with --yes or without a terminal. Then tell the nodes with deyroute hub\nannounce-move on the old hub or deyroute node set-hub on each node.",
+	CLIRestoreExample:            "  deyroute restore /var/lib/deyroute/backups/deyroute-backup-20260930T120000Z.tar.gz.age\n  DEYROUTE_BACKUP_PASSPHRASE=... deyroute restore backup.tar.gz.age --yes --public-ip 203.0.113.7",
 	CLIAskMovedHub:               "This server's public IP is %s, but the backup's hub address is %s. Use this server's address (the hub moved here)?",
 	CLIRestoreLost:               "Restoring %s (%s, created %s with deyroute %s) replaces this server's /etc/deyroute: configuration, secrets and certificates. The current directory is kept as /etc/deyroute.pre-restore-<time>; every change made after that backup is lost. Tunnels are re-rendered and restarted.",
 	CLIRestoreMove:               "The hub address changes from %s to %s; the hub certificate is re-issued.",

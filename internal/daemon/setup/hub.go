@@ -69,6 +69,11 @@ type HubOptions struct {
 	// NoFirewall writes security.firewall_managed: false and skips the
 	// firewall step (suggestions only, spec section 11).
 	NoFirewall bool
+	// NoJoinWindow applies the setup-time firewall with the join window
+	// closed (setup --no-join, DR-16): the control port is restricted to
+	// @nodes from the first table on. By default the window is open, since
+	// the join command follows setup.
+	NoJoinWindow bool
 	// StartService installs the unit templates, runs `systemctl enable
 	// --now deyroute-hub.service` and waits for the local API socket. Tests
 	// leave it false.
@@ -230,12 +235,13 @@ func SetupHub(ctx context.Context, o HubOptions) (*HubResult, error) {
 	}
 	e.rep.ok(StepHubCert, detail)
 
-	// firewall: the join window is open (the first join follows setup).
+	// firewall: the join window is open (the first join follows setup)
+	// unless NoJoinWindow.
 	e.rep.start(StepFirewall)
 	if !cfg.Security.FirewallManaged {
 		e.rep.skip(StepFirewall, "security.firewall_managed: false")
 	} else {
-		spec := render.FirewallSpec(cfg, nil, true, render.DefaultUnknownControlRate)
+		spec := setupFirewallSpec(cfg, o)
 		err := firewall.Apply(ctx, e.runner, spec)
 		switch {
 		case err == nil:
@@ -262,7 +268,7 @@ func SetupHub(ctx context.Context, o HubOptions) (*HubResult, error) {
 		if profile == config.SysctlAuto {
 			warnings, err = e.applyAutoProfile(ctx, config.RoleHub, o.TunePlan, cfg.Tuning.BBR, HubReserved(cfg))
 		} else {
-			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false)
+			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false, nil)
 		}
 		res.SysctlWarnings = warnings
 		switch {
@@ -317,9 +323,11 @@ func sameIP(a, b string) bool {
 
 // applySysctl applies profile with BBR as configured; ipForward adds
 // net.ipv4.ip_forward = 1 (only when a WireGuard transport exists, which is
-// never the case during setup or join).
-func applySysctl(root, profile string, bbr, ipForward bool) ([]string, error) {
-	_, warnings, err := sysctl.Manager{Root: root}.ApplyWith(sysctl.ApplyOptions{Profile: profile, BBR: bbr, IPForward: ipForward})
+// never the case during setup or join) and reserved are added to
+// net.ipv4.ip_local_reserved_ports.
+func applySysctl(root, profile string, bbr, ipForward bool, reserved []string) ([]string, error) {
+	_, warnings, err := sysctl.Manager{Root: root}.ApplyWith(sysctl.ApplyOptions{Profile: profile, BBR: bbr, IPForward: ipForward,
+		Reserved: reserved})
 	return warnings, err
 }
 
@@ -404,4 +412,10 @@ func hubCertUsable(ca *tlsutil.CA, certPath, keyPath, name string, ips []net.IP,
 		}
 	}
 	return true
+}
+
+// setupFirewallSpec is the table the firewall step applies: the join
+// window is open unless o.NoJoinWindow (setup --no-join, DR-16).
+func setupFirewallSpec(cfg *config.Config, o HubOptions) firewall.Spec {
+	return render.FirewallSpec(cfg, nil, !o.NoJoinWindow, render.DefaultUnknownControlRate)
 }

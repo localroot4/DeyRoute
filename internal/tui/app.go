@@ -95,6 +95,11 @@ type RestorePlan struct {
 	// MovedIP is this server's public IP when a hub backup names another
 	// address (OldIP): the hub may have moved here. "" = no question.
 	MovedIP, OldIP string
+	// AskIP is set when a hub backup is restored on another server whose
+	// public IP could not be detected or is private (AskWhy says which):
+	// the menu asks for the address, OldIP as default (DR-08).
+	AskIP  bool
+	AskWhy string
 }
 
 // Model is the root Bubble Tea model. It is a thin handle on the shared

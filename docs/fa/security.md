@@ -18,7 +18,9 @@
 
 - ۳۲ بایت تصادفی، **یک‌بارمصرف**، به‌طور پیش‌فرض ۱۵ دقیقه معتبر (`deyroute node join-command --ttl` از 1m تا 24h را می‌پذیرد) و بلافاصله بعد از مصرف پاک می‌شود.
 - اگر از یک آدرس در یک ساعت بیش از ۵ تلاش ناموفق شود، آن آدرس یک ساعت بلاک می‌شود (`DEY-N007`).
-- تا وقتی یک توکن مصرف‌نشده وجود دارد، پورت کنترل اتصال از هر آدرسی را می‌پذیرد (پنجره Join). بقیه وقت‌ها فقط IP سرورهای Node وصل‌شده را می‌پذیرد، به‌علاوه تعداد کمی اتصال جدید در دقیقه از آدرس‌های دیگر تا Nodeی که IPاش عوض شده بتواند با گواهی خودش دوباره وصل شود.
+- تا وقتی یک توکن مصرف‌نشده وجود دارد، پورت کنترل اتصال از هر آدرسی را می‌پذیرد (پنجره Join). بقیه وقت‌ها فقط IP سرورهای Node وصل‌شده را می‌پذیرد، به‌علاوه ۳ اتصال جدید در دقیقه از هر آدرس دیگر (و روی هم ۳۰ اتصال در دقیقه از همه آن‌ها) تا Nodeی که IPاش عوض شده بتواند با گواهی خودش دوباره وصل شود (بخش «آدرس‌های ناشناس» پایین‌تر).
+- `deyroute node join-revoke` همه توکن‌های مصرف‌نشده را پاک می‌کند و فایروال را همان لحظه اعمال می‌کند، پس پنجره Join بدون صبر برای انقضا بسته می‌شود (رویداد `join_tokens_revoked`). `deyroute setup --no-join` یک Hub را بدون Join command راه‌اندازی می‌کند، پس موقع setup هیچ پنجره Joinی باز نمی‌شود ([Join کردن Node](join.md#باطل-کردن-join-commandهای-مصرفنشده) را ببینید).
+- نسخه‌های قبل از 0.3.1 اسم رویداد `join_tokens_revoked` را نمی‌شناسند: تا وقتی در `hub.notify.telegram.events` هست، `deyroute update --rollback` به چنین نسخه‌ای رد می‌شود (`DEY-S011`).
 - `deyroute security audit` درباره هر توکن Join منقضی‌نشده هشدار می‌دهد، چون هر کدام پنجره Join را تا زمان انقضایش باز نگه می‌دارد. `deyroute doctor` توکن‌هایی را که با `--ttl` بیشتر از ۱۵ دقیقه ساخته شده‌اند (همراه زمان انقضا) و توکن‌های منقضی‌شده‌ای را که پاک نشده‌اند گزارش می‌کند.
 - اگر Join به دلیل دیگری رد شود (شناسه Node تکراری است، درخواست خراب است، یا `config.yaml` ویرایشی دارد که هنوز اعمال نشده: `DEY-C026`)، توکن مصرف نمی‌شود و Node می‌تواند با همان دستور دوباره امتحان کند.
 
@@ -33,12 +35,27 @@ table inet deyroute {
 		elements = { 1.2.3.4, 9.8.7.6 }
 	}
 
+	set ctl_unknown4 {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
+	set ctl_unknown6 {
+		type ipv6_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
 	chain input {
 		type filter hook input priority -10; policy accept;
 		ct state established,related accept
 		iif "lo" accept
 		tcp dport 44433 ip saddr @nodes accept
-		tcp dport 44433 ct state new limit rate 6/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown6 { ip6 saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
 		tcp dport 44433 drop
 		tcp dport 30000-31999 ip saddr @nodes accept
 		udp dport 30000-31999 ip saddr @nodes accept
@@ -52,6 +69,20 @@ table inet deyroute {
 - پورت کنترل و پورت‌های کنترل بک‌اندها (30000 تا 31999) فقط برای Nodeها باز است؛ پورت‌های تانل برای همه.
 - جدول `inet deyroute` روی خود Node فقط قوانین NAT ترنسپورت‌هایش را دارد.
 
+### آدرس‌های ناشناس روی پورت کنترل
+
+Nodeی که IP عمومی‌اش عوض شده هنوز در `@nodes` نیست: با گواهی خودش از راه پذیرش آدرس‌های ناشناس دوباره وصل می‌شود و بعد Hub آدرس جدیدش را در `@nodes` می‌گذارد. هر آدرس سهمیه جداگانه‌ای دارد: ۳ اتصال جدید در دقیقه (setهای پویای `@ctl_unknown4` و `@ctl_unknown6` برای هر آدرس یک سطل جدا را ۱۰ دقیقه نگه می‌دارند)، و همه آدرس‌های ناشناس روی هم حداکثر ۳۰ اتصال در دقیقه. پس یک اسکنر فقط سهمیه خودش را مصرف می‌کند، نه سهمیه Node را. mTLS و محدودکننده Join همچنان از هر اتصالی که رد می‌شود محافظت می‌کنند.
+
+```yaml
+security:
+  unknown_control_rate_per_source: 3/minute   # برای هر آدرس؛ پیش‌فرض 3/minute
+  unknown_control_rate: 30/minute             # همه آدرس‌های ناشناس؛ پیش‌فرض 30/minute
+```
+
+نرخ همان نرخ nft است: یک عدد در `second`، `minute`، `hour` یا `day`، و در صورت نیاز `burst N packets`. اگر burst ننویسید، نرخ هر آدرس burstی برابر عدد خودش می‌گیرد (`3/minute` یعنی ۳ اتصال هم‌زمان). هر دو کلید به‌طور پیش‌فرض در فایل نیستند. نسخه‌های قبل از 0.3.1 آن‌ها را نمی‌شناسند: تا وقتی یکی تنظیم شده، `deyroute update --rollback` به چنین نسخه‌ای رد می‌شود (`DEY-S011`).
+
+این شکلِ تفکیک‌شده بر اساس آدرس به پشتیبانی nftables از setهای پویا با limit برای هر عضو نیاز دارد. همه توزیع‌هایی که آزمایشگاه تست می‌کند آن را دارند (nftables 1.0.2 در Ubuntu 22.04، 1.0.6 در Debian 12، 1.0.9 در Ubuntu 24.04، و 1.1.x در Debian 13 و Ubuntu 26.04). اگر nft باز هم آن را رد کند (خطای syntax، یا کرنلی که این پشتیبانی را ندارد)، Hub به جایش همان قانون تکی قبلی `tcp dport 44433 ct state new limit rate 30/minute accept` را با نرخ `unknown_control_rate` اعمال می‌کند، تا ری‌استارت بعدی همین را نگه می‌دارد و هشدار `nft refused the per-source limit of the control port` را یک بار در `hub.log` می‌نویسد.
+
 ```bash
 deyroute security firewall show      # جدول و فایروال‌های پیداشده (ufw، firewalld و…)
 deyroute security firewall apply     # همین حالا بساز و اعمال کن
@@ -59,6 +90,17 @@ deyroute security firewall disable   # جدول را حذف کن؛ از آن ب�
 ```
 
 با `security.firewall_managed: false` در `config.yaml`، DEYROUTE چیزی اعمال نمی‌کند و فقط دستورهایی را که خودتان باید اجرا کنید چاپ می‌کند (`DEY-P031`). جدول `inet deyroute` که قبلاً اعمال شده بود حذف می‌شود، حتی اگر این تنظیم وقتی Hub خاموش بوده عوض شده باشد (ویرایش و بعد ری‌استارت، یا ریستور بکاپ). فایروال بیرونی (ufw، firewalld، پنل سرور) هیچ‌وقت بدون تأیید شما تغییر نمی‌کند؛ `deyroute port check` دستور دقیق را نشان می‌دهد و `deyroute port check <port> --open` (یا `Open it in the firewall` در منو) آن را فقط بعد از اینکه `yes` را تایپ کنید اجرا می‌کند. Hub هیچ‌وقت متنی را که دریافت می‌کند اجرا نمی‌کند: فایروال را دوباره چک می‌کند، دستور را از روی فایروال پیداشده و شماره و پروتکل پورت می‌سازد و اگر با دستوری که تأیید کردید فرق داشته باشد اجرا نمی‌کند (`DEY-P032`). این کار با `security.firewall_managed: false` هم انجام می‌شود، چون آن تنظیم فقط به جدول `inet deyroute` مربوط است. به فایروال پنل ارائه‌دهنده هیچ‌وقت دست زده نمی‌شود.
+
+### جدول خودش برمی‌گردد
+
+ابزار دیگری ممکن است `inet deyroute` را حذف یا عوض کند: `nft flush ruleset` از طرف ادمین یا اسکریپت دیتاسنتر، یا `ufw reload` روی بعضی سیستم‌ها. برای همین Hub و هر Node هر ۶۰ ثانیه جدول را می‌خوانند و با جدولی که خودشان اعمال کرده‌اند مقایسه می‌کنند. جدول گم‌شده یا عوض‌شده فوراً دوباره اعمال می‌شود، با همان قفلی که بقیه اعمال‌ها دارند، پس این بررسی هیچ‌وقت با یک تغییر واقعی تداخل ندارد. Node فقط وقتی قانون NAT دارد بررسی می‌کند (پله WireGuard یا AmneziaWG، یا port hopping در Hysteria2)؛ بدون آن جدولی ندارد. ترتیبی که nft عضوهای یک set را چاپ می‌کند تغییر حساب نمی‌شود، آدرس‌هایی هم که کرنل به یک set پویا اضافه می‌کند همین‌طور.
+
+```yaml
+security:
+  firewall_reassert_s: 60   # ثانیه، 10 تا 3600؛ 0 = خاموش؛ پیش‌فرض 60
+```
+
+این کلید به‌طور پیش‌فرض در فایل نیست. با `security.firewall_managed: false` هیچ‌وقت چیزی بررسی یا اعمال نمی‌شود. Hub رویداد `firewall_reapplied` را ثبت می‌کند (با دلیل `missing` یا `drift`، [ترافیک و بار سرورها](monitoring.md#رویدادهای-فایروال) را ببینید)؛ Node همین هشدار را در لاگ خودش (`/var/log/deyroute/node.log`) می‌نویسد. هر دلیل حداکثر هر ۱۰ دقیقه یک بار گزارش می‌شود، ولی جدول هر بار دوباره اعمال می‌شود. نسخه‌های قبل از 0.3.1 این کلید را نمی‌شناسند: تا وقتی تنظیم شده، `deyroute update --rollback` به چنین نسخه‌ای رد می‌شود (`DEY-S011`). سناریوی آزمایشگاهی S37 روی یک Hub و یک Node با پله WireGuard کل ruleset را پاک می‌کند و بررسی می‌کند که جدول برگردد و تانل بالا بماند.
 
 ## شمارش ترافیک: `table inet deyroute_stats`
 
@@ -195,6 +237,47 @@ deyroute security audit
 | `rathole` | خیر | ندارد | ندارد | `MemoryDenyWriteExecute` (باینری‌های رسمی‌اش با UPX فشرده شده‌اند) | ندارد |
 | `direct/haproxy` (بررسی آدرس‌های Node) | خیر | ندارد | `AF_NETLINK` | ندارد | ندارد |
 | بقیه بک‌اندها و ترنسپورت‌ها | خیر | ندارد | ندارد | ندارد | ندارد |
+
+## سرویس‌های Hub و Node
+
+`deyroute-hub` و `deyroute-node` با root اجرا می‌شوند، چون nftables، سرویس‌های systemd و تنظیمات کرنل را مدیریت می‌کنند. با این حال سرویسشان در یک محیط محدود اجرا می‌شود تا یک باگ در daemon نتواند هر جایی بنویسد:
+
+- `ProtectSystem=strict`: کل فایل‌سیستم برای daemon فقط‌خواندنی است، به‌جز مسیرهای جدول زیر. `ProtectHome`، `PrivateTmp` و `NoNewPrivileges` مثل قبل سر جایشان هستند.
+- مجموعه مجاز capabilityها (`CapabilityBoundingSet`): daemon فقط همان دسترسی‌های root را نگه می‌دارد که واقعاً به کار می‌برد. `CAP_SYS_ADMIN`، `CAP_SYS_MODULE`، `CAP_SETUID`، `CAP_SETGID` و `CAP_KILL` حذف شده‌اند.
+- `ProtectControlGroups`، `RestrictSUIDSGID`، `LockPersonality` و `SystemCallArchitectures=native`.
+
+| مسیر نوشتنی | Hub | Node | برای چه |
+| --- | --- | --- | --- |
+| `/etc/deyroute` | بله | بله (کل `/etc`) | تنظیمات، رازها، تنظیمات بک‌اندها، manifest |
+| `/etc/systemd/system` | بله | بله (کل `/etc`) | سرویس‌های تانل، drop-inهایشان، drop-inهای منابع و slice تیونینگ |
+| `/etc/sysctl.d`، `/etc/modules-load.d`، `/etc/modprobe.d` | بله، اگر وجود داشته باشد | بله (کل `/etc`) | فایل‌های تیونینگ کرنل |
+| `/var/lib/deyroute` | بله | بله (کل `/var/lib`) | state، باینری بک‌اندها، `deyroute.prev`، بکاپ‌ها، دانلودها |
+| `/var/log/deyroute` | بله | بله (کل `/var/log`) | لاگ daemon و لاگ تانل‌ها |
+| `/usr/local/bin` | بله | بله | `update` و `update --rollback` فایل‌های `deyroute` و `dey` را عوض می‌کنند |
+| `/run` | بله | بله | سوکت API محلی و قفل iptables در بررسی فایروال |
+
+Node به کل `/etc`، `/var/lib` و `/var/log` نیاز دارد، چون حذف نصبی که Hub می‌فرستد داخل خود سرویس Node اجرا می‌شود. این حذف خود پوشه‌های `/etc/deyroute`، `/var/lib/deyroute` و `/var/log/deyroute` را پاک می‌کند و حساب `deyroute` را با `userdel` و `groupdel` برمی‌دارد؛ این دو ابزار `/etc/passwd` و `/etc/group` را با فایل‌های موقت داخل `/etc` بازنویسی می‌کنند. `/usr`، `/boot` و بقیه سیستم روی هر دو فقط‌خواندنی می‌مانند.
+
+| Capability | کاربرد |
+| --- | --- |
+| `CAP_NET_ADMIN` | nftables، تنظیمات کرنل `net.*`، `ip` و پرس‌وجوهای netlink |
+| `CAP_NET_RAW` | `iptables -S` در بررسی فایروال (iptables-legacy یک raw socket باز می‌کند) |
+| `CAP_NET_BIND_SERVICE` | گوش دادن روی پورت‌های زیر ۱۰۲۴: بررسی پورت‌ها، CDN front روی Hub، ACME HTTP-01 |
+| `CAP_DAC_OVERRIDE` | فایل‌های کاربر `deyroute`: لاگ تانل‌ها و فایل‌های بک‌اند |
+| `CAP_CHOWN`، `CAP_FOWNER` | گروه `deyroute` و دسترسی‌های تنظیمات بک‌اند، رازها و پوشه‌های لاگ |
+| `CAP_SYS_PTRACE` | پیدا کردن برنامه‌ای که یک پورت را گرفته (`ss -p`، `/proc/<pid>/fd`) و تشخیص مجازی‌سازی |
+| `CAP_AUDIT_WRITE` (فقط Node) | `userdel` و `groupdel` در حذف نصب رکورد audit می‌نویسند |
+
+تنظیمات کرنل capability اضافه نمی‌خواهند: root اجازه نوشتن در `/proc/sys` و اندازه جدول hash در conntrack را دارد. وقتی تیونینگ از `nf_conntrack`، `tcp_bbr` یا `sch_fq` استفاده کند، خود کرنل آن ماژول را بار می‌کند؛ daemon هیچ ماژولی را بار نمی‌کند. `ProtectKernelModules` فقط به این دلیل خاموش مانده که بررسی سرور باید `/lib/modules` را بخواند تا ببیند BBR در دسترس است یا نه.
+
+بررسی محیط محدود روی سرور:
+
+```bash
+systemctl show deyroute-hub -p ProtectSystem -p CapabilityBoundingSet
+systemd-analyze security deyroute-hub
+```
+
+امتیاز exposure که `systemd-analyze security` نشان می‌دهد از 8.9 به 6.5 (Hub) و 6.6 (Node) پایین آمده است. سرویس‌های جدید همراه نصب‌کننده می‌آیند: نصب تازه، join و اجرای دوباره `install.sh` روی سرور آن‌ها را می‌نویسند. `deyroute update` به‌تنهایی فقط باینری را عوض می‌کند و سرویس‌های موجود را دست نمی‌زند. روی سروری که هنگام شروع Hub پوشه `/etc/sysctl.d`، `/etc/modules-load.d` یا `/etc/modprobe.d` وجود نداشت، Hub نمی‌تواند فایل تیونینگ را آنجا بنویسد: پوشه را بسازید و سرویس را دوباره راه بیندازید.
 
 ## لاگ‌های تانل
 

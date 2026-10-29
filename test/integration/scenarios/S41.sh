@@ -48,10 +48,10 @@ log "served archive sha256 $served, signed $signed"
 
 n=$(sh_on hub "cat /var/log/deyroute/hub.log | wc -l")
 on node1 systemctl start deyroute-node
-M="node could not install the hub's version; it is tried again when it reconnects"
+M="node could not install the hub's version"
 refused() {
   sh_on hub "tail -n +$((n + 1)) /var/log/deyroute/hub.log" | jq -e -R --arg m "$M" --arg node "$NODE1" 'fromjson? |
-    select(.msg == $m and .node == $node and .code == "DEY-S001")' >/dev/null
+    select((.msg | startswith($m)) and .node == $node and .code == "DEY-S001")' >/dev/null
 }
 wait_for 120 "the hub logs the node's refusal (DEY-S001)" refused
 sh_on hub "tail -n +$((n + 1)) /var/log/deyroute/hub.log" | grep -F "$M" >&2 || true

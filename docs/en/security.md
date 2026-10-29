@@ -35,8 +35,17 @@ to a log.
   hour (`DEY-N007`).
 - While an unused token exists, the control port accepts connections from
   every address (the join window). Otherwise it accepts the joined nodes'
-  IPs, plus a few new connections per minute from other addresses so that a
-  node whose IP changed can reconnect with its certificate.
+  IPs, plus 3 new connections per minute from each other address (30 per
+  minute from all of them together) so that a node whose IP changed can
+  reconnect with its certificate (see Unknown sources below).
+- `deyroute node join-revoke` deletes every unused token and applies the
+  firewall at once, so the join window closes without waiting for the expiry
+  (event `join_tokens_revoked`). `deyroute setup --no-join` sets a hub up
+  without a join command, so no join window opens at setup (see
+  [Join a node](join.md#revoke-unused-join-commands)).
+- Releases before 0.3.1 do not know the event name `join_tokens_revoked`:
+  while `hub.notify.telegram.events` names it, `deyroute update --rollback`
+  to such a release is refused (`DEY-S011`).
 - `deyroute security audit` warns about every unexpired join token: each one
   keeps the join window open until it expires. `deyroute doctor` reports the
   tokens made with a `--ttl` over 15 minutes (with their expiry) and expired
@@ -60,12 +69,27 @@ table inet deyroute {
 		elements = { 1.2.3.4, 9.8.7.6 }
 	}
 
+	set ctl_unknown4 {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
+	set ctl_unknown6 {
+		type ipv6_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
 	chain input {
 		type filter hook input priority -10; policy accept;
 		ct state established,related accept
 		iif "lo" accept
 		tcp dport 44433 ip saddr @nodes accept
-		tcp dport 44433 ct state new limit rate 6/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown6 { ip6 saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
 		tcp dport 44433 drop
 		tcp dport 30000-31999 ip saddr @nodes accept
 		udp dport 30000-31999 ip saddr @nodes accept
@@ -79,6 +103,40 @@ table inet deyroute {
 - The control port and the backend control ports (30000–31999) are open
   only to the nodes; the tunnel ports are open to everyone.
 - A node's own `inet deyroute` table holds only NAT rules of its transports.
+
+### Unknown sources on the control port
+
+A node whose public IP changed is not in `@nodes` yet: it reconnects with
+its certificate through the admission for unknown sources, and the hub then
+puts its new address into `@nodes`. Each source address has its own budget of
+3 new connections per minute (the dynamic sets `@ctl_unknown4` and
+`@ctl_unknown6` keep one bucket per address for 10 minutes), and all unknown
+sources together get at most 30 per minute. A scanner therefore uses up only
+its own budget, not that of the node. mTLS and the join limiter still guard
+every connection that gets through.
+
+```yaml
+security:
+  unknown_control_rate_per_source: 3/minute   # per address; default 3/minute
+  unknown_control_rate: 30/minute             # all unknown sources; default 30/minute
+```
+
+A rate is an nft rate: a number per `second`, `minute`, `hour` or `day`,
+optionally with `burst N packets`. Without a burst, the per-source rate gets
+a burst of its own number (`3/minute` allows 3 at once). Both keys are
+absent by default. Releases before 0.3.1 do not know them:
+`deyroute update --rollback` to such a release is refused (`DEY-S011`)
+while one is set.
+
+The per-source form needs nftables support for dynamic sets with a limit
+per element. Every distribution the lab tests ships it (nftables 1.0.2 on
+Ubuntu 22.04, 1.0.6 on Debian 12, 1.0.9 on Ubuntu 24.04, 1.1.x on Debian 13
+and Ubuntu 26.04). When nft still refuses it (a syntax error, or a kernel
+without that support), the hub applies the earlier single rule
+`tcp dport 44433 ct state new limit rate 30/minute accept` at
+`unknown_control_rate` instead, keeps that until it restarts and writes the
+warning `nft refused the per-source limit of the control port` once to
+`hub.log`.
 
 ```bash
 deyroute security firewall show      # the table and the firewalls found (ufw, firewalld …)
@@ -99,6 +157,34 @@ and the port number and protocol, and refuses (`DEY-P032`) when that differs
 from the command you confirmed. This also works with
 `security.firewall_managed: false`, which concerns only table `inet deyroute`.
 A provider's firewall panel is never touched.
+
+### The table comes back by itself
+
+Another tool can remove or change `inet deyroute`: `nft flush ruleset` by
+an admin or a provider script, `ufw reload` on some systems. The hub and
+every node therefore list the table every 60 seconds and compare it with the
+one they applied. A missing or changed table is applied again at once, under
+the same lock as every other apply, so a check never races a real change. A
+node checks only while it has NAT rules (a WireGuard or AmneziaWG rung,
+Hysteria2 port hopping); without them it has no table. The order in which
+nft lists set elements does not count as a change, nor do the addresses
+the kernel adds to a dynamic set.
+
+```yaml
+security:
+  firewall_reassert_s: 60   # seconds, 10-3600; 0 = off; default 60
+```
+
+The key is absent by default. With `security.firewall_managed: false`
+nothing is ever checked or applied. The hub records the event
+`firewall_reapplied` (reason `missing` or `drift`, see
+[Traffic and load](monitoring.md#firewall-events)); a node writes the same
+warning to its log (`/var/log/deyroute/node.log`). Each reason is reported at
+most once per 10 minutes; the table is applied again every time. Releases
+before 0.3.1 do not know the key: `deyroute update --rollback` to such a
+release is refused (`DEY-S011`) while it is set. Lab scenario S37 flushes
+the ruleset on a hub and on a node with a WireGuard rung and checks that the
+table comes back while the tunnel stays up.
 
 ## Traffic counting: `table inet deyroute_stats`
 
@@ -306,6 +392,70 @@ security change. Menu: `8) Security` → `5) Audit`.
 | `rathole` | no | none | none | `MemoryDenyWriteExecute` (the release binaries are UPX-packed) | none |
 | `direct/haproxy` (the node's address check) | no | none | `AF_NETLINK` | none | none |
 | every other backend and transport | no | none | none | none | none |
+
+## The hub and node services
+
+`deyroute-hub` and `deyroute-node` run as root: they manage nftables,
+systemd units and kernel settings. Their units still keep them in a sandbox,
+so a bug in the daemon cannot write anywhere it likes:
+
+- `ProtectSystem=strict`: the whole file system is read-only for the daemon,
+  except the paths below. `ProtectHome`, `PrivateTmp` and `NoNewPrivileges`
+  stay as before.
+- A capability bounding set: the daemon keeps only the root rights it uses.
+  `CAP_SYS_ADMIN`, `CAP_SYS_MODULE`, `CAP_SETUID`, `CAP_SETGID` and
+  `CAP_KILL` are gone.
+- `ProtectControlGroups`, `RestrictSUIDSGID`, `LockPersonality` and
+  `SystemCallArchitectures=native`.
+
+| Writable path | Hub | Node | Why |
+| --- | --- | --- | --- |
+| `/etc/deyroute` | yes | yes (all of `/etc`) | configuration, secrets, backend configs, manifest |
+| `/etc/systemd/system` | yes | yes (all of `/etc`) | tunnel units, their drop-ins, the tuning's resource drop-ins and slice |
+| `/etc/sysctl.d`, `/etc/modules-load.d`, `/etc/modprobe.d` | yes, if present | yes (all of `/etc`) | the files of the kernel tuning |
+| `/var/lib/deyroute` | yes | yes (all of `/var/lib`) | state, backend binaries, `deyroute.prev`, backups, downloads |
+| `/var/log/deyroute` | yes | yes (all of `/var/log`) | daemon and tunnel logs |
+| `/usr/local/bin` | yes | yes | `update` and `update --rollback` replace `deyroute` and `dey` |
+| `/run` | yes | yes | the local API socket, the iptables lock of the firewall check |
+
+The node needs all of `/etc`, `/var/lib` and `/var/log`: the uninstall
+that the hub sends runs inside the node service. It deletes the
+directories `/etc/deyroute`, `/var/lib/deyroute` and `/var/log/deyroute`
+themselves and removes the `deyroute` account with `userdel` and
+`groupdel`, which rewrite `/etc/passwd` and `/etc/group` through
+temporary files in `/etc`. `/usr`, `/boot` and the rest of the system stay
+read-only on both.
+
+| Capability | Used for |
+| --- | --- |
+| `CAP_NET_ADMIN` | nftables, the `net.*` kernel settings, `ip` and the netlink queries |
+| `CAP_NET_RAW` | `iptables -S` of the firewall check (iptables-legacy opens a raw socket) |
+| `CAP_NET_BIND_SERVICE` | listeners below port 1024: port checks, the hub's CDN front, ACME HTTP-01 |
+| `CAP_DAC_OVERRIDE` | files of the `deyroute` user: tunnel logs, backend files |
+| `CAP_CHOWN`, `CAP_FOWNER` | the group `deyroute` and the modes of backend configs, secrets and log directories |
+| `CAP_SYS_PTRACE` | finding the program that holds a port (`ss -p`, `/proc/<pid>/fd`) and the virtualization check |
+| `CAP_AUDIT_WRITE` (node only) | `userdel` and `groupdel` of the uninstall write audit records |
+
+Kernel settings need no extra capability: root may write `/proc/sys` and
+the conntrack hash size. The kernel loads `nf_conntrack`, `tcp_bbr` and
+`sch_fq` by itself when the tuning uses them; the daemon never loads a
+module. `ProtectKernelModules` stays off only so the host check can read
+`/lib/modules` to see whether BBR is available.
+
+Check the sandbox on a server:
+
+```bash
+systemctl show deyroute-hub -p ProtectSystem -p CapabilityBoundingSet
+systemd-analyze security deyroute-hub
+```
+
+The exposure score that `systemd-analyze security` prints falls from 8.9
+to 6.5 (hub) and 6.6 (node). The new units come with the installer: a new
+install, a join and running `install.sh` again on a server write them.
+`deyroute update` alone replaces only the binary and keeps the units it
+finds. A server where `/etc/sysctl.d`, `/etc/modules-load.d` or
+`/etc/modprobe.d` did not exist when the hub started cannot get the tuning
+files there: create the directory and restart the service.
 
 ## Tunnel logs
 

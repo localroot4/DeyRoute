@@ -182,6 +182,8 @@ type fakeSys struct {
 	crash     map[string]bool // start succeeds, then the unit is failed
 	nft       []string        // stdin of every `nft -f -`
 	nftDelete int
+	nftList   int      // `nft list table inet deyroute` calls
+	table     string   // the live table inet deyroute ("" = none)
 	svc       []string // systemctl calls on deyroute-node.service
 }
 
@@ -219,6 +221,28 @@ func (s *fakeSys) deletes() int {
 	return s.nftDelete
 }
 
+// liveTable returns the live table inet deyroute ("" = none).
+func (s *fakeSys) liveTable() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.table
+}
+
+// setTable replaces the live table behind the agent's back (another tool,
+// `nft flush ruleset` with "").
+func (s *fakeSys) setTable(t string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.table = t
+}
+
+// lists returns how often the table was listed.
+func (s *fakeSys) lists() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.nftList
+}
+
 func (s *fakeSys) serviceCalls() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -232,11 +256,17 @@ func (s *fakeSys) handle(c exec.Call) (exec.Response, bool) {
 	case "nft":
 		if len(c.Args) == 2 && c.Args[0] == "-f" {
 			s.nft = append(s.nft, string(c.Stdin))
+			s.table = string(c.Stdin)
 			return exec.OK(""), true
 		}
 		if len(c.Args) >= 1 && c.Args[0] == "delete" {
 			s.nftDelete++
+			s.table = ""
 			return exec.OK(""), true
+		}
+		if exec.CommandLine(c.Name, c.Args) == "nft list table inet deyroute" {
+			s.nftList++
+			return exec.OK(s.table), true
 		}
 		return exec.OK(""), true
 	case "systemctl":

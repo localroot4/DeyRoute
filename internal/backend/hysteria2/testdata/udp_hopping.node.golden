@@ -55,6 +55,6 @@ masquerade:
 === binds
 udp 0.0.0.0:30001 control
 === nat
-{Proto:udp DportLow:20000 DportHigh:20999 ToAddr: ToPort:30001 Iface:}
+{Proto:udp DportLow:20000 DportHigh:20999 ToAddr: ToPort:30001 Iface: SAddr:[5.6.7.8] DAddr:1.2.3.4}
 === masquerade []
 === ip_forward false

@@ -59,8 +59,26 @@ refused while any such setting is in use.
 ## How the nodes follow
 
 When a node connects with another version than the hub's after an update
-or a rollback, the hub tells it to install the hub's version. A node
-installs a new deyroute only when the release it comes from is signed
+or a rollback, the hub tells it to install the hub's version. The hub does
+the same without an update:
+
+- for a node of another major.minor (incompatible, `DEY-N004`), as soon as
+  it connects: a hub restored on a newer release, or a node installed from
+  an older one. Then every other node follows too;
+- after a restore from a backup written by another version
+  ([Hub move](hub-move.md)): every node follows;
+- after `deyroute update` when the hub already runs the newest release:
+  nothing is installed on the hub, and every node of another version (an
+  older build of the same major.minor too) follows. The command says how
+  many (`nodes_queued` in `--json`).
+
+A node newer than the hub goes back to the hub's version (a warning in the
+hub's log): hub and node must share major.minor, and the hub's version
+wins. A hub on a development build pushes nothing by itself. A node of the
+same major.minor that only runs an older build is left alone until the
+next `deyroute update`.
+
+A node installs a new deyroute only when the release it comes from is signed
 with the DEYROUTE release key built into the node; what the hub says
 about it is not enough:
 
@@ -93,7 +111,10 @@ about it is not enough:
   version. The hub's log has the line "node could not install the hub's
   version" with `DEY-S001` and the check that failed (for example
   "SHA256SUMS.minisig is not a valid signature …" or "… does not match the
-  signed SHA256SUMS"); the hub tries again when the node reconnects. The
+  signed SHA256SUMS"); the hub asks again when the node reconnects, at
+  the earliest 10 minutes after the failure, then 20, 40 … up to 6 hours
+  (a restart of the hub asks at once). Only the first failure is a
+  warning in the log. The
   hub serves its files as they are: when a node keeps refusing them with
   "… does not match the signed SHA256SUMS" (a damaged file on the hub),
   delete `/var/lib/deyroute/bin/<version>/` on the hub, and it downloads

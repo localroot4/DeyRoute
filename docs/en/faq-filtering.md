@@ -121,6 +121,42 @@ through your service (its logs, your users) and switch by hand when needed:
 `deyroute tunnel switch games --transport hysteria2/udp`. `test-ladder` has
 the same limit and says so.
 
+## Port hopping and the node's other UDP services
+
+With `advanced.hysteria_port_hopping: true` on a tunnel, the hub sends the
+datagrams of `hysteria2/udp` to changing ports in 20000–20999 of the node,
+and the node redirects that range to the rung's own port. The redirect
+matches only datagrams from the hub's public addresses (`hub.public_ip` and
+`hub.public_ip6`) to the node's public address. A UDP service of your own
+on the node in 20000–20999 keeps the traffic of every other source. Check
+the rule on the node:
+
+```bash
+nft list chain inet deyroute prerouting
+```
+
+```text
+fib daddr type local ip saddr 5.6.7.8 ip daddr 1.2.3.4 udp dport 20000-20999 redirect to :30001
+```
+
+- **Node behind 1:1 NAT.** Many cloud providers map the public IP to a
+  private address on the server (`ip -br addr` on the node does not show
+  the public IP). Packets then arrive with the private address as
+  destination. The node notices this, leaves out `ip daddr` and matches
+  the hub's addresses only. It logs this once:
+  `NAT destination … is not an address of this node`.
+- **The hub's address changed** (a [hub move](hub-move.md), a new
+  `hub.public_ip`): the rule follows on the next `deyroute config apply`
+  and whenever the node connects to the hub.
+- **The hub must send from its public address.** Datagrams that leave the
+  hub from another address do not match. The rung then fails its probes
+  and the tunnel moves to the next rung. Turn port hopping off for that
+  tunnel.
+- **Not scoped:** a node with an IPv6 `public_ip` while the hub has no
+  `hub.public_ip6`, and a node with an older DEYROUTE version (until you
+  update it). These keep the old rule, which redirects the whole range
+  from every source. Keep other UDP services out of 20000–20999 there.
+
 ## Decoy SNI
 
 `xray/reality` and `waterwall/reverse-reality` make the tunnel look like a

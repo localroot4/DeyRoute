@@ -15,6 +15,65 @@ NotifyAccess=main
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
+# Sandbox (DR-20): the whole file system is read-only except the paths
+# below. A path the daemon writes and that is missing here fails only at run
+# time, so every line names the code that writes it. A leading "-" skips a
+# directory the distribution may lack.
+ProtectSystem=strict
+# config.yaml, secrets, backend configs, backends.yaml (+ .minisig).
+ReadWritePaths=/etc/deyroute
+# deyroute-tun@ instances, their drop-ins, the resource drop-ins and
+# deyroute-tunnels.slice of the automatic tuning, .wants links.
+ReadWritePaths=/etc/systemd/system
+# 99-deyroute.conf of the sysctl tuning.
+ReadWritePaths=-/etc/sysctl.d
+# deyroute.conf (nf_conntrack at boot) of the automatic tuning.
+ReadWritePaths=-/etc/modules-load.d
+# deyroute.conf (conntrack hash size) of the automatic tuning.
+ReadWritePaths=-/etc/modprobe.d
+# state.db, backend binaries, deyroute.prev, the release cache, backups,
+# the sysctl backup, update and download staging.
+ReadWritePaths=/var/lib/deyroute
+# Daemon logs, tunnel logs and their rotation.
+ReadWritePaths=/var/log/deyroute
+# update and update --rollback replace deyroute and the dey link here.
+ReadWritePaths=/usr/local/bin
+# The local API socket (/run/deyroute) and the iptables lock
+# (/run/xtables.lock) of the firewall check.
+ReadWritePaths=/run
+# Capabilities (DR-20): everything else root normally has is dropped. Each
+# line names the work that needs it.
+# nft (tables inet deyroute and deyroute_stats), the sysctl keys under
+# net.*, ip and the netlink queries of the host checks.
+CapabilityBoundingSet=CAP_NET_ADMIN
+# iptables-legacy opens a raw socket for `iptables -S` in the firewall check.
+CapabilityBoundingSet=CAP_NET_RAW
+# Listeners below port 1024: the port probes and checks, and on the hub the
+# CDN front and ACME HTTP-01 (port 80).
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# Files and directories root does not own: the deyroute user's tunnel logs
+# and backend files, and /proc/<pid>/fd of other users for the port owner.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+# Gives backend configs, secrets and the tunnel log directory the group
+# deyroute.
+CapabilityBoundingSet=CAP_CHOWN
+# chmod of files and directories that belong to the deyroute user.
+CapabilityBoundingSet=CAP_FOWNER
+# Finds the process that holds a port (ss -p, /proc/<pid>/fd links) and
+# reads /proc/1/environ for the virtualization check: the kernel asks for
+# it whenever the other process has capabilities this one lacks.
+CapabilityBoundingSet=CAP_SYS_PTRACE
+# No CAP_SYS_MODULE: the daemon never loads a module itself (the kernel
+# loads nf_conntrack, tcp_bbr and sch_fq on demand). ProtectKernelModules
+# stays off only because the host checks read /lib/modules/<release> to find
+# tcp_bbr and sch_fq.
+ProtectKernelModules=false
+# ProtectKernelTunables stays off: the tuning writes /proc/sys and
+# /sys/module/nf_conntrack/parameters/hashsize.
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
 LimitNOFILE=1048576
 Environment=GOMEMLIMIT=128MiB
 Environment=GOGC=100

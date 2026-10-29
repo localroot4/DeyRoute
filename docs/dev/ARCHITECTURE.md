@@ -480,10 +480,13 @@ func JoinCommand(installerURL, link, ver string) string  // bash <(curl -fsSL <i
   address) instead of `127.0.0.1`.
 - Control port access (spec §3/§11 vs S27 node IP change and join): the hub
   renders `RestrictControl=true` plus a rate-limited accept for unknown
-  sources (`ct state new limit rate 6/minute`) on the control port only; mTLS
-  and the join limiter protect it. While a join token is valid the port is
-  open without limit. Extend `firewall.Spec` with `UnknownControlRate string`
-  ("" = drop) — QUESTIONS.md C.23.
+  sources on the control port only; mTLS and the join limiter protect it.
+  While a join token is valid the port is open without limit.
+  `firewall.Spec.UnknownControlRate` ("" = drop) is the global cap and
+  `UnknownControlRatePerSource` the limit per source address through the
+  dynamic sets `@ctl_unknown4/6` (DR-15; before, one global
+  `limit rate 6/minute`); `firewall.Applier` falls back to the single
+  global rule when nft refuses the per-source form — QUESTIONS.md C.23.
 - `log.RedactingWriter` returns `*RedactWriter`; call `Close`/`Flush` at the
   end of in-memory streams. `state.Open` reports recovered corruption via
   `Store.Recovered()`; log it (X001) and continue.

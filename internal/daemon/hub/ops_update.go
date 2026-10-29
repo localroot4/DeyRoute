@@ -263,6 +263,10 @@ func (h *Hub) updateApply(ctx context.Context, want string, progress func(api.St
 	info.Latest, info.Changelog = target, releaseURL(target)
 	if want == "" && !install.NewerThan(target, version.Version) {
 		rep.emit(api.Step{ID: stepDownload, Status: api.StepSkipped, Detail: "deyroute " + version.Version + " is the newest release"})
+		// Nothing to install, but the nodes still follow the hub (DR-11).
+		if n := h.markStaleNodes(); n > 0 {
+			rep.emit(api.Step{ID: stepNodes, Status: api.StepOK, Detail: staleNodesDetail(n)})
+		}
 		return info, nil
 	}
 	work, err := os.MkdirTemp(ensureDir(h.path(DownloadDir)), "update-")
@@ -460,10 +464,16 @@ func (h *Hub) markNodesForUpdate() string {
 	return "every node installs the hub's binary when it reconnects"
 }
 
-// requestNodeUpdate queues node for self.update when an update is pending
-// and it runs another version than the hub (called on every connect).
+// requestNodeUpdate queues node for self.update when it runs another
+// version than the hub (called on every connect): when an update is
+// pending, and without one when its major.minor differs (DR-11: a hub
+// restored or installed on a newer or older release; the push is then
+// recorded like an update). A development build pushes nothing on its own
+// (it has no signed release), and a node that refused the hub's version
+// is asked again only after a wait (pushAllowed).
 func (h *Hub) requestNodeUpdate(node, nodeVersion string) {
 	if strings.TrimPrefix(nodeVersion, "v") == strings.TrimPrefix(version.Version, "v") {
+		h.pushSucceeded(node)
 		h.maybeFinishNodeUpdate()
 		return
 	}
@@ -475,7 +485,14 @@ func (h *Hub) requestNodeUpdate(node, nodeVersion string) {
 		return
 	}
 	var rec nodeUpdateRecord
-	if ok, err := h.st.GetMeta(metaNodeUpdate, &rec); err != nil || !ok {
+	ok, err := h.st.GetMeta(metaNodeUpdate, &rec)
+	if err != nil {
+		return
+	}
+	if !ok && !h.pushIncompatible(node, nodeVersion) {
+		return
+	}
+	if !h.pushAllowed(node) {
 		return
 	}
 	select {
@@ -532,13 +549,19 @@ func (h *Hub) selfUpdateNode(ctx context.Context, node string) {
 	if err != nil {
 		h.log.Warn("the signed release of the hub's version is not available for the node; it is tried again when it reconnects",
 			dlog.Node(node), slog.String("version", version.Version), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		h.pushFailed(node, nil)
 		return
 	}
 	args := api.SelfUpdateArgs{Version: version.Version, SHA256: sum}
 	err = h.Call(cctx, node, api.CmdSelfUpdate, args, nil)
 	if err != nil {
-		h.log.Warn("node could not install the hub's version; it is tried again when it reconnects",
-			dlog.Node(node), slog.String("version", version.Version), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		h.pushFailed(node, err)
+		return
+	}
+	if install.NewerThan(ns.AgentVersion, version.Version) {
+		// The hub's version wins: the only way back to a working pair.
+		h.log.Warn("node runs a newer version than the hub; it installs the hub's older version and restarts",
+			dlog.Node(node), slog.String("from", ns.AgentVersion), slog.String("to", version.Version))
 		return
 	}
 	h.log.Info("node installs the hub's version and restarts", dlog.Node(node), slog.String("from", ns.AgentVersion),

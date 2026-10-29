@@ -31,6 +31,15 @@ import (
 // ImportRestoredEvents and then deletes the file.
 const RestoreEventsPath = config.LibDir + "/restore-events.ndjson"
 
+// RestoredFromPath is where Restore leaves the deyroute version that wrote
+// a hub backup (DR-11). The hub reads it once at start with
+// TakeRestoredFrom and deletes it; when that version differs from its own,
+// every node is told to install the hub's version.
+const RestoredFromPath = config.LibDir + "/restored-from"
+
+// maxRestoredFrom bounds the restore marker (a version string).
+const maxRestoredFrom = 128
+
 // BackupOptions configure Backup (`deyroute backup [--out FILE]
 // [--no-encrypt]`).
 type BackupOptions struct {
@@ -104,8 +113,8 @@ type RestoreOptions struct {
 	// replaces hub.public_ip6 ("" = none). Both are validated before
 	// anything is replaced (DEY-C013, also for a node backup), and the hub
 	// certificate is re-issued for them with the restored CA. The CLI
-	// compares the backup's hub.public_ip with DetectPublicIP and asks the
-	// owner (a same-server restore keeps the address).
+	// decides them (--public-ip, --keep-address, the detected address or
+	// the owner's answer; a same-server restore keeps the address).
 	PublicIP  string
 	PublicIP6 string
 	// ApplySysctl applies tuning.sysctl_profile of the restored config
@@ -258,6 +267,14 @@ func Restore(ctx context.Context, o RestoreOptions) (*RestoreResult, error) {
 			return nil, fail(StepRestore, err)
 		}
 	}
+	if cfg.Role == config.RoleHub && res.BackupVersion != "" {
+		// Optional: without the marker the hub still pushes its version to
+		// nodes of another major.minor when they connect.
+		p := e.path(RestoredFromPath)
+		if err := config.WriteFileAtomic(p, []byte(res.BackupVersion+"\n"), 0o600); err != nil {
+			e.log.Warn("cannot record the version of the backup for the hub", slog.String("path", p), slog.String("err", err.Error()))
+		}
+	}
 	e.rep.okOrWarn(StepRestore, cfg.Role, userWarn)
 
 	// events
@@ -282,7 +299,7 @@ func Restore(ctx context.Context, o RestoreOptions) (*RestoreResult, error) {
 	if !o.ApplySysctl || profile == "" || profile == config.SysctlOff {
 		e.rep.skip(StepSysctl, profile)
 	} else {
-		warnings, err := applySysctl(e.root, profile, cfg.Tuning.BBR, keepIPForward(e.root))
+		warnings, err := applySysctl(e.root, profile, cfg.Tuning.BBR, keepIPForward(e.root), nil)
 		res.SysctlWarnings = warnings
 		switch {
 		case err != nil:
@@ -414,4 +431,58 @@ func ImportRestoredEvents(root string, importFn func(r io.Reader) (int, error)) 
 		return n, deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p})
 	}
 	return n, nil
+}
+
+// TakeRestoredFrom returns the version Restore left in
+// Root/var/lib/deyroute/restored-from and deletes the file, so the hub
+// acts on it once. No file is not an error ("", nil). Anything but a
+// regular file holding one version (a symlink included, which is not
+// followed) is DEY-X032; it is removed all the same. A marker that cannot
+// be removed returns its version and the error.
+func TakeRestoredFrom(root string) (string, error) {
+	if root == "" {
+		root = "/"
+	}
+	p := (&env{root: root}).path(RestoredFromPath)
+	bad := func(detail string) error {
+		return deyerr.New(deyerr.X032, deyerr.Params{"path": p}).WithDetail(p + " " + detail)
+	}
+	remove := func(err error) (string, error) {
+		if rerr := os.Remove(p); rerr != nil && !stderrors.Is(rerr, fs.ErrNotExist) && err == nil {
+			err = deyerr.Wrap(deyerr.X032, rerr, deyerr.Params{"path": p})
+		}
+		return "", err
+	}
+	// O_NOFOLLOW: a symlink planted in place of the file is not followed;
+	// O_NONBLOCK: a FIFO cannot block the daemon start.
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) // #nosec G304 -- fixed deyroute path under Root
+	switch {
+	case stderrors.Is(err, fs.ErrNotExist):
+		return "", nil
+	case stderrors.Is(err, syscall.ELOOP):
+		return remove(bad("is a symbolic link"))
+	case err != nil:
+		return remove(deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p}))
+	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = f.Close()
+		if err != nil {
+			return remove(deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p}))
+		}
+		return remove(bad("is not a regular file"))
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxRestoredFrom+1))
+	_ = f.Close()
+	if err != nil {
+		return remove(deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p}))
+	}
+	v := strings.TrimSpace(string(data))
+	if v == "" || len(data) > maxRestoredFrom || strings.ContainsAny(v, " \t\r\n") {
+		return remove(bad("does not hold one version"))
+	}
+	// A marker that cannot be deleted is still acted on (marking the nodes
+	// again at the next start does no harm); the error is reported.
+	_, err = remove(nil)
+	return v, err
 }

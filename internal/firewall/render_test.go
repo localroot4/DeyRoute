@@ -97,6 +97,14 @@ var goldenSpecs = map[string]Spec{
 		s.UnknownControlRate = "6/minute"
 		return s
 	}(),
+	// The default since DR-15: unknown sources are admitted per source
+	// address (@ctl_unknown4/@ctl_unknown6) under a global cap.
+	"hub_per_source_rate": func() Spec {
+		s := hubSpec()
+		s.UnknownControlRate = "30/minute"
+		s.UnknownControlRatePerSource = "3/minute"
+		return s
+	}(),
 	// Front mode (CDN-fronted hub): the front port is open to the Cloudflare
 	// ranges only (interval set @cf4), and everyone else is dropped.
 	"hub_front_cf": func() Spec {
@@ -136,6 +144,18 @@ var goldenSpecs = map[string]Spec{
 	// Node side of Hysteria2 port hopping (section 7.6): redirect only.
 	"node_port_hopping": {
 		NAT: []backend.NATRule{{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30123}},
+	},
+	// The same, scoped to the hub's addresses and the node's own public
+	// address (DR-18).
+	"node_port_hopping_scoped": {
+		NAT: []backend.NATRule{{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30123,
+			SAddr: []string{"5.6.7.8", "2001:db8::5"}, DAddr: "1.2.3.4"}},
+	},
+	// Scoped to the hub's addresses only: the node's public address is not
+	// one of its own (1:1 NAT), one rule per source family.
+	"node_port_hopping_scoped_nat": {
+		NAT: []backend.NATRule{{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30123,
+			SAddr: []string{"5.6.7.8", "2001:db8::5"}}},
 	},
 	// Nothing configured.
 	"empty": {},
@@ -552,5 +572,145 @@ func TestRenderMSSClamp(t *testing.T) {
 		if len(spec.Masquerade) == 0 && !slices.ContainsFunc(spec.NAT, func(r backend.NATRule) bool { return r.Iface != "" }) {
 			require.NotContains(t, Render(spec), "maxseg", name)
 		}
+	}
+}
+
+// TestRenderPerSourceControlLimit: with a per-source rate the unknown
+// sources are admitted through the dynamic sets @ctl_unknown4 and
+// @ctl_unknown6 (one bucket per address, forgotten after 10 minutes) under
+// the global rate as a second guard, right before the control-port drop
+// (DR-15). A rate without a burst gets a burst of its own count. Without a
+// global rate nobody else is admitted, and an invalid per-source rate is
+// reported and not rendered.
+func TestRenderPerSourceControlLimit(t *testing.T) {
+	s := Spec{ControlPort: 44433, RestrictControl: true, UnknownControlRate: "30/minute", UnknownControlRatePerSource: "3/minute"}
+	require.NoError(t, s.Validate())
+	want := renderHeader + `table inet deyroute {
+	set nodes {
+		type ipv4_addr
+	}
+
+	set ctl_unknown4 {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
+	set ctl_unknown6 {
+		type ipv6_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
+	chain input {
+		type filter hook input priority -10; policy accept;
+		ct state established,related accept
+		iif "lo" accept
+		tcp dport 44433 ip saddr @nodes accept
+		tcp dport 44433 ct state new add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown6 { ip6 saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
+		tcp dport 44433 drop
+	}
+}
+`
+	require.Equal(t, want, Render(s))
+
+	s.UnknownControlRatePerSource = "5/minute burst 2 packets"
+	require.Contains(t, Render(s), "add @ctl_unknown4 { ip saddr limit rate 5/minute burst 2 packets } limit rate 30/minute accept")
+
+	// No global rate: nobody else is admitted, per source or not.
+	s.UnknownControlRate = ""
+	require.NotContains(t, Render(s), "ctl_unknown")
+	require.NotContains(t, Render(s), "limit rate")
+
+	// Not restricted: a plain accept, no sets.
+	s = Spec{ControlPort: 44433, UnknownControlRate: "30/minute", UnknownControlRatePerSource: "3/minute"}
+	require.NotContains(t, Render(s), "ctl_unknown")
+
+	for _, bad := range []string{"3 per minute", "0/minute", "3/minute; drop", "3/minute burst 3"} {
+		s := Spec{ControlPort: 44433, RestrictControl: true, UnknownControlRate: "30/minute", UnknownControlRatePerSource: bad}
+		require.ErrorContains(t, s.Validate(), "unknown control rate per source", bad)
+		require.NotContains(t, Render(s), "ctl_unknown", bad)
+		require.Contains(t, Render(s), "tcp dport 44433 ct state new limit rate 30/minute accept", bad)
+	}
+}
+
+// TestFirewallRenderNATWithSAddrDAddr: a NAT rule scoped by SAddr and DAddr
+// (Hysteria2 port hopping, DR-18) matches only those sources and that
+// destination: one rule per address family of SAddr, a family the
+// destination or the target does not have is left out, and the scope is
+// part of the rule's identity (a scoped and an unscoped rule both render).
+// Every bad scope is reported by Validate and the rule is not rendered.
+func TestFirewallRenderNATWithSAddrDAddr(t *testing.T) {
+	hop := backend.NATRule{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30001,
+		SAddr: []string{"5.6.7.8", "2001:db8::5", " 5.6.7.8", "::ffff:9.9.9.9"}, DAddr: "1.2.3.4"}
+	s := Spec{NAT: []backend.NATRule{hop}}
+	require.NoError(t, s.Validate())
+	got := Render(s)
+	require.Contains(t, got, "\t\tfib daddr type local ip saddr { 5.6.7.8, 9.9.9.9 } ip daddr 1.2.3.4 udp dport 20000-20999 redirect to :30001\n")
+	require.NotContains(t, got, "ip6 saddr", "the destination is IPv4: no IPv6 rule")
+	require.NotContains(t, got, "chain output", "a local redirect is not repeated in output")
+
+	// Without a destination: one rule per source family.
+	hop.DAddr = ""
+	got = Render(Spec{NAT: []backend.NATRule{hop}})
+	require.Contains(t, got, "\t\tfib daddr type local ip saddr { 5.6.7.8, 9.9.9.9 } udp dport 20000-20999 redirect to :30001\n")
+	require.Contains(t, got, "\t\tfib daddr type local ip6 saddr { 2001:db8::5 } udp dport 20000-20999 redirect to :30001\n")
+	require.NotContains(t, got, "fib daddr type local udp dport", "no unscoped rule")
+
+	// An IPv6 destination with an IPv6 source.
+	got = Render(Spec{NAT: []backend.NATRule{{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30001,
+		SAddr: []string{"5.6.7.8", "2001:db8::5"}, DAddr: "2001:db8::7"}}})
+	require.Contains(t, got, "fib daddr type local ip6 saddr { 2001:db8::5 } ip6 daddr 2001:db8::7 udp dport 20000-20999 redirect to :30001\n")
+	require.NotContains(t, got, "ip saddr")
+
+	// A destination alone, and a DNAT to an address: the target's family.
+	got = Render(Spec{NAT: []backend.NATRule{
+		{Proto: "tcp", DportLow: 443, ToAddr: "10.77.3.2", ToPort: 443, SAddr: []string{"2001:db8::5", "5.6.7.8"}, DAddr: "1.2.3.4"},
+		{Proto: "udp", DportLow: 53, ToPort: 5353, DAddr: "1.2.3.4"},
+	}})
+	require.Contains(t, got, "fib daddr type local ip saddr { 5.6.7.8 } ip daddr 1.2.3.4 tcp dport 443 dnat ip to 10.77.3.2:443\n")
+	require.Contains(t, got, "fib daddr type local ip daddr 1.2.3.4 udp dport 53 redirect to :5353\n")
+	require.NotContains(t, got, "2001:db8::5")
+
+	// The scope is part of the identity: scoped and unscoped both render,
+	// in a stable order whatever the input order.
+	plain := backend.NATRule{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30001}
+	scoped := backend.NATRule{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30001, SAddr: []string{"5.6.7.8"}}
+	a := Render(Spec{NAT: []backend.NATRule{plain, scoped}})
+	require.Equal(t, a, Render(Spec{NAT: []backend.NATRule{scoped, plain, scoped}}))
+	require.Contains(t, a, "fib daddr type local udp dport 20000-20999 redirect to :30001\n")
+	require.Contains(t, a, "fib daddr type local ip saddr { 5.6.7.8 } udp dport 20000-20999 redirect to :30001\n")
+
+	many := make([]string, MaxNATSources+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("10.0.%d.1", i)
+	}
+	bad := []backend.NATRule{
+		{Proto: "udp", DportLow: 1, ToPort: 2, SAddr: []string{"nope"}},
+		{Proto: "udp", DportLow: 1, ToPort: 2, SAddr: []string{"fe80::1%eth0"}},
+		{Proto: "udp", DportLow: 1, ToPort: 2, SAddr: []string{"0.0.0.0"}},
+		{Proto: "udp", DportLow: 1, ToPort: 2, SAddr: many},
+		{Proto: "udp", DportLow: 1, ToPort: 2, DAddr: "1.2.3.4/32"},
+		{Proto: "udp", DportLow: 1, ToPort: 2, DAddr: "127.0.0.1"},
+		{Proto: "udp", DportLow: 1, ToPort: 2, SAddr: []string{"5.6.7.8"}, DAddr: "2001:db8::7"},
+		{Proto: "tcp", DportLow: 1, ToAddr: "10.0.0.2", DAddr: "2001:db8::7"},
+		{Proto: "tcp", DportLow: 1, ToAddr: "10.0.0.2", SAddr: []string{"2001:db8::5"}},
+	}
+	for _, r := range bad {
+		err := (Spec{NAT: []backend.NATRule{r}}).Validate()
+		require.Error(t, err, "%+v", r)
+		require.Equal(t, deyerr.P019, deyerr.As(err).Code)
+		require.Equal(t, Render(Spec{}), Render(Spec{NAT: []backend.NATRule{r}}), "%+v is not rendered", r)
+	}
+	err := (Spec{NAT: bad}).Validate()
+	for _, frag := range []string{"source address \"nope\" invalid", "source address \"fe80::1%eth0\" invalid",
+		"source address \"0.0.0.0\" invalid", fmt.Sprintf("more than %d source addresses", MaxNATSources),
+		"destination address \"1.2.3.4/32\" invalid", "destination address \"127.0.0.1\" invalid",
+		"no source address of the destination's family", "destination and target address families differ",
+		"no source address of the target's family"} {
+		require.ErrorContains(t, err, frag)
 	}
 }

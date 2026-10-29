@@ -156,13 +156,36 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 ```
 
 With `--yes` the public IP is detected, the control port is 44433 (or the next
-free one) and the server is tuned automatically (profile `auto`). The same flags work on
-an installed binary:
+free one) and the server is tuned automatically (profile `auto`, the
+automatic kernel profile; `deyroute optimize status` shows it afterwards).
+`deyroute setup --help` says the same; only `deyroute join` applies the
+balanced profile. The same flags work on an installed binary:
 
 ```bash
 deyroute setup --role hub --name ir-1 --yes
 deyroute setup --role hub --name ir-1 --control-port 44500
 ```
+
+On a server behind NAT or with a floating IP, detection finds a private
+address: setup then only warns (`DEY-I021`, `"private_ip": true` in
+`--json`) and stores it. Automation must pass the address users reach the
+hub on:
+
+```bash
+deyroute setup --role hub --name ir-1 --public-ip 203.0.113.7 --yes
+deyroute setup --role hub --name ir-1 --public-ip 203.0.113.7 --public-ip6 2001:db8::7 --yes --json
+```
+
+`--public-ip` takes an IPv4 address (`hub.public_ip`), `--public-ip6` an
+IPv6 address (`hub.public_ip6`); both are stored exactly as given, in
+canonical form, and the wizard then does not ask for the IP. A private,
+CGNAT, loopback or link-local address is refused with `DEY-C013`;
+`--allow-private-ip` accepts a private, CGNAT or loopback address for a test
+lab (never a link-local one). The flags are refused with `--role node` and
+on `deyroute join`. `--json` reports where the address came from:
+`"public_ip_source": "flag"`, `"detected"` or `"wizard"`. The installer does
+not pass these flags on: install with `--no-setup`, then run
+`deyroute setup` with them.
 
 Without a terminal and without flags, setup stops with `DEY-I014` (no
 terminal for the wizard). A node is never set up this way: it always joins

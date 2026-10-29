@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -622,4 +623,47 @@ func TestPlanFrontNode(t *testing.T) {
 		require.Contains(t, string(c.NodeSide.DropIn), "front-shim", "the drop-in runs the wrapped command")
 		require.NotContains(t, strings.Join(c.Hub.Unit.ExecStart, " "), "front-shim")
 	}
+}
+
+// TestPlanProbeEchoHiddenMap: every rung of a node with an echo probe
+// (DR-17) carries the hidden port map after the tunnel's own maps; a rung
+// that refuses it is still planned, without it and with the reason.
+func TestPlanProbeEchoHiddenMap(t *testing.T) {
+	e := newEnv(t)
+	in := e.input()
+	in.UDPProbe = func(string) (bool, bool) { return true, true }
+	hidden := config.PortMap{Listen: 30500, Proto: config.ProtoTCP, Target: "127.0.0.1:30501", Probe: config.ProbeTCP}
+	in.ProbeEcho = func(node string) (config.PortMap, bool) { return hidden, node == "de-1" }
+	e.fakes["rev"].validate = func(in backend.RenderInput) error {
+		if in.Transport.Name == "plain" && len(in.Tunnel.Ports) > 1 {
+			return deyerr.New(deyerr.B006, deyerr.Params{"transport": in.Transport.ID(), "reason": "one port map at most"})
+		}
+		return nil
+	}
+	before := slices.Clone(in.Tunnel.Ports)
+	plan, err := Plan(in)
+	require.NoError(t, err)
+	line := `port = "0.0.0.0:30500/tcp -> 127.0.0.1:30501"`
+	for _, c := range plan.Candidates {
+		hub := string(c.Hub.Files["config.toml"])
+		switch {
+		case c.Node == "de-1" && c.TransportID == "rev/plain":
+			require.Zero(t, c.ProbeEcho)
+			require.Contains(t, c.ProbeEchoErr, "one port map at most")
+			require.NotContains(t, hub, line)
+		case c.Node == "de-1":
+			require.Equal(t, 30500, c.ProbeEcho, c.TransportID)
+			require.Empty(t, c.ProbeEchoErr)
+			if c.TransportID == "rev/tls" {
+				require.Contains(t, hub, line, "after the tunnel's own maps")
+				require.Less(t, strings.Index(hub, ":443/tcp"), strings.Index(hub, line))
+			}
+		default:
+			require.Zero(t, c.ProbeEcho, c.Node)
+			require.NotContains(t, hub, line)
+		}
+	}
+	require.Equal(t, before, in.Tunnel.Ports, "the input is not changed")
+	require.Equal(t, "main/canary/probe-listen", ProbeListenKey("main"))
+	require.Equal(t, "main/canary/probe-echo", ProbeEchoKey("main"))
 }

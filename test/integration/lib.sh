@@ -24,6 +24,10 @@ export HUB_IP NODE1_IP NODE2_IP HUB2_IP CLIENT_IP CONTROL_PORT ARCH ARCHIVE
 
 log() { printf '[%s %s] %s\n' "$(date -u +%H:%M:%S)" "${SCENARIO:-it}" "$*" >&2; }
 fail() { log "FAIL: $*"; exit 1; }
+# contains GREP-ARGS...: grep stdin quietly and read all of it. grep -q
+# exits at the first match; under pipefail the writer then dies of SIGPIPE
+# (exit 141) and the pipeline fails although the text was there.
+contains() { grep "$@" >/dev/null; }
 skip() { log "SKIP: $*"; exit 77; }
 pass() { log "PASS${1:+: $*}"; exit 0; }
 
@@ -534,7 +538,7 @@ PY
   on hub systemctl restart deyroute-hub
   wait_for 60 "hub back after the manifest override" sh_on hub "deyroute status --json >/dev/null"
   # The hub checks the signature when it loads the override (at start).
-  if sh_on hub "tail -n +$((n + 1)) /var/log/deyroute/hub.log" | grep -q 'manifest override has no valid signature'; then
+  if sh_on hub "tail -n +$((n + 1)) /var/log/deyroute/hub.log" | contains 'manifest override has no valid signature'; then
     fail "the hub did not accept the lab signature of the manifest override"
   fi
 }

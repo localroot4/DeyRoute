@@ -3,8 +3,10 @@
 # criteria of section 16 that S01-S30 do not cover), S34 (front mode),
 # S35 (a measurement of "passes, then cut" filtering; its numbers go to
 # S35-measure.txt beside the logs), S36 (links a backend user plants in
-# the tunnel log directory) and S41 (a hub that serves a tampered deyroute
-# binary: the node refuses it) in Docker containers running systemd.
+# the tunnel log directory), S37 (nft flush ruleset on hub and node: table
+# inet deyroute comes back by itself), S38 (silent raw-TCP targets behind
+# the echo probe) and S41 (a hub that serves a tampered deyroute binary:
+# the node refuses it) in Docker containers running systemd.
 # Usage (from anywhere; needs docker compose, go, jq):
 #
 #   DISTRO=ubuntu-24.04 test/integration/run.sh            # every scenario
@@ -118,6 +120,15 @@ for f in "${list[@]}"; do
         "$(tail -n 40 "$ART/$id.log" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }')"
     fi
     bash -c 'source "$1/lib.sh" && diagnostics "$2"' _ "$IT_DIR" "$ART/$id-diagnostics" || true
+    # The warnings and errors of the daemons and units, as annotations too.
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      for d in "$ART/$id-diagnostics"/hub.txt "$ART/$id-diagnostics"/node1.txt; do
+        [ -f "$d" ] || continue
+        printf '::warning title=%s %s on %s::%s\n' "$id" "${d##*/}" "$DISTRO" \
+          "$(grep -E '"level":"(warn|error)"|level=(WARN|ERROR)|DEY-[A-Z][0-9]{3}|Failed|failed|denied|Read-only|^Error|nft' "$d" | tail -n 40 |
+            sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }')"
+      done
+    fi
   fi
   [ "${DEY_KEEP:-0}" = 1 ] || dc down -v --remove-orphans >/dev/null 2>&1 || true
 done

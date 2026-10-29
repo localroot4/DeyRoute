@@ -41,6 +41,7 @@ const (
 	KeyAvailableCC   = "net.ipv4.tcp_available_congestion_control"
 	KeyIPForward     = "net.ipv4.ip_forward"
 	KeyNotsentLowat  = "net.ipv4.tcp_notsent_lowat"
+	keyPortRange     = "net.ipv4.ip_local_port_range"
 	keyOSRelease     = "kernel.osrelease"
 	confHeaderPrefix = "# managed by deyroute"
 )
@@ -133,10 +134,15 @@ type ApplyOptions struct {
 	BBR       bool   // tuning.bbr: set tcp_congestion_control = bbr when the kernel has BBR
 	IPForward bool   // a WireGuard/AmneziaWG transport exists
 
+	// Reserved are port entries ("30000-31999", "8443") added to
+	// net.ipv4.ip_local_reserved_ports by every profile but off (a set
+	// union with the live value; a revert removes only these). Invalid
+	// entries are skipped with a warning.
+	Reserved []string
+
 	// The inputs of the profile auto (AutoInputs).
 	UDPRungs  bool
 	Conntrack bool
-	Reserved  []string
 	BDPBytes  uint64
 	// Plan is the auto plan the owner confirmed; nil computes it now.
 	Plan *Plan
@@ -281,6 +287,15 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 		}
 		keys = append(keys, kv)
 	}
+	requested, skipped := validReserved(o.Reserved)
+	warnings = append(warnings, skipped...)
+	if len(requested) > 0 {
+		if cur, ok := m.Get(KeyReservedPorts); ok {
+			keys = append(keys, KV{KeyReservedPorts, unionPorts(cur, requested)})
+		} else {
+			warnings = append(warnings, fmt.Sprintf("skip %s: not available on this kernel", KeyReservedPorts))
+		}
+	}
 
 	backup, err := m.readBackup()
 	if err != nil {
@@ -294,6 +309,9 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 		cur, _ := m.Get(kv.Key)
 		backup.record(kv.Key, cur)
 		backup.Written[kv.Key] = normalize(kv.Value)
+		if kv.Key == KeyReservedPorts {
+			backup.Written[kv.Key] = reservedLedger(written, requested)
+		}
 	}
 	if err := m.writeBackup(backup); err != nil {
 		return nil, warnings, err
@@ -311,7 +329,7 @@ func (m Manager) ApplyWith(o ApplyOptions) (applied []KV, warnings []string, err
 		return nil, warnings, err
 	}
 	for _, kv := range keys {
-		if cur, _ := m.Get(kv.Key); cur == normalize(kv.Value) {
+		if cur, _ := m.Get(kv.Key); sameValue(kv.Key, cur, kv.Value) {
 			applied = append(applied, kv)
 			continue
 		}

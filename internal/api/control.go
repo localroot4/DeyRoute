@@ -154,6 +154,18 @@ const (
 	// it (its built-in one, or BackendInstallArgs.Manifest), and the hub
 	// sends that manifest only to such a node.
 	FeatureSignedUpdate = "signed-update"
+	// FeatureEchoProbe (DR-17): echo.start with EchoArgs.Probe opens the
+	// probe echo, a loopback TCP service that answers only the DEYE nonce
+	// packet of health.TCPEcho, and the node keeps it across restarts. The
+	// hub's echo probe (port probe "echo", or "auto" on a silent target)
+	// carries it through one hidden port map of the active rung. The hub
+	// uses the echo probe only on nodes that announce this feature.
+	FeatureEchoProbe = "echo-probe"
+	// FeatureNATScope (DR-18): the agent applies the source and
+	// destination scope of a NAT rule (backend.NATRule SAddr, DAddr). The
+	// hub sends a scoped rule only to such an agent; an older one gets the
+	// rule without the scope, which it would otherwise apply unscoped.
+	FeatureNATScope = "nat-scope"
 )
 
 // HasFeature reports whether the Hello announces feature f.
@@ -222,7 +234,7 @@ const (
 	CmdCertRenew       = "cert.renew"              // CertRenewArgs → CertRenewResult (rotate-ca)
 	CmdCertInstall     = "cert.install"            // CertInstallArgs → nil (rotate-ca: signed cert + CA, then reconnect)
 	CmdHTTPPost        = "http.post"               // HTTPPostArgs → HTTPPostResult (telegram via node)
-	CmdEchoStart       = "echo.start"              // EchoArgs → EchoResult (canary loopback echo)
+	CmdEchoStart       = "echo.start"              // EchoArgs → EchoResult (canary loopback echo; probe echo with FeatureEchoProbe)
 	CmdEchoStop        = "echo.stop"               // EchoArgs → nil (stops the canary loopback echo on Port)
 	CmdNodeFirewall    = "firewall.apply"          // NodeFirewallArgs → nil (hysteria2 port hopping DNAT)
 	CmdSysctlApply     = "sysctl.apply"            // SysctlArgs → SysctlResult (always a real apply)
@@ -399,9 +411,12 @@ type HTTPPostResult struct {
 	Body   string `json:"body,omitempty"`
 }
 
-// EchoArgs starts the canary loopback echo on the node.
+// EchoArgs starts the canary loopback echo on the node. Probe (nodes with
+// FeatureEchoProbe) asks for the probe echo of DR-17 instead: it answers
+// only one DEYE nonce packet per connection. echo.stop stops either kind.
 type EchoArgs struct {
-	Port int `json:"port"` // 127.0.0.1:<port>
+	Port  int  `json:"port"` // 127.0.0.1:<port>
+	Probe bool `json:"probe,omitempty"`
 }
 
 // EchoResult reports the bound port.

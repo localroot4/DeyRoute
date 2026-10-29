@@ -407,6 +407,10 @@ func Clone(c *Config) *Config {
 	}
 	if c.Security != nil {
 		s := *c.Security
+		if s.FirewallReassertS != nil {
+			v := *s.FirewallReassertS
+			s.FirewallReassertS = &v
+		}
 		out.Security = &s
 	}
 	if c.Monitoring != nil {

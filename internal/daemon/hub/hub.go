@@ -100,6 +100,14 @@ type Hub struct {
 	fwMu      sync.Mutex // guards fw
 	fw        firewallStatus
 
+	// fwLive is the fingerprint of the table applied last ("" = unknown)
+	// and fwReport deduplicates firewall_reapplied; both fwApplyMu.
+	fwLive   string
+	fwReport firewall.ReportGate
+	// fwApplier applies the table, with the fallback to one global limit
+	// for unknown control-port sources (DR-15) cached for this run.
+	fwApplier *firewall.Applier
+
 	assetMu  sync.Mutex // serialises downloads of other architectures
 	digestMu sync.Mutex
 	digests  map[string]fileDigest
@@ -181,6 +189,10 @@ func New(o Options) (_ *Hub, err error) {
 	if err := h.openLogs(); err != nil {
 		return nil, err
 	}
+	h.fwApplier = &firewall.Applier{Runner: o.Runner, OnFallback: func(err error) {
+		h.log.Warn("nft refused the per-source limit of the control port; unknown sources share one global limit until the hub restarts",
+			dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+	}}
 	for _, field := range dropped {
 		h.log.Warn("config.yaml key is no longer supported and was ignored; remove it",
 			slog.String("field", field), dlog.Code(deyerr.C013))
@@ -198,6 +210,7 @@ func New(o Options) (_ *Hub, err error) {
 	h.importRestoredEvents()
 	h.loadNodes()
 	h.loadOps()
+	h.noteRestoredFrom()
 	h.traffic = newHubTraffic(h)
 	h.reloadNotifier(cfg)
 	h.migrateAutoUpdate()
@@ -456,6 +469,7 @@ func (h *Hub) Serve(ctx context.Context) error {
 	run(func() { h.watchdogLoop(ctx) })
 	run(func() { h.monitorLoop(ctx) })
 	run(func() { h.firewallLoop(ctx) })
+	run(func() { h.firewallReassertLoop(ctx) })
 	run(func() { h.notifyLoop(ctx) })
 	run(func() { h.snapshotLoop(ctx) })
 	run(func() {

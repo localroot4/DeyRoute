@@ -98,7 +98,9 @@ type tunnelCtl struct {
 	pending map[string]bool        // nodes that were offline during the last apply
 	fresh   map[string]bool        // nodes that attached since the last sync
 	svc     map[string]svcEntry    // node_service cache
-	plain   map[string]plainEntry  // node verdict: the target closes without TLS
+	plain   map[string]plainEntry  // node verdict: the target closes without TLS, or stays silent
+	echo    map[string]echoNode    // echo probe state per node (DR-17)
+	recMu   sync.Mutex             // read-modify-write of the metaProbeVerdict record
 	lastErr error                  // last start or probe failure (TunnelAdd)
 	first   chan error             // the result of the first Start
 	firstOK bool
@@ -131,7 +133,14 @@ type svcEntry struct {
 
 type plainEntry struct {
 	closes bool
-	at     time.Time
+	// silent: the TLS hello timed out or was reset (why) while a TCP
+	// connect succeeded (DR-17).
+	silent bool
+	why    string
+	// measured: silent and why come from a conclusive TLS probe (here or
+	// in state.db), not from a refused or unreachable target.
+	measured bool
+	at       time.Time
 }
 
 func newTunnelCtl(h *Hub, id string) *tunnelCtl {
@@ -143,6 +152,7 @@ func newTunnelCtl(h *Hub, id string) *tunnelCtl {
 		fresh:   map[string]bool{},
 		svc:     map[string]svcEntry{},
 		plain:   map[string]plainEntry{},
+		echo:    map[string]echoNode{},
 		warned:  map[string]bool{},
 		crash:   map[string]crashMark{},
 		first:   make(chan error, 1),
@@ -215,6 +225,7 @@ func (c *tunnelCtl) setProblem(err error) {
 
 // warnings are the controller's dashboard lines for the tunnel.
 func (c *tunnelCtl) warnings() []string {
+	echo := c.echoWarnings()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var out []string
@@ -226,7 +237,7 @@ func (c *tunnelCtl) warnings() []string {
 			out = append(out, "node "+n+" is offline: its rungs are rendered when it reconnects")
 		}
 	}
-	return out
+	return append(out, echo...)
 }
 
 // markStarted records that sc has been started (its hub side feeds the
@@ -244,6 +255,31 @@ func (c *tunnelCtl) markStarted(sc state.Candidate) {
 		c.crash[k] = crashMark{known: true}
 	}
 	c.mu.Unlock()
+}
+
+// refreshStartedLocked replaces the cached hub side of every started
+// candidate that plan still has with its side in plan, so the firewall's
+// NAT follows a port change on an active NAT rung (WireGuard: the DNAT is
+// the only data path). A candidate the plan dropped keeps its cached side
+// until it stops. It reports whether NAT or masquerade rules changed.
+// Needs c.mu.
+func (c *tunnelCtl) refreshStartedLocked(plan *render.TunnelPlan) bool {
+	changed := false
+	for k, old := range c.started {
+		node, tr, ok := strings.Cut(k, "/")
+		if !ok {
+			continue
+		}
+		pc, ok := plan.Candidate(node, tr)
+		if !ok {
+			continue
+		}
+		if !slices.EqualFunc(old.NAT, pc.Hub.NAT, backend.NATRule.Equal) || !slices.Equal(old.Masquerade, pc.Hub.Masquerade) {
+			changed = true
+		}
+		c.started[k] = pc.Hub
+	}
+	return changed
 }
 
 // markStopped forgets sc and returns its hub side (and whether it was
@@ -532,6 +568,9 @@ type applyResult struct {
 	changedNode map[string]bool       // instance → its node payload changed
 	stale       []render.Candidate    // planned before, not any more
 	fatal       error                 // the failed step (reported, not fatal for the controller)
+	// natChanged: the NAT or masquerade rules of a started candidate's hub
+	// side changed with the new plan (a port change on a NAT rung).
+	natChanged bool
 }
 
 // apply plans the tunnel from the current config.yaml and makes the hub
@@ -567,7 +606,10 @@ func (c *tunnelCtl) apply(ctx context.Context, o applyOpts) (applyResult, error)
 			}
 		}
 	}
-	plan, err := render.Plan(h.planInput(cfg, t))
+	c.ensureEcho(ctx, t, o.only)
+	in := h.planInput(cfg, t)
+	in.ProbeEcho = c.probeEchoMap()
+	plan, err := render.Plan(in)
 	if err != nil {
 		return res, err
 	}
@@ -632,6 +674,7 @@ func (c *tunnelCtl) apply(ctx context.Context, o applyOpts) (applyResult, error)
 	c.mu.Lock()
 	old, hadOld := c.plan, c.planned
 	c.plan, c.planned, c.problem = plan, true, ""
+	res.natChanged = c.refreshStartedLocked(&plan)
 	for n := range c.pending {
 		if o.only == "" || n == o.only {
 			delete(c.pending, n)
@@ -648,7 +691,7 @@ func (c *tunnelCtl) apply(ctx context.Context, o applyOpts) (applyResult, error)
 				res.stale = append(res.stale, oc)
 				continue
 			}
-			if payloadHash(c.id, oc.NodeSide) != payloadHash(c.id, nc.NodeSide) {
+			if c.h.payloadHash(oc.Node, c.id, oc.NodeSide) != c.h.payloadHash(nc.Node, c.id, nc.NodeSide) {
 				res.changedNode[nc.NodeSide.Instance] = true
 			}
 		}
@@ -859,9 +902,31 @@ func skippedDetail(skips []render.SkippedCandidate) string {
 	return strings.Join(lines, "\n")
 }
 
-// payloadHash identifies the content of a node side.
-func payloadHash(tunnel string, s render.Side) string {
-	data, err := json.Marshal(render.NodePayload(tunnel, s))
+// nodePayload is render.NodePayload as node gets it: a node that does not
+// announce api.FeatureNATScope gets its NAT rules without the source and
+// destination scope (DR-18), the rules it always had; it would ignore the
+// unknown fields and apply them unscoped anyway, and the hub must not
+// count a scope as delivered that the node never applies. Once it
+// announces the feature (an update, a reconnect) the payload changes and
+// the scoped rules are sent.
+func (h *Hub) nodePayload(node, tunnel string, s render.Side) api.BackendRenderArgs {
+	p := render.NodePayload(tunnel, s)
+	if hello, _ := h.nodeHello(node); !hello.HasFeature(api.FeatureNATScope) {
+		for i := range p.NAT {
+			p.NAT[i] = p.NAT[i].Unscoped()
+		}
+	}
+	return p
+}
+
+// payloadHash identifies the content of a node side as node gets it.
+func (h *Hub) payloadHash(node, tunnel string, s render.Side) string {
+	return hashPayload(h.nodePayload(node, tunnel, s))
+}
+
+// hashPayload identifies the content of a backend.render payload.
+func hashPayload(p api.BackendRenderArgs) string {
+	data, err := json.Marshal(p)
 	if err != nil {
 		return ""
 	}
@@ -873,7 +938,8 @@ func payloadHash(tunnel string, s render.Side) string {
 // already has exactly this payload.
 func (c *tunnelCtl) renderOnNode(ctx context.Context, pc *render.Candidate) error {
 	inst := pc.NodeSide.Instance
-	sum := payloadHash(c.id, pc.NodeSide)
+	payload := c.h.nodePayload(pc.Node, c.id, pc.NodeSide)
+	sum := hashPayload(payload)
 	c.mu.Lock()
 	have := c.sent[inst]
 	c.mu.Unlock()
@@ -882,7 +948,7 @@ func (c *tunnelCtl) renderOnNode(ctx context.Context, pc *render.Candidate) erro
 	}
 	cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
 	defer cancel()
-	if err := c.h.Call(cctx, pc.Node, api.CmdBackendRender, render.NodePayload(c.id, pc.NodeSide), nil); err != nil {
+	if err := c.h.Call(cctx, pc.Node, api.CmdBackendRender, payload, nil); err != nil {
 		return err
 	}
 	c.mu.Lock()
@@ -1261,6 +1327,9 @@ func (c *tunnelCtl) update(ctx context.Context, o updateOpts) error {
 		c.setProblem(err)
 		return err
 	}
+	if res.natChanged {
+		c.h.requestFirewall()
+	}
 	eng := c.eng()
 	if eng == nil {
 		return res.fatal
@@ -1296,6 +1365,17 @@ func (c *tunnelCtl) update(ctx context.Context, o updateOpts) error {
 
 // restartChanged restarts the sides of the active candidate whose rendered
 // files changed (server side first); done (optional) learns of a restart.
+// restartSides reports which sides of a candidate restart after a change:
+// the changed ones, and both when the transport's sides share a session
+// (WireGuard), since one restarted side alone breaks the tunnel until its
+// peer's session times out.
+func restartSides(t backend.Transport, hubChanged, nodeChanged bool) (hub, node bool) {
+	if t.RestartTogether && (hubChanged || nodeChanged) {
+		return true, true
+	}
+	return hubChanged, nodeChanged
+}
+
 func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, res applyResult, rep *steps, done func(string)) {
 	// The engine cannot start or stop a candidate meanwhile: the restart
 	// never revives a unit it has just stopped.
@@ -1303,8 +1383,10 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 	defer c.unitMu.Unlock()
 	active := eng.State().Active
 	pc, ok := c.candidate(active)
-	hubCh := ok && res.changedHub[pc.Hub.Instance]
-	nodeCh := ok && res.changedNode[pc.NodeSide.Instance]
+	var hubCh, nodeCh bool
+	if ok {
+		hubCh, nodeCh = restartSides(pc.Transport, res.changedHub[pc.Hub.Instance], res.changedNode[pc.NodeSide.Instance])
+	}
 	if !c.isStarted(active) || (!hubCh && !nodeCh) {
 		if rep != nil {
 			rep.emit(api.Step{ID: stepRestart, Status: api.StepSkipped, Detail: "the active transport did not change"})
@@ -1318,14 +1400,7 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 			if !hubCh {
 				return nil
 			}
-			unit := systemd.UnitName(pc.Hub.Instance)
-			if err := h.prepareTunnelLog(c.id); err != nil {
-				return err
-			}
-			if err := h.o.Systemd.Restart(ctx, unit); err != nil {
-				return h.unitFailed(unit, c.id, err)
-			}
-			return h.watchStart(ctx, unit, c.id)
+			return h.restartHubSide(ctx, c.id, pc.Backend, pc.Hub)
 		}
 		restartNode := func() error {
 			if !nodeCh {
@@ -1442,9 +1517,12 @@ func (c *tunnelCtl) dropNode(ctx context.Context, node string) error {
 			_ = c.stopCandidate(ctx, sc)
 		}
 	}
+	c.stopEcho(ctx, node)
+	c.forgetNode(node)
 	c.mu.Lock()
 	c.tun.Nodes = nodes
 	delete(c.pending, node)
+	delete(c.plain, node)
 	c.mu.Unlock()
 	return c.h.removeNodeCandidates(ctx, t.ID, node, plan.Ladder)
 }
@@ -1561,6 +1639,7 @@ func (c *tunnelCtl) loop(ctx context.Context) {
 		case <-report.C:
 			c.retryPending(ctx)
 			c.report(ctx)
+			c.refreshEcho(ctx)
 		case <-crash.C:
 			c.checkCrash(ctx)
 		case <-c.canKick:
@@ -1730,7 +1809,7 @@ func (c *tunnelCtl) report(ctx context.Context) {
 		return
 	}
 	t, plan := c.snapshot()
-	c.refreshPlain(ctx, st.Active.Node, t)
+	c.refreshPlain(ctx, st.Active.Node, t, false)
 	host := c.probeHost(plan, st.Active)
 	var maps []config.PortMap
 	var targets []health.Target
@@ -1739,7 +1818,7 @@ func (c *tunnelCtl) report(ctx context.Context) {
 			continue
 		}
 		maps = append(maps, pm)
-		targets = append(targets, health.Target{Addr: net.JoinHostPort(host, strconv.Itoa(pm.Listen)), Kind: probeKind(pm)})
+		targets = append(targets, health.Target{Addr: net.JoinHostPort(host, strconv.Itoa(pm.Listen)), Kind: pathKind(pm)})
 	}
 	if len(targets) == 0 {
 		return
@@ -1748,6 +1827,9 @@ func (c *tunnelCtl) report(ctx context.Context) {
 	now := h.now()
 	for i, r := range results {
 		pm := maps[i]
+		if er, ok := c.echoPortProbe(ctx, t, plan, st.Active, pm, probeTimeout(t)); ok {
+			r = er // the probe port of an echo-probed candidate (DR-17)
+		}
 		err := h.st.AppendProbe(t.ID, portsProbeNode, strconv.Itoa(pm.Listen)+"/"+pm.Proto, state.ProbeSample{
 			At: now, OK: r.OK, RTT: r.RTT, Kind: "port:" + strconv.Itoa(pm.Listen), Error: r.Err,
 		})
@@ -1760,6 +1842,16 @@ func (c *tunnelCtl) report(ctx context.Context) {
 // runningState reports states in which a candidate runs and is probed.
 func runningState(s string) bool {
 	return s == state.StateUp || s == state.StateDegraded || s == state.StatePaused
+}
+
+// pathKind is the health.Path kind of a port map: probeKind, with echo
+// as auto (the echo probe needs the hidden port map of the active
+// candidate, see echoPortProbe; without it the hub probes like auto).
+func pathKind(pm config.PortMap) string {
+	if k := probeKind(pm); k != config.ProbeEcho {
+		return k
+	}
+	return config.ProbeAuto
 }
 
 // probeKind is the probe kind of a port map (auto by default).

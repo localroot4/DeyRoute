@@ -539,14 +539,14 @@ func TestProbeHelpers(t *testing.T) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(echo.Port))
 	res = health.TCPEcho(ctx, addr, 2*time.Second)
 	require.True(t, res.OK, res.Err)
-	again, err := call[api.EchoResult](t, s, api.CmdEchoStart, api.EchoArgs(echo))
+	again, err := call[api.EchoResult](t, s, api.CmdEchoStart, api.EchoArgs{Port: echo.Port})
 	require.NoError(t, err)
 	require.Equal(t, echo.Port, again.Port)
-	_, err = call[json.RawMessage](t, s, api.CmdEchoStop, api.EchoArgs(echo))
+	_, err = call[json.RawMessage](t, s, api.CmdEchoStop, api.EchoArgs{Port: echo.Port})
 	require.NoError(t, err)
 	res = health.TCPEcho(ctx, addr, time.Second)
 	require.False(t, res.OK)
-	_, err = call[json.RawMessage](t, s, api.CmdEchoStop, api.EchoArgs(echo))
+	_, err = call[json.RawMessage](t, s, api.CmdEchoStop, api.EchoArgs{Port: echo.Port})
 	require.NoError(t, err, "stopping twice is fine")
 	_, err = call[json.RawMessage](t, s, api.CmdEchoStop, api.EchoArgs{Port: -1})
 	requireCode(t, err, deyerr.N050)
@@ -1017,13 +1017,46 @@ func TestCanaryEchoSurvivesAgentRestart(t *testing.T) {
 	s = e.start()
 	eventually(t, func() bool { return health.TCPEcho(context.Background(), addr, time.Second).OK },
 		"the canary echo is open again after the restart")
-	_, err = call[json.RawMessage](t, s, api.CmdEchoStop, api.EchoArgs(echo))
+	_, err = call[json.RawMessage](t, s, api.CmdEchoStop, api.EchoArgs{Port: echo.Port})
 	require.NoError(t, err)
 	data, err := os.ReadFile(e.path(StateFile))
 	require.NoError(t, err)
 	var st nodeState
 	require.NoError(t, json.Unmarshal(data, &st))
 	require.Empty(t, st.Echo, "a stopped echo is forgotten")
+}
+
+// TestProbeEchoSurvivesAgentRestart: echo.start with Probe (DR-17) opens
+// the nonce-only probe echo, the node announces FeatureEchoProbe, and the
+// echo is reopened after a restart until echo.stop.
+func TestProbeEchoSurvivesAgentRestart(t *testing.T) {
+	e := newEnv(t)
+	s, stop := e.startStoppable()
+	require.Contains(t, s.Hello.Features, api.FeatureEchoProbe)
+	echo, err := call[api.EchoResult](t, s, api.CmdEchoStart, api.EchoArgs{Probe: true})
+	require.NoError(t, err)
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(echo.Port))
+	require.True(t, health.TCPEcho(context.Background(), addr, time.Second).OK)
+	c, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	_, _ = c.Write([]byte("not a probe packet, never echoed"))
+	_ = c.SetReadDeadline(time.Now().Add(time.Second))
+	n, _ := c.Read(make([]byte, 8))
+	_ = c.Close()
+	require.Zero(t, n, "the probe echo answers only the nonce packet")
+	stop()
+
+	s = e.start()
+	eventually(t, func() bool { return health.TCPEcho(context.Background(), addr, time.Second).OK },
+		"the probe echo is open again after the restart")
+	_, err = call[json.RawMessage](t, s, api.CmdEchoStop, api.EchoArgs{Port: echo.Port})
+	require.NoError(t, err)
+	data, err := os.ReadFile(e.path(StateFile))
+	require.NoError(t, err)
+	var st nodeState
+	require.NoError(t, json.Unmarshal(data, &st))
+	require.Empty(t, st.ProbeEcho, "a stopped probe echo is forgotten")
+	require.False(t, health.TCPEcho(context.Background(), addr, time.Second).OK)
 }
 
 func TestFetchProxyRefusesPlainHTTPRedirect(t *testing.T) {

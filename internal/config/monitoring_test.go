@@ -106,6 +106,17 @@ func TestNewerKeysInUse(t *testing.T) {
 	require.Equal(t, []NewerKey{{"node.allow_unsigned_updates", FirstAllowUnsignedUpdatesVersion}}, n.NewerKeysInUse())
 }
 
+// TestNewerKeysEchoProbe: the port probe kind echo (DR-17) blocks a
+// rollback below 0.3.1 while a port map uses it; auto does not.
+func TestNewerKeysEchoProbe(t *testing.T) {
+	c := validHub()
+	tun0(c).Ports[0].Probe = ProbeAuto
+	require.Empty(t, c.NewerKeysInUse())
+	tun0(c).Ports[0].Probe = ProbeEcho
+	require.Equal(t, "0.3.1", FirstEchoProbeVersion)
+	require.Equal(t, []NewerKey{{"tunnels[].ports[].probe: echo", FirstEchoProbeVersion}}, c.NewerKeysInUse())
+}
+
 // TestNodeAllowUnsignedUpdatesKey: node.allow_unsigned_updates is written
 // only when true, survives save, load and Clone, and takes only a YAML bool.
 func TestNodeAllowUnsignedUpdatesKey(t *testing.T) {

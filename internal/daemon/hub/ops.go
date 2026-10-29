@@ -71,6 +71,10 @@ type opsState struct {
 
 	restart chan struct{} // scheduled restart of deyroute-hub (update)
 	nodeUpd chan string   // nodes that must install the hub's binary
+
+	pushMu    sync.Mutex
+	pushTries map[string]*nodePushTry // failed self.update per node (this run)
+	pushNoted map[string]bool         // once-per-run notes about pushes, by node
 }
 
 // init prepares the zero state (New).
@@ -79,6 +83,8 @@ func (o *opsState) init() {
 	o.pinTrial = map[string]backend.ManifestEntry{}
 	o.restart = make(chan struct{}, 1)
 	o.nodeUpd = make(chan string, nodeUpdateQueue)
+	o.pushTries = map[string]*nodePushTry{}
+	o.pushNoted = map[string]bool{}
 	o.decoyKick = make(chan struct{}, 1)
 }
 

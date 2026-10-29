@@ -21,7 +21,7 @@ const DefaultJoinTTL = 15 * time.Minute
 
 func newNodeCmd(g *Globals) *cobra.Command {
 	cmd := newGroup("node", i18n.CLINodeShort)
-	cmd.AddCommand(newNodeJoinCommandCmd(g), newNodeListCmd(g), newNodeRenameCmd(g), newNodeRemoveCmd(g),
+	cmd.AddCommand(newNodeJoinCommandCmd(g), newNodeJoinRevokeCmd(g), newNodeListCmd(g), newNodeRenameCmd(g), newNodeRemoveCmd(g),
 		newNodeTestCmd(g), newNodeSetHubCmd(g))
 	return cmd
 }
@@ -50,6 +50,32 @@ func newNodeJoinCommandCmd(g *Globals) *cobra.Command {
 	}
 	cmd.Flags().DurationVar(&ttl, "ttl", DefaultJoinTTL, i18n.T(i18n.CLIFlagTTL))
 	return cmd
+}
+
+// newNodeJoinRevokeCmd is `deyroute node join-revoke` (DR-16): every join
+// token is deleted and the join window closes at once. No flags: revoking
+// every token is the only mode.
+func newNodeJoinRevokeCmd(g *Globals) *cobra.Command {
+	return &cobra.Command{
+		Use:     "join-revoke",
+		Short:   i18n.T(i18n.CLINodeJoinRevokeShort),
+		Example: i18n.T(i18n.CLINodeJoinRevokeExample),
+		Args:    noArgs(),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var n int
+			err := g.call(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
+				n, err = l.NodeJoinRevoke(ctx)
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return g.done(map[string]any{"revoked": n}, i18n.CLINodeJoinRevokedNone)
+			}
+			return g.done(map[string]any{"revoked": n}, i18n.CLINodeJoinRevoked, n)
+		},
+	}
 }
 
 func newNodeListCmd(g *Globals) *cobra.Command {

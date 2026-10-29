@@ -36,6 +36,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-I022` | Uninstall step failed: {step} | part of the removal could not complete; every other step still ran and the deyroute binary was kept | fix the cause shown below, then run deyroute uninstall again (it is safe to repeat) |
 | `DEY-I023` | This server is not set up yet | /etc/deyroute/config.yaml does not exist, so no deyroute service runs here | on the Iran server run: deyroute setup   on a foreign server run the join command your hub shows |
 | `DEY-I024` | Release v{version} not found | the release was removed or never existed: every download source answered HTTP 404 for its SHA256SUMS | install a version that exists, or use --local with a cached copy of that release |
+| `DEY-I025` | Cannot determine this server's public address for the restored hub | {reason}; a restore without a terminal never guesses the address the nodes dial, and nothing was restored | re-run with --public-ip <this server's public IP> (see the provider panel), or with --keep-address if this server really owns {old_ip} (same server, floating IP) |
 
 ## Configuration (DEY-C0xx)
 
@@ -77,7 +78,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-N001` | Join token is invalid or expired | tokens are single-use and expire after 15 minutes | on the hub run: deyroute node join-command   and use the new line |
 | `DEY-N002` | Hub CA fingerprint mismatch | the hub presented CA {got}, the join link pins {expected}; this may be a wrong address or interception | copy the join command again from the hub menu; do not edit it |
 | `DEY-N003` | Node {node} is offline | no heartbeat from the node's control connection | check the node: systemctl status deyroute-node   and its network to the hub |
-| `DEY-N004` | Node {node} version {node_version} is incompatible with hub {hub_version} | hub and node must share the same major.minor version | run deyroute update on the hub (its nodes then update from it), or re-run the installer on this node with --version {hub_version} |
+| `DEY-N004` | Node {node} version {node_version} is incompatible with hub {hub_version} | hub and node must share the same major.minor version | wait: a hub on a release installs its version on the node by itself when the node connects (a node that refuses it is asked again later; see the hub log). Otherwise run deyroute update on the hub, or re-run the installer on this node with --version {hub_version} |
 | `DEY-N005` | Command {command} timed out on node {node} | the node did not answer in time | check deyroute node test {node}; see the node log with deyroute logs node |
 | `DEY-N006` | Invalid join link | expected dey://TOKEN@HUB_IP:PORT#sha256:FINGERPRINT, or for a hub behind the CDN front dey://TOKEN@HOST:PORT/SECRET#sha256:FINGERPRINT (the SECRET is 16 to 128 letters, digits, - or _; an optional ?tls=0 or ?tls=1 goes after it) | copy the full line again from the hub (deyroute node join-command) without adding spaces or line breaks, and quote it in the shell because of the # and ? |
 | `DEY-N007` | Too many failed join attempts from {ip} | more than 5 failures in an hour block the address for 1 hour | wait one hour, then use a fresh join command |
@@ -95,6 +96,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-N020` | The hub's join answer cannot be used | {reason} | make sure the hub and this server run the same deyroute version, then create a new join command on the hub (deyroute node join-command) and run it here |
 | `DEY-N050` | Node {node} refused command {command} | {reason}; the node only writes below /etc/deyroute/backends, runs deyroute's own binaries and reaches only allowed addresses | update the hub and the node to the same version (Update -> deyroute); if it repeats run deyroute doctor --node {node} and report it |
 | `DEY-N051` | Node {node} could not download {file} | the node tried the source 3 times without success (no outbound HTTPS, DNS failure, or the server refused); the cause is shown below | check outbound HTTPS on the node (curl -I https://github.com), or set DEYROUTE_MIRROR on the hub to a reachable mirror |
+| `DEY-N052` | Node {node} keeps its own kernel settings and refused {command} | the node was joined with --sysctl off (or the owner answered no to the kernel question), so the marker /var/lib/deyroute/hub-tuning-off on the node refuses the hub's kernel tuning (only a revert to off still runs) | to let the hub tune this node, remove the marker on the node (rm /var/lib/deyroute/hub-tuning-off), then re-apply the hub's profile as deyroute optimize status shows it: deyroute optimize auto on an auto hub, otherwise deyroute optimize apply --profile <that profile> |
 
 ## Ports / firewall (DEY-P0xx)
 

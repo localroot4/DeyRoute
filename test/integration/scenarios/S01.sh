@@ -4,13 +4,23 @@
 # one-line `install.sh … join` to the node being online on the hub.
 # A fresh hub never updates itself: the automatic update is off, config.yaml
 # has no hub.auto_update, and there is no migration notice (DR-05).
+# The hub is set up the way automation does it (DR-07): installed with
+# --no-setup, then `setup --public-ip` stores exactly the given address (the
+# lab address is private, hence --allow-private-ip).
+# Both daemons run sandboxed (DR-20): ProtectSystem=strict, so /usr is
+# read-only for them while /var/lib/deyroute stays writable, and the bounding
+# set holds CAP_NET_ADMIN but neither CAP_SYS_ADMIN nor CAP_SYS_MODULE.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
 up hub node1
 t0=$SECONDS
-install_hub hub ir-1 || fail "the hub installer failed"
+on hub bash /dist/install.sh --local "$ARCHIVE" --no-setup || fail "the hub installer failed"
+sj=$(dey setup --role hub --name ir-1 --public-ip "$HUB_IP" --allow-private-ip --yes --json) || fail "hub setup failed: $sj"
 th=$((SECONDS - t0))
+jq -e --arg ip "$HUB_IP" '.public_ip == $ip and .public_ip_source == "flag"' <<<"$sj" >/dev/null ||
+  fail "setup --public-ip: $sj"
+on hub grep -qx "  public_ip: $HUB_IP" /etc/deyroute/config.yaml || fail "config.yaml does not have hub.public_ip $HUB_IP"
 link=$(join_link)
 j0=$(date +%s%3N)
 t0=$SECONDS
@@ -37,6 +47,20 @@ for pair in hub:deyroute-hub node1:deyroute-node; do
   [ "$m" = 700 ] || fail "/etc/deyroute/secrets on $s is $m, want 700"
   bad=$(sh_on "$s" "find /etc/deyroute/secrets -type f ! -perm 0600 -printf '%p %m\n'")
   [ -z "$bad" ] || fail "secret files on $s are not 0600: $bad"
+  # Sandbox (DR-20), seen from inside the daemon's mount namespace.
+  [ "$(on "$s" systemctl show -p ProtectSystem --value "$u.service")" = strict ] || fail "$u on $s: ProtectSystem is not strict"
+  pid=$(main_pid "$s" "$u.service")
+  if on "$s" nsenter -t "$pid" -m touch /usr/.dey-rw-probe 2>/dev/null; then
+    on "$s" rm -f /usr/.dey-rw-probe
+    fail "$u on $s can write /usr"
+  fi
+  on "$s" nsenter -t "$pid" -m sh -c 'touch /var/lib/deyroute/.dey-rw-probe && rm /var/lib/deyroute/.dey-rw-probe' ||
+    fail "$u on $s cannot write /var/lib/deyroute"
+  bnd=$((16#$(on "$s" sed -n 's/^CapBnd:[[:space:]]*//p' "/proc/$pid/status")))
+  # Bits: CAP_NET_ADMIN 12, CAP_SYS_MODULE 16, CAP_SYS_ADMIN 21.
+  if [ $((bnd >> 12 & 1)) != 1 ] || [ $((bnd >> 16 & 1)) != 0 ] || [ $((bnd >> 21 & 1)) != 0 ]; then
+    fail "$u on $s: unexpected capability bounding set $(printf '%x' "$bnd")"
+  fi
 done
 
 au=$(dey update auto --json)

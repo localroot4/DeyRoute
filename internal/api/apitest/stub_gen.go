@@ -25,6 +25,8 @@ type Stub struct {
 	SettingsSetFn func(ctx context.Context, req api.SettingsRequest) error
 	// NodeJoinCommandFn implements NodeJoinCommand.
 	NodeJoinCommandFn func(ctx context.Context, ttl time.Duration) (api.JoinCommand, error)
+	// NodeJoinRevokeFn implements NodeJoinRevoke.
+	NodeJoinRevokeFn func(ctx context.Context) (int, error)
 	// NodeListFn implements NodeList.
 	NodeListFn func(ctx context.Context) ([]api.NodeInfo, error)
 	// NodeRenameFn implements NodeRename.
@@ -127,6 +129,8 @@ type Stub struct {
 	UpdateApplyFn func(ctx context.Context, version string, progress func(api.Step)) (api.UpdateInfo, error)
 	// UpdateRollbackFn implements UpdateRollback.
 	UpdateRollbackFn func(ctx context.Context) (api.UpdateInfo, error)
+	// UpdateNodesFn implements UpdateNodes.
+	UpdateNodesFn func(ctx context.Context) (int, error)
 	// UpdateAutoFn implements UpdateAuto.
 	UpdateAutoFn func(ctx context.Context, mode string) (api.AutoUpdateInfo, error)
 	// UpdateBackendsFn implements UpdateBackends.
@@ -192,6 +196,15 @@ func (s *Stub) NodeJoinCommand(ctx context.Context, ttl time.Duration) (api.Join
 		return zero, notImplemented("NodeJoinCommand")
 	}
 	return s.NodeJoinCommandFn(ctx, ttl)
+}
+
+// NodeJoinRevoke calls NodeJoinRevokeFn or returns DEY-X008 when it is nil.
+func (s *Stub) NodeJoinRevoke(ctx context.Context) (int, error) {
+	if s.NodeJoinRevokeFn == nil {
+		var zero int
+		return zero, notImplemented("NodeJoinRevoke")
+	}
+	return s.NodeJoinRevokeFn(ctx)
 }
 
 // NodeList calls NodeListFn or returns DEY-X008 when it is nil.
@@ -633,6 +646,15 @@ func (s *Stub) UpdateRollback(ctx context.Context) (api.UpdateInfo, error) {
 		return zero, notImplemented("UpdateRollback")
 	}
 	return s.UpdateRollbackFn(ctx)
+}
+
+// UpdateNodes calls UpdateNodesFn or returns DEY-X008 when it is nil.
+func (s *Stub) UpdateNodes(ctx context.Context) (int, error) {
+	if s.UpdateNodesFn == nil {
+		var zero int
+		return zero, notImplemented("UpdateNodes")
+	}
+	return s.UpdateNodesFn(ctx)
 }
 
 // UpdateAuto calls UpdateAutoFn or returns DEY-X008 when it is nil.

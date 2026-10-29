@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/backend"
+	"github.com/localroot4/deyroute/internal/backend/wireguard"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/render"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
@@ -469,7 +471,7 @@ func TestPortAddRestartsOnlyTheActiveCandidate(t *testing.T) {
 	out, err := te.client.PortAdd(ctxT(t), id, []api.PortSpec{{Listen: p2}}, log.add)
 	require.NoError(t, err, "%v", log.finished())
 	require.Len(t, out.Ports, 2)
-	require.Equal(t, []string{"check_ports:ok", "firewall:ok", "render:ok", "engine:ok", "restart:ok"}, log.finished())
+	require.Equal(t, []string{"check_ports:ok", "firewall:ok", "render:ok", "engine:ok", "restart:ok", "firewall:ok"}, log.finished())
 	require.Equal(t, 1, te.sd.count("restart", alpha))
 	require.Zero(t, te.sd.count("restart", beta))
 	require.Zero(t, te.sd.count("start", beta))
@@ -519,6 +521,102 @@ func TestPortAddRestartsOnlyTheActiveCandidate(t *testing.T) {
 	require.Equal(t, deyerr.C013, codeOf(err))
 	_, err = te.client.PortRemove(ctxT(t), id, p1, "sctp")
 	require.Equal(t, deyerr.P010, codeOf(err))
+}
+
+// natTunnel is an active tfa/nat tunnel (the hub side forwards with NAT,
+// like WireGuard) on de-1 with the TCP ports.
+func natTunnel(t *testing.T, ports ...int) (*tunnelEnv, string) {
+	te := startTunnelHub(t, withIPForward)
+	te.tunnelNode("de-1")
+	specs := make([]api.PortSpec, len(ports))
+	for i, p := range ports {
+		specs[i] = api.PortSpec{Listen: p}
+	}
+	info, _ := te.addTunnelUp(api.TunnelAddRequest{Node: "de-1", Ports: specs,
+		FixedTransport: trNAT, Failover: fastFailover(false)})
+	te.waitActive(info.ID, "de-1", trNAT)
+	return te, info.ID
+}
+
+// requireNATOfPlan fails unless the hub firewall's NAT rules are those of
+// the active candidate's hub side in the current plan, and they forward
+// exactly the listen ports want.
+func requireNATOfPlan(t *testing.T, te *tunnelEnv, id string, want ...int) {
+	t.Helper()
+	_, plan := te.h.tun.lookup(id).snapshot()
+	pc, ok := plan.Candidate("de-1", trNAT)
+	require.True(t, ok)
+	require.Len(t, pc.Hub.NAT, len(want))
+	for i, p := range want {
+		require.Equal(t, p, pc.Hub.NAT[i].DportLow)
+	}
+	require.Equal(t, pc.Hub.NAT, te.h.Firewall().Spec.NAT, "the firewall NAT follows the plan")
+}
+
+// DR-10: port add on an active NAT rung installs the DNAT of the new port
+// before the command returns (no failover or restart needed).
+func TestPortAddRefreshesHubNAT(t *testing.T) {
+	p1 := freePort(t)
+	te, id := natTunnel(t, p1)
+	requireNATOfPlan(t, te, id, p1)
+	p2 := freePort(t)
+	var log stepLog
+	_, err := te.client.PortAdd(ctxT(t), id, []api.PortSpec{{Listen: p2}}, log.add)
+	require.NoError(t, err, "%v", log.finished())
+	requireNATOfPlan(t, te, id, p1, p2)
+	te.waitActive(id, "de-1", trNAT)
+}
+
+// A change of one side of a rung whose sides share a session (WireGuard)
+// restarts both: the node side alone would leave the hub's peer sending
+// with keys the fresh node instance no longer knows (lab S33, port add).
+func TestRestartSidesOfAPairedRung(t *testing.T) {
+	wg := backend.Transport{Backend: "wireguard", Name: "kernel", RestartTogether: true}
+	other := backend.Transport{Backend: "backhaul", Name: "tcpmux"}
+	for _, c := range []struct {
+		tr                  backend.Transport
+		hubCh, nodeCh, h, n bool
+	}{
+		{wg, false, true, true, true},
+		{wg, true, false, true, true},
+		{wg, false, false, false, false},
+		{other, false, true, false, true},
+		{other, true, false, true, false},
+	} {
+		h, n := restartSides(c.tr, c.hubCh, c.nodeCh)
+		require.Equal(t, [2]bool{c.h, c.n}, [2]bool{h, n}, "%s hub=%v node=%v", c.tr.ID(), c.hubCh, c.nodeCh)
+	}
+	require.True(t, wireguard.New().Transports()[0].RestartTogether, "wireguard/kernel")
+	require.True(t, wireguard.NewAWG().Transports()[0].RestartTogether, "awg/userspace")
+}
+
+// A restart of a changed hub side runs its post-start step like a start
+// does: it configures the device the restart recreates (WireGuard keys,
+// address, link up); systemctl restart alone left it down (lab S33).
+func TestRestartChangedRunsHubPostStart(t *testing.T) {
+	te, id := natTunnel(t, freePort(t))
+	part := "/tfa/" + id + "/"
+	before := postStartsUnder(part)
+	require.Positive(t, before, "the start ran the post-start step")
+	unit := hubUnit(id, "de-1", trNAT)
+	restarts := te.sd.count("restart", unit)
+	_, err := te.client.PortAdd(ctxT(t), id, []api.PortSpec{{Listen: freePort(t)}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, restarts+1, te.sd.count("restart", unit))
+	require.Equal(t, before+1, postStartsUnder(part), "the restart ran the post-start step")
+	te.waitActive(id, "de-1", trNAT)
+}
+
+// DR-10: port remove on an active NAT rung drops the DNAT of the port
+// before the command returns.
+func TestPortRemoveDropsHubNAT(t *testing.T) {
+	p1, p2 := freePort(t), freePort(t)
+	te, id := natTunnel(t, p1, p2)
+	requireNATOfPlan(t, te, id, p1, p2)
+	_, err := te.client.PortRemove(ctxT(t), id, p2, "")
+	require.NoError(t, err)
+	requireNATOfPlan(t, te, id, p1)
+	te.waitActive(id, "de-1", trNAT)
 }
 
 func TestReconcileAfterRestartAdoptsRunningUnit(t *testing.T) {

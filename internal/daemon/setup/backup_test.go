@@ -111,6 +111,15 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	require.FileExists(t, filepath.Join(dst, "etc/systemd/system/deyroute-hub.service"))
 	require.DirExists(t, filepath.Join(dst, "var/log/deyroute/tunnels"))
 
+	// The hub learns once which version wrote the backup (DR-11).
+	marker := filepath.Join(dst, RestoredFromPath)
+	require.Equal(t, os.FileMode(0o600), mode(t, marker))
+	from, err := TakeRestoredFrom(dst)
+	require.NoError(t, err)
+	require.Equal(t, res.BackupVersion, from)
+	require.NotEmpty(t, from)
+	require.NoFileExists(t, marker)
+
 	// Events are left for the hub, which imports them once.
 	require.Equal(t, filepath.Join(dst, RestoreEventsPath), res.EventsPath)
 	require.Equal(t, os.FileMode(0o600), mode(t, res.EventsPath))
@@ -162,6 +171,7 @@ func TestRestoreNodeBackupWithoutEvents(t *testing.T) {
 	require.Equal(t, "germany-1", res.NodeID)
 	require.Empty(t, res.EventsPath)
 	require.Equal(t, []string{"restore=ok", "events=skipped", "sysctl=skipped", "service=ok"}, steps.final())
+	require.NoFileExists(t, filepath.Join(dst, RestoredFromPath), "a node has no restore marker")
 	require.True(t, f.Called("systemctl stop deyroute-hub.service"))
 	require.True(t, f.Called("systemctl disable deyroute-hub.service"))
 	require.True(t, f.Called("systemctl restart deyroute-node.service"))
@@ -405,3 +415,39 @@ func TestImportRestoredEventsRefusesSymlinkAndFIFO(t *testing.T) {
 }
 
 var _ = api.StepOK
+
+// TakeRestoredFrom reads the restore marker once: a regular file only (a
+// symlink is not followed), and the marker is gone afterwards either way.
+func TestTakeRestoredFrom(t *testing.T) {
+	root := t.TempDir()
+	v, err := TakeRestoredFrom(root)
+	require.NoError(t, err)
+	require.Empty(t, v, "no marker")
+	p := filepath.Join(root, RestoredFromPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o700))
+	require.NoError(t, os.WriteFile(p, []byte(" 0.3.0\n"), 0o600))
+	v, err = TakeRestoredFrom(root)
+	require.NoError(t, err)
+	require.Equal(t, "0.3.0", v)
+	require.NoFileExists(t, p)
+
+	target := filepath.Join(root, "secret.txt")
+	require.NoError(t, os.WriteFile(target, []byte("0.1.0\n"), 0o600))
+	require.NoError(t, os.Symlink(target, p))
+	v, err = TakeRestoredFrom(root)
+	requireTop(t, err, deyerr.X032)
+	require.Empty(t, v)
+	_, err = os.Lstat(p)
+	require.ErrorIs(t, err, os.ErrNotExist, "the link is removed")
+	require.FileExists(t, target, "its target is untouched")
+
+	// Not a version: refused and removed.
+	require.NoError(t, os.WriteFile(p, []byte("0.3.0 extra words\n"), 0o600))
+	_, err = TakeRestoredFrom(root)
+	requireTop(t, err, deyerr.X032)
+	require.NoFileExists(t, p)
+	require.NoError(t, os.Mkdir(p, 0o700))
+	_, err = TakeRestoredFrom(root)
+	requireTop(t, err, deyerr.X032)
+	require.NoDirExists(t, p)
+}

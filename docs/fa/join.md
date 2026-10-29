@@ -41,6 +41,33 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.
 - اگر Hub با `DEYROUTE_MIRROR` راه‌اندازی شده باشد، دستور نصاب را از همان Mirror دانلود می‌کند (`<mirror>/v<version>/install.sh`).
 - اگر نسخه Hub دیگر منتشرشده نباشد (مثلاً یک بیلد توسعه قدیمی که حذف شده؛ صفحه [آپدیت و حذف](update-uninstall.md)، بخش «کدام نسخه‌ها در دسترس می‌مانند»)، خط نمی‌تواند نصاب را دانلود کند (`curl: (22) The requested URL returned error: 404`) و چیزی نصب نمی‌شود. Hub را آپدیت کنید (`deyroute update`) و یک Join command تازه بسازید.
 
+### باطل کردن Join commandهای مصرف‌نشده
+
+یک Join command مصرف‌نشده پنجره Join را تا وقت انقضایش باز نگه می‌دارد (پورت کنترل اتصال از هر آدرسی را می‌پذیرد)، حتی بعد از یک Join ناموفق یا وقتی خط را اشتباهی جایی فرستاده‌اید. همه Join commandهای مصرف‌نشده را یک‌جا باطل کنید:
+
+```bash
+deyroute node join-revoke
+```
+
+```text
+Join tokens revoked: 1. The join window is closed: the control port is restricted to the nodes (@nodes) again.
+```
+
+- Hub فایروال را قبل از تمام شدن دستور اعمال می‌کند: پورت کنترل همان لحظه فقط برای Nodeهای وصل‌شده باز است، نه وقتی توکن منقضی شود.
+- Nodeی که یک دستور باطل‌شده را اجرا کند `DEY-N001` می‌گیرد. با `deyroute node join-command` یک دستور تازه بسازید.
+- این دستور هیچ فلگی ندارد: همیشه همه Join commandهای مصرف‌نشده را باطل می‌کند. با `--json` این را چاپ می‌کند: `{"schema": 1, "ok": true, "revoked": 1}` (`revoked` تعداد توکن‌های منقضی‌نشده است؛ اگر توکنی نبود `0`).
+- Hub رویداد `join_tokens_revoked` را ثبت می‌کند.
+
+### راه‌اندازی Hub بدون Join command
+
+`deyroute setup` با یک Join command تمام می‌شود، پس بعد از هر راه‌اندازی Hub پنجره Join برای ۱۵ دقیقه باز است. اتوماسیونی که بعداً Join command کوتاه خودش را می‌سازد می‌تواند این را رد کند:
+
+```bash
+deyroute setup --role hub --name ir-1 --yes --no-join
+```
+
+هیچ Join commandی ساخته نمی‌شود و فایروالی که setup اعمال می‌کند از همان اول پورت کنترل را به Nodeها محدود می‌کند. خروجی `--json` در این حالت فیلد `join` ندارد و `"join_window": false` دارد. `--no-join` فقط برای راه‌اندازی Hub است (با `--role node` خطای `DEY-C013` می‌دهد).
+
 ## ۲. اجرای آن روی Node
 
 روی سرور خارج با کاربر root خط را paste کنید. اگر می‌خواهید شناسه Node را خودتان انتخاب کنید، `--name` را به آخر خط اضافه کنید:
@@ -55,7 +82,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.
 deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --name de-1
 ```
 
-Node فقط یک سؤال می‌پرسد — اینکه پروفایل کرنل balanced اعمال شود یا نه (Enter یعنی بله) — و بعد مراحل را نشان می‌دهد. اگر Hub از تنظیم خودکار استفاده کند (`deyroute optimize auto`)، به محض آنلاین شدن Node آن را هم به همان شکل تنظیم می‌کند و در `deyroute optimize status` نشانش می‌دهد؛ [تنظیم خودکار](tuning.md) را ببینید:
+Node روی ترمینال فقط یک سؤال می‌پرسد — اینکه پروفایل کرنل balanced اعمال شود یا نه (Enter یعنی بله) — و بعد مراحل را نشان می‌دهد؛ بدون ترمینال (اسکریپت یا پنل) پروفایل balanced را اعمال می‌کند. اگر Hub از تنظیم خودکار استفاده کند (`deyroute optimize auto`)، به محض آنلاین شدن Node آن را هم به همان شکل تنظیم می‌کند و در `deyroute optimize status` نشانش می‌دهد؛ [تنظیم خودکار](tuning.md) را ببینید.
 
 ```text
   ✔ Read join link
@@ -68,6 +95,15 @@ Node فقط یک سؤال می‌پرسد — اینکه پروفایل کرنل
 
 Node de-1 joined hub ir-1; it appears on the hub dashboard shortly
 ```
+
+`--sysctl` بدون سؤال انتخاب می‌کند: `balanced` (پیش‌فرض)، `auto` (برنامهٔ خودکار خود این سرور) یا `off` (هیچ چیزی در `/etc/sysctl.d` نوشته نمی‌شود و هیچ مقدار کرنلی عوض نمی‌شود). هر پروفایل بازهٔ کنترل بک‌اندها یعنی `30000-31999` را در `net.ipv4.ip_local_reserved_ports` رزرو می‌کند تا هیچ اتصال خروجی پورتی را که یک ترنسپورت لازم دارد نگیرد. `--reserve-ports` پورت‌های سرویس‌های خود این سرور را اضافه می‌کند: فهرستی از پورت‌ها و بازه‌ها با کاما (`443,8443,20000-20999`)، قابل تکرار، حداکثر ۶۴ مورد، و دست‌کم ۱۰۲۴ پورت از پورت‌های موقت `10240-65535` باید آزاد بماند. رزروهایی که از قبل هست می‌مانند؛ `deyroute optimize revert` و `deyroute uninstall` فقط موردهای خود deyroute را برمی‌دارند.
+
+```bash
+deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --name de-1 --sysctl balanced --reserve-ports 443,8443
+deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --name de-1 --sysctl off
+```
+
+`--sysctl off`، مثل جواب «نه» به سؤال، تنظیم Hub را هم از این Node دور نگه می‌دارد: Node دستورهای `optimize apply` و `optimize auto` از Hub را با `DEY-N052` رد می‌کند (برگرداندن به `off` همچنان اجرا می‌شود). برای اینکه Hub بعداً آن را تنظیم کند، روی Node دستور `rm /var/lib/deyroute/hub-tuning-off` را اجرا کنید و بعد روی Hub پروفایلی را که `deyroute optimize status` نشان می‌دهد دوباره اعمال کنید (روی Hub با پروفایل auto دستور `deyroute optimize auto`، وگرنه `deyroute optimize apply --profile <همان پروفایل>`). Nodeهایی که با نسخهٔ قدیمی‌تر Join کرده‌اند مثل قبل از Hub پیروی می‌کنند. نصب‌کننده `--sysctl` و `--reserve-ports` را منتقل نمی‌کند: با `install.sh --no-setup` نصب کنید و بعد `deyroute join` را با آن‌ها اجرا کنید.
 
 شناسه Node از `--name` ساخته می‌شود (حروف کوچک انگلیسی، عدد و `-`، بین ۲ تا ۳۲ حرف، مثل `de-1`) و اگر `--name` ندهید، از نام میزبان (hostname). شناسه بعداً عوض نمی‌شود، ولی نام نمایشی عوض می‌شود: `deyroute node rename de-1 "Germany 1"`.
 

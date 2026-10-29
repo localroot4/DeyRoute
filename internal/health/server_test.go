@@ -163,3 +163,43 @@ func TestNextBackoff(t *testing.T) {
 	assert.Equal(t, time.Second, nextBackoff(800*time.Millisecond))
 	assert.Equal(t, time.Second, nextBackoff(time.Second))
 }
+
+// TestServeProbeEcho: the probe echo (DR-17) passes TCPEcho and answers
+// nothing but one DEYE packet per connection.
+func TestServeProbeEcho(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- ServeProbeEcho(ctx, ln) }()
+	t.Cleanup(func() {
+		cancel()
+		require.NoError(t, <-done)
+	})
+	addr := ln.Addr().String()
+
+	r := TCPEcho(context.Background(), addr, 2*time.Second)
+	require.True(t, r.OK, r.Err)
+
+	// Other bytes are not echoed: the connection closes without data.
+	c, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	defer c.Close()
+	_, err = c.Write([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+	require.NoError(t, err)
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := c.Read(make([]byte, 64))
+	require.Zero(t, n)
+	require.Error(t, err)
+
+	// One packet per connection: a second one gets no answer.
+	c2, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	defer c2.Close()
+	pkt := newEchoPacket()
+	_, err = c2.Write(append(pkt[:], pkt[:]...))
+	require.NoError(t, err)
+	_ = c2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	got, _ := io.ReadAll(c2)
+	require.Equal(t, pkt[:], got)
+}

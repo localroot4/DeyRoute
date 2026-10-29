@@ -1,0 +1,43 @@
+{
+  "auto_update": false,
+  "ca_fingerprint": "sha256:ab",
+  "config_path": "",
+  "control_port": 44433,
+  "firewall_managed": false,
+  "join": {
+    "command": "bash <(curl -fsSL https://x/install.sh) join 'dey://T@5.6.7.8:44433#sha256:ab'",
+    "expires_at": "2026-09-30T12:15:00Z",
+    "link": ""
+  },
+  "join_window": true,
+  "name": "ir-1",
+  "private_ip": false,
+  "public_ip": "203.0.113.7",
+  "public_ip6": "2a01:4f8::7",
+  "public_ip_source": "flag",
+  "role": "hub",
+  "schema": 1,
+  "service_started": false,
+  "steps": [
+    {
+      "detail": "5.6.7.8",
+      "id": "detect_ip",
+      "status": "ok",
+      "title": "Detect public IP"
+    },
+    {
+      "id": "ca",
+      "status": "ok",
+      "title": "Create internal CA"
+    },
+    {
+      "id": "service",
+      "status": "ok",
+      "title": "Install and start service"
+    }
+  ],
+  "sysctl_profile": "auto",
+  "sysctl_warnings": [
+    "BBR missing"
+  ]
+}

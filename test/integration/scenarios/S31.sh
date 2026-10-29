@@ -26,7 +26,7 @@ tr=$(active_transport "$T")
 [ "$tr" = backhaul/tcpmux ] || fail "active transport is $tr, want backhaul/tcpmux (skipped: $(tunnel_field "$T" '.skipped'))"
 
 unit=$(unit_of "$T")
-sh_on hub "systemctl show -p ExecStart --value $unit" | grep -q ' pair ' || fail "hub unit $unit does not run deyroute pair"
+sh_on hub "systemctl show -p ExecStart --value $unit" | contains ' pair ' || fail "hub unit $unit does not run deyroute pair"
 sh_on hub "ss -Hlun 'sport = :27015' | grep -q ." || fail "the hub does not listen on 27015/udp"
 
 got=$(fetch_via_hub 443)

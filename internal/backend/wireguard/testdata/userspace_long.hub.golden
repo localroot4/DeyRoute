@@ -59,7 +59,7 @@
 tcp [::]:443 user
 tcp [::]:2053 user
 === nat
-{Proto:tcp DportLow:443 DportHigh:443 ToAddr:10.77.123.2 ToPort:443 Iface:}
-{Proto:tcp DportLow:2053 DportHigh:2053 ToAddr:10.77.123.2 ToPort:2053 Iface:}
+{Proto:tcp DportLow:443 DportHigh:443 ToAddr:10.77.123.2 ToPort:443 Iface: SAddr:[] DAddr:}
+{Proto:tcp DportLow:2053 DportHigh:2053 ToAddr:10.77.123.2 ToPort:2053 Iface: SAddr:[] DAddr:}
 === masquerade [dey-product_123]
 === ip_forward true

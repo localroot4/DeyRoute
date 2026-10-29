@@ -196,6 +196,29 @@ Every transport on every node failed. The ladder is retried from rung 1 every
 If every rung times out, the node's IP is probably blocked from the hub:
 give the node a new IP, or add a backup node.
 
+### A VMess or Shadowsocks tunnel never comes UP — probe `timeout`
+
+The probes fail with `timeout` or `connection reset` on every rung although
+the service runs: the service waits for its own client and stays silent
+after the probe's TLS hello (VMess or Shadowsocks-2022 over TCP without
+TLS). The hub detects this and uses the echo probe for that node
+([How the health probe tests a port](first-tunnel.md#how-the-health-probe-tests-a-port)).
+Check:
+
+1. `deyroute tunnel show main` — the probe port shows `(auto → echo)` when
+   the echo probe is in use; `--json` gives `probe_effective` and
+   `probe_reason`.
+2. A dashboard line `node de-1: … the echo probe is not available: node de-1
+   runs a deyroute without echo-probe` — the node runs an older version:
+   update it ([Update](update-uninstall.md)). Until then the tunnel keeps
+   the `auto` probe.
+3. The probe kind is `tls`, `tcp` or `http`: set it back with
+   `deyroute port set main 443 --probe auto`, or force the echo probe with
+   `--probe echo`.
+4. The service was down when the tunnel was added: while the tunnel does
+   not pass its probe, the hub asks the node again (at most every 5
+   minutes) and switches to the echo probe by itself.
+
 ### The service on the node is down — `DEY-F005`
 
 The tunnel works but nothing answers behind it on the node (for example Xray

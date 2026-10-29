@@ -36,11 +36,34 @@ You can also name backups when creating the tunnel:
 or in Advanced mode in `2) Tunnels` → `1) Add tunnel`: the `Backup node`
 question lists the other online nodes by number, with the fixed warning
 above, and the progress screen ends with the same two lines.
-The order is fixed: the first node is the primary, the others are backups in
-the order they were added. `deyroute tunnel show main` shows them as
+The first node is the primary, the others are backups in the order they
+were added. `deyroute tunnel show main` shows them as
 `de-1 (primary), nl-1 (backup)`.
 
-Remove a backup node:
+### Change the order
+
+`tunnel edit --node` sets the complete node list in order, primary first.
+Repeat the flag (or separate the ids with commas):
+
+```bash
+deyroute tunnel edit main --node nl-1 --node de-1
+```
+
+`nl-1` is now the primary and `de-1` the backup; `tunnel show main` says so
+at once. The new order moves no traffic: the tunnel stays on the node that
+carries it now, and returns to the new primary by the normal failback (see
+[below](#failback-returning-to-the-primary)): the canary towards `nl-1` must
+pass `recover_threshold` probes first. `deyroute tunnel switch main --node
+nl-1` moves it at once.
+
+A node that is not in the list no longer serves the tunnel. When that is the
+node that carries the tunnel now, the tunnel moves to another node at once
+and users lose their connections, so the command asks you to type `yes`
+first; `--yes` skips the question, and without a terminal and without
+`--yes` it stops with exit code 3 and changes nothing. A duplicate node is
+`DEY-C002`, a node that has not joined is `DEY-C010`.
+
+Remove a backup node (or leave it out of `tunnel edit --node`):
 
 ```bash
 deyroute tunnel backup remove main --node nl-1

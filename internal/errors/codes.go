@@ -28,6 +28,7 @@ const (
 	I022 Code = "DEY-I022" // uninstall step failed {step}
 	I023 Code = "DEY-I023" // this server is not set up
 	I024 Code = "DEY-I024" // pinned release not found (HTTP 404 from every source) {version}
+	I025 Code = "DEY-I025" // restored hub: public address unknown {reason} {old_ip}
 )
 
 // Configuration (DEY-C0xx).
@@ -85,6 +86,7 @@ const (
 	N020 Code = "DEY-N020" // hub join answer unusable {reason}
 	N050 Code = "DEY-N050" // node refused a hub command {node} {command} {reason}
 	N051 Code = "DEY-N051" // node could not download a file {node} {file}
+	N052 Code = "DEY-N052" // node opted out of the hub's kernel tuning {node} {command}
 )
 
 // Ports / firewall (DEY-P0xx).
@@ -271,6 +273,9 @@ var catalog = map[Code]Info{
 	I024: {I024, "Release v{version} not found",
 		"the release was removed or never existed: every download source answered HTTP 404 for its SHA256SUMS",
 		"install a version that exists, or use --local with a cached copy of that release"},
+	I025: {I025, "Cannot determine this server's public address for the restored hub",
+		"{reason}; a restore without a terminal never guesses the address the nodes dial, and nothing was restored",
+		"re-run with --public-ip <this server's public IP> (see the provider panel), or with --keep-address if this server really owns {old_ip} (same server, floating IP)"},
 
 	// ---------------------------------------------------------------- C
 	C001: {C001, "Unknown key in config: {key}",
@@ -370,7 +375,7 @@ var catalog = map[Code]Info{
 		"check the node: systemctl status deyroute-node   and its network to the hub"},
 	N004: {N004, "Node {node} version {node_version} is incompatible with hub {hub_version}",
 		"hub and node must share the same major.minor version",
-		"run deyroute update on the hub (its nodes then update from it), or re-run the installer on this node with --version {hub_version}"},
+		"wait: a hub on a release installs its version on the node by itself when the node connects (a node that refuses it is asked again later; see the hub log). Otherwise run deyroute update on the hub, or re-run the installer on this node with --version {hub_version}"},
 	N005: {N005, "Command {command} timed out on node {node}",
 		"the node did not answer in time",
 		"check deyroute node test {node}; see the node log with deyroute logs node"},
@@ -413,6 +418,9 @@ var catalog = map[Code]Info{
 	N051: {N051, "Node {node} could not download {file}",
 		"the node tried the source 3 times without success (no outbound HTTPS, DNS failure, or the server refused); the cause is shown below",
 		"check outbound HTTPS on the node (curl -I https://github.com), or set DEYROUTE_MIRROR on the hub to a reachable mirror"},
+	N052: {N052, "Node {node} keeps its own kernel settings and refused {command}",
+		"the node was joined with --sysctl off (or the owner answered no to the kernel question), so the marker /var/lib/deyroute/hub-tuning-off on the node refuses the hub's kernel tuning (only a revert to off still runs)",
+		"to let the hub tune this node, remove the marker on the node (rm /var/lib/deyroute/hub-tuning-off), then re-apply the hub's profile as deyroute optimize status shows it: deyroute optimize auto on an auto hub, otherwise deyroute optimize apply --profile <that profile>"},
 
 	N016: {N016, "Cannot reach the hub through the front {addr}",
 		"the connection to the front could not be opened ({reason}): the domain does not resolve, the TCP connect timed out or was refused, or the outer TLS handshake failed (certificate, clock or a middlebox)",

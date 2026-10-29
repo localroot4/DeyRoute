@@ -188,6 +188,18 @@ tuning gets `balanced` and a warning (update it with `deyroute update`).
 `deyroute optimize status` shows each node's profile and whether it is still
 pending.
 
+Every profile a node applies, `balanced` and `aggressive` included, reserves
+the backend control range `30000-31999` and the ports given at join with
+`--reserve-ports` (kept in `/var/lib/deyroute/reserved-ports`), so they stay
+reserved after a revert followed by `apply` or `auto`. A node joined with
+`--sysctl off` (or *no* to the kernel question) keeps its own kernel
+settings: it refuses the hub's tuning with `DEY-N052`, and `optimize auto`
+lists the error for that node. To lift it, run
+`rm /var/lib/deyroute/hub-tuning-off` on the node, then re-apply the hub's
+profile as `deyroute optimize status` shows it (`deyroute optimize auto` on
+an auto hub, otherwise `deyroute optimize apply --profile <that profile>`).
+See [Join a node](join.md).
+
 ## When someone else changes a value
 
 `deyroute optimize check` (menu `7) Optimize → 5) Check tuning`) compares
@@ -198,6 +210,9 @@ who changed it:
   `/run/sysctl.d` or `/usr/lib/sysctl.d`, or **`/etc/sysctl.conf`**, which
   systemd applies last and so wins over every `sysctl.d` file;
 - otherwise a runtime write (another tool, a script, a panel agent).
+
+For `net.ipv4.ip_local_reserved_ports` only a missing port counts: a
+reservation another program adds or removes is not a difference.
 
 Remove the other setting, or keep it on purpose. `deyroute optimize auto`
 lists the value again if you want deyroute's. The hub also runs the check
@@ -220,7 +235,10 @@ keys that appear once the module is loaded).
   and the service drop-ins (with a `daemon-reload`);
 - clears the transport size classes; the affected tunnels are listed and
   restarted;
-- sets the nodes back to `off`.
+- sets the nodes back to `off`;
+- removes from `net.ipv4.ip_local_reserved_ports` only the entries deyroute
+  requested; a port another program reserved, before or after deyroute,
+  stays reserved.
 
 The backup of the old values is deleted only when everything was restored.
 `deyroute uninstall` does the same.

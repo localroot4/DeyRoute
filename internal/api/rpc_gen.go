@@ -53,6 +53,13 @@ func (c *localClient) NodeJoinCommand(ctx context.Context, ttl time.Duration) (J
 	return out, err
 }
 
+// NodeJoinRevoke implements Local.NodeJoinRevoke by calling the daemon over the unix socket.
+func (c *localClient) NodeJoinRevoke(ctx context.Context) (int, error) {
+	var out int
+	err := c.call(ctx, "NodeJoinRevoke", nil, &out)
+	return out, err
+}
+
 // NodeList implements Local.NodeList by calling the daemon over the unix socket.
 func (c *localClient) NodeList(ctx context.Context) ([]NodeInfo, error) {
 	var out []NodeInfo
@@ -374,6 +381,13 @@ func (c *localClient) UpdateRollback(ctx context.Context) (UpdateInfo, error) {
 	return out, err
 }
 
+// UpdateNodes implements Local.UpdateNodes by calling the daemon over the unix socket.
+func (c *localClient) UpdateNodes(ctx context.Context) (int, error) {
+	var out int
+	err := c.call(ctx, "UpdateNodes", nil, &out)
+	return out, err
+}
+
 // UpdateAuto implements Local.UpdateAuto by calling the daemon over the unix socket.
 func (c *localClient) UpdateAuto(ctx context.Context, mode string) (AutoUpdateInfo, error) {
 	var out AutoUpdateInfo
@@ -445,6 +459,9 @@ func NewLocalHandler(impl Local, logger *slog.Logger) http.Handler {
 				return nil, err
 			}
 			return impl.NodeJoinCommand(ctx, a0)
+		}},
+		"NodeJoinRevoke": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
+			return impl.NodeJoinRevoke(ctx)
 		}},
 		"NodeList": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
 			return impl.NodeList(ctx)
@@ -810,6 +827,9 @@ func NewLocalHandler(impl Local, logger *slog.Logger) http.Handler {
 		}},
 		"UpdateRollback": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
 			return impl.UpdateRollback(ctx)
+		}},
+		"UpdateNodes": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
+			return impl.UpdateNodes(ctx)
 		}},
 		"UpdateAuto": {arity: 1, stream: false, call: func(ctx context.Context, args []json.RawMessage, _ *rpcCallbacks) (any, error) {
 			var a0 string

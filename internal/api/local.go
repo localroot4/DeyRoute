@@ -36,6 +36,10 @@ type Local interface {
 
 	// ---- nodes (hub)
 	NodeJoinCommand(ctx context.Context, ttl time.Duration) (JoinCommand, error)
+	// NodeJoinRevoke deletes every join token, applies the firewall at once
+	// (the join window closes) and returns how many tokens were live
+	// (`deyroute node join-revoke`, DR-16).
+	NodeJoinRevoke(ctx context.Context) (int, error)
 	NodeList(ctx context.Context) ([]NodeInfo, error)
 	NodeRename(ctx context.Context, id, name string) error
 	NodeRemove(ctx context.Context, id string) error
@@ -117,6 +121,10 @@ type Local interface {
 	UpdateCheck(ctx context.Context) (UpdateInfo, error)
 	UpdateApply(ctx context.Context, version string, progress func(Step)) (UpdateInfo, error)
 	UpdateRollback(ctx context.Context) (UpdateInfo, error)
+	// UpdateNodes installs nothing: it tells every known node that runs
+	// another version than the hub to install the hub's (`deyroute update`
+	// when the hub runs the newest release) and returns how many do.
+	UpdateNodes(ctx context.Context) (int, error)
 	// UpdateAuto shows the automatic update (mode "") or turns it on|off.
 	UpdateAuto(ctx context.Context, mode string) (AutoUpdateInfo, error)
 	UpdateBackends(ctx context.Context, name string, progress func(Step)) ([]BackendUpdate, error)
@@ -256,12 +264,17 @@ type Warning struct {
 	Node    string `json:"node,omitempty"`
 }
 
-// PortMapDTO is one port map.
+// PortMapDTO is one port map. ProbeEffective and ProbeReason are set only
+// on the probe port in `tunnel show` (DR-17): the probe kind the hub uses
+// now on the active node (the primary while none is active) and why it
+// differs from Probe ("" when it does not).
 type PortMapDTO struct {
-	Listen int    `json:"listen"`
-	Proto  string `json:"proto"`
-	Target string `json:"target"`
-	Probe  string `json:"probe,omitempty"`
+	Listen         int    `json:"listen"`
+	Proto          string `json:"proto"`
+	Target         string `json:"target"`
+	Probe          string `json:"probe,omitempty"`
+	ProbeEffective string `json:"probe_effective,omitempty"`
+	ProbeReason    string `json:"probe_reason,omitempty"`
 }
 
 // TunnelInfo is one dashboard row.
@@ -391,7 +404,7 @@ type PortSpec struct {
 	Listen int    `json:"listen"`
 	Proto  string `json:"proto"`
 	Target string `json:"target,omitempty"` // default 127.0.0.1:<listen>
-	Probe  string `json:"probe,omitempty"`  // auto|tcp|tls|http; default auto
+	Probe  string `json:"probe,omitempty"`  // auto|tcp|tls|http|echo; default auto
 }
 
 // TunnelAddRequest is `deyroute tunnel add` / the Add tunnel wizard.
@@ -409,6 +422,10 @@ type TunnelAddRequest struct {
 	Failover *FailoverSettings `json:"failover,omitempty"`
 	// FixedTransport limits the tunnel to one transport (phase 2 CLI flag).
 	FixedTransport string `json:"fixed_transport,omitempty"`
+	// NoRename makes a taken id derived from Name fail with DEY-C002
+	// instead of getting a -2, -3, ... suffix. The CLI sets it in
+	// non-interactive mode; the TUI never does (DR-12).
+	NoRename bool `json:"no_rename,omitempty"`
 }
 
 // TunnelEditRequest changes mutable fields; nil/empty = unchanged.
@@ -425,7 +442,7 @@ type TunnelEditRequest struct {
 	Failover  *FailoverSettings `json:"failover,omitempty"`
 	// PortProbes sets the probe kind of existing port maps (Advanced,
 	// section 9): Listen and Proto name the map, Probe is the new kind
-	// (auto|tcp|tls|http; UDP maps stay auto). Target is ignored.
+	// (auto|tcp|tls|http|echo; UDP maps stay auto). Target is ignored.
 	PortProbes []PortSpec `json:"port_probes,omitempty"`
 }
 
@@ -908,6 +925,9 @@ type UpdateInfo struct {
 	Available bool   `json:"available"`
 	Changelog string `json:"changelog,omitempty"`
 	Previous  string `json:"previous,omitempty"`
+	// NodesQueued is the number of nodes told to install the hub's version
+	// by `deyroute update` when nothing newer exists (UpdateNodes).
+	NodesQueued int `json:"nodes_queued,omitempty"`
 }
 
 // AutoUpdateInfo is the automatic update of the hub (`update auto`): while

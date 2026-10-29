@@ -10,10 +10,13 @@ import (
 	"github.com/localroot4/deyroute/internal/firewall"
 )
 
-// DefaultUnknownControlRate is the rate at which new control-port
+// DefaultUnknownControlRate is the global rate at which new control-port
 // connections from addresses outside @nodes are admitted while no join
-// window is open (ARCHITECTURE.md §7.5, QUESTIONS.md C.23).
-const DefaultUnknownControlRate = "6/minute"
+// window is open (ARCHITECTURE.md §7.5, QUESTIONS.md C.23):
+// security.unknown_control_rate when unset. Since DR-15 each source is
+// limited on its own as well (security.unknown_control_rate_per_source);
+// before, this one bucket of 6/minute was all.
+const DefaultUnknownControlRate = config.DefaultUnknownControlRate
 
 // NodePayload converts a node side into the backend.render command
 // arguments (Control API, section 3). Files are copied.
@@ -36,10 +39,12 @@ func NodePayload(tunnel string, s Side) api.BackendRenderArgs {
 // FirewallSpec assembles the hub's `table inet deyroute` (sections 10, 11):
 //
 //   - the control port restricted to the nodes' public IPs (split into
-//     IPv4/IPv6), plus a rate-limited accept for unknown sources
-//     (unknownRate, "" = drop) — unless security.restrict_control_to_nodes
-//     is off or a join window is open (joinWindow: an unexpired join token
-//     exists), then the port is open to everyone;
+//     IPv4/IPv6), plus a rate-limited accept for unknown sources: per
+//     source address at security.unknown_control_rate_per_source, all of
+//     them together at unknownRate ("" = drop) — unless
+//     security.restrict_control_to_nodes is off or a join window is open
+//     (joinWindow: an unexpired join token exists), then the port is open
+//     to everyone;
 //   - the backend control range 30000-31999 from @nodes only;
 //   - the CDN front port when front mode is enabled (hub.front): reachable
 //     from the CDN ranges only, or from everyone with hub.front.cf_only
@@ -77,8 +82,9 @@ func FirewallSpec(cfg *config.Config, activeHub []Side, joinWindow bool, unknown
 		}
 	}
 	s.RestrictControl = restrict && !joinWindow
-	if s.RestrictControl {
+	if s.RestrictControl && unknownRate != "" {
 		s.UnknownControlRate = unknownRate
+		s.UnknownControlRatePerSource, _ = cfg.UnknownControlRates()
 	}
 	for _, n := range cfg.Nodes {
 		if n.Route == config.RouteFront {

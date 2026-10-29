@@ -157,6 +157,16 @@ func TestTunnelListShow(t *testing.T) {
 	require.Contains(t, out, "failback no")
 	require.Contains(t, out, "443/tcp -> 127.0.0.1:443")
 	require.Contains(t, e.fail(1, "tunnel", "show"), "needs 1 argument")
+
+	// The probe the hub really uses (DR-17): auto on a silent target is
+	// echo; the JSON carries the field and its reason.
+	d.Ports[0].Probe, d.Ports[0].ProbeEffective, d.Ports[0].ProbeReason = "auto", "echo", "the target on node de-1 stays silent"
+	out = e.ok("tunnel", "show", "main")
+	require.Contains(t, out, "443/tcp -> 127.0.0.1:443 (auto -> echo)")
+	doc = e.json("tunnel", "show", "main")
+	port := doc["ports"].([]any)[0].(map[string]any)
+	require.Equal(t, "echo", port["probe_effective"])
+	require.Equal(t, "the target on node de-1 stays silent", port["probe_reason"])
 }
 
 func TestTunnelEdit(t *testing.T) {

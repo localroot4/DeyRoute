@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,14 +17,16 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/hub"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	"github.com/localroot4/deyroute/internal/exec"
+	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/tlsutil"
 )
 
 // startRealHub runs the real hub daemon unprivileged in the env's root
 // (the files a hub setup leaves, no systemd, no nftables) and points the
-// CLI at its socket through the default dialer.
-func startRealHub(t *testing.T, e *env) {
+// CLI at its socket through the default dialer. Each mutate function
+// edits the hub config before the daemon starts.
+func startRealHub(t *testing.T, e *env, mutate ...func(*config.Config)) {
 	t.Helper()
 	dir := filepath.Join(e.root, config.SecretsDir)
 	ca, err := tlsutil.NewCA("ir-1", time.Now())
@@ -32,6 +36,9 @@ func startRealHub(t *testing.T, e *env) {
 	require.NoError(t, err)
 	require.NoError(t, tlsutil.WriteSecretPair(filepath.Join(dir, setup.FileHubCert), certPEM, filepath.Join(dir, setup.FileHubKey), keyPEM))
 	cfg := config.NewHub("ir-1", "127.0.0.1", 44433)
+	for _, m := range mutate {
+		m(cfg)
+	}
 	require.NoError(t, config.SaveWith(filepath.Join(e.root, config.DefaultPath), cfg, validateOptions()))
 
 	sockDir, err := os.MkdirTemp("", "dc")
@@ -46,6 +53,9 @@ func startRealHub(t *testing.T, e *env) {
 		Root: e.root, Runner: runner, Logger: dlog.Discard(), ControlListen: "127.0.0.1:0",
 		SocketPath: filepath.Join(sockDir, "d.sock"), SelfBinary: self, Arch: "amd64", DisableFirewall: true,
 		DisableStats: true, DisableTuning: true,
+		Fetcher: install.FetcherFunc(func(context.Context, string, io.Writer) error {
+			return errors.New("no downloads in tests")
+		}),
 		Notify: func(string) error { return nil }, Getenv: func(string) string { return "" },
 		OnReady: func(*hub.Hub) { close(ready) },
 	}

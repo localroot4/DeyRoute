@@ -66,6 +66,12 @@ func (u UnimplementedLocal) NodeJoinCommand(ctx context.Context, ttl time.Durati
 	return zero, u.wrongRole()
 }
 
+// NodeJoinRevoke implements Local.NodeJoinRevoke; it returns DEY-X009.
+func (u UnimplementedLocal) NodeJoinRevoke(ctx context.Context) (int, error) {
+	var zero int
+	return zero, u.wrongRole()
+}
+
 // NodeList implements Local.NodeList; it returns DEY-X009.
 func (u UnimplementedLocal) NodeList(ctx context.Context) ([]NodeInfo, error) {
 	var zero []NodeInfo
@@ -351,6 +357,12 @@ func (u UnimplementedLocal) UpdateApply(ctx context.Context, version string, pro
 // UpdateRollback implements Local.UpdateRollback; it returns DEY-X009.
 func (u UnimplementedLocal) UpdateRollback(ctx context.Context) (UpdateInfo, error) {
 	var zero UpdateInfo
+	return zero, u.wrongRole()
+}
+
+// UpdateNodes implements Local.UpdateNodes; it returns DEY-X009.
+func (u UnimplementedLocal) UpdateNodes(ctx context.Context) (int, error) {
+	var zero int
 	return zero, u.wrongRole()
 }
 

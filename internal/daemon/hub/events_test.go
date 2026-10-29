@@ -298,15 +298,19 @@ func TestSubscribe(t *testing.T) {
 	require.False(t, open)
 }
 
+// perSourceRule is the default admission of unknown control-port sources.
+const perSourceRule = "tcp dport 44433 ct state new add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept"
+
 func TestFirewallManager(t *testing.T) {
 	env, o := prepareEnv(t, nil, func(o *Options, _ string) { o.DisableFirewall = false })
 	env.startEnv(o)
 	// Startup apply: no token, no node: the control port is restricted with
-	// the rate-limited accept for unknown sources.
+	// the rate-limited accept for unknown sources (per source under a global
+	// cap, DR-15).
 	require.Eventually(t, func() bool { return len(env.nftScripts()) > 0 }, testWait, 10*time.Millisecond)
 	first := env.nftScripts()[0]
 	require.Contains(t, first, "table inet deyroute")
-	require.Contains(t, first, "limit rate 6/minute")
+	require.Contains(t, first, perSourceRule)
 
 	// Joining: the join command opens the window at once (control port open
 	// to all); consuming the only token closes it and the node IP is in
@@ -321,7 +325,7 @@ func TestFirewallManager(t *testing.T) {
 		scripts := env.nftScripts()
 		last := scripts[len(scripts)-1]
 		return strings.Contains(last, "ip saddr @nodes accept") && strings.Contains(last, "127.0.0.1") &&
-			strings.Contains(last, "limit rate 6/minute")
+			strings.Contains(last, perSourceRule)
 	}, testWait, 10*time.Millisecond)
 	st := env.h.Firewall()
 	require.True(t, st.Managed)

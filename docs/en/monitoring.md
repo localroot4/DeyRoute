@@ -188,6 +188,36 @@ Releases before traffic monitoring do not know the `monitoring:` section or
 `monthly_quota_gib`, so `deyroute update --rollback` to such a release is
 refused while they are set (`DEY-S011`); remove them first.
 
+## Firewall events
+
+The hub and the nodes check every 60 seconds that table `inet deyroute` is
+still the one they applied (`security.firewall_reassert_s`, see
+[Security](security.md#the-table-comes-back-by-itself)). When it is not, they
+apply it again, and the hub records a `firewall_reapplied` warning event:
+
+| Reason | Meaning |
+| --- | --- |
+| `missing` | the table was gone (`nft flush ruleset`, another tool deleted it) |
+| `drift` | the table was there but changed |
+
+Each reason is recorded at most once per 10 minutes, even when something
+flushes the ruleset every minute; the table comes back every time. A node
+writes the same warning to `/var/log/deyroute/node.log` instead. Telegram
+sends the event when the notification events include `firewall_reapplied`
+(then `deyroute config apply`). Releases before 0.3.1 do not know this
+event name: `deyroute update --rollback` to such a release is refused
+(`DEY-S011`) while it is in the list.
+
+Repeated events mean something on the server keeps removing the table: find
+it (a cron job, a provider agent, `ufw reload`), because between its run and
+the next check the control port is open to everyone and NAT rungs stop.
+
+When nft refuses the per-source limit of the control port, `hub.log` has the
+warning `nft refused the per-source limit of the control port` once per hub
+start, and unknown sources share one global limit (see
+[Security](security.md#unknown-sources-on-the-control-port)). There is no
+event for it.
+
 ## Problems
 
 | You see | Meaning | What to do |

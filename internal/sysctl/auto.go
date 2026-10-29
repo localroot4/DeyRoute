@@ -127,6 +127,10 @@ type Change struct {
 	Args      []string
 	Effect    string // api.TuneEffect*
 	RaiseOnly bool
+	// Requested are the entries deyroute asked for (only
+	// KeyReservedPorts, whose To is the union with the live value): the
+	// ledger records these, not the union (see reservedLedger).
+	Requested []string
 }
 
 // ReasonText renders the reason in the current language.
@@ -297,6 +301,7 @@ func AutoPlan(f sysinfo.Facts, in AutoInputs) Plan {
 			continue
 		}
 		if c.Key == KeyReservedPorts {
+			c.Requested = strings.Split(c.To, ",")
 			c.To = unionPorts(cur, in.Reserved)
 		}
 		if c.RaiseOnly && ok {
@@ -600,6 +605,22 @@ func renderPorts(s portSet) string {
 		p = q
 	}
 	return strings.Join(parts, ",")
+}
+
+// coversPorts reports whether the reservation have holds every port of
+// need (values that are no port list are compared as text).
+func coversPorts(have, need string) bool {
+	h, ok1 := parsePorts(have)
+	n, ok2 := parsePorts(need)
+	if !ok1 || !ok2 {
+		return normalize(have) == normalize(need)
+	}
+	for i := range n {
+		if n[i]&^h[i] != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // unionPorts adds the entries to the live reservation (never removes one).

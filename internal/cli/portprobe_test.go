@@ -34,7 +34,7 @@ func TestPortProbeKind(t *testing.T) {
 	require.Contains(t, out, "DEY-C013")
 	require.Contains(t, out, "--probe of 27015/udp")
 	require.Contains(t, out, "UDP port maps are not probed by type")
-	require.Contains(t, out, "run it again with --probe auto, tcp, tls or http")
+	require.Contains(t, out, "run it again with --probe auto, tcp, tls, http or echo")
 	require.NotContains(t, out, "config validate")
 	out = e.fail(1, "port", "add", "main", "443", "--probe", "icmp")
 	require.Contains(t, out, "auto, tcp, tls, http")

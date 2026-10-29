@@ -52,6 +52,9 @@ const (
 	TUIEvTrafficQuota     Key = "tui.dash.ev_traffic_quota"
 	TUIEvTuneDrift        Key = "tui.dash.ev_tune_drift"
 
+	// TUIEvFirewallReapplied is the word of firewall_reapplied (DR-14).
+	TUIEvFirewallReapplied Key = "tui.dash.ev_firewall_reapplied"
+
 	CLIStatsShort       Key = "cli.stats_short"
 	CLIStatsLong        Key = "cli.stats_long"
 	CLIStatsExample     Key = "cli.stats_example"
@@ -127,6 +130,8 @@ var trafficEN = map[Key]string{
 	TUITrafficDet30:       "↓ %s ↑ %s",
 	TUIEvTrafficQuota:     "quota",
 	TUIEvTuneDrift:        "tuning",
+
+	TUIEvFirewallReapplied: "firewall",
 
 	CLIStatsShort: "Traffic of the tunnels and load of the servers (charts in the terminal)",
 	CLIStatsLong: "Without a target: one line per tunnel with the current rate, today's and the last 30 days'\n" +

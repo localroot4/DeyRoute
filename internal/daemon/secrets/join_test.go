@@ -228,3 +228,58 @@ func TestNormalizeIP(t *testing.T) {
 	require.True(t, strings.HasPrefix(hashToken("a"), "ca978112"))
 	require.False(t, (&JoinTokens{}).now().IsZero())
 }
+
+// TestJoinTokensRevokeAll: RevokeAll deletes every live token with one
+// atomic rewrite (0600, the expired entries go too) and returns how many
+// were live; a revoked token fails like an unknown one (DEY-N001), the
+// join window is closed, and a new token works again (DR-16).
+func TestJoinTokensRevokeAll(t *testing.T) {
+	j, clk := newJoin(t)
+	n, err := j.RevokeAll()
+	require.NoError(t, err)
+	require.Zero(t, n, "no file: nothing to revoke")
+	_, err = os.Stat(j.Path)
+	require.ErrorIs(t, err, os.ErrNotExist, "nothing is written when there is no token")
+
+	old, _, err := j.Create(time.Minute)
+	require.NoError(t, err)
+	a, _, err := j.Create(0)
+	require.NoError(t, err)
+	b, _, err := j.Create(time.Hour)
+	require.NoError(t, err)
+	clk.Add(2 * time.Minute) // old has expired but is still in the file
+	data, err := os.ReadFile(j.Path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), hashToken(old))
+	require.True(t, j.Active())
+
+	n, err = j.RevokeAll()
+	require.NoError(t, err)
+	require.Equal(t, 2, n, "only the live tokens count")
+	requireMode(t, j.Path, 0o600)
+	data, err = os.ReadFile(j.Path)
+	require.NoError(t, err)
+	for _, tok := range []string{old, a, b} {
+		require.NotContains(t, string(data), hashToken(tok))
+	}
+	require.False(t, j.Active())
+	require.True(t, j.Expiry().IsZero())
+	c, err := j.Count()
+	require.NoError(t, err)
+	require.Zero(t, c)
+	require.Equal(t, deyerr.N001, code(t, j.Check(a, "1.2.3.4")))
+	require.Equal(t, deyerr.N001, code(t, j.Consume(b, "1.2.3.4")))
+
+	n, err = j.RevokeAll()
+	require.NoError(t, err)
+	require.Zero(t, n, "a second revoke finds nothing")
+
+	tok, _, err := j.Create(0)
+	require.NoError(t, err)
+	require.NoError(t, j.Consume(tok, "1.2.3.5"), "new tokens work after a revoke")
+
+	// A damaged file is an error, not "nothing revoked".
+	require.NoError(t, os.WriteFile(j.Path, []byte("{"), 0o600))
+	_, err = j.RevokeAll()
+	require.Error(t, err)
+}

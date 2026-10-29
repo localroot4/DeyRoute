@@ -135,6 +135,8 @@ func (b *Backend) Transports() []backend.Transport {
 		NeedsTLS:  false,
 		Stealth:   stealth,
 		Optional:  true,
+		// A restarted side drops the session the other side still uses.
+		RestartTogether: true,
 	}}
 }
 

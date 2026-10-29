@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +35,107 @@ type setupFlags struct {
 	yes        bool
 	repair     bool
 	autoUpdate string // on|off: hub.auto_update
+	// publicIP and publicIP6 are hub.public_ip and hub.public_ip6
+	// (--public-ip, --public-ip6); allowPrivate accepts a private, CGNAT or
+	// loopback address for them (--allow-private-ip, test labs).
+	publicIP, publicIP6 string
+	allowPrivate        bool
+	// noJoin makes no join command and opens no join window (--no-join,
+	// DR-16).
+	noJoin bool
+}
+
+// ipFlags are the hub address flags of setup (and the refused ones of join).
+type ipFlags struct {
+	publicIP, publicIP6 string
+	allowPrivate        bool
+}
+
+// addIPFlags registers --public-ip, --public-ip6 and --allow-private-ip.
+func addIPFlags(cmd *cobra.Command, ip4, ip6 *string, allow *bool) {
+	cmd.Flags().StringVar(ip4, "public-ip", "", i18n.T(i18n.CLIFlagPublicIP))
+	cmd.Flags().StringVar(ip6, "public-ip6", "", i18n.T(i18n.CLIFlagPublicIP6))
+	cmd.Flags().BoolVar(allow, "allow-private-ip", false, i18n.T(i18n.CLIFlagAllowPrivateIP))
+}
+
+// given returns the first address flag that is set ("" when none).
+func (f ipFlags) given() (flag, value string) {
+	switch {
+	case strings.TrimSpace(f.publicIP) != "":
+		return "--public-ip", f.publicIP
+	case strings.TrimSpace(f.publicIP6) != "":
+		return "--public-ip6", f.publicIP6
+	case f.allowPrivate:
+		return "--allow-private-ip", "true"
+	}
+	return "", ""
+}
+
+// hubOnly refuses the address flags where no hub is set up (--role node,
+// join): DEY-C013 with the first flag given; nil without one.
+func (f ipFlags) hubOnly() error {
+	flag, value := f.given()
+	if flag == "" {
+		return nil
+	}
+	return deyerr.New(deyerr.C013, deyerr.Params{"field": flag, "value": value, "allowed": i18n.T(i18n.CLIPublicIPHubOnly)}).
+		WithFix(i18n.T(i18n.CLIPublicIPHubOnlyFix))
+}
+
+// check validates the address flags of a hub setup and returns them in
+// canonical form. --public-ip takes IPv4 (a 4-in-6 form is stored as IPv4),
+// --public-ip6 IPv6; both must be public (setup.IsPublicIP) unless
+// --allow-private-ip, which accepts private, CGNAT and loopback addresses
+// but never a link-local one. Errors: DEY-C013 with the flag as field.
+func (f ipFlags) check() (ip4, ip6 string, err error) {
+	if f.allowPrivate && strings.TrimSpace(f.publicIP) == "" && strings.TrimSpace(f.publicIP6) == "" {
+		return "", "", deyerr.New(deyerr.C013, deyerr.Params{"field": "--allow-private-ip", "value": "true",
+			"allowed": i18n.T(i18n.CLIAllowPrivateNeedsIP)}).WithFix(i18n.T(i18n.CLIAllowPrivateNeedsIPFix))
+	}
+	if ip4, err = publicIPFlag("--public-ip", f.publicIP, false, f.allowPrivate); err != nil {
+		return "", "", err
+	}
+	if ip6, err = publicIPFlag("--public-ip6", f.publicIP6, true, f.allowPrivate); err != nil {
+		return "", "", err
+	}
+	return ip4, ip6, nil
+}
+
+// cgnatPrefix is the shared address space of RFC 6598 (carrier-grade NAT).
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+// publicIPFlag validates one address flag (see ipFlags.check); "" when the
+// flag is empty.
+func publicIPFlag(flag, value string, v6, allowPrivate bool) (string, error) {
+	s := strings.TrimSpace(value)
+	if s == "" {
+		return "", nil
+	}
+	bad := func(allowed string) error {
+		return deyerr.New(deyerr.C013, deyerr.Params{"field": flag, "value": value, "allowed": allowed}).
+			WithFix(i18n.T(i18n.CLIPublicIPFix))
+	}
+	family := i18n.T(i18n.CLIWantIPv4)
+	if v6 {
+		family = i18n.T(i18n.CLIWantIPv6)
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil || a.Zone() != "" {
+		return "", bad(family)
+	}
+	if !v6 {
+		a = a.Unmap()
+	}
+	if a.Is4() == v6 || a.Is4In6() {
+		return "", bad(family)
+	}
+	if !setup.IsPublicIP(a) {
+		lab := a.IsPrivate() || a.IsLoopback() || (a.Is4() && cgnatPrefix.Contains(a))
+		if !allowPrivate || !lab {
+			return "", bad(i18n.T(i18n.CLIWantPublicIP))
+		}
+	}
+	return a.String(), nil
 }
 
 func newSetupCmd(g *Globals) *cobra.Command {
@@ -58,14 +160,112 @@ func newSetupCmd(g *Globals) *cobra.Command {
 	cmd.Flags().IntVar(&f.port, "control-port", 0, i18n.T(i18n.CLIFlagControlPort))
 	cmd.Flags().BoolVar(&f.yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
 	cmd.Flags().StringVar(&f.autoUpdate, "auto-update", "off", i18n.T(i18n.CLIFlagAutoUpdate))
+	addIPFlags(cmd, &f.publicIP, &f.publicIP6, &f.allowPrivate)
+	cmd.Flags().BoolVar(&f.noJoin, "no-join", false, i18n.T(i18n.CLIFlagNoJoin))
 	cmd.Flags().BoolVar(&f.repair, "repair", false, i18n.T(i18n.CLIFlagRepair))
 	_ = cmd.Flags().MarkHidden("repair")
 	return cmd
 }
 
+// joinTuneFlags are the kernel flags of join (--sysctl, --reserve-ports).
+type joinTuneFlags struct {
+	sysctl  string
+	reserve []string
+}
+
+// joinTune is the kernel choice of a join: apply profile (with the extra
+// reserved entries) or not; optOut marks an explicit "no" (--sysctl off or
+// the kernel question), which the node keeps (setup.HubTuningOffFile).
+type joinTune struct {
+	profile       string
+	apply, optOut bool
+	reserve       []string
+	explicit      bool   // --sysctl given: no question
+	reserveRaw    string // --reserve-ports as given
+}
+
+// check validates the flags before anything is asked or changed.
+// Errors: DEY-C013 with the flag as field.
+func (f joinTuneFlags) check(explicit bool) (joinTune, error) {
+	p := strings.ToLower(strings.TrimSpace(f.sysctl))
+	switch p {
+	case config.SysctlOff, config.SysctlBalanced, config.SysctlAuto:
+	default:
+		return joinTune{}, deyerr.New(deyerr.C013, deyerr.Params{"field": "--sysctl", "value": f.sysctl, "allowed": "off, balanced, auto"}).
+			WithFix(i18n.T(i18n.CLISysctlFix))
+	}
+	t := joinTune{profile: p, apply: p != config.SysctlOff, optOut: p == config.SysctlOff, explicit: explicit,
+		reserveRaw: strings.Join(f.reserve, ",")}
+	if len(f.reserve) == 0 {
+		return t, nil
+	}
+	if !t.apply {
+		return joinTune{}, t.reserveWithOff()
+	}
+	var err error
+	t.reserve, err = reservePorts(f.reserve, p)
+	return t, err
+}
+
+// reserveWithOff is DEY-C013 for --reserve-ports without a profile.
+func (t joinTune) reserveWithOff() error {
+	return deyerr.New(deyerr.C013, deyerr.Params{"field": "--reserve-ports", "value": t.reserveRaw,
+		"allowed": i18n.T(i18n.CLIReservePortsOff)}).WithFix(i18n.T(i18n.CLIReservePortsOffFix))
+}
+
+// declined is the choice after "no" to the kernel question: an opt-out;
+// DEY-C013 when --reserve-ports was given.
+func (t joinTune) declined() (joinTune, error) {
+	if t.reserveRaw != "" {
+		return joinTune{}, t.reserveWithOff()
+	}
+	t.apply, t.optOut = false, true
+	return t, nil
+}
+
+// reservePorts parses the --reserve-ports values (each a comma list; the
+// flag may repeat): ports 1-65535 and ranges a-b, in canonical form,
+// without duplicates and without entries inside the control range
+// (setup.NodeReserved), at most setup.MaxReservePorts entries, leaving at
+// least 1024 ports of the profile's ephemeral range free. Errors: DEY-C013
+// (field --reserve-ports).
+func reservePorts(values []string, profile string) ([]string, error) {
+	bad := func(value, allowed, fix string) error {
+		return deyerr.New(deyerr.C013, deyerr.Params{"field": "--reserve-ports", "value": value, "allowed": allowed}).WithFix(fix)
+	}
+	var out []string
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			e, ok := setup.CanonicalPortEntry(part)
+			if !ok {
+				return nil, bad(part, i18n.T(i18n.CLIWantReservePorts), i18n.T(i18n.CLIReservePortsFix))
+			}
+			lo, hi, isRange := strings.Cut(e, "-")
+			a, _ := strconv.Atoi(lo)
+			b := a
+			if isRange {
+				b, _ = strconv.Atoi(hi)
+			}
+			if a >= config.CtlRangeLow && b <= config.CtlRangeHigh || slices.Contains(out, e) {
+				continue // reserved already (the control range) or listed twice
+			}
+			out = append(out, e)
+		}
+	}
+	if len(out) > setup.MaxReservePorts {
+		return nil, bad(strings.Join(values, ","), i18n.T(i18n.CLIWantReservePorts), i18n.T(i18n.CLIReservePortsFix))
+	}
+	if free, lo, hi := sysctl.FreeEphemeral(profile, append(setup.NodeReserved(), out...)); hi > 0 && free < 1024 {
+		return nil, bad(strings.Join(values, ","), i18n.T(i18n.CLIReservePortsFree, lo, hi, free), i18n.T(i18n.CLIReservePortsFreeFix))
+	}
+	return out, nil
+}
+
 func newJoinCmd(g *Globals) *cobra.Command {
 	var name string
 	var yes bool
+	var ipf ipFlags
+	var tf joinTuneFlags
 	cmd := &cobra.Command{
 		Use:     "join 'dey://TOKEN@HUB_IP:PORT#FP'",
 		Short:   i18n.T(i18n.CLIJoinShort),
@@ -75,23 +275,40 @@ func newJoinCmd(g *Globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), LocalOpTimeout)
 			defer cancel()
+			if err := ipf.hubOnly(); err != nil {
+				return err
+			}
+			t, err := tf.check(cmd.Flags().Changed("sysctl"))
+			if err != nil {
+				return err
+			}
 			if g.configured() {
 				return deyerr.New(deyerr.I013, deyerr.Params{"role": g.role()})
 			}
-			apply := true
-			if g.IsTTY && !yes {
+			if !t.explicit && g.IsTTY && !yes {
 				ans, err := g.askQ(kernelQuestion())
 				if err != nil {
 					return err
 				}
-				apply = ans == answerYes
+				if ans != answerYes {
+					if t, err = t.declined(); err != nil {
+						return err
+					}
+				}
 			}
-			return g.join(ctx, args[0], name, apply)
+			return g.join(ctx, args[0], name, t)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", i18n.T(i18n.CLIFlagJoinName))
-	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
+	cmd.Flags().StringVar(&tf.sysctl, "sysctl", config.SysctlBalanced, i18n.T(i18n.CLIFlagSysctl))
+	cmd.Flags().StringArrayVar(&tf.reserve, "reserve-ports", nil, i18n.T(i18n.CLIFlagReservePorts))
+	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYesJoin))
 	_ = cmd.Flags().MarkHidden("yes")
+	// The hub's address flags are refused here (DEY-C013), not unknown.
+	addIPFlags(cmd, &ipf.publicIP, &ipf.publicIP6, &ipf.allowPrivate)
+	for _, n := range []string{"public-ip", "public-ip6", "allow-private-ip"} {
+		_ = cmd.Flags().MarkHidden(n)
+	}
 	return cmd
 }
 
@@ -131,6 +348,21 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 	case "on", "off":
 	default:
 		return deyerr.New(deyerr.C013, deyerr.Params{"field": "--auto-update", "value": f.autoUpdate, "allowed": "on, off"})
+	}
+	ipf := ipFlags{publicIP: f.publicIP, publicIP6: f.publicIP6, allowPrivate: f.allowPrivate}
+	if role == config.RoleNode {
+		if err := ipf.hubOnly(); err != nil {
+			return err
+		}
+		if f.noJoin {
+			return deyerr.New(deyerr.C013, deyerr.Params{"field": "--no-join", "value": "true", "allowed": i18n.T(i18n.CLINoJoinHubOnly)}).
+				WithFix(i18n.T(i18n.CLINoJoinHubOnlyFix))
+		}
+	}
+	// Checked before any question: the flags are canonical from here on.
+	var err error
+	if f.publicIP, f.publicIP6, err = ipf.check(); err != nil {
+		return err
 	}
 	st := &stepper{}
 	if role == "" {
@@ -177,11 +409,14 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 }
 
 // hubQuestions is the number of questions the hub wizard asks after the
-// role: name (unless --name), public IP, control port (unless
-// --control-port) and automatic tuning.
+// role: name (unless --name), public IP (unless --public-ip), control port
+// (unless --control-port) and automatic tuning.
 func hubQuestions(f setupFlags) int {
-	n := 2
+	n := 1
 	if strings.TrimSpace(f.name) == "" {
+		n++
+	}
+	if f.publicIP == "" {
 		n++
 	}
 	if f.port == 0 {
@@ -205,8 +440,9 @@ func nodeQuestions(f setupFlags) int {
 func kernelQuestion() question {
 	return question{
 		title: i18n.T(i18n.CLIAskKernel),
-		help:  []string{i18n.T(i18n.CLIKernelHelp), i18n.T(i18n.CLIKernelNodeAuto), i18n.T(i18n.CLIKernelUndo)},
-		def:   answerYes, yesNo: true,
+		help: []string{i18n.T(i18n.CLIKernelHelp), i18n.T(i18n.CLIKernelNodeAuto), i18n.T(i18n.CLIKernelNoRefusesHub),
+			i18n.T(i18n.CLIKernelUndo)},
+		def: answerYes, yesNo: true,
 	}
 }
 
@@ -314,10 +550,12 @@ func (g *Globals) checkControlPort(s string) error {
 func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, st *stepper) error {
 	o := setup.HubOptions{
 		Root: g.Root, Runner: g.Runner, Name: strings.TrimSpace(f.name), ControlPort: f.port,
+		PublicIP: f.publicIP, PublicIP6: f.publicIP6,
 		Mirror: strings.TrimSpace(g.Getenv(EnvMirror)), SysctlProfile: config.SysctlAuto,
 		AutoUpdate:  strings.EqualFold(strings.TrimSpace(f.autoUpdate), "on"),
 		ApplySysctl: f.yes, StartService: !g.NoService, SocketPath: g.Socket, Now: g.Now, Logger: g.logger(),
 		LookupUser: g.LookupUser, LookupGroup: g.LookupGroup, Chown: g.Chown,
+		NoJoinWindow: f.noJoin,
 	}
 	if o.Name != "" {
 		if err := checkName(o.Name); err != nil {
@@ -329,6 +567,11 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 			return err
 		}
 	}
+	// public_ip_source: where hub.public_ip came from.
+	ipSource := "detected"
+	if o.PublicIP != "" {
+		ipSource = "flag"
+	}
 	if interactive {
 		var err error
 		if o.Name == "" {
@@ -339,8 +582,11 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 				return err
 			}
 		}
-		if o.PublicIP, err = g.askPublicIP(ctx, st); err != nil {
-			return err
+		if o.PublicIP == "" {
+			if o.PublicIP, err = g.askPublicIP(ctx, st); err != nil {
+				return err
+			}
+			ipSource = "wizard"
 		}
 		if o.ControlPort == 0 {
 			def := setup.SuggestControlPort(config.DefaultControlPort, g.PortBusy)
@@ -385,18 +631,30 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 	if !o.ApplySysctl && !interactive && !g.JSON {
 		g.say(i18n.CLISysctlSkipped)
 	}
-	jc, jerr := g.joinCommand(ctx, 0)
+	// --no-join: no join command, so no join window (DR-16).
+	var (
+		jc   api.JoinCommand
+		jerr error
+	)
+	if !f.noJoin {
+		jc, jerr = g.joinCommand(ctx, 0)
+	}
 	if g.JSON {
 		doc := map[string]any{
 			"role": config.RoleHub, "name": o.Name, "public_ip": res.PublicIP, "public_ip6": res.PublicIP6,
 			"private_ip": res.PrivateIP, "control_port": res.ControlPort, "ca_fingerprint": res.CAFingerprint,
 			"config_path": res.ConfigPath, "sysctl_profile": res.SysctlProfile, "sysctl_warnings": nonNil(res.SysctlWarnings),
 			"firewall_managed": res.FirewallManaged, "service_started": res.ServiceStarted, "steps": p.steps,
-			"auto_update": o.AutoUpdate,
+			"auto_update": o.AutoUpdate, "public_ip_source": ipSource,
+			// join_window: a join token exists, so the control port is
+			// open to every source until it is used or expires.
+			"join_window": !f.noJoin && jerr == nil,
 		}
-		if jerr == nil {
+		switch {
+		case f.noJoin:
+		case jerr == nil:
 			doc["join"] = jc
-		} else {
+		default:
 			doc["join_error"] = api.ToDTO(jerr)
 		}
 		return g.emitJSON(doc)
@@ -411,6 +669,10 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 	}
 	g.println()
 	g.println(g.styleOut(styleBold, g.text(i18n.T(i18n.CLINextTitle))))
+	if f.noJoin {
+		g.println("   " + g.text(i18n.T(i18n.CLISetupNoJoinNext)))
+		return nil
+	}
 	if jerr != nil {
 		g.printf("%s", g.text(deyerr.As(jerr).Format(g.unicode())))
 		g.say(i18n.CLIJoinCmdLater)
@@ -551,20 +813,29 @@ func (g *Globals) setupNode(ctx context.Context, f setupFlags, interactive bool,
 		[2]string{i18n.T(i18n.CLISummaryHub), hub},
 		[2]string{i18n.T(i18n.CLISummaryKernel), kernelLabel(ans == answerYes)},
 	)
-	return g.join(ctx, link, name, ans == answerYes)
+	t := joinTune{profile: config.SysctlBalanced, apply: true}
+	if ans != answerYes {
+		t, _ = t.declined() // no --reserve-ports here: never an error
+	}
+	return g.join(ctx, link, name, t)
 }
 
-// join joins this server to a hub (setup.Join) and prints the result.
-func (g *Globals) join(ctx context.Context, link, name string, applySysctl bool) error {
+// join joins this server to a hub (setup.Join) with the kernel choice t
+// and prints the result.
+func (g *Globals) join(ctx context.Context, link, name string, t joinTune) error {
 	if name != "" {
 		if err := checkName(name); err != nil {
 			return err
 		}
 	}
+	profile := config.SysctlBalanced
+	if t.apply {
+		profile = t.profile
+	}
 	p := g.newProgress()
 	res, err := g.Ops.Join(ctx, setup.JoinOptions{
-		Root: g.Root, Runner: g.Runner, Link: link, Name: name, ApplySysctl: applySysctl,
-		SysctlProfile: config.SysctlBalanced, StartService: !g.NoService, SocketPath: g.Socket,
+		Root: g.Root, Runner: g.Runner, Link: link, Name: name, ApplySysctl: t.apply, SysctlProfile: profile,
+		ReservePorts: t.reserve, OptOut: t.optOut, StartService: !g.NoService, SocketPath: g.Socket,
 		Now: g.Now, Progress: p.step, Logger: g.logger(), Hostname: g.Hostname,
 		LookupUser: g.LookupUser, LookupGroup: g.LookupGroup, Chown: g.Chown,
 	})
@@ -585,6 +856,7 @@ func (g *Globals) join(ctx context.Context, link, name string, applySysctl bool)
 			"hub_version": res.HubVersion, "public_ip": res.PublicIP, "ca_fingerprint": res.CAFingerprint,
 			"front": res.Front, "compatible": res.Compatible, "config_path": res.ConfigPath, "sysctl_profile": res.SysctlProfile,
 			"sysctl_warnings": nonNil(res.SysctlWarnings), "service_started": res.ServiceStarted, "steps": p.steps,
+			"reserved_ports": nonNil(res.ReservedPorts),
 		})
 	}
 	for _, w := range res.SysctlWarnings {

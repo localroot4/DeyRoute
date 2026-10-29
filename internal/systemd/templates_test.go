@@ -135,3 +135,78 @@ func TestDaemonUnits(t *testing.T) {
 	node, _ := Template(NodeUnit)
 	require.Contains(t, string(node), "ExecStart=/usr/local/bin/deyroute daemon node")
 }
+
+// TestUnitFilesHaveHardening checks the sandbox of the root daemons (DR-20):
+// ProtectSystem=strict with an exact write list, an exact capability
+// bounding set, the other directives of the design, and that every
+// ReadWritePaths= and CapabilityBoundingSet= line carries its reason in a
+// comment line right above it. systemd reads a trailing "# …" as part of
+// the value, so no directive line may carry one; the parser here does not
+// join continuation lines, so none may end in a backslash either. The
+// deploy/systemd copies must be identical to the embedded ones.
+func TestUnitFilesHaveHardening(t *testing.T) {
+	common := []string{
+		"ProtectSystem=strict", "ProtectHome=true", "PrivateTmp=true", "NoNewPrivileges=true",
+		"ProtectKernelModules=false", "ProtectControlGroups=true", "RestrictSUIDSGID=true",
+		"LockPersonality=true", "SystemCallArchitectures=native",
+	}
+	caps := []string{
+		"CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_NET_ADMIN",
+		"CAP_NET_BIND_SERVICE", "CAP_NET_RAW", "CAP_SYS_PTRACE",
+	}
+	want := map[string]struct{ paths, caps []string }{
+		HubUnit: {
+			paths: []string{
+				"-/etc/modprobe.d", "-/etc/modules-load.d", "-/etc/sysctl.d", "/etc/deyroute",
+				"/etc/systemd/system", "/run", "/usr/local/bin", "/var/lib/deyroute", "/var/log/deyroute",
+			},
+			caps: caps,
+		},
+		NodeUnit: {
+			paths: []string{"/etc", "/run", "/usr/local/bin", "/var/lib", "/var/log"},
+			caps:  append([]string{"CAP_AUDIT_WRITE"}, caps...),
+		},
+	}
+	for _, name := range []string{HubUnit, NodeUnit} {
+		data, ok := Template(name)
+		require.True(t, ok)
+		disk, err := os.ReadFile(filepath.Join(deployDir, name))
+		require.NoError(t, err)
+		require.Equal(t, string(disk), string(data), "deploy/systemd/%s differs from the embedded unit", name)
+
+		var paths, bound []string
+		prevComment := false
+		for i, raw := range strings.Split(string(data), "\n") {
+			l := strings.TrimSpace(raw)
+			comment := strings.HasPrefix(l, "#") || strings.HasPrefix(l, ";")
+			if l != "" && !comment && !strings.HasPrefix(l, "[") {
+				require.NotContains(t, l, "#", "%s:%d: a trailing comment is part of the value: %q", name, i+1, l)
+				require.NotContains(t, l, " ;", "%s:%d: a trailing comment is part of the value: %q", name, i+1, l)
+				require.False(t, strings.HasSuffix(l, `\`), "%s:%d: no continuation lines: %q", name, i+1, l)
+			}
+			for key, dst := range map[string]*[]string{"ReadWritePaths=": &paths, "CapabilityBoundingSet=": &bound} {
+				if v, ok := strings.CutPrefix(l, key); ok {
+					require.True(t, prevComment, "%s:%d: %q needs its reason in a comment line above it", name, i+1, l)
+					*dst = append(*dst, strings.Fields(v)...)
+				}
+			}
+			prevComment = comment
+		}
+		svc := sections(t, data)["[Service]"]
+		for _, l := range common {
+			require.True(t, contains(svc, l), "%s lacks %q", name, l)
+		}
+		for _, l := range svc {
+			// sysctl writes /proc/sys and the conntrack hash size in /sys.
+			require.False(t, strings.HasPrefix(l, "ProtectKernelTunables="), "%s: %q", name, l)
+			require.False(t, strings.HasPrefix(l, "AmbientCapabilities="), "%s: %q", name, l)
+		}
+		sort.Strings(paths)
+		sort.Strings(bound)
+		w := want[name]
+		sort.Strings(w.paths)
+		sort.Strings(w.caps)
+		require.Equal(t, w.paths, paths, "%s ReadWritePaths", name)
+		require.Equal(t, w.caps, bound, "%s CapabilityBoundingSet", name)
+	}
+}

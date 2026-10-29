@@ -67,6 +67,15 @@ const (
 	// EvTuneDrift is emitted by the periodic tuning check when a tuned
 	// value was changed or overridden (DEY-X067); it never changes anything.
 	EvTuneDrift = "tune_drift"
+	// EvFirewallReapplied is emitted when the periodic check found table
+	// inet deyroute missing or changed (another tool, `nft flush ruleset`)
+	// and applied it again (security.firewall_reassert_s, DR-14); Reason
+	// is "missing" or "drift". At most one per reason in 10 minutes.
+	EvFirewallReapplied = "firewall_reapplied"
+	// EvJoinTokensRevoked is emitted by `deyroute node join-revoke`: every
+	// join token was deleted and the join window closed (DR-16). Message
+	// names how many tokens were live.
+	EvJoinTokensRevoked = "join_tokens_revoked" // #nosec G101 -- event name, not a credential
 )
 
 // Event levels.

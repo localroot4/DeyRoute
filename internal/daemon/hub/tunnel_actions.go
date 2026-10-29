@@ -299,6 +299,17 @@ func (h *Hub) releaseCtlPorts(tunnel, node, transportID string) {
 // startHubSide starts one hub unit: the backend's pre-start step, systemctl
 // start, the start check, the post-start step (awg device configuration).
 func (h *Hub) startHubSide(ctx context.Context, tunnel, backendName string, side render.Side) error {
+	return h.runHubSide(ctx, tunnel, backendName, side, false)
+}
+
+// restartHubSide restarts one hub unit with the same steps: the post-start
+// step configures the device a restart recreates (WireGuard keys,
+// address, link up), which systemctl restart alone leaves down.
+func (h *Hub) restartHubSide(ctx context.Context, tunnel, backendName string, side render.Side) error {
+	return h.runHubSide(ctx, tunnel, backendName, side, true)
+}
+
+func (h *Hub) runHubSide(ctx context.Context, tunnel, backendName string, side render.Side, restart bool) error {
 	unit := systemd.UnitName(side.Instance)
 	if err := h.prepareTunnelLog(tunnel); err != nil {
 		return err
@@ -306,7 +317,11 @@ func (h *Hub) startHubSide(ctx context.Context, tunnel, backendName string, side
 	if err := h.hubHook(ctx, hookPreStart, backendName, side.ConfigDir); err != nil {
 		return err
 	}
-	if err := h.o.Systemd.Start(ctx, unit); err != nil {
+	start := h.o.Systemd.Start
+	if restart {
+		start = h.o.Systemd.Restart
+	}
+	if err := start(ctx, unit); err != nil {
 		if ctx.Err() != nil {
 			return err
 		}
@@ -582,10 +597,15 @@ func (c *tunnelCtl) probePath(ctx context.Context, sc state.Candidate) failover.
 	t, plan := c.snapshot()
 	pm, tcp := t.ProbeTarget()
 	var r health.Result
-	if tcp {
+	pc, _ := plan.Candidate(sc.Node, sc.Transport)
+	if tcp && c.echoActive(pc) {
+		r = c.echoProbe(ctx, t, plan, sc, pc.ProbeEcho)
+	} else if tcp {
+		// probe: echo without the echo probe here probes like auto (see
+		// probeEffective).
 		addr := net.JoinHostPort(c.probeHost(plan, sc), strconv.Itoa(pm.Listen))
 		opts := health.PathOptions{AcceptCleanClose: c.closesWithoutData(sc.Node)}
-		r = health.Path(ctx, addr, probeKind(pm), remaining(ctx, probeTimeout(t)), opts)
+		r = health.Path(ctx, addr, pathKind(pm), remaining(ctx, probeTimeout(t)), opts)
 	} else {
 		r = c.unitProbe(ctx, sc)
 	}
@@ -622,8 +642,19 @@ func (c *tunnelCtl) unitProbe(ctx context.Context, sc state.Candidate) health.Re
 
 // nodeService is the node_service probe of section 9: probe.tcp of the
 // tunnel's probe target on node, cached for one probe interval; unknown
-// when the node is offline (or the tunnel has no TCP target).
+// when the node is offline (or the tunnel has no TCP target). When the
+// node's silent verdict no longer matches the plan, the controller plans
+// again (the echo probe comes or goes, DR-17).
 func (c *tunnelCtl) nodeService(ctx context.Context, node string) (up, known bool) {
+	up, known = c.checkService(ctx, node)
+	if known && up && c.echoStale(node) {
+		c.kickLoop()
+	}
+	return up, known
+}
+
+// checkService is nodeService without the re-plan.
+func (c *tunnelCtl) checkService(ctx context.Context, node string) (up, known bool) {
 	h := c.h
 	t, _ := c.snapshot()
 	pm, tcp := t.ProbeTarget()
@@ -646,7 +677,7 @@ func (c *tunnelCtl) nodeService(ctx context.Context, node string) (up, known boo
 	c.svc[node] = svcEntry{up: res.OK, known: true, at: h.now()}
 	c.mu.Unlock()
 	if res.OK {
-		c.refreshPlain(ctx, node, t)
+		c.refreshPlain(ctx, node, t, false)
 	}
 	return res.OK, true
 }
@@ -662,8 +693,13 @@ func (c *tunnelCtl) closesWithoutData(node string) bool {
 }
 
 // refreshPlain asks node (probe.tls on the probe target) whether the
-// target closes without speaking TLS; kept for plainCheckTTL.
-func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunnel) {
+// target closes without speaking TLS, or stays silent (a timeout or reset,
+// DR-17); kept for plainCheckTTL, the silent verdict also in state.db.
+// The caller either saw a TCP connect succeed, or passes confirm: then a
+// silent answer is followed by probe.tcp and kept only when the target
+// accepts a connect. A TLS service is so never sent a bare connect, which
+// a TLS server logs as a handshake error.
+func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunnel, confirm bool) {
 	h := c.h
 	pm, tcp := t.ProbeTarget()
 	if !tcp || !h.Online(node) {
@@ -681,7 +717,26 @@ func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunn
 	if err := h.Call(cctx, node, api.CmdProbeTLS, api.ProbeArgs{Target: pm.Target, TimeoutMs: int(probeTimeout(t) / time.Millisecond)}, &res); err != nil {
 		return
 	}
+	v, measured := verdictOf(res)
+	conclusive := measured
+	if conclusive && v.Silent && confirm {
+		var tcp api.ProbeResultDTO
+		tctx, tcancel := context.WithTimeout(ctx, probeTimeout(t)+time.Second)
+		defer tcancel()
+		if err := h.Call(tctx, node, api.CmdProbeTCP, api.ProbeArgs{Target: pm.Target, TimeoutMs: int(probeTimeout(t) / time.Millisecond)}, &tcp); err != nil || !tcp.OK {
+			conclusive = false
+		}
+	}
+	if !conclusive {
+		// Refused, unreachable…: the service is down, which says nothing
+		// about how it answers; the last verdict stays.
+		v, measured = c.verdict(node)
+	}
 	c.mu.Lock()
-	c.plain[node] = plainEntry{closes: !res.OK && res.Error == health.ReasonClosedNoData, at: h.now()}
+	c.plain[node] = plainEntry{closes: !res.OK && res.Error == health.ReasonClosedNoData,
+		silent: v.Silent, why: v.Why, measured: measured, at: h.now()}
 	c.mu.Unlock()
+	if conclusive {
+		c.keepVerdict(node, v)
+	}
 }

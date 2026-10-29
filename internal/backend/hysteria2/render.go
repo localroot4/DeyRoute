@@ -3,7 +3,9 @@ package hysteria2
 import (
 	"encoding/json"
 	"net"
+	"net/netip"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -122,10 +124,48 @@ func renderServer(in backend.RenderInput, p planned) backend.Rendered {
 		Binds: []backend.PortUse{{Port: in.ControlPort, Proto: config.ProtoUDP, Addr: "0.0.0.0", Purpose: "control"}},
 	}
 	if p.hopping {
-		// Port hopping: every UDP port of the range lands on <ctl>.
-		r.NAT = []backend.NATRule{{Proto: config.ProtoUDP, DportLow: HopLow, DportHigh: HopHigh, ToPort: in.ControlPort}}
+		r.NAT = []backend.NATRule{hopNAT(in)}
 	}
 	return r
+}
+
+// hopNAT is the node's port-hopping rule: every UDP port of the range
+// lands on <ctl>, but only for datagrams from the hub's public addresses
+// to the node's public address (DR-18), so other UDP services of the
+// node in 20000-20999 keep their traffic. The node drops the destination
+// when it is not one of its own addresses (1:1 NAT at a cloud provider).
+// When the hub has no public address of the node's family (an IPv6 node
+// without hub.public_ip6), its datagrams would match no source: the rule
+// stays unscoped, as before DR-18. So does a loopback or link-local
+// address (a hub and node on one host), which a node refuses as a scope.
+func hopNAT(in backend.RenderInput) backend.NATRule {
+	r := backend.NATRule{Proto: config.ProtoUDP, DportLow: HopLow, DportHigh: HopHigh, ToPort: in.ControlPort}
+	var src []netip.Addr
+	for _, s := range []string{in.Hub.PublicIP, in.Hub.PublicIP6} {
+		if a, ok := scopeAddr(s); ok {
+			src = append(src, a)
+		}
+	}
+	node, ok := scopeAddr(in.Node.PublicIP)
+	if !ok || !slices.ContainsFunc(src, func(a netip.Addr) bool { return a.Is4() == node.Is4() }) {
+		return r
+	}
+	for _, a := range src {
+		r.SAddr = append(r.SAddr, a.String())
+	}
+	r.DAddr = node.String()
+	return r
+}
+
+// scopeAddr parses s as an address a NAT scope may name (a global unicast
+// address, as the node checks it).
+func scopeAddr(s string) (netip.Addr, bool) {
+	a, err := netip.ParseAddr(s)
+	if err != nil || a.Zone() != "" {
+		return netip.Addr{}, false
+	}
+	a = a.Unmap()
+	return a, a.IsGlobalUnicast()
 }
 
 // renderClient renders the hub side (client.yaml) that binds the user ports.

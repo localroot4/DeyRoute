@@ -53,6 +53,18 @@ const (
 	DefaultQuarantineS     = 600
 	DefaultConnectionPool  = 8
 	DefaultHysteriaMbps    = 100
+	// DefaultFirewallReassertS is security.firewall_reassert_s when it is
+	// not set; MinFirewallReassertS-MaxFirewallReassertS is its range
+	// (0 = off).
+	DefaultFirewallReassertS = 60
+	MinFirewallReassertS     = 10
+	MaxFirewallReassertS     = 3600
+	// DefaultUnknownControlRatePerSource and DefaultUnknownControlRate are
+	// security.unknown_control_rate_per_source and
+	// security.unknown_control_rate when they are not set (DR-15; before,
+	// one global bucket of 6/minute).
+	DefaultUnknownControlRatePerSource = "3/minute"
+	DefaultUnknownControlRate          = "30/minute"
 )
 
 // Enumerations.
@@ -83,6 +95,12 @@ const (
 	ProbeTCP  = "tcp"
 	ProbeTLS  = "tls"
 	ProbeHTTP = "http"
+	// ProbeEcho (DR-17) proves the tunnel end to end without talking to
+	// the service: a nonce goes through one hidden port map of the active
+	// rung to the node's probe echo and must come back, and the node
+	// reports a TCP connect to the target. Both must pass. "auto" switches
+	// to it on its own for a target that stays silent after a TLS hello.
+	ProbeEcho = "echo"
 
 	SysctlOff        = "off"
 	SysctlBalanced   = "balanced"
@@ -238,7 +256,8 @@ type PortMap struct {
 	Listen int    `yaml:"listen"`
 	Proto  string `yaml:"proto"`
 	Target string `yaml:"target"`
-	// Probe type for this port map (Advanced): auto|tcp|tls|http. Empty = auto.
+	// Probe type for this port map (Advanced): auto|tcp|tls|http|echo.
+	// Empty = auto.
 	Probe string `yaml:"probe,omitempty"`
 }
 
@@ -315,6 +334,20 @@ type Tuning struct {
 type Security struct {
 	FirewallManaged        bool `yaml:"firewall_managed"`
 	RestrictControlToNodes bool `yaml:"restrict_control_to_nodes"`
+	// FirewallReassertS is how often (seconds) the hub and the node compare
+	// the live table inet deyroute with the one they applied and apply it
+	// again when it is missing or changed (DR-14); nil =
+	// DefaultFirewallReassertS, 0 = off. Absent unless the owner sets it,
+	// so a default install never blocks a rollback (NewerKeysInUse).
+	FirewallReassertS *int `yaml:"firewall_reassert_s,omitempty"`
+	// UnknownControlRatePerSource is the nft rate at which one address
+	// outside the nodes may open new control-port connections ("3/minute",
+	// optionally "… burst N packets"; without a burst the burst is N of
+	// the rate), and UnknownControlRate caps them all together (DR-15). ""
+	// = DefaultUnknownControlRatePerSource and DefaultUnknownControlRate;
+	// absent unless the owner sets them (NewerKeysInUse).
+	UnknownControlRatePerSource string `yaml:"unknown_control_rate_per_source,omitempty"`
+	UnknownControlRate          string `yaml:"unknown_control_rate,omitempty"`
 }
 
 // NodeSelf is the node: section of a node config.

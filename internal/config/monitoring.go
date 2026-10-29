@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 // BackendTiers are the values of tuning.backend_tier and
 // nodes[].backend_tier, smallest first.
 var BackendTiers = []string{BackendTierSmall, BackendTierMedium, BackendTierLarge}
@@ -47,4 +49,41 @@ func (c *Config) BackendTier(node string) string {
 		return n.BackendTier
 	}
 	return ""
+}
+
+// FirewallReassertInterval is how often the daemon compares the live table
+// inet deyroute with the one it applied (security.firewall_reassert_s,
+// DefaultFirewallReassertS when unset); 0 = off, also whenever
+// security.firewall_managed is false.
+func (c *Config) FirewallReassertInterval() time.Duration {
+	s := DefaultSecurity()
+	if c != nil && c.Security != nil {
+		s = c.Security
+	}
+	if !s.FirewallManaged {
+		return 0
+	}
+	n := DefaultFirewallReassertS
+	if s.FirewallReassertS != nil {
+		n = *s.FirewallReassertS
+	}
+	return time.Duration(max(n, 0)) * time.Second
+}
+
+// UnknownControlRates returns the nft rates at which addresses outside the
+// nodes may open new control-port connections: per source address and in
+// all (security.unknown_control_rate_per_source and
+// security.unknown_control_rate, their defaults when unset).
+func (c *Config) UnknownControlRates() (perSource, global string) {
+	perSource, global = DefaultUnknownControlRatePerSource, DefaultUnknownControlRate
+	if c == nil || c.Security == nil {
+		return perSource, global
+	}
+	if c.Security.UnknownControlRatePerSource != "" {
+		perSource = c.Security.UnknownControlRatePerSource
+	}
+	if c.Security.UnknownControlRate != "" {
+		global = c.Security.UnknownControlRate
+	}
+	return perSource, global
 }
