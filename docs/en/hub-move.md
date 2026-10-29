@@ -163,6 +163,18 @@ IPv6 between hub and node is not supported, and the hub firewall then drops
 the transports in which the node dials the hub. See
 [Join](join.md#do-not-connect-a-node-over-ipv6).
 
+## Versions after a move
+
+The new hub runs the version you installed on it, which can differ from
+the backup's. The restore notes the backup's version; at its first start
+the hub then tells every node to install the hub's version when it
+connects. A node of another major.minor (incompatible, `DEY-N004`) gets
+the hub's version as soon as it connects anyway. Until it runs it, an
+incompatible node runs no commands. You need no `deyroute update` for
+this; watch it with `deyroute node list` (`VERSION`). A node newer than
+the new hub goes back to the hub's version. See
+[How the nodes follow](update-uninstall.md#how-the-nodes-follow).
+
 ## No backup: join the nodes again
 
 Without a backup the old CA is gone, so the nodes cannot trust a new hub.

@@ -544,7 +544,10 @@ Flags: `--yes`, `--public-ip IPv4`, `--public-ip6 IPv6` (only with
 ### `deyroute update`
 
 - `--check`, or nothing to update: the UpdateInfo DTO `{"schema", "current",
-  "latest", "available", "changelog", "previous"}`. With a newer release,
+  "latest", "available", "changelog", "previous", "nodes_queued"}`.
+  `nodes_queued` (absent when 0): without `--check` and with nothing newer,
+  the hub installs nothing but tells every known node of another version
+  to install its version; this is how many. With a newer release,
   `changelog` is the text of its `CHANGELOG.md` after the running version
   (at most 40 lines, then `… <release page>`), or the release page address
   when the release has no verified `CHANGELOG.md`.
