@@ -400,6 +400,9 @@ stated default until the owner decides · **[ANSWERED]** closed.
     logged, so planted names cannot grow the daemon's memory. The node
     agent now looks up the deyroute ids and changes ownership like the hub
     (`Options.DeyrouteIDs`, `Options.Chown`). DR-01.
+    (Changed by C.56: the hub and node services add the sticky bit to an
+    existing directory of root when they start, so `deyroute update` is
+    enough.)
 49. **[OPEN] `hub.auto_update` counts from 0.3.0, so edge builds are
     treated as not knowing it (DR-05).** The edge builds that carry the key
     cannot be told apart by version from those before it (every
@@ -505,6 +508,83 @@ stated default until the owner decides · **[ANSWERED]** closed.
     repository secrets, and protects the `v*` tags with a ruleset (steps in
     `docs/dev/RELEASING.md`, "Signing key"). Until then anyone with write
     access can use this path. Owner action (DR-06, DR-02).
+56. **[DEFAULT] The services prepare each tunnel log before systemd opens
+    it (DR-01).** systemd opens a tunnel unit's `StandardOutput=append:`
+    file as root before it drops privileges. It creates a missing file and
+    follows a link, and `fs.protected_symlinks` does not cover the `01770`
+    directory, which is not world-writable. So right before the hub starts
+    a hub unit (`startHubSide`, and the restart of a changed hub unit) and
+    before the node's `unit.start` and `unit.restart`, only their own
+    regular file with one link may stand at `<tunnel>.log`. Both services
+    also check this when they start: the hub for every tunnel in its
+    configuration, the node for every tunnel it has instances of. This is
+    needed because systemd's own restarts (`Restart=always`) never go
+    through them, and a restarted hub adopts running units without
+    starting them. Anything else at the name is removed, the same way the
+    rotation removes what stands at its names. A missing log is created
+    with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0644`. That is the mode
+    systemd gives a file it creates (`0666` under `UMask=0022`), not the
+    `0600` of rotated files, so a log looks the same whoever created it;
+    the directory keeps other users out. Calls for the same path run one
+    at a time within a process. Each removal is logged as the warning
+    `tunnel log replaced` with `file` and `reason`. The reasons are
+    `symlink`, `not_regular` and `hardlink`, as for the rotation, plus the
+    new `owner`: a regular file with one link that belongs to another user,
+    which that user could still remove in the sticky directory. The warning
+    is logged once per file and reason per daemon run, with the same cap of
+    1024 pairs as C.48. If the check fails right before a unit starts, the
+    unit is not started and the error is the existing `DEY-X022` ("Cannot
+    write log file {path}"); no new code. If it fails when a service
+    starts, it is only logged (`cannot prepare a tunnel log`).
+    When the services start, they also add the sticky bit, and only that
+    bit, to an existing `/var/log/deyroute/tunnels` owned by root. They do
+    this through a descriptor opened with `O_DIRECTORY|O_NOFOLLOW`, leave a
+    link, a non-directory and a directory of another user alone, and log
+    `tunnel log directory made sticky` with `from` and `to`. This replaces
+    C.48's "an existing directory keeps its mode": `deyroute update` is now
+    enough on an older install.
+    The readers are `deyroute logs` on the hub and the node (follow
+    included) and the log lines of a failed start (`DEY-B003`). They open a
+    log with `O_NOFOLLOW|O_NONBLOCK` and accept only a regular file: a link
+    or FIFO at the name shows no lines on the hub and is `DEY-X022` for the
+    node's `logs.tail`. Unlike the rotation and the preparation, they accept
+    a file with a second hard link (`nlink > 1`). The next start replaces
+    such a log, and a hard link to a file the `deyroute` user does not own
+    needs `fs.protected_hardlinks=0` (see C.57 d).
+57. **[OPEN] A tunnel log name can be free between starts (DR-01).** The
+    preparation of C.56 runs only when the hub or the node starts a unit
+    and when the services start. systemd also opens the log as root on its
+    own restarts of a unit (`Restart=always`, `RestartSec=2`).
+    a) While a live log name is free, the `deyroute` user can put a link
+    there and end its own process, and systemd follows the link as root
+    2 s later. The name is free when an admin deleted the log, or for the
+    moment between the removal of a planted entry and the creation of
+    root's file. The docs say to empty a live log (`: > file`) and never
+    delete it, and that a service restart creates a deleted log again.
+    There are two complete fixes. Each changes every creator of the
+    directory (installer, setup, `InstallTemplates`, both
+    `ensureTunnelLogDir`, `TightenTunnelLogDir`) and S36:
+    (1) `tunnels/` without group write (`01750` or `0750 root:deyroute`).
+    No backend writes there itself: every unit's output reaches its log
+    through the descriptor systemd opens as root. The `deyroute` user then
+    could add no names at all. The brief asks to verify
+    `StandardOutput=append:` in the lab before group write is removed.
+    (2) `01773` or `01777`. A sticky, world-writable directory makes
+    `fs.protected_symlinks=1` (the default) refuse root's open of a link
+    owned by `deyroute` with `EACCES`, so the unit fails with 209/STDOUT
+    instead of writing through the link. `/var/log/deyroute`
+    (`0750 root:deyroute`) still keeps other users out.
+    b) A unit whose log was replaced when the services started keeps the
+    descriptor it had until it restarts (an unlinked file, or the file a
+    link pointed to if systemd had already followed it before the update).
+    The services do not restart such units.
+    c) The preparation and the rotation remove a planted directory with
+    everything in it. A backend that keeps adding entries can make that
+    slow, and the start of that tunnel's units waits for it (the lock is
+    per path, so other tunnels are not held up).
+    d) The readers accept `nlink > 1` (C.56).
+    Owner decision: (1), (2), or keep the documented rule and restart
+    affected units by hand.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

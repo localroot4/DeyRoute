@@ -6,7 +6,7 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
-### Security — tunnel log rotation
+### Security — tunnel logs
 
 - The hub and the node rotate the tunnel logs in `/var/log/deyroute/tunnels`
   as root. The rotation no longer follows symbolic links and never writes
@@ -22,12 +22,27 @@ All notable changes to DEYROUTE are documented here. The format follows
   created a missing one as `root:root 0750` before. The backends' user can
   still add files there but can no longer remove or rename root's live and
   rotated logs (QUESTIONS.md C.48).
-- Migration: `deyroute update` alone keeps the mode of an existing
-  directory. On a server installed before, run the installer again (it
-  repairs and keeps the configuration), or run
-  `chown root:deyroute /var/log/deyroute/tunnels && chmod 1770 /var/log/deyroute/tunnels`.
-  Check it with `stat -c '%a %U:%G' /var/log/deyroute/tunnels`
+- Migration: on a server installed before, `deyroute update` is enough.
+  The hub and node services add the sticky bit to an existing
+  `/var/log/deyroute/tunnels` that belongs to root when they start (they
+  never remove a bit, and log `tunnel log directory made sticky`). Running
+  the installer again (it repairs and keeps the configuration) or
+  `chown root:deyroute /var/log/deyroute/tunnels && chmod 1770 /var/log/deyroute/tunnels`
+  also works. Check it with `stat -c '%a %U:%G' /var/log/deyroute/tunnels`
   (`1770 root:deyroute`).
+- Before the hub or a node starts a transport, and for every tunnel when
+  the service starts, `<tunnel>.log` is made root's regular file with a
+  single link: systemd opens it as root for the transport's output.
+  Anything else found at that name is removed, an empty log (`0644`) is
+  created, and the warning `tunnel log replaced` is logged once per file
+  and reason (`symlink`, `not_regular`, `hardlink` or `owner`) in
+  `hub.log` or `node.log`. To free space, empty a live tunnel log
+  (`: > <tunnel>.log`); do not delete it (docs/en/security.md, lab S36,
+  QUESTIONS.md C.56 and C.57).
+- `deyroute logs` and the log lines shown with a failed start
+  (`DEY-B003`) read a tunnel log only when it is a regular file. They no
+  longer follow a link or wait on a FIFO at a log name: such a name shows
+  no lines on the hub, and a node answers `DEY-X022`.
 
 ### Security — per-backend privilege allowlist
 
