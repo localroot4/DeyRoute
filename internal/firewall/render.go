@@ -147,8 +147,12 @@ func compareNAT(a, b natRule) int {
 		return strings.Compare(a.iface, b.iface)
 	case a.to != b.to:
 		return a.to.Compare(b.to)
+	case a.toPort != b.toPort:
+		return a.toPort - b.toPort
+	case a.saddr != b.saddr:
+		return strings.Compare(a.saddr, b.saddr)
 	}
-	return a.toPort - b.toPort
+	return a.daddr.Compare(b.daddr)
 }
 
 func uniquePorts(in []int) []int {
@@ -188,9 +192,9 @@ func Render(s Spec) string {
 	if len(n.nat) > 0 {
 		var pre, out []string
 		for _, r := range n.nat {
-			pre = append(pre, natRuleText(r))
+			pre = append(pre, natRuleTexts(r)...)
 			if r.to.IsValid() && r.iface == "" {
-				out = append(out, natRuleText(r))
+				out = append(out, natRuleTexts(r)...)
 			}
 		}
 		blocks = append(blocks, renderChain("prerouting", hdrPrerouting, pre))
@@ -352,14 +356,45 @@ func (n normalized) clampIfaces() []string {
 	return out
 }
 
-// natRuleText renders one prerouting/output NAT rule.
-func natRuleText(r natRule) string {
+// natRuleTexts renders one prerouting/output NAT rule: one line, or with
+// a source scope one line per source family that the destination and the
+// target allow (normalizeScope guarantees at least one).
+func natRuleTexts(r natRule) []string {
+	if r.saddr == "" {
+		return []string{natRuleText(r, "")}
+	}
+	var out []string
+	for _, fam := range []struct {
+		n    int
+		addr netip.Addr
+		kw   string
+	}{{4, netip.IPv4Unspecified(), "ip"}, {6, netip.IPv6Unspecified(), "ip6"}} {
+		src := r.sources(fam.n)
+		if len(src) == 0 || (r.daddr.IsValid() && !sameFamily(r.daddr, fam.addr)) ||
+			(r.to.IsValid() && !sameFamily(r.to, fam.addr)) {
+			continue
+		}
+		out = append(out, natRuleText(r, fam.kw+" saddr { "+strings.Join(src, ", ")+" }"))
+	}
+	return out
+}
+
+// natRuleText renders one NAT rule line with the source match saddr ("" =
+// any source).
+func natRuleText(r natRule, saddr string) string {
 	var parts []string
 	if r.iface != "" {
 		parts = append(parts, "iifname "+quote(r.iface))
 	}
 	parts = append(parts, "fib daddr type local")
+	if saddr != "" {
+		parts = append(parts, saddr)
+	}
 	switch {
+	case r.daddr.Is4():
+		parts = append(parts, "ip daddr "+r.daddr.String())
+	case r.daddr.Is6():
+		parts = append(parts, "ip6 daddr "+r.daddr.String())
 	case r.to.Is4():
 		parts = append(parts, "ip daddr != 127.0.0.0/8")
 	case r.to.Is6():

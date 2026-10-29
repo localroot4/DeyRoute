@@ -55,10 +55,10 @@
 === binds
 udp 0.0.0.0:30001 control
 === nat
-{Proto:tcp DportLow:443 DportHigh:443 ToAddr:127.0.0.1 ToPort:443 Iface:dey-main}
-{Proto:tcp DportLow:2053 DportHigh:2053 ToAddr:127.0.0.1 ToPort:2053 Iface:dey-main}
-{Proto:udp DportLow:443 DportHigh:443 ToAddr:127.0.0.1 ToPort:443 Iface:dey-main}
-{Proto:udp DportLow:27015 DportHigh:27015 ToAddr:127.0.0.1 ToPort:27015 Iface:dey-main}
-{Proto:tcp DportLow:8443 DportHigh:8443 ToAddr:1.2.3.4 ToPort:8443 Iface:dey-main}
+{Proto:tcp DportLow:443 DportHigh:443 ToAddr:127.0.0.1 ToPort:443 Iface:dey-main SAddr:[] DAddr:}
+{Proto:tcp DportLow:2053 DportHigh:2053 ToAddr:127.0.0.1 ToPort:2053 Iface:dey-main SAddr:[] DAddr:}
+{Proto:udp DportLow:443 DportHigh:443 ToAddr:127.0.0.1 ToPort:443 Iface:dey-main SAddr:[] DAddr:}
+{Proto:udp DportLow:27015 DportHigh:27015 ToAddr:127.0.0.1 ToPort:27015 Iface:dey-main SAddr:[] DAddr:}
+{Proto:tcp DportLow:8443 DportHigh:8443 ToAddr:1.2.3.4 ToPort:8443 Iface:dey-main SAddr:[] DAddr:}
 === masquerade []
 === ip_forward false
