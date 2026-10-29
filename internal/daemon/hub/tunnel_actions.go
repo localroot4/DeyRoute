@@ -662,7 +662,7 @@ func (c *tunnelCtl) checkService(ctx context.Context, node string) (up, known bo
 	c.svc[node] = svcEntry{up: res.OK, known: true, at: h.now()}
 	c.mu.Unlock()
 	if res.OK {
-		c.refreshPlain(ctx, node, t)
+		c.refreshPlain(ctx, node, t, false)
 	}
 	return res.OK, true
 }
@@ -678,10 +678,13 @@ func (c *tunnelCtl) closesWithoutData(node string) bool {
 }
 
 // refreshPlain asks node (probe.tls on the probe target) whether the
-// target closes without speaking TLS, or stays silent (a timeout or reset;
-// the caller saw a TCP connect succeed, DR-17); kept for plainCheckTTL,
-// the silent verdict also in state.db.
-func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunnel) {
+// target closes without speaking TLS, or stays silent (a timeout or reset,
+// DR-17); kept for plainCheckTTL, the silent verdict also in state.db.
+// The caller either saw a TCP connect succeed, or passes confirm: then a
+// silent answer is followed by probe.tcp and kept only when the target
+// accepts a connect. A TLS service is so never sent a bare connect, which
+// a TLS server logs as a handshake error.
+func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunnel, confirm bool) {
 	h := c.h
 	pm, tcp := t.ProbeTarget()
 	if !tcp || !h.Online(node) {
@@ -701,6 +704,14 @@ func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunn
 	}
 	v, measured := verdictOf(res)
 	conclusive := measured
+	if conclusive && v.Silent && confirm {
+		var tcp api.ProbeResultDTO
+		tctx, tcancel := context.WithTimeout(ctx, probeTimeout(t)+time.Second)
+		defer tcancel()
+		if err := h.Call(tctx, node, api.CmdProbeTCP, api.ProbeArgs{Target: pm.Target, TimeoutMs: int(probeTimeout(t) / time.Millisecond)}, &tcp); err != nil || !tcp.OK {
+			conclusive = false
+		}
+	}
 	if !conclusive {
 		// Refused, unreachable…: the service is down, which says nothing
 		// about how it answers; the last verdict stays.

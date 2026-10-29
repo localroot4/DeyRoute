@@ -1803,7 +1803,7 @@ func (c *tunnelCtl) report(ctx context.Context) {
 		return
 	}
 	t, plan := c.snapshot()
-	c.refreshPlain(ctx, st.Active.Node, t)
+	c.refreshPlain(ctx, st.Active.Node, t, false)
 	host := c.probeHost(plan, st.Active)
 	var maps []config.PortMap
 	var targets []health.Target

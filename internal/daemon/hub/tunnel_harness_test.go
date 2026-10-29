@@ -633,12 +633,14 @@ type tnode struct {
 	echoStops   []int
 	// tlsErr, when set, is the error probe.tls reports for the target (a
 	// silent service: "timeout"); svcDown makes probe.tcp fail.
-	tlsErr   string
-	svcDown  bool
-	udp      map[int]net.PacketConn
-	wg       sync.WaitGroup
-	stopEcho context.CancelFunc
-	echoCtx  context.Context
+	tlsErr  string
+	svcDown bool
+	// tcpProbes counts probe.tcp commands (a bare connect to the target).
+	tcpProbes int
+	udp       map[int]net.PacketConn
+	wg        sync.WaitGroup
+	stopEcho  context.CancelFunc
+	echoCtx   context.Context
 }
 
 // tunnelNode joins node id, installs the tunnel command handlers and
@@ -731,6 +733,7 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 	fn.on(api.CmdProbeTCP, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
 		n.tmu.Lock()
 		defer n.tmu.Unlock()
+		n.tcpProbes++
 		if n.svcDown {
 			return api.ProbeResultDTO{Error: health.ReasonRefused}, nil
 		}

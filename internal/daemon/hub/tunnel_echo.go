@@ -184,9 +184,10 @@ func (c *tunnelCtl) ensureEcho(ctx context.Context, t config.Tunnel, only string
 				continue
 			}
 			wg.Go(func() {
-				sctx, cancel := context.WithTimeout(ctx, probeTimeout(t)+nodeCmdTimeout)
+				// probe.tls, then probe.tcp after a silent answer.
+				sctx, cancel := context.WithTimeout(ctx, 2*probeTimeout(t)+nodeCmdTimeout)
 				defer cancel()
-				c.checkService(sctx, n)
+				c.refreshPlain(sctx, n, t, true)
 			})
 		}
 		wg.Wait()

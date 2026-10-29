@@ -171,6 +171,12 @@ func TestAutoProbeKeepsTLSForTLSTarget(t *testing.T) {
 	require.Empty(t, hiddenTarget(te, "main"), "no echo port is allocated")
 	inst := systemd.InstanceName("main", "de-1", trAlpha)
 	require.Equal(t, 1, strings.Count(string(n.renderedArgs(inst).Files["test.conf"]), "target="), "the user port map only")
+	// A TLS service sees the verdict's complete TLS handshake and no bare
+	// connect, which a TLS server logs as a handshake error.
+	n.tmu.Lock()
+	tcp := n.tcpProbes
+	n.tmu.Unlock()
+	require.Zero(t, tcp, "probe.tcp before the plan of a TLS target")
 }
 
 // TestEchoProbeFailsWhenRungBlackholed: the echo probe is not "silence is
@@ -302,7 +308,7 @@ func TestEchoVerdictKeptWhileServiceDown(t *testing.T) {
 	e.at = time.Time{} // due again
 	c.plain["de-1"] = e
 	c.mu.Unlock()
-	c.refreshPlain(ctxT(t), "de-1", tun)
+	c.refreshPlain(ctxT(t), "de-1", tun, false)
 	v, known := c.verdict("de-1")
 	require.True(t, known)
 	require.True(t, v.Silent, "a refused probe keeps the verdict")
@@ -316,7 +322,7 @@ func TestEchoVerdictKeptWhileServiceDown(t *testing.T) {
 	e.at = time.Time{}
 	c.plain["de-1"] = e
 	c.mu.Unlock()
-	c.refreshPlain(ctxT(t), "de-1", tun)
+	c.refreshPlain(ctxT(t), "de-1", tun, false)
 	v, _ = c.verdict("de-1")
 	require.False(t, v.Silent)
 	require.True(t, c.echoStale("de-1"))
