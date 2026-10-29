@@ -6,6 +6,8 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-29
+
 ### Added
 
 - `deyroute setup --public-ip A.B.C.D` and `--public-ip6 X` store exactly
