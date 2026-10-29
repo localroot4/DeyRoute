@@ -72,11 +72,12 @@ If `deyroute` is already installed on the node, the short form works too:
 deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --name de-1
 ```
 
-The node asks one question — whether to apply the balanced kernel profile
-(Enter = yes) — and then shows its steps. When the hub uses automatic tuning
-(`deyroute optimize auto`), the hub tunes the node the same way as soon as it
-is online and lists it under `deyroute optimize status`; see
-[Automatic tuning](tuning.md).
+On a terminal the node asks one question — whether to apply the balanced
+kernel profile (Enter = yes) — and then shows its steps; without a terminal
+(a script, a panel) it applies the balanced profile. When the hub uses
+automatic tuning (`deyroute optimize auto`), the hub tunes the node the same
+way as soon as it is online and lists it under `deyroute optimize status`;
+see [Automatic tuning](tuning.md).
 
 ```text
   ✔ Read join link
@@ -89,6 +90,32 @@ is online and lists it under `deyroute optimize status`; see
 
 Node de-1 joined hub ir-1; it appears on the hub dashboard shortly
 ```
+
+`--sysctl` chooses without the question: `balanced` (the default), `auto`
+(this server's own automatic plan) or `off` (nothing is written under
+`/etc/sysctl.d` and no kernel value changes). Every profile reserves the
+backend control range `30000-31999` in `net.ipv4.ip_local_reserved_ports`,
+so an outgoing connection never takes a port a transport needs.
+`--reserve-ports` adds the listen ports of this server's own services: a
+comma list of ports and ranges (`443,8443,20000-20999`), repeatable, at most
+64 entries, and at least 1024 of the ephemeral ports `10240-65535` must stay
+free. Reservations that already exist are kept; `deyroute optimize revert`
+and `deyroute uninstall` remove only deyroute's entries.
+
+```bash
+deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --name de-1 --sysctl balanced --reserve-ports 443,8443
+deyroute join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --name de-1 --sysctl off
+```
+
+`--sysctl off`, like *no* to the question, also keeps the hub's tuning off
+this node: the node refuses the hub's `optimize apply` and `optimize auto`
+with `DEY-N052` (a revert to `off` still runs). To let the hub tune it
+later, run `rm /var/lib/deyroute/hub-tuning-off` on the node, then re-apply
+on the hub the profile `deyroute optimize status` shows (`deyroute optimize
+auto` on an auto hub, otherwise `deyroute optimize apply --profile <that
+profile>`). Nodes joined with an older version follow the hub as before. The
+installer does not pass `--sysctl` or `--reserve-ports` on: install with
+`install.sh --no-setup`, then run `deyroute join` with them.
 
 The node id comes from `--name` (letters, digits and `-`, 2–32 characters,
 e.g. `de-1`) or, without it, from the host name. The id never changes later;

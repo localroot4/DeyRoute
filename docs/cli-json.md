@@ -108,7 +108,22 @@ Node (`--role node`): the document of `deyroute join`.
 
 `{"schema", "role": "node", "node", "hub_name", "hub_addr", "hub_version",
 "public_ip", "ca_fingerprint", "compatible", "config_path", "sysctl_profile",
-"sysctl_warnings", "service_started", "steps": [Step]}`
+"sysctl_warnings", "service_started", "steps": [Step], "reserved_ports":
+[string]}` — `reserved_ports` (never null) lists the entries the applied
+profile added to `net.ipv4.ip_local_reserved_ports`: the control range
+`30000-31999` and the `--reserve-ports` entries; `[]` when no profile was
+applied (`sysctl_profile: "off"`).
+
+Flags: `--sysctl off|balanced|auto` (default `balanced`; given, there is no
+kernel question; `off` writes nothing under `/etc/sysctl.d` and, like "no"
+to the question, makes the node refuse the hub's tuning with `DEY-N052`
+until `/var/lib/deyroute/hub-tuning-off` is removed). `--reserve-ports
+LIST` (repeatable, merged): ports 1-65535 and ranges `a-b`, at most 64
+entries after duplicates and entries inside the control range are dropped,
+leaving at least 1024 ports of the profile's ephemeral range free. Errors:
+`DEY-C013` with field `--sysctl` or `--reserve-ports` (also for
+`--reserve-ports` with `--sysctl off` or "no"), before the join starts.
+`--public-ip`, `--public-ip6` and `--allow-private-ip` are `DEY-C013` here.
 
 ### `deyroute status`
 
