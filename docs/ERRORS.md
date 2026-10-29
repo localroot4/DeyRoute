@@ -95,6 +95,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-N020` | The hub's join answer cannot be used | {reason} | make sure the hub and this server run the same deyroute version, then create a new join command on the hub (deyroute node join-command) and run it here |
 | `DEY-N050` | Node {node} refused command {command} | {reason}; the node only writes below /etc/deyroute/backends, runs deyroute's own binaries and reaches only allowed addresses | update the hub and the node to the same version (Update -> deyroute); if it repeats run deyroute doctor --node {node} and report it |
 | `DEY-N051` | Node {node} could not download {file} | the node tried the source 3 times without success (no outbound HTTPS, DNS failure, or the server refused); the cause is shown below | check outbound HTTPS on the node (curl -I https://github.com), or set DEYROUTE_MIRROR on the hub to a reachable mirror |
+| `DEY-N052` | Node {node} keeps its own kernel settings and refused {command} | the node was joined with --sysctl off (or the owner answered no to the kernel question), so the marker /var/lib/deyroute/hub-tuning-off on the node refuses the hub's kernel tuning (only a revert to off still runs) | to let the hub tune this node, remove the marker on the node (rm /var/lib/deyroute/hub-tuning-off), then re-apply the hub's profile as deyroute optimize status shows it: deyroute optimize auto on an auto hub, otherwise deyroute optimize apply --profile <that profile> |
 
 ## Ports / firewall (DEY-P0xx)
 

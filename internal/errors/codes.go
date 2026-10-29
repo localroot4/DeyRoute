@@ -85,6 +85,7 @@ const (
 	N020 Code = "DEY-N020" // hub join answer unusable {reason}
 	N050 Code = "DEY-N050" // node refused a hub command {node} {command} {reason}
 	N051 Code = "DEY-N051" // node could not download a file {node} {file}
+	N052 Code = "DEY-N052" // node opted out of the hub's kernel tuning {node} {command}
 )
 
 // Ports / firewall (DEY-P0xx).
@@ -413,6 +414,9 @@ var catalog = map[Code]Info{
 	N051: {N051, "Node {node} could not download {file}",
 		"the node tried the source 3 times without success (no outbound HTTPS, DNS failure, or the server refused); the cause is shown below",
 		"check outbound HTTPS on the node (curl -I https://github.com), or set DEYROUTE_MIRROR on the hub to a reachable mirror"},
+	N052: {N052, "Node {node} keeps its own kernel settings and refused {command}",
+		"the node was joined with --sysctl off (or the owner answered no to the kernel question), so the marker /var/lib/deyroute/hub-tuning-off on the node refuses the hub's kernel tuning (only a revert to off still runs)",
+		"to let the hub tune this node, remove the marker on the node (rm /var/lib/deyroute/hub-tuning-off), then re-apply the hub's profile as deyroute optimize status shows it: deyroute optimize auto on an auto hub, otherwise deyroute optimize apply --profile <that profile>"},
 
 	N016: {N016, "Cannot reach the hub through the front {addr}",
 		"the connection to the front could not be opened ({reason}): the domain does not resolve, the TCP connect timed out or was refused, or the outer TLS handshake failed (certificate, clock or a middlebox)",
