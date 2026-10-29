@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -162,10 +163,105 @@ func newSetupCmd(g *Globals) *cobra.Command {
 	return cmd
 }
 
+// joinTuneFlags are the kernel flags of join (--sysctl, --reserve-ports).
+type joinTuneFlags struct {
+	sysctl  string
+	reserve []string
+}
+
+// joinTune is the kernel choice of a join: apply profile (with the extra
+// reserved entries) or not; optOut marks an explicit "no" (--sysctl off or
+// the kernel question), which the node keeps (setup.HubTuningOffFile).
+type joinTune struct {
+	profile       string
+	apply, optOut bool
+	reserve       []string
+	explicit      bool   // --sysctl given: no question
+	reserveRaw    string // --reserve-ports as given
+}
+
+// check validates the flags before anything is asked or changed.
+// Errors: DEY-C013 with the flag as field.
+func (f joinTuneFlags) check(explicit bool) (joinTune, error) {
+	p := strings.ToLower(strings.TrimSpace(f.sysctl))
+	switch p {
+	case config.SysctlOff, config.SysctlBalanced, config.SysctlAuto:
+	default:
+		return joinTune{}, deyerr.New(deyerr.C013, deyerr.Params{"field": "--sysctl", "value": f.sysctl, "allowed": "off, balanced, auto"}).
+			WithFix(i18n.T(i18n.CLISysctlFix))
+	}
+	t := joinTune{profile: p, apply: p != config.SysctlOff, optOut: p == config.SysctlOff, explicit: explicit,
+		reserveRaw: strings.Join(f.reserve, ",")}
+	if len(f.reserve) == 0 {
+		return t, nil
+	}
+	if !t.apply {
+		return joinTune{}, t.reserveWithOff()
+	}
+	var err error
+	t.reserve, err = reservePorts(f.reserve, p)
+	return t, err
+}
+
+// reserveWithOff is DEY-C013 for --reserve-ports without a profile.
+func (t joinTune) reserveWithOff() error {
+	return deyerr.New(deyerr.C013, deyerr.Params{"field": "--reserve-ports", "value": t.reserveRaw,
+		"allowed": i18n.T(i18n.CLIReservePortsOff)}).WithFix(i18n.T(i18n.CLIReservePortsOffFix))
+}
+
+// declined is the choice after "no" to the kernel question: an opt-out;
+// DEY-C013 when --reserve-ports was given.
+func (t joinTune) declined() (joinTune, error) {
+	if t.reserveRaw != "" {
+		return joinTune{}, t.reserveWithOff()
+	}
+	t.apply, t.optOut = false, true
+	return t, nil
+}
+
+// reservePorts parses the --reserve-ports values (each a comma list; the
+// flag may repeat): ports 1-65535 and ranges a-b, in canonical form,
+// without duplicates and without entries inside the control range
+// (setup.NodeReserved), at most setup.MaxReservePorts entries, leaving at
+// least 1024 ports of the profile's ephemeral range free. Errors: DEY-C013
+// (field --reserve-ports).
+func reservePorts(values []string, profile string) ([]string, error) {
+	bad := func(value, allowed, fix string) error {
+		return deyerr.New(deyerr.C013, deyerr.Params{"field": "--reserve-ports", "value": value, "allowed": allowed}).WithFix(fix)
+	}
+	var out []string
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			e, ok := setup.CanonicalPortEntry(part)
+			if !ok {
+				return nil, bad(part, i18n.T(i18n.CLIWantReservePorts), i18n.T(i18n.CLIReservePortsFix))
+			}
+			lo, hi, isRange := strings.Cut(e, "-")
+			a, _ := strconv.Atoi(lo)
+			b := a
+			if isRange {
+				b, _ = strconv.Atoi(hi)
+			}
+			if a >= config.CtlRangeLow && b <= config.CtlRangeHigh || slices.Contains(out, e) {
+				continue // reserved already (the control range) or listed twice
+			}
+			out = append(out, e)
+		}
+	}
+	if len(out) > setup.MaxReservePorts {
+		return nil, bad(strings.Join(values, ","), i18n.T(i18n.CLIWantReservePorts), i18n.T(i18n.CLIReservePortsFix))
+	}
+	if free, lo, hi := sysctl.FreeEphemeral(profile, append(setup.NodeReserved(), out...)); hi > 0 && free < 1024 {
+		return nil, bad(strings.Join(values, ","), i18n.T(i18n.CLIReservePortsFree, lo, hi, free), i18n.T(i18n.CLIReservePortsFreeFix))
+	}
+	return out, nil
+}
+
 func newJoinCmd(g *Globals) *cobra.Command {
 	var name string
 	var yes bool
 	var ipf ipFlags
+	var tf joinTuneFlags
 	cmd := &cobra.Command{
 		Use:     "join 'dey://TOKEN@HUB_IP:PORT#FP'",
 		Short:   i18n.T(i18n.CLIJoinShort),
@@ -178,21 +274,30 @@ func newJoinCmd(g *Globals) *cobra.Command {
 			if err := ipf.hubOnly(); err != nil {
 				return err
 			}
+			t, err := tf.check(cmd.Flags().Changed("sysctl"))
+			if err != nil {
+				return err
+			}
 			if g.configured() {
 				return deyerr.New(deyerr.I013, deyerr.Params{"role": g.role()})
 			}
-			apply := true
-			if g.IsTTY && !yes {
+			if !t.explicit && g.IsTTY && !yes {
 				ans, err := g.askQ(kernelQuestion())
 				if err != nil {
 					return err
 				}
-				apply = ans == answerYes
+				if ans != answerYes {
+					if t, err = t.declined(); err != nil {
+						return err
+					}
+				}
 			}
-			return g.join(ctx, args[0], name, apply)
+			return g.join(ctx, args[0], name, t)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", i18n.T(i18n.CLIFlagJoinName))
+	cmd.Flags().StringVar(&tf.sysctl, "sysctl", config.SysctlBalanced, i18n.T(i18n.CLIFlagSysctl))
+	cmd.Flags().StringArrayVar(&tf.reserve, "reserve-ports", nil, i18n.T(i18n.CLIFlagReservePorts))
 	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYesJoin))
 	_ = cmd.Flags().MarkHidden("yes")
 	// The hub's address flags are refused here (DEY-C013), not unknown.
@@ -327,8 +432,9 @@ func nodeQuestions(f setupFlags) int {
 func kernelQuestion() question {
 	return question{
 		title: i18n.T(i18n.CLIAskKernel),
-		help:  []string{i18n.T(i18n.CLIKernelHelp), i18n.T(i18n.CLIKernelNodeAuto), i18n.T(i18n.CLIKernelUndo)},
-		def:   answerYes, yesNo: true,
+		help: []string{i18n.T(i18n.CLIKernelHelp), i18n.T(i18n.CLIKernelNodeAuto), i18n.T(i18n.CLIKernelNoRefusesHub),
+			i18n.T(i18n.CLIKernelUndo)},
+		def: answerYes, yesNo: true,
 	}
 }
 
@@ -682,20 +788,29 @@ func (g *Globals) setupNode(ctx context.Context, f setupFlags, interactive bool,
 		[2]string{i18n.T(i18n.CLISummaryHub), hub},
 		[2]string{i18n.T(i18n.CLISummaryKernel), kernelLabel(ans == answerYes)},
 	)
-	return g.join(ctx, link, name, ans == answerYes)
+	t := joinTune{profile: config.SysctlBalanced, apply: true}
+	if ans != answerYes {
+		t, _ = t.declined() // no --reserve-ports here: never an error
+	}
+	return g.join(ctx, link, name, t)
 }
 
-// join joins this server to a hub (setup.Join) and prints the result.
-func (g *Globals) join(ctx context.Context, link, name string, applySysctl bool) error {
+// join joins this server to a hub (setup.Join) with the kernel choice t
+// and prints the result.
+func (g *Globals) join(ctx context.Context, link, name string, t joinTune) error {
 	if name != "" {
 		if err := checkName(name); err != nil {
 			return err
 		}
 	}
+	profile := config.SysctlBalanced
+	if t.apply {
+		profile = t.profile
+	}
 	p := g.newProgress()
 	res, err := g.Ops.Join(ctx, setup.JoinOptions{
-		Root: g.Root, Runner: g.Runner, Link: link, Name: name, ApplySysctl: applySysctl,
-		SysctlProfile: config.SysctlBalanced, StartService: !g.NoService, SocketPath: g.Socket,
+		Root: g.Root, Runner: g.Runner, Link: link, Name: name, ApplySysctl: t.apply, SysctlProfile: profile,
+		ReservePorts: t.reserve, OptOut: t.optOut, StartService: !g.NoService, SocketPath: g.Socket,
 		Now: g.Now, Progress: p.step, Logger: g.logger(), Hostname: g.Hostname,
 		LookupUser: g.LookupUser, LookupGroup: g.LookupGroup, Chown: g.Chown,
 	})
@@ -716,6 +831,7 @@ func (g *Globals) join(ctx context.Context, link, name string, applySysctl bool)
 			"hub_version": res.HubVersion, "public_ip": res.PublicIP, "ca_fingerprint": res.CAFingerprint,
 			"front": res.Front, "compatible": res.Compatible, "config_path": res.ConfigPath, "sysctl_profile": res.SysctlProfile,
 			"sysctl_warnings": nonNil(res.SysctlWarnings), "service_started": res.ServiceStarted, "steps": p.steps,
+			"reserved_ports": nonNil(res.ReservedPorts),
 		})
 	}
 	for _, w := range res.SysctlWarnings {
