@@ -257,6 +257,16 @@ The `TunnelDetail` DTO: every TunnelInfo field plus
 {"at", "bytes_in", "bytes_out", "active_conns", "source", "bytes_since"}?`,
 `"failback_delay"` (ns) and `"events": [Event]`.
 
+- The probe port (`probe_port`) has two more fields in `ports[]` (DR-17):
+  `"probe_effective"`, the probe kind the hub uses now on the active node
+  (the primary node while no candidate runs): `auto`, `tcp`, `tls`, `http`
+  or `echo`; and `"probe_reason"`, why it differs from `probe` (absent when
+  it does not). `auto` is `echo` for a silent target (its TLS hello timed
+  out or was reset on the node while a TCP connect succeeded); `echo` or a
+  silent `auto` stays `auto` when the echo probe is not available (a node
+  without `echo-probe`, a rung that cannot carry the echo port), and the
+  reason says why. Other ports and `tunnel list` do not have these fields.
+
 - `metrics.source` is `nft` when the hub counts bytes (traffic monitoring):
   `bytes_in` / `bytes_out` are then the real byte counters of the tunnel's
   listen ports since `bytes_since` (the last counter reset: a reboot or a
@@ -307,9 +317,10 @@ for `remove`).
 
 ### `deyroute port set <tunnel> <ports> --probe <kind>`
 
-`{"schema", "tunnel": TunnelInfo, "steps": [Step]}`. The new kinds are in
-`tunnel.ports[].probe`; an invalid kind or a port the tunnel does not have
-is the error document `DEY-C013`.
+`{"schema", "tunnel": TunnelInfo, "steps": [Step]}`. The kind is `auto`,
+`tcp`, `tls`, `http` or `echo` (since 0.3.1; UDP ports only `auto`). The
+new kinds are in `tunnel.ports[].probe`; an invalid kind or a port the
+tunnel does not have is the error document `DEY-C013`.
 
 ### `deyroute port check <port>`
 
