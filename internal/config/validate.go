@@ -62,8 +62,15 @@ var (
 		"service_down", "backend_crash", "probe_error", "update_applied", "update_rolled_back",
 		"backend_update_rolled_back", "node_ip_changed", "acme_failed", "rung_skipped",
 		"rung_restored", "config_applied", "traffic_quota", "tune_drift",
+		EventFirewallReapplied,
 	}
 )
+
+// EventFirewallReapplied is the event of a table inet deyroute applied again
+// because it was missing or changed (state.EvFirewallReapplied, DR-14).
+// Releases before FirstFirewallReassertVersion refuse it in
+// hub.notify.telegram.events (NewerKeysInUse).
+const EventFirewallReapplied = "firewall_reapplied"
 
 // ValidTelegramEvent reports whether e may appear in
 // hub.notify.telegram.events (an alias or a full event name).
@@ -228,6 +235,9 @@ func (c *Config) Validate(opt ValidateOptions) error {
 	}
 	if c.Monitoring != nil {
 		v.monitoring(c.Monitoring)
+	}
+	if c.Security != nil {
+		v.security(c.Security)
 	}
 	if c.Node != nil {
 		v.nodeSelf(c.Node)
@@ -453,6 +463,14 @@ func (v *validator) tuning(t *Tuning) {
 func (v *validator) backendTier(field, tier string) {
 	if tier != "" && !contains(BackendTiers, tier) {
 		v.bad(field, tier, strings.Join(BackendTiers, ", ")+" (or empty for the defaults)")
+	}
+}
+
+// security checks the security: section.
+func (v *validator) security(s *Security) {
+	if p := s.FirewallReassertS; p != nil && *p != 0 && (*p < MinFirewallReassertS || *p > MaxFirewallReassertS) {
+		v.bad("security.firewall_reassert_s", *p,
+			fmt.Sprintf("0 (off) or %d-%d seconds", MinFirewallReassertS, MaxFirewallReassertS))
 	}
 }
 

@@ -53,6 +53,12 @@ const (
 	DefaultQuarantineS     = 600
 	DefaultConnectionPool  = 8
 	DefaultHysteriaMbps    = 100
+	// DefaultFirewallReassertS is security.firewall_reassert_s when it is
+	// not set; MinFirewallReassertS-MaxFirewallReassertS is its range
+	// (0 = off).
+	DefaultFirewallReassertS = 60
+	MinFirewallReassertS     = 10
+	MaxFirewallReassertS     = 3600
 )
 
 // Enumerations.
@@ -315,6 +321,12 @@ type Tuning struct {
 type Security struct {
 	FirewallManaged        bool `yaml:"firewall_managed"`
 	RestrictControlToNodes bool `yaml:"restrict_control_to_nodes"`
+	// FirewallReassertS is how often (seconds) the hub and the node compare
+	// the live table inet deyroute with the one they applied and apply it
+	// again when it is missing or changed (DR-14); nil =
+	// DefaultFirewallReassertS, 0 = off. Absent unless the owner sets it,
+	// so a default install never blocks a rollback (NewerKeysInUse).
+	FirewallReassertS *int `yaml:"firewall_reassert_s,omitempty"`
 }
 
 // NodeSelf is the node: section of a node config.

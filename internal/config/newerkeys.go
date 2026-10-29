@@ -37,6 +37,14 @@ const (
 	// version that is not older than the node's own is never refused: it
 	// knows every key this build knows.
 	FirstAllowUnsignedUpdatesVersion = "0.3.0"
+	// FirstFirewallReassertVersion is the first release that knows
+	// security.firewall_reassert_s and the event firewall_reapplied in
+	// hub.notify.telegram.events (DR-14). Every later edge build is
+	// 0.3.1-edge.N, which sorts before 0.3.1, so while either is set a
+	// rollback or downgrade to an edge build is refused too: conservative
+	// on purpose, as for FirstAutoUpdateVersion (an edge build cannot be
+	// told apart by its version).
+	FirstFirewallReassertVersion = "0.3.1"
 )
 
 // NewerKey is a config.yaml key in use that releases before Since refuse.
@@ -76,6 +84,14 @@ var newerKeys = []struct {
 	{"monitoring", FirstTrafficVersion, func(c *Config) bool { return c.Monitoring != nil }},
 	{"node.allow_unsigned_updates", FirstAllowUnsignedUpdatesVersion, func(c *Config) bool {
 		return c.Node != nil && c.Node.AllowUnsignedUpdates
+	}},
+	// Written only when set: an owner who writes the default (60) has the
+	// key in the file, and an older release refuses it all the same.
+	{"security.firewall_reassert_s", FirstFirewallReassertVersion, func(c *Config) bool {
+		return c.Security != nil && c.Security.FirewallReassertS != nil
+	}},
+	{"hub.notify.telegram.events: firewall_reapplied", FirstFirewallReassertVersion, func(c *Config) bool {
+		return c.Hub != nil && slices.Contains(c.Hub.Notify.Telegram.Events, EventFirewallReapplied)
 	}},
 }
 

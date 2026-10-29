@@ -67,6 +67,11 @@ const (
 	// EvTuneDrift is emitted by the periodic tuning check when a tuned
 	// value was changed or overridden (DEY-X067); it never changes anything.
 	EvTuneDrift = "tune_drift"
+	// EvFirewallReapplied is emitted when the periodic check found table
+	// inet deyroute missing or changed (another tool, `nft flush ruleset`)
+	// and applied it again (security.firewall_reassert_s, DR-14); Reason
+	// is "missing" or "drift". At most one per reason in 10 minutes.
+	EvFirewallReapplied = "firewall_reapplied"
 )
 
 // Event levels.
