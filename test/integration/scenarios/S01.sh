@@ -4,13 +4,20 @@
 # one-line `install.sh … join` to the node being online on the hub.
 # A fresh hub never updates itself: the automatic update is off, config.yaml
 # has no hub.auto_update, and there is no migration notice (DR-05).
+# The hub is set up the way automation does it (DR-07): installed with
+# --no-setup, then `setup --public-ip` stores exactly the given address (the
+# lab address is private, hence --allow-private-ip).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
 up hub node1
 t0=$SECONDS
-install_hub hub ir-1 || fail "the hub installer failed"
+on hub bash /dist/install.sh --local "$ARCHIVE" --no-setup || fail "the hub installer failed"
+sj=$(dey setup --role hub --name ir-1 --public-ip "$HUB_IP" --allow-private-ip --yes --json) || fail "hub setup failed: $sj"
 th=$((SECONDS - t0))
+jq -e --arg ip "$HUB_IP" '.public_ip == $ip and .public_ip_source == "flag"' <<<"$sj" >/dev/null ||
+  fail "setup --public-ip: $sj"
+on hub grep -qx "  public_ip: $HUB_IP" /etc/deyroute/config.yaml || fail "config.yaml does not have hub.public_ip $HUB_IP"
 link=$(join_link)
 j0=$(date +%s%3N)
 t0=$SECONDS
