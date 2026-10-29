@@ -462,7 +462,9 @@ func humanBytes(n uint64) string { return tui.FormatBytes(n) }
 
 func newTunnelEditCmd(g *Globals) *cobra.Command {
 	var name, ladder, policy, tlsMode, tlsCert, tlsKey string
+	var nodes []string
 	var probePort int
+	var yes bool
 	cmd := &cobra.Command{
 		Use:     "edit <id>",
 		Short:   i18n.T(i18n.CLITunnelEditShort),
@@ -485,6 +487,17 @@ func newTunnelEditCmd(g *Globals) *cobra.Command {
 					req.Rungs = rungs
 				} else {
 					req.Ladder = &profile
+				}
+				changed = true
+			}
+			if fl.Changed("node") {
+				// The exact ordered list, primary first (DR-13).
+				req.Nodes = []string{}
+				for _, n := range nodes {
+					req.Nodes = append(req.Nodes, splitList(n)...)
+				}
+				if len(req.Nodes) == 0 {
+					return deyerr.New(deyerr.C008, deyerr.Params{"tunnel": args[0]})
 				}
 				changed = true
 			}
@@ -522,6 +535,11 @@ func newTunnelEditCmd(g *Globals) *cobra.Command {
 			if !changed {
 				return usageErr(i18n.T(i18n.CLIEditNothing))
 			}
+			if req.Nodes != nil && !yes {
+				if err := g.confirmActiveNodeKept(cmd.Context(), args[0], req.Nodes); err != nil {
+					return err
+				}
+			}
 			p := g.newProgress()
 			var t api.TunnelInfo
 			err := g.callLong(cmd.Context(), func(ctx context.Context, l api.Local) (err error) {
@@ -547,7 +565,28 @@ func newTunnelEditCmd(g *Globals) *cobra.Command {
 	f.StringVar(&tlsMode, "tls-mode", "", i18n.T(i18n.CLIFlagTLSMode))
 	f.StringVar(&tlsCert, "tls-cert", "", i18n.T(i18n.CLIFlagTLSCert))
 	f.StringVar(&tlsKey, "tls-key", "", i18n.T(i18n.CLIFlagTLSKey))
+	f.StringArrayVar(&nodes, "node", nil, i18n.T(i18n.CLIFlagEditNodes))
+	f.BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
 	return cmd
+}
+
+// confirmActiveNodeKept asks before a new node list leaves out the node
+// that carries tunnel id now: the engine then moves the tunnel at once.
+// A list that keeps it only changes the order; the canary fails back to
+// the new primary on its schedule (DR-13).
+func (g *Globals) confirmActiveNodeKept(ctx context.Context, id string, nodes []string) error {
+	var d api.TunnelDetail
+	err := g.call(ctx, func(ctx context.Context, l api.Local) (err error) {
+		d, err = l.TunnelShow(ctx, id)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if d.ActiveNode == "" || slices.Contains(nodes, d.ActiveNode) {
+		return nil
+	}
+	return g.confirm(i18n.T(i18n.CLITunnelEditActiveLost, d.ActiveNode, id, nodes[0]), false)
 }
 
 func newTunnelEnableCmd(g *Globals, enable bool) *cobra.Command {

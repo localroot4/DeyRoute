@@ -1647,6 +1647,8 @@ const (
 	CLITunnelEditShort           Key = "cli.tunnel_edit_short"
 	CLITunnelEditExample         Key = "cli.tunnel_edit_example"
 	CLIEditNothing               Key = "cli.edit_nothing"
+	CLIFlagEditNodes             Key = "cli.flag_edit_nodes"
+	CLITunnelEditActiveLost      Key = "cli.tunnel_edit_active_lost"
 	CLITunnelUpdated             Key = "cli.tunnel_updated"
 	CLITunnelEnableShort         Key = "cli.tunnel_enable_short"
 	CLITunnelEnableExample       Key = "cli.tunnel_enable_example"
@@ -2239,9 +2241,11 @@ var cliEN = map[Key]string{
 	CLIProbesNone:                "No probe results yet.",
 	CLIProbesLine:                "%d probes: %d ok, %d failed, median RTT %s",
 	CLIProbesLastFail:            "last failure %s (%s)",
-	CLITunnelEditShort:           "Change a tunnel's name, ladder, failover policy or probe port",
-	CLITunnelEditExample:         "  deyroute tunnel edit main --name \"Main 443\"\n  deyroute tunnel edit main --ladder stealth --policy transport_only\n  deyroute tunnel edit main --probe-port 2053\n  deyroute tunnel edit main --tls-mode acme",
-	CLIEditNothing:               "nothing to change: give --name, --ladder, --policy, --probe-port or --tls-mode",
+	CLITunnelEditShort:           "Change a tunnel's name, ladder, node order, failover policy or probe port",
+	CLITunnelEditExample:         "  deyroute tunnel edit main --name \"Main 443\"\n  deyroute tunnel edit main --ladder stealth --policy transport_only\n  deyroute tunnel edit main --probe-port 2053\n  deyroute tunnel edit main --tls-mode acme\n  deyroute tunnel edit main --node nl-1 --node de-1",
+	CLIEditNothing:               "nothing to change: give --name, --ladder, --node, --policy, --probe-port or --tls-mode",
+	CLIFlagEditNodes:             "the complete node list in order, primary first (repeat the flag: --node nl-1 --node de-1); traffic stays on the active node until failback",
+	CLITunnelEditActiveLost:      "Node %s carries tunnel %s now and is not in the new node list: the tunnel moves to %s and its users lose their connections.",
 	CLITunnelUpdated:             "Tunnel %s updated.",
 	CLITunnelEnableShort:         "Enable a tunnel",
 	CLITunnelEnableExample:       "  deyroute tunnel enable main",

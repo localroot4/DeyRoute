@@ -27,10 +27,10 @@ func e2ePort(t *testing.T) int {
 const e2eLadder = "direct/native"
 
 // startHubWithT5 runs the real hub with node de-1 (never connected) and,
-// when port is not 0, tunnel t5 on that port.
-func startHubWithT5(t *testing.T, e *env, port int) {
+// when port is not 0, tunnel t5 on that port; more edit the config after.
+func startHubWithT5(t *testing.T, e *env, port int, more ...func(*config.Config)) {
 	t.Helper()
-	startRealHub(t, e, func(c *config.Config) {
+	startRealHub(t, e, append([]func(*config.Config){func(c *config.Config) {
 		c.Nodes = append(c.Nodes, config.Node{ID: "de-1", Name: "de-1", PublicIP: "203.0.113.10", CertFingerprint: config.SpecPlaceholderFingerprint})
 		if port != 0 {
 			tn := config.NewTunnel("t5", "t5", []string{"de-1"},
@@ -38,16 +38,22 @@ func startHubWithT5(t *testing.T, e *env, port int) {
 			tn.Ladder = config.LadderRef{Inline: []string{e2eLadder}}
 			c.Tunnels = append(c.Tunnels, tn)
 		}
-	})
+	}}, more...)...)
+}
+
+// hubConfig loads the hub's config.yaml.
+func (e *env) hubConfig() *config.Config {
+	e.t.Helper()
+	c, err := config.LoadWith(filepath.Join(e.root, config.DefaultPath), validateOptions())
+	require.NoError(e.t, err)
+	return c
 }
 
 // tunnelIDs reads the tunnel ids of the hub's config.yaml.
 func (e *env) tunnelIDs() []string {
 	e.t.Helper()
-	c, err := config.LoadWith(filepath.Join(e.root, config.DefaultPath), validateOptions())
-	require.NoError(e.t, err)
 	ids := []string{}
-	for _, tn := range c.Tunnels {
+	for _, tn := range e.hubConfig().Tunnels {
 		ids = append(ids, tn.ID)
 	}
 	return ids
