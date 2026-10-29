@@ -314,6 +314,20 @@ The `TunnelDetail` DTO: every TunnelInfo field plus
 
 `{"schema", "tunnel": TunnelInfo, "steps": [Step]}`
 
+Flags: `--node <id>` (repeatable, or ids separated by commas) and `--yes`,
+besides `--name`, `--ladder`, `--policy`, `--probe-port`, `--tls-mode`,
+`--tls-cert` and `--tls-key`.
+
+- `--node` sets the exact ordered node list, primary first; `tunnel.nodes`
+  is that list at once. Reordering moves no traffic: `tunnel.active_node`
+  stays the same, and the canary fails back to the new `nodes[0]` on its
+  normal schedule (`active_node` reaches it then). An empty list is
+  `DEY-C008`, a duplicate `DEY-C002`, an invalid id `DEY-C007`, a node that
+  has not joined `DEY-C010` (exit 1, nothing changed).
+- When the list leaves out the active node, the command needs a
+  confirmation: `--yes`, or exit 3 without a terminal (nothing changed).
+  The tunnel then moves to another node at once.
+
 ### `deyroute tunnel enable|disable <id>`
 
 `{"schema", "ok": true, "tunnel", "enabled"}`

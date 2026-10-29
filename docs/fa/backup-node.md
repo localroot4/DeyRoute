@@ -31,9 +31,21 @@ Backup only works if the same service runs on both nodes.
 می‌توانید هنگام ساخت تانل هم پشتیبان را بدهید:
 `deyroute tunnel add --node de-1 --ports 443,2053 --name main --backup nl-1`،
 یا در حالت Advanced در `2) Tunnels` ← `1) Add tunnel`: سؤال `Backup node` بقیه Nodeهای آنلاین را با شماره فهرست می‌کند و هشدار ثابت بالای آن است، و صفحه پیشرفت با همان دو خط تمام می‌شود.
-ترتیب ثابت است: اولین Node اصلی است و بقیه به ترتیب اضافه شدن، پشتیبان. `deyroute tunnel show main` آن‌ها را به شکل `de-1 (primary), nl-1 (backup)` نشان می‌دهد.
+اولین Node اصلی است و بقیه به ترتیب اضافه شدن، پشتیبان. `deyroute tunnel show main` آن‌ها را به شکل `de-1 (primary), nl-1 (backup)` نشان می‌دهد.
 
-حذف Node پشتیبان:
+### عوض کردن ترتیب
+
+`tunnel edit --node` فهرست کامل Nodeها را به ترتیب تعیین می‌کند؛ اولی Node اصلی است. گزینه را تکرار کنید (یا شناسه‌ها را با کاما جدا کنید):
+
+```bash
+deyroute tunnel edit main --node nl-1 --node de-1
+```
+
+حالا `nl-1` اصلی است و `de-1` پشتیبان؛ `tunnel show main` همان لحظه همین را نشان می‌دهد. ترتیب جدید ترافیک را جابه‌جا نمی‌کند: تانل روی همان Nodeی می‌ماند که الان ترافیک را می‌برد و با failback معمولی به Node اصلی جدید برمی‌گردد ([پایین‌تر](#failback-برگشت-به-node-اصلی) را ببینید)؛ یعنی اول canary به سمت `nl-1` باید `recover_threshold` پروب را پاس کند. با `deyroute tunnel switch main --node nl-1` تانل همین حالا جابه‌جا می‌شود.
+
+Nodeی که در فهرست نباشد دیگر این تانل را سرویس نمی‌دهد. اگر این همان Nodeی باشد که الان ترافیک را می‌برد، تانل همان لحظه به Node دیگری می‌رود و اتصال کاربران قطع می‌شود؛ برای همین دستور اول از شما می‌خواهد `yes` تایپ کنید. `--yes` این سؤال را رد می‌کند، و بدون ترمینال و بدون `--yes` دستور با کد خروج 3 متوقف می‌شود و چیزی را عوض نمی‌کند. Node تکراری `DEY-C002` و Nodeی که join نشده `DEY-C010` می‌دهد.
+
+حذف Node پشتیبان (یا کنار گذاشتنش از `tunnel edit --node`):
 
 ```bash
 deyroute tunnel backup remove main --node nl-1

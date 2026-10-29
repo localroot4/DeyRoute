@@ -181,6 +181,7 @@ deyroute port set main 443 --probe tls                # عوض کردن نوع �
 deyroute port remove main 8443
 deyroute tunnel edit main --name "Main 443"
 deyroute tunnel edit main --probe-port 2053           # پورتی که پروب سلامت با آن کار می‌کند
+deyroute tunnel edit main --node nl-1 --node de-1     # ترتیب Nodeها، اول Node اصلی (backup-node.md)
 deyroute tunnel restart main
 deyroute tunnel disable main                          # ارسال را متوقف می‌کند (تأیید با yes)
 deyroute tunnel enable main

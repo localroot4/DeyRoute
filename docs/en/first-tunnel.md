@@ -242,6 +242,7 @@ deyroute port set main 443 --probe tls                # change the probe kind
 deyroute port remove main 8443
 deyroute tunnel edit main --name "Main 443"
 deyroute tunnel edit main --probe-port 2053           # which port the health probe uses
+deyroute tunnel edit main --node nl-1 --node de-1     # node order, primary first (backup-node.md)
 deyroute tunnel restart main
 deyroute tunnel disable main                          # stops forwarding (asks for yes)
 deyroute tunnel enable main
