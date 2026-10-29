@@ -100,6 +100,11 @@ type Hub struct {
 	fwMu      sync.Mutex // guards fw
 	fw        firewallStatus
 
+	// fwLive is the fingerprint of the table applied last ("" = unknown)
+	// and fwReport deduplicates firewall_reapplied; both fwApplyMu.
+	fwLive   string
+	fwReport firewall.ReportGate
+
 	assetMu  sync.Mutex // serialises downloads of other architectures
 	digestMu sync.Mutex
 	digests  map[string]fileDigest
@@ -456,6 +461,7 @@ func (h *Hub) Serve(ctx context.Context) error {
 	run(func() { h.watchdogLoop(ctx) })
 	run(func() { h.monitorLoop(ctx) })
 	run(func() { h.firewallLoop(ctx) })
+	run(func() { h.firewallReassertLoop(ctx) })
 	run(func() { h.notifyLoop(ctx) })
 	run(func() { h.snapshotLoop(ctx) })
 	run(func() {

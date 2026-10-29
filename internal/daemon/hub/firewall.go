@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/localroot4/deyroute/internal/backend"
@@ -11,6 +12,7 @@ import (
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/firewall"
 	dlog "github.com/localroot4/deyroute/internal/log"
+	"github.com/localroot4/deyroute/internal/state"
 )
 
 // Firewall manager limits.
@@ -132,6 +134,13 @@ func (h *Hub) firewallLoop(ctx context.Context) {
 func (h *Hub) applyFirewall(ctx context.Context) error {
 	h.fwApplyMu.Lock()
 	defer h.fwApplyMu.Unlock()
+	return h.applyFirewallLocked(ctx)
+}
+
+// applyFirewallLocked is applyFirewall with fwApplyMu held. After an apply
+// it takes the fingerprint of the live table the periodic check compares
+// (reassertFirewall), unless that check is off.
+func (h *Hub) applyFirewallLocked(ctx context.Context) error {
 	cfg := h.Config()
 	sides := h.activeHubSides()
 	if !h.tunnelsReady() {
@@ -172,6 +181,11 @@ func (h *Hub) applyFirewall(ctx context.Context) error {
 	if managed && err == nil {
 		h.saveNATCarry(spec)
 	}
+	h.fwLive = ""
+	if managed && err == nil && !h.o.DisableFirewall && cfg.FirewallReassertInterval() > 0 {
+		// Unknown ("") when nft cannot list it now: the next check takes it.
+		h.fwLive, _ = firewall.Fingerprint(ctx, h.o.Runner)
+	}
 	h.fwMu.Lock()
 	defer h.fwMu.Unlock()
 	h.fw.spec, h.fw.managed, h.fw.done, h.fw.err = spec, managed, true, err
@@ -179,6 +193,107 @@ func (h *Hub) applyFirewall(ctx context.Context) error {
 		h.fw.applied = h.now()
 	}
 	return err
+}
+
+// firewallReassertLoop runs reassertFirewall every
+// security.firewall_reassert_s seconds (Options.FirewallReassertTick in
+// tests). While the check is off it looks at the configuration again after
+// the default interval, so switching it on takes effect without a restart.
+func (h *Hub) firewallReassertLoop(ctx context.Context) {
+	for {
+		every := h.o.FirewallReassertTick
+		if every <= 0 {
+			every = h.Config().FirewallReassertInterval()
+		}
+		wait := every
+		if wait <= 0 {
+			wait = config.DefaultFirewallReassertS * time.Second
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
+		if every > 0 {
+			h.reassertFirewall(ctx)
+		}
+	}
+}
+
+// Reasons of reassertFirewall (event firewall_reapplied).
+const (
+	reassertMissing = firewall.ReasonMissing
+	reassertDrift   = firewall.ReasonDrift
+)
+
+// reassertFirewall compares the live table inet deyroute with the one the
+// hub applied last and applies it again when it is missing or changed
+// (another tool, `nft flush ruleset`, an admin; DR-14). It returns the
+// reason ("missing", "drift") or "" when nothing was applied. It runs
+// under the apply lock, so it never races a real apply, and only while
+// the firewall is managed, the check is on (security.firewall_reassert_s)
+// and the last apply succeeded: a failed apply is already reported
+// (DEY-P019) and retried by the next change. The table is computed anew,
+// as by every apply. Event firewall_reapplied is emitted at most once per
+// 10 minutes per reason; the other re-applies are logged.
+func (h *Hub) reassertFirewall(ctx context.Context) string {
+	h.fwApplyMu.Lock()
+	reason := h.reassertFirewallLocked(ctx)
+	report := reason != "" && h.fwReport.Due(reason, h.now())
+	h.fwApplyMu.Unlock()
+	if reason == "" {
+		return ""
+	}
+	what := "was missing"
+	if reason == reassertDrift {
+		what = "was changed by something else"
+	}
+	msg := "table " + firewall.TableRef + " " + what + "; deyroute applied it again"
+	if !report {
+		h.log.Info(msg+" (reported less often)", slog.String("event", state.EvFirewallReapplied), slog.String("reason", reason))
+		return reason
+	}
+	h.Emit(state.Event{Type: state.EvFirewallReapplied, Level: state.LevelWarn, Reason: reason, Message: msg})
+	return reason
+}
+
+// reassertFirewallLocked is reassertFirewall's check and apply (fwApplyMu
+// held).
+func (h *Hub) reassertFirewallLocked(ctx context.Context) string {
+	cfg := h.Config()
+	if h.o.DisableFirewall || !firewallManaged(cfg) || cfg.FirewallReassertInterval() <= 0 {
+		return ""
+	}
+	h.fwMu.Lock()
+	ok := h.fw.done && h.fw.managed && h.fw.err == nil
+	h.fwMu.Unlock()
+	if !ok {
+		return ""
+	}
+	qctx, cancel := context.WithTimeout(ctx, firewallApplyTimeout)
+	live, err := firewall.Fingerprint(qctx, h.o.Runner)
+	cancel()
+	var reason string
+	switch {
+	case err != nil:
+		h.log.Warn("cannot list table "+firewall.TableRef+" to check it", dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		return ""
+	case live == "":
+		reason = reassertMissing
+	case h.fwLive == "":
+		h.fwLive = live // not listed after the apply: this is the table
+		return ""
+	case live != h.fwLive:
+		reason = reassertDrift
+	default:
+		return ""
+	}
+	if err := h.applyFirewallLocked(ctx); err != nil {
+		return "" // logged and shown as DEY-P019
+	}
+	return reason
 }
 
 // removeFirewall deletes table inet deyroute once security.firewall_managed is

@@ -151,6 +151,10 @@ type Options struct {
 	FirewallDebounce time.Duration
 	SnapshotInterval time.Duration
 	NodePersistEvery time.Duration
+	// FirewallReassertTick replaces security.firewall_reassert_s as the
+	// interval of the periodic firewall check (tests); 0 = the
+	// configuration's. The check stays off while the key is 0.
+	FirewallReassertTick time.Duration
 	// RouteStable is how long a front node must stay connected directly
 	// before nodes[].route goes back to direct (30 s).
 	RouteStable time.Duration
