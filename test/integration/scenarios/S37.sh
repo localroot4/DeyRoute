@@ -16,7 +16,7 @@ source "$(dirname "$0")/../lib.sh"
 setup_pair client
 serve_http node1 8443 1
 
-table_on() { on "$1" nft list table inet deyroute | grep -q "$2"; }
+table_on() { on "$1" nft list table inet deyroute | contains "$2"; }
 # up_through SECONDS SERVICE PATTERN TUNNEL: the table of SERVICE holds
 # PATTERN again within SECONDS, and TUNNEL is UP at every look meanwhile.
 up_through() {

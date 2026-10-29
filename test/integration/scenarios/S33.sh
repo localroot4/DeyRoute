@@ -79,7 +79,7 @@ for tr in "${transports[@]}"; do
     [ "$(active_transport "$T")" = "$tr" ] || fail "$tr: $T left $tr after port add"
     ! has_event switch_transport "$T" || fail "$tr: port add caused a failover"
     [ "$(main_pid hub deyroute-hub.service)" = "$hub_pid" ] || fail "$tr: the hub daemon restarted during port add"
-    sh_on hub "nft list table inet deyroute" | grep -q 'dport 9443.*dnat' ||
+    sh_on hub "nft list table inet deyroute" | contains 'dport 9443.*dnat' ||
       fail "$tr: no DNAT rule for 9443 in table inet deyroute"
     log "$tr: port 9443 added to the running tunnel carries at once"
   fi

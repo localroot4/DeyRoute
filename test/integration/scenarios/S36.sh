@@ -94,7 +94,7 @@ refused() {
   on node1 cat /var/log/deyroute/node.log |
     jq -rR 'fromjson? | select(.msg == "tunnel log rotation refused") | "\(.file) \(.reason)"'
 }
-warned() { refused | grep -qx "$D/s36-evil.log symlink" && refused | grep -qx "$L staging"; }
+warned() { refused | contains -x "$D/s36-evil.log symlink" && refused | contains -x "$L staging"; }
 wait_for 150 "node.log warns about the planted links" warned
 
 [ "$(sums)" = "$before" ] || fail "a root file changed: $(sums)"
@@ -141,8 +141,8 @@ for s in hub node1; do
   [ "$m" = "root 1" ] || fail "$L2 on $s is $m, want root's with one link"
   wait_for 30 "$L2 on $s holds the tunnel's output" on "$s" test -s "$L2"
 done
-replaced hub hub | grep -qx "$L2 symlink" || fail "hub.log has no 'tunnel log replaced' for $L2: $(replaced hub hub)"
-replaced node1 node | grep -qx "$L2 symlink" || fail "node.log has no 'tunnel log replaced' for $L2: $(replaced node1 node)"
+replaced hub hub | contains -x "$L2 symlink" || fail "hub.log has no 'tunnel log replaced' for $L2: $(replaced hub hub)"
+replaced node1 node | contains -x "$L2 symlink" || fail "node.log has no 'tunnel log replaced' for $L2: $(replaced node1 node)"
 [ "$(fetch_via_hub 8444)" = "$(blob_sha node1)" ] || fail "no traffic through $T2"
 log "replaced: hub $(replaced hub hub | tr '\n' ';') node1 $(replaced node1 node | tr '\n' ';')"
 
@@ -178,7 +178,7 @@ for s in hub node1; do
 done
 made_sticky() {
   on "$1" cat "/var/log/deyroute/$2.log" |
-    jq -rR 'fromjson? | select(.msg == "tunnel log directory made sticky") | "\(.from) \(.to)"' | grep -qx '0770 1770'
+    jq -rR 'fromjson? | select(.msg == "tunnel log directory made sticky") | "\(.from) \(.to)"' | contains -x '0770 1770'
 }
 made_sticky hub hub || fail "hub.log does not say the tunnel log directory was made sticky"
 made_sticky node1 node || fail "node.log does not say the tunnel log directory was made sticky"
@@ -188,8 +188,8 @@ for s in hub node1; do
 done
 [ "$(sum5 hub)" = "$hub5" ] || fail "/etc/s36-victim-5 changed on the hub"
 [ "$(sum5 node1)" = "$node5" ] || fail "/etc/s36-victim-5 changed on node1"
-replaced hub hub | grep -qx "$L symlink" || fail "hub.log has no 'tunnel log replaced' for $L: $(replaced hub hub)"
-replaced node1 node | grep -qx "$L symlink" || fail "node.log has no 'tunnel log replaced' for $L: $(replaced node1 node)"
+replaced hub hub | contains -x "$L symlink" || fail "hub.log has no 'tunnel log replaced' for $L: $(replaced hub hub)"
+replaced node1 node | contains -x "$L symlink" || fail "node.log has no 'tunnel log replaced' for $L: $(replaced node1 node)"
 wait_node_online "$NODE1" 90
 wait_tunnel_up "$T"
 # The running backends still write to what systemd opened before. When one
@@ -237,8 +237,8 @@ for s in hub node1; do
   m=$(on "$s" stat -c '%U %h' "$L3")
   [ "$m" = "root 1" ] || fail "$L3 on $s is $m, want root's with one link"
 done
-replaced hub hub | grep -qx "$L3 not_regular" || fail "hub.log has no 'tunnel log replaced' for $L3: $(replaced hub hub)"
-replaced node1 node | grep -qx "$L3 not_regular" || fail "node.log has no 'tunnel log replaced' for $L3: $(replaced node1 node)"
+replaced hub hub | contains -x "$L3 not_regular" || fail "hub.log has no 'tunnel log replaced' for $L3: $(replaced hub hub)"
+replaced node1 node | contains -x "$L3 not_regular" || fail "node.log has no 'tunnel log replaced' for $L3: $(replaced node1 node)"
 [ "$(fetch_via_hub 8445)" = "$(blob_sha node1)" ] || fail "no traffic through $T3"
 aside_gone() { [ -z "$(on "$1" find "$D" -maxdepth 1 -name "$T3.log.removed-*")" ]; }
 for s in hub node1; do

@@ -40,7 +40,7 @@ expect_code DEY-N001 dey --on node2 join "$link" --yes >&2
 cport=$(dey status --json | jq -r .hub.control_port)
 ctl_rules() { on hub nft list table inet deyroute | grep -E "tcp dport $cport( |$)"; }
 revoked_link=$(join_link)
-ctl_rules | grep -qE "tcp dport $cport accept" || fail "a join command did not open the join window:"$'\n'"$(ctl_rules)"
+ctl_rules | contains -E "tcp dport $cport accept" || fail "a join command did not open the join window:"$'\n'"$(ctl_rules)"
 rv=$(dey node join-revoke --json)
 # Every live token goes: the one above and any an earlier step left
 # unused (the wrong-fingerprint join never spends its token).
