@@ -7,6 +7,9 @@
 # The hub is set up the way automation does it (DR-07): installed with
 # --no-setup, then `setup --public-ip` stores exactly the given address (the
 # lab address is private, hence --allow-private-ip).
+# Both daemons run sandboxed (DR-20): ProtectSystem=strict, so /usr is
+# read-only for them while /var/lib/deyroute stays writable, and the bounding
+# set holds CAP_NET_ADMIN but neither CAP_SYS_ADMIN nor CAP_SYS_MODULE.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -44,6 +47,20 @@ for pair in hub:deyroute-hub node1:deyroute-node; do
   [ "$m" = 700 ] || fail "/etc/deyroute/secrets on $s is $m, want 700"
   bad=$(sh_on "$s" "find /etc/deyroute/secrets -type f ! -perm 0600 -printf '%p %m\n'")
   [ -z "$bad" ] || fail "secret files on $s are not 0600: $bad"
+  # Sandbox (DR-20), seen from inside the daemon's mount namespace.
+  [ "$(on "$s" systemctl show -p ProtectSystem --value "$u.service")" = strict ] || fail "$u on $s: ProtectSystem is not strict"
+  pid=$(main_pid "$s" "$u.service")
+  if on "$s" nsenter -t "$pid" -m touch /usr/.dey-rw-probe 2>/dev/null; then
+    on "$s" rm -f /usr/.dey-rw-probe
+    fail "$u on $s can write /usr"
+  fi
+  on "$s" nsenter -t "$pid" -m sh -c 'touch /var/lib/deyroute/.dey-rw-probe && rm /var/lib/deyroute/.dey-rw-probe' ||
+    fail "$u on $s cannot write /var/lib/deyroute"
+  bnd=$((16#$(on "$s" sed -n 's/^CapBnd:[[:space:]]*//p' "/proc/$pid/status")))
+  # Bits: CAP_NET_ADMIN 12, CAP_SYS_MODULE 16, CAP_SYS_ADMIN 21.
+  if [ $((bnd >> 12 & 1)) != 1 ] || [ $((bnd >> 16 & 1)) != 0 ] || [ $((bnd >> 21 & 1)) != 0 ]; then
+    fail "$u on $s: unexpected capability bounding set $(printf '%x' "$bnd")"
+  fi
 done
 
 au=$(dey update auto --json)
