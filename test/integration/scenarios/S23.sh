@@ -4,6 +4,10 @@
 # (net.ipv4/net.ipv6) are compared; global keys (fs.*, vm.*, most of net.core)
 # are restored per server from sysctl-before-deyroute.conf, whose removal the
 # file comparison checks.
+# The node joins the way automation does it (DR-09): --sysctl balanced
+# --reserve-ports 8443; the reservation (with the control range) is live, in
+# 99-deyroute.conf, survives the hub's `optimize auto` and is exactly the
+# previous value again after the uninstall.
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -24,11 +28,30 @@ serve_http node1 8443 1 # the lab service exists before and after
 before_h=$(snapshot hub)
 before_n=$(snapshot node1)
 
+rkey=net.ipv4.ip_local_reserved_ports
+prev_rp=$(on node1 sysctl -n "$rkey")
+# has_reserved SERVICE: the live reservation holds 8443 and the control range.
+has_reserved() {
+  local v
+  v=$(on "$1" sysctl -n "$rkey")
+  grep -Eq '(^|,)8443(,|$)' <<<"$v" && grep -Eq '(^|,)30000-31999(,|$)' <<<"$v"
+}
+
 install_hub hub ir-1 >&2
-install_node node1 >&2
+on node1 bash /dist/install.sh --local "$ARCHIVE" --no-setup >&2 || fail "the node installer failed"
+jn=$(dey --on node1 join "$(join_link)" --sysctl balanced --reserve-ports 8443 --json) || fail "join failed: $jn"
+jq -e '.sysctl_profile == "balanced" and .reserved_ports == ["30000-31999", "8443"]' <<<"$jn" >/dev/null ||
+  fail "join --sysctl balanced --reserve-ports 8443: $jn"
+has_reserved node1 || fail "the node does not reserve 8443 and 30000-31999: $(on node1 sysctl -n "$rkey")"
+live_rp=$(on node1 sysctl -n "$rkey")
+on node1 grep -qx "$rkey = $live_rp" /etc/sysctl.d/99-deyroute.conf ||
+  fail "99-deyroute.conf does not reserve $live_rp: $(on node1 cat /etc/sysctl.d/99-deyroute.conf)"
 NODE1=$(node_id_of node1)
 wait_node_online "$NODE1"
-dey optimize apply --profile balanced --json >/dev/null
+# The hub (set up with --yes: profile auto) tunes every node; the node keeps
+# its reservation.
+dey optimize auto --yes --json >/dev/null || fail "optimize auto failed"
+has_reserved node1 || fail "the reservation did not survive optimize auto: $(on node1 sysctl -n "$rkey")"
 T=$(add_tunnel "$NODE1" 8443)
 wait_tunnel_up "$T"
 
@@ -37,6 +60,9 @@ jq -e --arg n "$NODE1" '.nodes | index($n) != null' <<<"$res" >/dev/null || fail
 node_gone() { on node1 test ! -e /usr/local/bin/deyroute; }
 wait_for 60 "node uninstalled" node_gone
 sleep 3
+
+now_rp=$(on node1 sysctl -n "$rkey")
+[ "$now_rp" = "$prev_rp" ] || fail "uninstall left $rkey at '$now_rp', before the install it was '$prev_rp'"
 
 rc=0
 diff <(echo "$before_h") <(snapshot hub) >&2 || { log "hub differs from before the install (above)"; rc=1; }
