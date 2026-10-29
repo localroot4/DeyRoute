@@ -66,9 +66,9 @@ func portSpecs(in []ports.Spec) []api.PortSpec {
 }
 
 func newTunnelAddCmd(g *Globals) *cobra.Command {
-	var node, portsIn, name, ladder, tlsMode string
+	var node, portsIn, name, id, ladder, tlsMode string
 	var backups []string
-	var yes bool
+	var yes, allowRename bool
 	cmd := &cobra.Command{
 		Use:     "add --node <id> --ports 443,2053[,27015/udp]",
 		Short:   i18n.T(i18n.CLITunnelAddShort),
@@ -87,6 +87,15 @@ func newTunnelAddCmd(g *Globals) *cobra.Command {
 				return err
 			}
 			req := api.TunnelAddRequest{Name: strings.TrimSpace(name), Node: strings.TrimSpace(node), Ports: portSpecs(specs)}
+			if cmd.Flags().Changed("id") {
+				req.ID = strings.TrimSpace(id)
+				if !config.ValidID(req.ID) {
+					return deyerr.New(deyerr.C007, deyerr.Params{"kind": "tunnel", "id": req.ID})
+				}
+			}
+			// Only a person at a terminal accepts a numbered id for a taken
+			// --name; a script gets DEY-C002 instead (DR-12).
+			req.NoRename = req.ID == "" && req.Name != "" && (yes || !g.IsTTY) && !allowRename
 			if cmd.Flags().Changed("tls-mode") {
 				// custom needs certificate files, which TunnelAdd does not
 				// take: it is set afterwards with tunnel edit.
@@ -140,6 +149,8 @@ func newTunnelAddCmd(g *Globals) *cobra.Command {
 	f.StringVar(&node, "node", "", i18n.T(i18n.CLIFlagTunnelNode))
 	f.StringVar(&portsIn, "ports", "", i18n.T(i18n.CLIFlagPorts))
 	f.StringVar(&name, "name", "", i18n.T(i18n.CLIFlagTunnelName))
+	f.StringVar(&id, "id", "", i18n.T(i18n.CLIFlagTunnelID))
+	f.BoolVar(&allowRename, "allow-rename", false, i18n.T(i18n.CLIFlagAllowRename))
 	f.StringVar(&ladder, "ladder", "", i18n.T(i18n.CLIFlagLadder))
 	f.StringArrayVar(&backups, "backup", nil, i18n.T(i18n.CLIFlagBackupNode))
 	f.StringVar(&tlsMode, "tls-mode", "", i18n.T(i18n.CLIFlagTLSModeAdd))

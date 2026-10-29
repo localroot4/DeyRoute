@@ -1449,6 +1449,8 @@ const (
 	CLIFlagBackupNodeOne         Key = "cli.flag_backup_node_one"
 	CLIOneBackupNode             Key = "cli.one_backup_node"
 	CLIFlagYesAdd                Key = "cli.flag_yes_add"
+	CLIFlagTunnelID              Key = "cli.flag_tunnel_id"
+	CLIFlagAllowRename           Key = "cli.flag_allow_rename"
 	CLIFlagPolicy                Key = "cli.flag_policy"
 	CLIFlagProbePort             Key = "cli.flag_probe_port"
 	CLIFlagSwitchTransport       Key = "cli.flag_switch_transport"
@@ -2042,6 +2044,8 @@ var cliEN = map[Key]string{
 	CLIFlagBackupNodeOne:         "backup node id, e.g. nl-1 (one node per command)",
 	CLIOneBackupNode:             "give one backup node per command (--node nl-1); run the command again for the next node",
 	CLIFlagYesAdd:                "create at once, without showing the summary first",
+	CLIFlagTunnelID:              "exact tunnel id, e.g. t5 (scripts: always pass it; a taken id fails with DEY-C002)",
+	CLIFlagAllowRename:           "without a terminal or with --yes: give a taken --name a numbered id (t5-2) instead of failing with DEY-C002",
 	CLIFlagPolicy:                "failover policy: transport_then_node, transport_only or node_only",
 	CLIFlagProbePort:             "listen port used by the health probe (0 = first TCP port)",
 	CLIFlagSwitchTransport:       "transport to switch to, e.g. backhaul/tcpmux",
@@ -2198,8 +2202,8 @@ var cliEN = map[Key]string{
 	CLIHubAnnounceOffline:        "! Offline, not told: %s. Run on each of them: deyroute node set-hub %s",
 	CLITunnelShort:               "Manage tunnels: add, list, show, edit, enable/disable, switch, failover",
 	CLITunnelAddShort:            "Create a tunnel to a node (default ladder, ports checked and opened)",
-	CLITunnelAddLong:             "Create a tunnel from this hub to a node. Every port is checked first; the tunnel\nstarts on the first rung of its ladder, all other rungs are warmed, the firewall\nis opened and the tunnel TLS certificate is created. Backup nodes take over when\nthe primary node fails (the same service must run on both).",
-	CLITunnelAddExample:          "  deyroute tunnel add --node de-1 --ports 443,2053\n  deyroute tunnel add --node de-1 --ports 443,27015/udp --name \"Main\" --backup nl-1 --yes\n  deyroute tunnel add --node de-1 --ports 443 --ladder backhaul/wssmux,rathole/noise",
+	CLITunnelAddLong:             "Create a tunnel from this hub to a node. Every port is checked first; the tunnel\nstarts on the first rung of its ladder, all other rungs are warmed, the firewall\nis opened and the tunnel TLS certificate is created. Backup nodes take over when\nthe primary node fails (the same service must run on both).\n\nThe id is --id, or derived from --name. At a terminal a taken name gets a\nnumbered id (main-2); without a terminal or with --yes it fails with DEY-C002\nunless --allow-rename is given. Scripts pass --id.",
+	CLITunnelAddExample:          "  deyroute tunnel add --node de-1 --ports 443,2053\n  deyroute tunnel add --node de-1 --ports 443,27015/udp --name \"Main\" --backup nl-1 --yes\n  deyroute tunnel add --id t5 --node de-1 --ports 2083 --yes --json\n  deyroute tunnel add --node de-1 --ports 443 --ladder backhaul/wssmux,rathole/noise",
 	CLITunnelAddSummary:          "New tunnel\n  node:    %s\n  ports:   %s\n  ladder:  %s\n  backup:  %s",
 	CLILadderDefault:             "default (by protocol)",
 	CLIAskCreateTunnel:           "Create the tunnel?",
