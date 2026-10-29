@@ -394,7 +394,8 @@ stated default until the owner decides · **[ANSWERED]** closed.
     `<log>.rotating` (finish root's regular file with one link, remove
     anything else) applies to the one an older version left in the log
     directory. Anything else at a name the rotation writes in the log
-    directory, a directory included, is removed and reported. The
+    directory is removed and reported; a directory is moved aside and
+    deleted in the background (C.56). The
     "tunnel log rotation refused" warnings are remembered per file and
     reason up to 1024 pairs per daemon run; beyond that they are not
     logged, so planted names cannot grow the daemon's memory. The node
@@ -521,36 +522,56 @@ stated default until the owner decides · **[ANSWERED]** closed.
     needed because systemd's own restarts (`Restart=always`) never go
     through them, and a restarted hub adopts running units without
     starting them. Anything else at the name is removed, the same way the
-    rotation removes what stands at its names. A missing log is created
-    with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0644`. That is the mode
-    systemd gives a file it creates (`0666` under `UMask=0022`), not the
-    `0600` of rotated files, so a log looks the same whoever created it;
-    the directory keeps other users out. Calls for the same path run one
-    at a time within a process. Each removal is logged as the warning
+    rotation removes what stands at its names: a link or a file is
+    unlinked, never followed, and a directory is renamed
+    `<name>.removed-<16 hex digits>` next to it, which frees the name at
+    once whatever the directory holds. The rotation loop deletes what was
+    renamed so in the tunnel log and the staging directory, at most 10000
+    removals per directory and minute (about a quarter of a second of
+    system calls). It empties a directory one level at a time and moves
+    its subdirectories up, so any depth costs three descriptors and no
+    path is built. A missing log is created with
+    `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0644`. That is the mode systemd
+    gives a file it creates (`0666` under `UMask=0022`), not the `0600` of
+    rotated files, so a log looks the same whoever created it; the
+    directory keeps other users out. Calls for the same path run one at a
+    time within a process. Each removal is logged as the warning
     `tunnel log replaced` with `file` and `reason`. The reasons are
     `symlink`, `not_regular` and `hardlink`, as for the rotation, plus the
-    new `owner`: a regular file with one link that belongs to another user,
-    which that user could still remove in the sticky directory. The warning
-    is logged once per file and reason per daemon run, with the same cap of
-    1024 pairs as C.48. If the check fails right before a unit starts, the
-    unit is not started and the error is the existing `DEY-X022` ("Cannot
-    write log file {path}"); no new code. If it fails when a service
-    starts, it is only logged (`cannot prepare a tunnel log`).
+    new `owner`: a regular file with one link that belongs to another
+    user, which that user could still remove in the sticky directory. The
+    warning is logged once per file and reason per daemon run, with the
+    same cap of 1024 pairs as C.48.
+    Root's file stays root's only while no other user can remove or rename
+    it before systemd opens the name. So the preparation first opens
+    `tunnels/` with `O_DIRECTORY|O_NOFOLLOW` and requires a directory of
+    root that has the sticky bit or no write bit for its group and others;
+    otherwise nothing at the name is touched. A link at `tunnels/` is
+    refused even when it leads to a good directory. If the check fails
+    right before a unit starts, the unit is not started and the error is
+    the existing `DEY-X022` ("Cannot write log file {path}"); no new code.
+    When the directory is refused, the why names the reason (a link,
+    another owner, the mode) and the fix is
+    `chown root:deyroute <dir> && chmod 1770 <dir>`. If the check fails
+    when a service starts, it is only logged
+    (`cannot prepare a tunnel log`).
     When the services start, they also add the sticky bit, and only that
     bit, to an existing `/var/log/deyroute/tunnels` owned by root. They do
-    this through a descriptor opened with `O_DIRECTORY|O_NOFOLLOW`, leave a
+    this through a descriptor opened with `O_DIRECTORY|O_NOFOLLOW` and log
+    `tunnel log directory made sticky` with `from` and `to`. They leave a
     link, a non-directory and a directory of another user alone, and log
-    `tunnel log directory made sticky` with `from` and `to`. This replaces
-    C.48's "an existing directory keeps its mode": `deyroute update` is now
-    enough on an older install.
+    the warning `cannot make the tunnel log directory sticky` for it. This
+    replaces C.48's "an existing directory keeps its mode":
+    `deyroute update` is now enough on an older install.
     The readers are `deyroute logs` on the hub and the node (follow
     included) and the log lines of a failed start (`DEY-B003`). They open a
-    log with `O_NOFOLLOW|O_NONBLOCK` and accept only a regular file: a link
-    or FIFO at the name shows no lines on the hub and is `DEY-X022` for the
-    node's `logs.tail`. Unlike the rotation and the preparation, they accept
-    a file with a second hard link (`nlink > 1`). The next start replaces
-    such a log, and a hard link to a file the `deyroute` user does not own
-    needs `fs.protected_hardlinks=0` (see C.57 d).
+    log with `O_NOFOLLOW|O_NONBLOCK` and accept only a regular file with a
+    single link, as the rotation, the preparation and `doctor collect` do.
+    A link, a FIFO or a file with a second hard link at the name shows no
+    lines on the hub and is `DEY-X022` for the node's `logs.tail`. That
+    command takes any valid tunnel id, also one the node never starts and
+    so never prepares; with `fs.protected_hardlinks=0` the `deyroute` user
+    could otherwise hard-link a root-only file there for a hub to read.
 57. **[OPEN] A tunnel log name can be free between starts (DR-01).** The
     preparation of C.56 runs only when the hub or the node starts a unit
     and when the services start. systemd also opens the log as root on its
@@ -578,11 +599,16 @@ stated default until the owner decides · **[ANSWERED]** closed.
     descriptor it had until it restarts (an unlinked file, or the file a
     link pointed to if systemd had already followed it before the update).
     The services do not restart such units.
-    c) The preparation and the rotation remove a planted directory with
-    everything in it. A backend that keeps adding entries can make that
-    slow, and the start of that tunnel's units waits for it (the lock is
-    per path, so other tunnels are not held up).
-    d) The readers accept `nlink > 1` (C.56).
+    c) (Resolved, see C.56.) A planted directory is no longer deleted
+    where it is found. The preparation and the rotation rename it aside at
+    once and the rotation loop deletes it in bounded steps, so neither a
+    unit start nor a service start waits for it. Before, the preparation
+    deleted it inline with everything in it: the services did this before
+    they were ready, the node held its instance lock meanwhile, and a deep
+    enough chain failed with `EMFILE` at `LimitNOFILE`. A backend that
+    keeps adding entries now only keeps its own files on disk longer.
+    d) (Resolved, see C.56.) The readers refuse `nlink > 1`, like the
+    rotation.
     Owner decision: (1), (2), or keep the documented rule and restart
     affected units by hand.
 58. **[DEFAULT] `node.allow_unsigned_updates`, a lab-only switch (DR-03).**

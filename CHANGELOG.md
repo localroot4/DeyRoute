@@ -6,6 +6,27 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Security — tunnel logs
+
+- A directory found at a name the rotation or the preparation of a tunnel
+  log writes is renamed `<name>.removed-<16 hex digits>` at once and
+  deleted in the background, at most 10000 entries per directory and
+  minute, so neither the start of a transport nor the start of a service
+  waits for it.
+- The hub and the node prepare a tunnel log only in a safe
+  `/var/log/deyroute/tunnels`: root's own directory with the sticky bit,
+  or closed to its group and others. At a link, in a directory of another
+  user or in a group-writable one without the sticky bit, the transport is
+  not started and the hub or node answers `DEY-X022`, whose why names the
+  reason; the services log `cannot make the tunnel log directory sticky`
+  for such a directory. Fix:
+  `chown root:deyroute /var/log/deyroute/tunnels && chmod 1770 /var/log/deyroute/tunnels`
+  (the services make a root-owned directory sticky themselves when they
+  start).
+- `deyroute logs` and the log lines shown with a failed start (`DEY-B003`)
+  no longer read a file with a second hard link at a log name
+  (docs/en/security.md, lab S36, QUESTIONS.md C.56).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs
