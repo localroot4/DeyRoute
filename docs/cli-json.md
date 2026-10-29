@@ -85,12 +85,22 @@ out the same way.
 
 Hub:
 `{"schema", "role": "hub", "name", "public_ip", "public_ip6", "private_ip"
-(bool: the detected address is not public), "control_port", "ca_fingerprint",
+(bool: the detected address is not public), "public_ip_source" (where
+`public_ip` came from: `"flag"` = `--public-ip`, `"detected"` = detected
+without a question, `"wizard"` = typed in the wizard), "control_port", "ca_fingerprint",
 "config_path", "sysctl_profile", "sysctl_warnings": [string],
 "firewall_managed", "service_started", "auto_update" (bool: `--auto-update
 on|off`, default off; stored as `hub.auto_update`), "steps": [Step], "join":
 JoinCommand}` — when the join command could not be obtained, `join_error`
 (ErrorDTO) replaces `join`.
+
+Flags: `--public-ip A.B.C.D` and `--public-ip6 X` store exactly that address
+(canonical form) as `hub.public_ip` / `hub.public_ip6`; a private, CGNAT,
+loopback or link-local address is `DEY-C013` (field `--public-ip` or
+`--public-ip6`) unless `--allow-private-ip` (test labs: private, CGNAT and
+loopback, never link-local). The three flags are `DEY-C013` with `--role
+node` and on `deyroute join`. Every refusal comes before any setup step
+(and before any question, unless the wizard has to ask for the role).
 
 Node (`--role node`): the document of `deyroute join`.
 

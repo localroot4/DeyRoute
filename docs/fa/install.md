@@ -133,6 +133,15 @@ deyroute setup --role hub --name ir-1 --yes
 deyroute setup --role hub --name ir-1 --control-port 44500
 ```
 
+روی سروری که پشت NAT است یا IP شناور دارد، تشخیص خودکار یک آدرس خصوصی پیدا می‌کند؛ راه‌اندازی فقط هشدار می‌دهد (`DEY-I021` و در `--json` مقدار `"private_ip": true`) و همان را ذخیره می‌کند. اسکریپت‌های خودکار باید آدرسی را بدهند که کاربران با آن به Hub وصل می‌شوند:
+
+```bash
+deyroute setup --role hub --name ir-1 --public-ip 203.0.113.7 --yes
+deyroute setup --role hub --name ir-1 --public-ip 203.0.113.7 --public-ip6 2001:db8::7 --yes --json
+```
+
+`--public-ip` یک آدرس IPv4 می‌گیرد (`hub.public_ip`) و `--public-ip6` یک آدرس IPv6 (`hub.public_ip6`)؛ هر دو دقیقاً همان‌طور که داده‌اید (به شکل استاندارد) ذخیره می‌شوند و ویزارد دیگر IP را نمی‌پرسد. آدرس خصوصی، CGNAT، loopback یا link-local با `DEY-C013` رد می‌شود؛ `--allow-private-ip` برای آزمایشگاه آدرس خصوصی، CGNAT یا loopback را قبول می‌کند (link-local را هرگز). این گزینه‌ها با `--role node` و روی `deyroute join` رد می‌شوند. خروجی `--json` می‌گوید آدرس از کجا آمده: `"public_ip_source": "flag"`، `"detected"` یا `"wizard"`. نصب‌کننده این گزینه‌ها را منتقل نمی‌کند: با `--no-setup` نصب کنید و بعد `deyroute setup` را با آن‌ها اجرا کنید.
+
 اگر ترمینال نباشد و گزینه‌ای هم ندهید، راه‌اندازی با `DEY-I014` می‌ایستد (ترمینالی برای ویزارد نیست). Node هیچ‌وقت این‌طور راه‌اندازی نمی‌شود؛ همیشه با لینکی که Hub می‌دهد Join می‌کند (`install.sh join 'dey://…'`).
 
 ## گزینه‌های نصاب
