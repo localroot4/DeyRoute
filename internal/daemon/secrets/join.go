@@ -184,6 +184,29 @@ func (j *JoinTokens) match(token, ip string, burn bool) error {
 	return nil
 }
 
+// RevokeAll deletes every token (`deyroute node join-revoke`, DR-16) with
+// one atomic rewrite of the file and returns how many were unexpired; the
+// expired entries go too. Without a token nothing is written. A token
+// revoked here fails like an unknown one (DEY-N001), and the join window
+// closes at the next firewall apply. Failure counters and blocks stay.
+func (j *JoinTokens) RevokeAll() (int, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	f, err := j.load()
+	if err != nil {
+		return 0, err
+	}
+	if len(f.Tokens) == 0 {
+		return 0, nil
+	}
+	n := len(live(f.Tokens, j.now()))
+	f.Tokens = nil
+	if err := j.save(f); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // Active reports whether at least one unexpired token exists: while it
 // does, the hub opens the control port to every address (join window,
 // QUESTIONS.md C.23).
