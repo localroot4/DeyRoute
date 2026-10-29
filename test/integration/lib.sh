@@ -491,8 +491,12 @@ fake_backend_archive() {
     tar -C /tmp/fb -czf /srv/mirror/$1.tar.gz $1 && sha256sum /srv/mirror/$1.tar.gz | cut -d' ' -f1" <<<"$2"
 }
 # override_backend NAME VERSION URL SHA256: install a manifest override on the
-# hub announcing NAME at VERSION from URL, and restart the hub to load it.
+# hub announcing NAME at VERSION from URL, signed with the lab key
+# (backends.yaml.minisig next to it, as `deyroute update manifest` writes
+# it: a node installs no version that only an unsigned override pins,
+# DR-03), and restart the hub to load it. The hub must accept the signature.
 override_backend() {
+  local tmp n
   on hub python3 - "$1" "$2" "$3" "$4" <<'PY'
 import re, sys
 name, ver, url, sha = sys.argv[1:]
@@ -504,8 +508,18 @@ b2 = re.sub(r'(amd64|arm64): https?://\S+', lambda x: x.group(1) + ': ' + url, b
 b2 = re.sub(r'sha256: \{[^}]*\}', 'sha256: { amd64: "%s", arm64: "%s" }' % (sha, sha), b2)
 open('/etc/deyroute/backends.yaml', 'w').write(src.replace(b, b2))
 PY
+  tmp=$(mktemp -d)
+  on hub cat /etc/deyroute/backends.yaml >"$tmp/backends.yaml"
+  lab_sign "$tmp/backends.yaml"
+  on hub sh -c 'cat > /etc/deyroute/backends.yaml.minisig' <"$tmp/backends.yaml.minisig"
+  rm -rf "$tmp"
+  n=$(sh_on hub "cat /var/log/deyroute/hub.log 2>/dev/null | wc -l")
   on hub systemctl restart deyroute-hub
   wait_for 60 "hub back after the manifest override" sh_on hub "deyroute status --json >/dev/null"
+  # The hub checks the signature when it loads the override (at start).
+  if sh_on hub "tail -n +$((n + 1)) /var/log/deyroute/hub.log" | grep -q 'manifest override has no valid signature'; then
+    fail "the hub did not accept the lab signature of the manifest override"
+  fi
 }
 
 # secrets_of SERVICE: every secret value on a server (tokens, keys, passwords),
