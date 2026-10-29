@@ -183,6 +183,66 @@ func writtenValues(conf []KV, b backupData) map[string]string {
 	return w
 }
 
+// reservedLedger is the ledger value of the reserved ports after an apply
+// that requested entries: what deyroute wrote before (written, the ledger
+// over 99-deyroute.conf) plus the requested entries. It is never the live
+// union, which also holds reservations of other programs: the revert
+// removes exactly the ledger's ports that were not reserved before
+// deyroute (subtractPorts), so a reservation another program made after
+// deyroute stays.
+func reservedLedger(written map[string]string, requested []string) string {
+	return unionPorts(written[KeyReservedPorts], requested)
+}
+
+// validReserved returns the valid entries of reserved (trimmed) and one
+// warning per invalid entry.
+func validReserved(reserved []string) (valid, warnings []string) {
+	for _, e := range reserved {
+		if _, ok := parsePorts(e); !ok || strings.TrimSpace(e) == "" {
+			warnings = append(warnings, fmt.Sprintf("skip %s entry %s: not a port or port range", KeyReservedPorts, e))
+			continue
+		}
+		valid = append(valid, strings.TrimSpace(e))
+	}
+	return valid, warnings
+}
+
+// FreeEphemeral returns how many ports of the profile's ephemeral range
+// (net.ipv4.ip_local_port_range: 10240-65535 for balanced, aggressive and
+// auto) the reserved entries leave free, and the range; 0, 0, 0 for off or
+// an unknown profile. Invalid entries are ignored.
+func FreeEphemeral(profile string, reserved []string) (free, lo, hi int) {
+	kvs, _ := Profile(profile, false)
+	for _, kv := range kvs {
+		if kv.Key != keyPortRange {
+			continue
+		}
+		f := strings.Fields(kv.Value)
+		if len(f) != 2 {
+			break
+		}
+		lo, _ = strconv.Atoi(f[0])
+		hi, _ = strconv.Atoi(f[1])
+	}
+	if hi == 0 {
+		return 0, 0, 0
+	}
+	set := portSet{}
+	for _, e := range reserved {
+		if add, ok := parsePorts(e); ok {
+			for i := range set {
+				set[i] |= add[i]
+			}
+		}
+	}
+	for p := lo; p <= hi; p++ {
+		if !set.has(p) {
+			free++
+		}
+	}
+	return free, lo, hi
+}
+
 // ---------------------------------------------------------------- apply
 
 // ApplyPlan applies an automatic plan (normally the one the owner saw):
@@ -249,6 +309,13 @@ func (m Manager) applyPlan(p Plan) (applied []Change, warnings []string, err err
 			b.Files[c.Key] = fileOrig{Content: string(data), Exists: err == nil}
 		}
 		b.Written[c.Key] = normalize(c.To)
+		if c.Key == KeyReservedPorts {
+			req := c.Requested
+			if len(req) == 0 {
+				req = []string{c.To} // a plan built without AutoPlan
+			}
+			b.Written[c.Key] = reservedLedger(written, req)
+		}
 	}
 	if err := m.writeBackup(b); err != nil {
 		return nil, nil, err

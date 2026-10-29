@@ -236,6 +236,10 @@ func (m Manager) Check(f sysinfo.Facts) (drift []DriftItem, findings []Finding, 
 		return nil, nil, err
 	}
 	later := m.laterSetters()
+	ledger := map[string]string{}
+	if b, err := m.readBackup(); err == nil {
+		ledger = b.Written
+	}
 	want := map[string]string{}
 	for _, kv := range conf {
 		want[kv.Key] = kv.Value
@@ -243,11 +247,22 @@ func (m Manager) Check(f sysinfo.Facts) (drift []DriftItem, findings []Finding, 
 		if !ok && strings.HasPrefix(kv.Key, conntrackPrefix) {
 			continue
 		}
+		// What a value must hold: the conf value, or for the reserved
+		// ports the entries deyroute requested (the ledger), which any
+		// superset keeps.
+		matches := func(v string) bool { return sameValue(kv.Key, v, kv.Value) }
+		if kv.Key == KeyReservedPorts {
+			need := kv.Value
+			if w, has := ledger[kv.Key]; has {
+				need = w
+			}
+			matches = func(v string) bool { return coversPorts(v, need) }
+		}
 		d := DriftItem{Key: kv.Key, Want: kv.Value, Live: live}
-		if s, has := later[kv.Key]; has && !sameValue(kv.Key, s.Value, kv.Value) {
+		if s, has := later[kv.Key]; has && !matches(s.Value) {
 			d.OverriddenBy = s.Path
 		}
-		if !ok || !sameValue(kv.Key, live, kv.Value) || d.OverriddenBy != "" {
+		if !ok || !matches(live) || d.OverriddenBy != "" {
 			drift = append(drift, d)
 		}
 	}
