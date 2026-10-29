@@ -697,6 +697,41 @@ stated default until the owner decides · **[ANSWERED]** closed.
     work); (c) add a release sequence to the signed manifest and refuse
     manifests older than the node's build (only for releases after the
     change). Owner decision.
+64. **[DEFAULT] A node's balanced and aggressive profiles reserve the
+    control range (DR-09).** Until now only the profile `auto` added the
+    backend control range `30000-31999` to
+    `net.ipv4.ip_local_reserved_ports`; a scripted join applied `balanced`,
+    which widens the ephemeral range to 10240-65535 and reserved nothing.
+    Every profile a node applies except `off`, at join or pushed by the
+    hub, now reserves the control range plus the entries of `join
+    --reserve-ports`, as a set union with the live value. `join` keeps
+    `balanced` as its default (`--sysctl` chooses), so a script gets
+    today's profile plus a safe superset. The sysctl ledger records the
+    entries deyroute requested, not the live union, so revert and uninstall
+    remove only deyroute's ports. The hub's own `optimize apply --profile
+    balanced` is unchanged (out of scope). Existing nodes reserve the range
+    at the next profile the hub pushes; CHANGELOG names the re-apply.
+65. **[OPEN] How a node opts out of the hub's tuning (DR-09, DR-19,
+    DR-07).** The brief says a node joined with `off` skips hub-pushed
+    `sysctl.apply` "until the operator runs `deyroute tune`", but no
+    `deyroute tune` command exists. The switch is a root-only marker,
+    `/var/lib/deyroute/hub-tuning-off` (0600, created with
+    O_EXCL|O_NOFOLLOW, read without following links), written only when
+    this version's join opts out explicitly (`--sysctl off`, or "no" to the
+    kernel question). It is not keyed on `tuning.sysctl_profile: off`, so
+    existing nodes and joins whose sysctl step failed keep following the
+    hub. While it exists the node refuses `sysctl.apply` (balanced,
+    aggressive, auto) and `tune.plan` with `DEY-N052` and a warning; `off`
+    still runs. Lifting: `rm /var/lib/deyroute/hub-tuning-off`, then
+    re-apply the hub's profile as `deyroute optimize status` shows it. The
+    help of `setup --yes` therefore names `deyroute optimize status`
+    instead of `deyroute tune`. Also: `setup --json` reports a third
+    `public_ip_source` value, `wizard` (typed in the wizard), besides the
+    brief's `flag` and `detected`; and an IPv6-only hub still cannot be set
+    up non-interactively: `--public-ip` takes only IPv4, and with only
+    `--public-ip6` the IPv4 address is still detected. Owner decision: a
+    command or flag that lifts the marker, and whether `--public-ip` should
+    accept IPv6 for an IPv6-only hub.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

@@ -6,6 +6,60 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `deyroute setup --public-ip A.B.C.D` and `--public-ip6 X` store exactly
+  that hub address (canonical form) and skip the wizard's IP question;
+  `--allow-private-ip` accepts a private, CGNAT or loopback address for test
+  labs (never a link-local one). A refused address is `DEY-C013` before any
+  setup step; the three flags are refused with `--role node` and on
+  `deyroute join`. `setup --json` adds `public_ip_source` (`flag`,
+  `detected` or `wizard`). Without the flag nothing changes: a private
+  detection still only warns (`DEY-I021`), so automation on a NAT or
+  floating-IP server must pass `--public-ip` (docs/en/install.md, lab S01,
+  DR-07).
+- `deyroute join --sysctl off|balanced|auto` (default `balanced`; when
+  given, the kernel question is not asked; `off` writes nothing under
+  `/etc/sysctl.d`) and `--reserve-ports LIST` (ports and ranges, the flag
+  repeats, at most 64 entries, at least 1024 ephemeral ports left free;
+  with `off` it is `DEY-C013`). `join --json` adds `reserved_ports` (never
+  null). The entries are kept in `/var/lib/deyroute/reserved-ports` and
+  reserved again by every profile the node applies except `off`
+  (docs/en/join.md, docs/en/tuning.md, lab S23, DR-09).
+- A node joined with `--sysctl off`, or whose owner answered no to the
+  kernel question, refuses the hub's kernel tuning (`optimize apply` and
+  `optimize auto`) with the new `DEY-N052`; a revert to `off` still runs.
+  The switch is the root-only marker `/var/lib/deyroute/hub-tuning-off`: to
+  lift it, remove it on the node and re-apply the hub's profile as
+  `deyroute optimize status` shows it. Nodes joined with an earlier version
+  keep following the hub (QUESTIONS.md C.65, DR-09).
+
+### Changed
+
+- The `balanced` and `aggressive` profiles a node applies, at join or
+  pushed by the hub, now also reserve the backend control range
+  `30000-31999` in `net.ipv4.ip_local_reserved_ports`, as `auto` already
+  did (a set union: existing reservations stay). Migration: on the hub,
+  re-apply the profile `deyroute optimize status` shows (`deyroute optimize
+  auto` on an auto hub, otherwise `deyroute optimize apply --profile <that
+  profile>`) so the online nodes reserve the range now (QUESTIONS.md C.64,
+  DR-09).
+
+### Fixed
+
+- `deyroute setup --help` said `--yes` applies the balanced kernel profile;
+  it applies the automatic profile, and the help now says so (`deyroute
+  optimize status` shows it). The hidden `join --yes` keeps its own text: a
+  join applies balanced (docs/en/install.md, DR-19).
+- The sysctl backup recorded the live union of
+  `net.ipv4.ip_local_reserved_ports` as deyroute's value, so a later apply
+  followed by a revert or uninstall also removed a port another program
+  had reserved in between. It now records only the entries deyroute
+  requested; the kernel write is still the union (DR-09).
+- `deyroute optimize check` no longer reports the reserved ports as drift
+  when another program adds or removes its own reservation; only a port
+  deyroute wants that is missing counts (DR-09).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs
