@@ -93,7 +93,7 @@ func TestSetupHubEndToEnd(t *testing.T) {
 		"var/lib/deyroute/bin":     0o755,
 		"var/lib/deyroute/backups": 0o700,
 		"var/log/deyroute":         0o750,
-		"var/log/deyroute/tunnels": 0o770,
+		"var/log/deyroute/tunnels": os.ModeSticky | 0o770,
 	} {
 		require.Equalf(t, want, mode(t, filepath.Join(root, dir)), "mode of %s", dir)
 	}
@@ -432,7 +432,7 @@ func TestSetupHubCreatesBackendUser(t *testing.T) {
 	require.Contains(t, st.Error.Fix, "installer again")
 	require.Contains(t, st.Error.Why, "deyroute does not exist")
 	require.Equal(t, os.FileMode(0o700), mode(t, filepath.Join(root2, "etc/deyroute")))
-	require.Equal(t, os.FileMode(0o700), mode(t, filepath.Join(root2, "var/log/deyroute/tunnels")))
+	require.Equal(t, os.ModeSticky|0o700, mode(t, filepath.Join(root2, "var/log/deyroute/tunnels")))
 
 	// On the real root the command is exactly the installer's.
 	e := newEnv(envOptions{Runner: f2, LookupGroup: noGroup, LookupUser: withUser})
@@ -691,4 +691,24 @@ func TestLookupGroupID(t *testing.T) {
 	}
 	_, err = LookupUserID("deyroute-no-such-user-xyz")
 	require.Error(t, err)
+}
+
+// TestSetupHubAutoUpdate: HubOptions.AutoUpdate (setup --auto-update on)
+// writes hub.auto_update: true; off (the default) writes no key.
+func TestSetupHubAutoUpdate(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		root := t.TempDir()
+		fakeProc(t, root)
+		o := hubOpts(root, hubFake(), nil, nil)
+		o.AutoUpdate = on
+		res, err := SetupHub(ctxT(t), o)
+		require.NoError(t, err)
+		cfg, err := config.LoadWith(res.ConfigPath, validateOptions())
+		require.NoError(t, err)
+		require.Equal(t, on, cfg.Hub.AutoUpdate)
+		data, err := os.ReadFile(res.ConfigPath)
+		require.NoError(t, err)
+		require.Equal(t, on, strings.Contains(string(data), "auto_update: true"), string(data))
+		require.Equal(t, on, strings.Contains(string(data), "auto_update"))
+	}
 }

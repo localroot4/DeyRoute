@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
@@ -234,7 +235,11 @@ func (a *agent) checkConfigDir(command, dir string, in systemd.Instance) (string
 // that backend's binaries installed by install.Layout
 // (/var/lib/deyroute/bin/<b>/<version>/<binary>) and the deyroute binary itself
 // with its data-plane subcommands (built-in relay, WireGuard setup). The
-// environment may not redirect the dynamic loader.
+// environment may not redirect the dynamic loader, and the unit gets no
+// privilege beyond the allowlist row of its backend and transport (the
+// transport named by the config directory dir; a canary directory names
+// none): root, capabilities, address families, relaxed hardening and
+// writable paths (render.CheckPrivileges).
 func (a *agent) checkCommands(command, b, dir string, u backend.UnitSpec) error {
 	if len(u.ExecStart) == 0 {
 		return a.refuse(command, "the unit has no ExecStart")
@@ -254,6 +259,9 @@ func (a *agent) checkCommands(command, b, dir string, u backend.UnitSpec) error 
 		if deniedEnv(k) {
 			return a.refuse(command, fmt.Sprintf("the unit may not set the environment variable %s", k))
 		}
+	}
+	if err := render.CheckPrivileges(b, render.ConfigDirTransport(dir), u); err != nil {
+		return a.refuse(command, err.Error())
 	}
 	if err := systemd.ValidateUnitSpec(u); err != nil {
 		return a.refuse(command, deyerr.As(err).Message())
@@ -565,7 +573,7 @@ func (a *agent) unitStart(ctx context.Context, args api.UnitArgs, restart bool) 
 			return api.UnitStatus{}, err
 		}
 	}
-	if err := a.ensureTunnelLogDir(); err != nil {
+	if err := a.prepareTunnelLog(in.Tunnel); err != nil {
 		return api.UnitStatus{}, err
 	}
 	if restart {
@@ -841,15 +849,83 @@ func natKey(rs []backend.NATRule) string {
 	return strings.Join(keys, ";")
 }
 
-// ensureTunnelLogDir creates /var/log/deyroute/tunnels (0750): systemd
-// refuses to start a unit whose StandardOutput=append: directory is
-// missing.
+// ensureTunnelLogDir creates a missing /var/log/deyroute/tunnels as the
+// installer does (root:deyroute, systemd.TunnelLogDirMode): systemd refuses
+// to start a unit whose StandardOutput=append: directory is missing.
 func (a *agent) ensureTunnelLogDir() error {
-	p := a.path(systemd.TunnelLogDir)
-	if err := os.MkdirAll(p, dlog.DirMode); err != nil {
-		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p})
+	gid := -1
+	if _, g, err := a.o.DeyrouteIDs(); err == nil {
+		gid = g
+	}
+	return systemd.EnsureTunnelLogDir(a.path(systemd.TunnelLogDir), gid, a.o.Chown)
+}
+
+// prepareTunnelLog runs right before a unit of tunnel starts or restarts:
+// the tunnel log directory exists (ensureTunnelLogDir) and <tunnel>.log is
+// the agent's own regular file (dlog.EnsureTunnelLog), so systemd, which
+// opens it as root and follows a link, appends to root's file. Whatever a
+// backend planted there is removed and logged as "tunnel log replaced".
+// Failures are DEY-X022; the unit is then not started.
+func (a *agent) prepareTunnelLog(tunnel string) error {
+	if err := a.ensureTunnelLogDir(); err != nil {
+		return err
+	}
+	return a.ensureTunnelLog(tunnel)
+}
+
+// ensureTunnelLog makes <tunnel>.log the agent's own regular file with one
+// link (dlog.EnsureTunnelLog) and logs what it removed there as "tunnel log
+// replaced". Errors are DEY-X022.
+func (a *agent) ensureTunnelLog(tunnel string) error {
+	if !config.ValidID(tunnel) {
+		return nil
+	}
+	p := a.path(systemd.TunnelLogFile(tunnel))
+	if err := dlog.EnsureTunnelLog(p, func(reason string) { a.logWarn.Warn(p, reason) }); err != nil {
+		return deyerr.Wrap(deyerr.X022, err, deyerr.Params{"path": p})
 	}
 	return nil
+}
+
+// prepareTunnelLogs runs when the agent starts, right after
+// tightenTunnelLogDir: the log of every tunnel the node has instances of
+// becomes the agent's own regular file (ensureTunnelLog). systemd opens a
+// unit's log again as root on its own restarts (Restart=always), which
+// never go through unit.start, so a link a backend put at a log name while
+// tunnels/ was not sticky yet would stay there. A missing tunnel log
+// directory is left alone (no unit has run); a failure is logged and the
+// agent goes on.
+func (a *agent) prepareTunnelLogs() {
+	if _, err := os.Lstat(a.path(systemd.TunnelLogDir)); stderrors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	a.instMu.Lock()
+	tunnels := map[string]bool{}
+	for _, in := range a.st.Instances {
+		tunnels[in.Tunnel] = true
+	}
+	a.instMu.Unlock()
+	for _, t := range slices.Sorted(maps.Keys(tunnels)) {
+		if err := a.ensureTunnelLog(t); err != nil {
+			a.log.Warn("cannot prepare a tunnel log", dlog.Tunnel(t), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		}
+	}
+}
+
+// tightenTunnelLogDir adds the sticky bit to an existing
+// /var/log/deyroute/tunnels of root when the agent starts
+// (systemd.TightenTunnelLogDir): an install made before it became 01770
+// left it 0770.
+func (a *agent) tightenTunnelLogDir() {
+	dir := a.path(systemd.TunnelLogDir)
+	from, to, err := systemd.TightenTunnelLogDir(dir)
+	switch {
+	case err != nil:
+		a.log.Warn("cannot make the tunnel log directory sticky", slog.String("dir", dir), dlog.Err(err))
+	case from != to:
+		a.log.Info("tunnel log directory made sticky", slog.String("dir", dir),
+			slog.String("from", fmt.Sprintf("%04o", from)), slog.String("to", fmt.Sprintf("%04o", to)))
+	}
 }
 
 // reconcile runs at start: instances whose unit runs count as started

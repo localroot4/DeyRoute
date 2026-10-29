@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
-	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/install"
@@ -161,6 +160,49 @@ func (h *Hub) previousVersion() string {
 	return ""
 }
 
+// previousBinary is metaPreviousBinary.
+type previousBinary struct {
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+}
+
+// recordPrevious records v as the version of deyroute.prev, which an
+// update or a rollback has just written: metaUpdatePrevious (shown, and
+// read by earlier builds) and metaPreviousBinary with the file's sha256.
+func (h *Hub) recordPrevious(v string) {
+	if err := h.st.PutMeta(metaUpdatePrevious, v); err != nil {
+		h.log.Warn("cannot record the replaced version", dlog.Err(err))
+	}
+	rec := previousBinary{Version: v}
+	sum, err := install.SHA256File(install.SelfUpdater{Root: h.o.Root}.PrevPath())
+	if err != nil {
+		h.log.Warn("cannot record the checksum of the previous binary", dlog.Err(err))
+	} else {
+		rec.SHA256 = sum
+	}
+	if err := h.st.PutMeta(metaPreviousBinary, rec); err != nil {
+		h.log.Warn("cannot record the replaced version", dlog.Err(err))
+	}
+}
+
+// previousBinaryVersion is the version of deyroute.prev as the rollback
+// guard trusts it: recorded together with the file's sha256, and the file
+// unchanged since. "" (unknown) when it was not recorded so (earlier
+// builds recorded only the version) or the file changed: the installer
+// copies the running binary there and `update --rollback` without the
+// service swaps it, and neither records a version.
+func (h *Hub) previousBinaryVersion() string {
+	var rec previousBinary
+	if ok, err := h.st.GetMeta(metaPreviousBinary, &rec); err != nil || !ok || rec.Version == "" || rec.SHA256 == "" {
+		return ""
+	}
+	sum, err := install.SHA256File(install.SelfUpdater{Root: h.o.Root}.PrevPath())
+	if err != nil || sum != rec.SHA256 {
+		return ""
+	}
+	return rec.Version
+}
+
 // UpdateCheck implements api.Local (`deyroute update --check`): the newest
 // release, whether it is newer than this hub and its release notes (the
 // CHANGELOG.md text, or the release page when it has none).
@@ -251,8 +293,12 @@ func (h *Hub) updateApply(ctx context.Context, want string, progress func(api.St
 	}); err != nil {
 		return info, withLog(err)
 	}
-	if err := h.st.PutMeta(metaUpdatePrevious, version.Version); err != nil {
-		h.log.Warn("cannot record the replaced version", dlog.Err(err))
+	h.recordPrevious(version.Version)
+	// The nodes get this release from here: its verified files stay before
+	// the work directory goes (a failure only costs a download later).
+	if err := h.storeBundle(ctx, rel, h.o.Arch); err != nil {
+		h.log.Warn("cannot keep the signed release for the nodes; it is downloaded again when a node needs it",
+			slog.String("version", rel.Version), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
 	}
 	_ = rep.run(stepNodes, func() (string, error) { return h.markNodesForUpdate(), nil })
 	how := "deyroute updated"
@@ -278,18 +324,15 @@ func (l *local) UpdateRollback(context.Context) (api.UpdateInfo, error) {
 	if err := h.refuseWhileFrontInUse("roll back", "the previous binary may predate front mode"); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
-	if err := h.refuseWhileNewerKeysInUse("roll back",
-		"the previous binary may predate traffic monitoring and automatic tuning"); err != nil {
+	prev := h.previousVersion()
+	if err := h.refuseRollbackForNewerKeys(h.previousBinaryVersion()); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
-	prev := h.previousVersion()
 	if err := (install.SelfUpdater{Root: h.o.Root}).Rollback(); err != nil {
 		return api.UpdateInfo{Current: version.Version}, withLog(err)
 	}
 	// A second rollback returns to the binary running now.
-	if err := h.st.PutMeta(metaUpdatePrevious, version.Version); err != nil {
-		h.log.Warn("cannot record the replaced version", dlog.Err(err))
-	}
+	h.recordPrevious(version.Version)
 	h.markNodesForUpdate()
 	// The automatic update does not install the release the owner left.
 	h.editAutoRecord(func(r *autoUpdateRecord) { r.skip(version.Version) })
@@ -341,36 +384,71 @@ func (h *Hub) refuseOlderThanFront(want string) error {
 		"version "+want+" is older than "+FirstFrontVersion+", the first release with front mode")
 }
 
-// FirstTrafficVersion is the first release that knows the monitoring and
-// automatic tuning keys of config.yaml (config.NewerKeysInUse). An older
-// binary refuses them, so rollback and downgrades below it are refused
-// while any is set (DEY-S011). It is the first edge build that has them:
-// every later 0.3.0-edge.N, the 0.3.0 pre-releases after it and 0.3.0
-// itself know them (a plain "0.3.0" here made every edge build of 0.3.0
-// look older, so `deyroute update` refused the newest edge build).
-const FirstTrafficVersion = "0.3.0-edge.15"
+// newerKeysUnknownTo lists the config.yaml keys set in cfg that the binary
+// of deyroute v (a rollback target) does not know: those whose first
+// release (config.NewerKeysInUse) is newer than v. A v that is not a
+// release version (not recorded, "dev") may predate every key, so then
+// every key in use is listed.
+func newerKeysUnknownTo(cfg *config.Config, v string) []config.NewerKey {
+	var out []config.NewerKey
+	for _, k := range cfg.NewerKeysInUse() {
+		if c, ok := install.CompareVersions(v, k.Since); !ok || c < 0 {
+			out = append(out, k)
+		}
+	}
+	return out
+}
 
-// refuseWhileNewerKeysInUse returns DEY-S011 while config.yaml sets keys
-// that a release before FirstTrafficVersion refuses (strict decoding).
-func (h *Hub) refuseWhileNewerKeysInUse(action, reason string) error {
-	keys := h.Config().NewerKeysInUse()
+// newerKeysErr is DEY-S011 for keys (nil when there are none): an older
+// binary refuses config.yaml with them (strict decoding).
+func newerKeysErr(action, reason string, keys []config.NewerKey) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	return deyerr.New(deyerr.S011, deyerr.Params{"action": action, "keys": strings.Join(keys, ", "), "reason": reason})
+	return deyerr.New(deyerr.S011, deyerr.Params{"action": action, "keys": joinNewerKeys(keys), "reason": reason})
 }
 
-// refuseOlderThanNewerKeys refuses `update --version V` for a V older than
-// FirstTrafficVersion while such keys are set.
+// joinNewerKeys names keys with their first releases.
+func joinNewerKeys(keys []config.NewerKey) string {
+	names := make([]string, len(keys))
+	for i, k := range keys {
+		names[i] = k.String()
+	}
+	return strings.Join(names, ", ")
+}
+
+// refuseRollbackForNewerKeys returns DEY-S011 when config.yaml sets a key
+// that the previous binary (version prev, "" = unknown, see
+// previousBinaryVersion) does not know.
+func (h *Hub) refuseRollbackForNewerKeys(prev string) error {
+	reason := "the version of the previous binary is not known (not recorded, or deyroute.prev was replaced since, " +
+		"for example by the installer), so it may predate them"
+	if prev != "" {
+		reason = "deyroute " + prev + ", the previous binary, is older than the first release that knows them"
+	}
+	return newerKeysErr("roll back", reason, newerKeysUnknownTo(h.Config(), prev))
+}
+
+// refuseOlderThanNewerKeys refuses `update --version V` while config.yaml
+// sets a key that V does not know. A V that is not older than the running
+// build is never refused: it knows every key this build knows, even when a
+// key's first version is set later than the build that brought it (see
+// config.NewerKeysInUse). A V that is not a release version is left to the
+// release check.
 func (h *Hub) refuseOlderThanNewerKeys(want string) error {
 	if want == "" {
 		return nil
 	}
-	if c, ok := install.CompareVersions(want, FirstTrafficVersion); !ok || c >= 0 {
+	if c, ok := install.CompareVersions(want, version.Version); ok && c >= 0 {
 		return nil
 	}
-	return h.refuseWhileNewerKeysInUse("install an older version",
-		"version "+want+" is older than "+FirstTrafficVersion+", the first release with traffic monitoring and automatic tuning")
+	var keys []config.NewerKey
+	for _, k := range h.Config().NewerKeysInUse() {
+		if c, ok := install.CompareVersions(want, k.Since); ok && c < 0 {
+			keys = append(keys, k)
+		}
+	}
+	return newerKeysErr("install an older version", "version "+want+" is older than the first release that knows them", keys)
 }
 
 // markNodesForUpdate records that every node must run the hub's version
@@ -426,8 +504,9 @@ func (h *Hub) maybeFinishNodeUpdate() {
 }
 
 // nodeUpdateLoop sends self.update to the queued nodes (one at a time):
-// the node downloads the hub's binary (GET /v1/assets), verifies it,
-// installs it and restarts.
+// the node downloads the hub's signed release (GET /v1/assets/release, a
+// node with signed updates) or the hub's binary (GET /v1/assets/deyroute,
+// an older node), verifies it, installs it and restarts.
 func (h *Hub) nodeUpdateLoop(ctx context.Context) {
 	for {
 		select {
@@ -439,22 +518,24 @@ func (h *Hub) nodeUpdateLoop(ctx context.Context) {
 	}
 }
 
-// selfUpdateNode sends self.update to one node.
+// selfUpdateNode sends self.update to one node. For a node with signed
+// updates the release of the hub's version is fetched first (when it is
+// not cached); without it no self.update is sent.
 func (h *Hub) selfUpdateNode(ctx context.Context, node string) {
 	ns, _ := h.nodeState(node)
 	if !h.Online(node) || strings.TrimPrefix(ns.AgentVersion, "v") == strings.TrimPrefix(version.Version, "v") {
 		return
 	}
-	args := api.SelfUpdateArgs{Version: version.Version}
-	if ns.Arch == h.o.Arch {
-		if info, err := h.openAsset(h.o.SelfBinary); err == nil {
-			args.SHA256 = info.SHA256
-			_ = info.Reader.Close()
-		}
-	}
 	cctx, cancel := context.WithTimeout(ctx, nodeUpdateTimeout)
-	err := h.Call(cctx, node, api.CmdSelfUpdate, args, nil)
-	cancel()
+	defer cancel()
+	sum, err := h.selfUpdateSum(cctx, node, ns.Arch)
+	if err != nil {
+		h.log.Warn("the signed release of the hub's version is not available for the node; it is tried again when it reconnects",
+			dlog.Node(node), slog.String("version", version.Version), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		return
+	}
+	args := api.SelfUpdateArgs{Version: version.Version, SHA256: sum}
+	err = h.Call(cctx, node, api.CmdSelfUpdate, args, nil)
 	if err != nil {
 		h.log.Warn("node could not install the hub's version; it is tried again when it reconnects",
 			dlog.Node(node), slog.String("version", version.Version), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
@@ -467,20 +548,19 @@ func (h *Hub) selfUpdateNode(ctx context.Context, node string) {
 // UpdateManifest implements api.Local (`deyroute update manifest`, section
 // 5): the signed backends.yaml of the newest release is downloaded through
 // the fetcher chain, its signature verified, written to
-// /etc/deyroute/backends.yaml and activated. Running tunnels keep their
-// backend versions until `deyroute update backends`.
+// /etc/deyroute/backends.yaml with its signature next to it
+// (backends.yaml.minisig, which the hub sends to its nodes, DR-03) and
+// activated. Running tunnels keep their backend versions until
+// `deyroute update backends`.
 func (l *local) UpdateManifest(ctx context.Context) (api.ManifestInfo, error) {
 	h := l.h
 	h.ops.updMu.Lock()
 	defer h.ops.updMu.Unlock()
-	m, data, err := install.FetchManifest(ctx, h.Fetcher(), h.sources(), "", h.o.MinisignKey, install.RetryOptions{})
+	m, data, sig, err := install.FetchManifest(ctx, h.Fetcher(), h.sources(), "", h.o.MinisignKey, install.RetryOptions{})
 	if err != nil {
 		return api.ManifestInfo{}, withLog(err)
 	}
-	if err := install.InstallManifest(h.o.Root, data); err != nil {
-		return api.ManifestInfo{}, withLog(err)
-	}
-	if err := backend.LoadManifestOverride(h.path(config.ManifestPath)); err != nil {
+	if err := h.installManifest(data, sig); err != nil {
 		return api.ManifestInfo{}, withLog(err)
 	}
 	info := api.ManifestInfo{Source: config.ManifestPath, Versions: map[string]string{}}

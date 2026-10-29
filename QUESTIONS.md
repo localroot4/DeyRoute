@@ -247,6 +247,8 @@ stated default until the owner decides · **[ANSWERED]** closed.
     gets only by joining, and the hub sends `self.update` to its nodes only
     to finish its own `deyroute update`. `docs/en/join.md` and
     `docs/fa/join.md` show the flag and say why it is there.
+    (Changed by C.52: a release build now uses the installer of the pinned
+    release.)
 37. **[DEFAULT] The integration lab's blocker and client (spec 17).** The
     spec's `blocker` is a separate container with `NET_ADMIN` on the same
     network; on a Docker bridge such a container is not on the path between
@@ -354,6 +356,321 @@ stated default until the owner decides · **[ANSWERED]** closed.
     5 s.
     `tunnel reset` and `tunnel switch` still clear the history of the rung
     they move to. Owner decision: keep this, or reword the criterion.
+47. **[DEFAULT] The automatic update is off by default; its switch is
+    `hub.auto_update` in `config.yaml` (DR-05).** Spec section 5 says an
+    update never runs without asking, but the automatic update shipped on
+    by default with its switch in `state.db`, which no backup contains (a
+    restored hub was silently on again). Now `hub.auto_update` (bool,
+    default false, written only when true) decides: `update auto on|off`
+    changes it through the normal config path with an automatic backup, and
+    `setup --auto-update on|off` (default off) sets it at setup. The key is
+    registered in the rollback guard (`FirstAutoUpdateVersion`, see C.49). A
+    hub with a record of an earlier build is told once (event
+    `auto_update_default_off`, a dashboard line for 7 days while off); a
+    fresh install is not. Deviation from the brief ("ignore the old
+    `disabled` field when reading; drop it on the next write"): the field is
+    kept, written as `!hub.auto_update` on every write of the record and by
+    `update auto on|off`, and never acted on. Earlier builds read it as the
+    switch (on when absent), and `update --version` and `update --rollback`
+    write the record right before restarting into one of them; dropping it
+    would turn the automatic update back on there (section 2.2: new versions
+    must not break a rollback).
+48. **[DEFAULT] Tunnel log directory and rotation staging.**
+    `/var/log/deyroute/tunnels` is now `root:deyroute` with mode `01770`
+    (sticky) wherever it is created: the installer, `setup`,
+    `InstallTemplates` and the hub and node `ensureTunnelLogDir`
+    (`systemd.TunnelLogDirMode`; without the deyroute group the group bits
+    are cleared, `01700`). Before, the installer and setup made it `0770`
+    and the other three `root:root 0750`. The brief allowed `0770` or
+    `01770`; the sticky bit keeps the backends' user from removing or
+    renaming root's live and rotated logs, and group write stays. An
+    existing directory keeps its mode and owner, as setup's other
+    directories do: re-running the installer applies `1770` (`install -d`),
+    `deyroute update` alone does not. Of the brief's two staging designs
+    the rotation uses the root-only one: the copy is staged as
+    `/var/lib/deyroute/tmp/tunnel-log-<log>.rotating` (`0700`, created on
+    demand and refused unless private to root), so a leftover there is the
+    rotator's own and is finished first. The brief's rule for a leftover
+    `<log>.rotating` (finish root's regular file with one link, remove
+    anything else) applies to the one an older version left in the log
+    directory. Anything else at a name the rotation writes in the log
+    directory, a directory included, is removed and reported. The
+    "tunnel log rotation refused" warnings are remembered per file and
+    reason up to 1024 pairs per daemon run; beyond that they are not
+    logged, so planted names cannot grow the daemon's memory. The node
+    agent now looks up the deyroute ids and changes ownership like the hub
+    (`Options.DeyrouteIDs`, `Options.Chown`). DR-01.
+    (Changed by C.56: the hub and node services add the sticky bit to an
+    existing directory of root when they start, so `deyroute update` is
+    enough.)
+49. **[OPEN] `hub.auto_update` counts from 0.3.0, so edge builds are
+    treated as not knowing it (DR-05).** The edge builds that carry the key
+    cannot be told apart by version from those before it (every
+    `0.3.0-edge.N` sorts before `0.3.0`), so `FirstAutoUpdateVersion` is the
+    stable 0.3.0. While the key is set, `update --rollback` and
+    `update --version` to any `0.3.0-edge.N` are refused with `DEY-S011`
+    (fix: `update auto off` first). `update --version V` is never refused
+    for keys when V is not older than the running build, which knows every
+    key the running build writes. A failed automatic update still rolls back
+    to the build it came from: `update-pending.json` records the keys in use
+    when the update started (that build had loaded them), and only keys set
+    after that are compared; a record without them (written by an earlier
+    build) compares every key and keeps the new binary when one is unknown
+    (event `update_rolled_back` with `DEY-S011`, a dashboard line for 7
+    days). Owner decision: keep 0.3.0, or set the constant to the first
+    edge build that carries the key once its number is known.
+50. **[OPEN] Who sees the "now off by default" notice (DR-05).** The notice
+    (one `auto_update_default_off` event, a dashboard line for 7 days) goes
+    to every hub that has a state record of an earlier build, also one that
+    had already turned the automatic update off there (`"disabled": true`):
+    the brief keys the notice on the record alone, so the field is not used
+    to tell the two apart. The dashboard line is hidden while
+    `hub.auto_update` is on. Owner decision: skip the notice on hubs that
+    had it off already.
+51. **[OPEN] Rollback paths that do not check config keys (DR-05, section
+    2.2).** `update --rollback` without the daemon (`rollbackLocal` in
+    `internal/cli/system.go`, used when the service is down and on nodes)
+    swaps the binaries without checking `config.yaml` keys, and so does the
+    installer when it replaces the binary; the start guard of the automatic
+    update (`AutoUpdateStartGuard`) rolls back before the config is loaded.
+    The start guard goes back to the build the update came from, which had
+    loaded the config, so only keys set by hand in between can break it;
+    `rollbackLocal` and the installer can start a binary that refuses
+    `config.yaml` (`DEY-C001`). The hub's own guard now trusts the recorded
+    version of `deyroute.prev` only with a matching sha256
+    (`update/previous-binary` in state.db) and otherwise refuses for every
+    newer key. Not changed: `update --check` (`previous`) and the answer and
+    event of `update --rollback` still name the plain recorded version
+    (`update/previous`), which can be stale after the installer replaced
+    `deyroute.prev`. Owner decision: add the key check to `rollbackLocal`
+    (it can read `config.yaml` without the daemon) and show the checked
+    version.
+52. **[DEFAULT] The join command uses the installer of the pinned release.**
+    C.36 chose the `latest` installer next to ` --version X.Y.Z`. That pairs
+    the newest installer with an older release, and once a pinned edge build
+    was pruned the line failed with `DEY-I004`, whose hint points to
+    `--mirror` and `--local`. A release build of the hub now prints
+    `bash <(curl -fsSL <github>/releases/download/vX.Y.Z/install.sh) join 'dey://…' --version X.Y.Z`,
+    or `<mirror>/vX.Y.Z/install.sh` when `hub.mirror` is set; a development
+    build pins nothing and keeps the `latest` installer (DR-02). This
+    replaces the sentence of C.36 that names the `latest` installer; the
+    rest of C.36 stands. A mirror must keep the `vX.Y.Z/` directory of every
+    release its hubs run. The JSON field `command` keeps its name; the panel
+    uses only `.link`.
+53. **[OPEN] The join line exits 0 when the pinned release is gone.** With
+    the versioned installer (C.52), a hub whose release is no longer
+    published prints a line whose `curl -fsSL` fails (`curl: (22) The
+    requested URL returned error: 404`); `bash <(…)` then runs an empty
+    script and the line exits 0 without the installer's three-line error.
+    DR-02 asks that the installer say so when the pinned version is missing;
+    on this path the installer itself is the missing file, so it cannot.
+    `install.sh --version X.Y.Z` run from any other installer does stop with
+    `DEY-I024`. Today the behaviour is documented (`docs/en/join.md`,
+    `docs/fa/join.md` and "Which versions stay available" in
+    `update-uninstall.md`: update the hub and make a new join command), and
+    the retention keeps a pinned edge build until 10 newer builds of its
+    branch exist; stable releases are never removed. Options for the owner:
+    (a) keep the join format of spec 3 (Join 1) and the documented
+    behaviour; (b) change the format so the line fails loudly, for example
+    `bash <(curl -fsSL URL || echo 'echo "✖ DEY-I024  Release vX.Y.Z not found" >&2; exit 1') join …`,
+    which changes the spec's join format and the text of
+    `api.JoinCommand.Command`. The panel is not affected: it never runs
+    `.command`.
+54. **[DEFAULT] Which green ci run publishes an edge build.** Under
+    `workflow_run` (DR-06) the ci runs of a branch end in any order (they
+    run in parallel, and an old run can be re-run), and an edge version is
+    numbered by release-edge's own run, not by its commit. A green ci run
+    therefore publishes its commit only while that commit is the tip of its
+    branch and is not in the newest edge release of that branch
+    (`scripts/edge-gate.sh`, checked when the ci run ends and again when the
+    publishing job starts). The publishes of a branch run one at a time and
+    never cancel each other, `main` and `dev` independently, and the
+    retention runs one at a time. Consequences, by design: edge numbers
+    have gaps (every run of release-edge counts, also one that publishes
+    nothing); a re-run of a published commit publishes nothing; when the ci
+    run of the tip fails, nothing new is published until a later push
+    passes, even if an earlier commit was green; a push that starts no ci
+    run (`[skip ci]`) holds back the publish of the green commit before it.
+    Documented in `docs/dev/RELEASING.md`.
+55. **[OPEN] Move the signing key into GitHub environments.** GitHub runs a
+    manual run with the workflow file of the chosen ref. The tag
+    `backend-builds` (fe816ca) and the tags `v0.3.0-edge.56` to `60` carry a
+    `release-edge.yml` that, on `gh workflow run release-edge.yml --ref
+    <that ref>`, builds, signs and publishes an edge release without the ci
+    gate and then deletes every edge release but the 5 newest of both
+    branches, pinned `main` builds included. The workflows now read the key
+    in the environments `edge-release` (edge job of release-edge.yml) and
+    `release` (release job of ci.yml), but the bypass closes only when the
+    owner, in the repository settings, creates `edge-release` limited to the
+    branch `main` (a workflow_run run has the ref of `main`, also for `dev`
+    builds) and `release` limited to the tags `v*`, adds
+    `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` to both, deletes the two
+    repository secrets, and protects the `v*` tags with a ruleset (steps in
+    `docs/dev/RELEASING.md`, "Signing key"). Until then anyone with write
+    access can use this path. Owner action (DR-06, DR-02).
+56. **[DEFAULT] The services prepare each tunnel log before systemd opens
+    it (DR-01).** systemd opens a tunnel unit's `StandardOutput=append:`
+    file as root before it drops privileges. It creates a missing file and
+    follows a link, and `fs.protected_symlinks` does not cover the `01770`
+    directory, which is not world-writable. So right before the hub starts
+    a hub unit (`startHubSide`, and the restart of a changed hub unit) and
+    before the node's `unit.start` and `unit.restart`, only their own
+    regular file with one link may stand at `<tunnel>.log`. Both services
+    also check this when they start: the hub for every tunnel in its
+    configuration, the node for every tunnel it has instances of. This is
+    needed because systemd's own restarts (`Restart=always`) never go
+    through them, and a restarted hub adopts running units without
+    starting them. Anything else at the name is removed, the same way the
+    rotation removes what stands at its names. A missing log is created
+    with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0644`. That is the mode
+    systemd gives a file it creates (`0666` under `UMask=0022`), not the
+    `0600` of rotated files, so a log looks the same whoever created it;
+    the directory keeps other users out. Calls for the same path run one
+    at a time within a process. Each removal is logged as the warning
+    `tunnel log replaced` with `file` and `reason`. The reasons are
+    `symlink`, `not_regular` and `hardlink`, as for the rotation, plus the
+    new `owner`: a regular file with one link that belongs to another user,
+    which that user could still remove in the sticky directory. The warning
+    is logged once per file and reason per daemon run, with the same cap of
+    1024 pairs as C.48. If the check fails right before a unit starts, the
+    unit is not started and the error is the existing `DEY-X022` ("Cannot
+    write log file {path}"); no new code. If it fails when a service
+    starts, it is only logged (`cannot prepare a tunnel log`).
+    When the services start, they also add the sticky bit, and only that
+    bit, to an existing `/var/log/deyroute/tunnels` owned by root. They do
+    this through a descriptor opened with `O_DIRECTORY|O_NOFOLLOW`, leave a
+    link, a non-directory and a directory of another user alone, and log
+    `tunnel log directory made sticky` with `from` and `to`. This replaces
+    C.48's "an existing directory keeps its mode": `deyroute update` is now
+    enough on an older install.
+    The readers are `deyroute logs` on the hub and the node (follow
+    included) and the log lines of a failed start (`DEY-B003`). They open a
+    log with `O_NOFOLLOW|O_NONBLOCK` and accept only a regular file: a link
+    or FIFO at the name shows no lines on the hub and is `DEY-X022` for the
+    node's `logs.tail`. Unlike the rotation and the preparation, they accept
+    a file with a second hard link (`nlink > 1`). The next start replaces
+    such a log, and a hard link to a file the `deyroute` user does not own
+    needs `fs.protected_hardlinks=0` (see C.57 d).
+57. **[OPEN] A tunnel log name can be free between starts (DR-01).** The
+    preparation of C.56 runs only when the hub or the node starts a unit
+    and when the services start. systemd also opens the log as root on its
+    own restarts of a unit (`Restart=always`, `RestartSec=2`).
+    a) While a live log name is free, the `deyroute` user can put a link
+    there and end its own process, and systemd follows the link as root
+    2 s later. The name is free when an admin deleted the log, or for the
+    moment between the removal of a planted entry and the creation of
+    root's file. The docs say to empty a live log (`: > file`) and never
+    delete it, and that a service restart creates a deleted log again.
+    There are two complete fixes. Each changes every creator of the
+    directory (installer, setup, `InstallTemplates`, both
+    `ensureTunnelLogDir`, `TightenTunnelLogDir`) and S36:
+    (1) `tunnels/` without group write (`01750` or `0750 root:deyroute`).
+    No backend writes there itself: every unit's output reaches its log
+    through the descriptor systemd opens as root. The `deyroute` user then
+    could add no names at all. The brief asks to verify
+    `StandardOutput=append:` in the lab before group write is removed.
+    (2) `01773` or `01777`. A sticky, world-writable directory makes
+    `fs.protected_symlinks=1` (the default) refuse root's open of a link
+    owned by `deyroute` with `EACCES`, so the unit fails with 209/STDOUT
+    instead of writing through the link. `/var/log/deyroute`
+    (`0750 root:deyroute`) still keeps other users out.
+    b) A unit whose log was replaced when the services started keeps the
+    descriptor it had until it restarts (an unlinked file, or the file a
+    link pointed to if systemd had already followed it before the update).
+    The services do not restart such units.
+    c) The preparation and the rotation remove a planted directory with
+    everything in it. A backend that keeps adding entries can make that
+    slow, and the start of that tunnel's units waits for it (the lock is
+    per path, so other tunnels are not held up).
+    d) The readers accept `nlink > 1` (C.56).
+    Owner decision: (1), (2), or keep the documented rule and restart
+    affected units by hand.
+58. **[DEFAULT] `node.allow_unsigned_updates`, a lab-only switch (DR-03).**
+    New node key, bool, default false, written only when true, so a default
+    install never blocks a rollback. With it, self.update takes the hub's
+    binary without a signature as before DR-03: from a hub on a development
+    build (otherwise `DEY-S012`) and, beyond the brief, from a hub of an
+    earlier build that serves no signed release (otherwise `DEY-S001`), so a
+    lab can mix builds. It does not apply to `backend.install`. The key is
+    registered in the per-key rollback guard with
+    `FirstAllowUnsignedUpdatesVersion` = 0.3.0, for the reason of C.49 (edge
+    builds cannot be told apart by version): while it is set, the node
+    refuses a self.update to a release older than both itself and 0.3.0
+    (`DEY-S011`, every older `0.3.0-edge.N` included). Documented as
+    lab-only in `update-uninstall.md` and `security.md`.
+59. **[DEFAULT] A node installs only a release that checks signed updates
+    itself (DR-03).** The brief's checks (signature, version in
+    `SHA256SUMS`, archive sha256, safe extraction) accept any signed
+    release, also one built before signed updates, whose node then takes
+    any binary the hub serves; signatures do not expire. Before it installs,
+    the node now runs the extracted binary's `deyroute --json version` and
+    requires the new additive field `"signed_update": true`; otherwise
+    `DEY-S001` and nothing is installed. This asks the build what it can do
+    (brief section 2.2) instead of using a version floor, which would have
+    to be 0.3.0 (edge builds sort before it) and would stop every node
+    update between edge builds until then. Only `internal/exec` may start
+    programs (spec section 15), so the run is `exec.ReleaseVersion`, a
+    narrow path beside the config editor: exactly `<path> --json version`
+    for an absolute path to a file named `deyroute`, in its own directory,
+    with only `PATH` and `LC_ALL=C`, at most 15 s and 64 KiB of output; the
+    runner's allow-list is unchanged (`docs/dev/ARCHITECTURE.md`). It runs
+    as root, as the installer test-runs the binary it installs: the code is
+    the release's own, verified against the release key, and as the
+    backends' user `deyroute` a compromised backend could trace it and
+    answer for it. An honest hub never meets the refusal: it names only its
+    own version, and a hub rolled back to an earlier build announces no
+    `signed-update` and is refused as an earlier hub.
+60. **[DEFAULT] Where the signed release is kept (DR-03).** In
+    `/var/lib/deyroute/bin/<version>/`, the hub's `AssetCacheDir`, beside
+    the backend directories (backend names never contain a dot). The
+    installer keeps the verified `SHA256SUMS`, `SHA256SUMS.minisig` and
+    archive (and `backends.yaml` with its signature when they lie next to a
+    `--local` archive and verify) on every server it installs, nodes
+    included: it runs before setup or join decides the role (`--no-setup`
+    is the panel's path), and `install.sh` has 249 of its 250 lines. On a
+    node the copy (one archive) is never served; the next installer run
+    replaces it. The installer removes the release directories of other
+    versions; the hub at start removes those of versions it neither runs
+    nor rolls back to (`deyroute.prev`). `deyroute doctor` lists them apart
+    from the backends. Owner decision: keep, or drop the copy on nodes (for
+    example in `join`).
+61. **[DEFAULT] S19 updates through `deyroute update` and self.update; the
+    installer phase is a same-version repair (DR-03).** The brief asks to
+    add a hub-driven self.update step to S19. S19 upgrades from
+    `DEY_OLD_VERSION` to `DEY_VERSION`, and a second upgrade would need a
+    third lab build, so the installer-driven upgrade of both servers became
+    `deyroute update --version` from a lab HTTPS mirror on the hub and
+    self.update alone on the node. Re-running the installer under traffic
+    stays as a second phase: with the prober still running,
+    `install.sh --local` of the same release on the hub, then on the node
+    (`setup --repair` restarts each service); no request may fail and the
+    backend units keep their PIDs. Every lab install now checks the lab
+    signature (`--skip-signature` is gone from `lib.sh` and the scenarios).
+62. **[DEFAULT] A backend version already installed needs no manifest
+    (DR-03).** The brief accepts a `backend.install` entry only when the
+    node's built-in manifest or a signed one from the hub pins it. After
+    `deyroute update` the hub keeps the backend versions running tunnels
+    use until `deyroute update backends`, and the node's new built-in
+    manifest may no longer pin them, so every node would refuse them after
+    each hub restart. A node now accepts, without a manifest, an entry that
+    is installed exactly as pinned (the directory's archive marker is the
+    entry's sha256 and every binary matches its `.sha256` file,
+    `Layout.HasBackend`); nothing is downloaded then. A new node cannot
+    install such a version: the docs say to run `deyroute update backends`
+    after an update that brings new backend versions.
+63. **[OPEN] Older signed backend manifests (DR-03).** A node checks that a
+    manifest is signed with the release key, not how old its release is,
+    and signatures do not expire. A hub can therefore send the signed
+    `backends.yaml` of any older release and make its nodes install an
+    older backend version that release pinned, possibly one with a known
+    flaw. The binaries are still upstream releases that DEYROUTE once
+    pinned; the same holds for self.update to an older release that checks
+    signed updates (C.59). Options: (a) keep this; (b) refuse a manifest
+    that pins an older version than the node's built-in one (breaks a node
+    on a newer build than its hub, which brief section 2.2 requires to
+    work); (c) add a release sequence to the signed manifest and refuse
+    manifests older than the node's build (only for releases after the
+    change). Owner decision.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

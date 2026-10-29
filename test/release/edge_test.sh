@@ -1,0 +1,666 @@
+#!/usr/bin/env bash
+# Tests of the edge release scripts, with a fake gh and a local git origin (no
+# network, no GitHub):
+#   - scripts/edge-gate.sh: whether a green ci run publishes its commit;
+#   - scripts/edge-prune.sh: the retention;
+#   - the parts of .github/workflows/release-edge.yml that keep the publishes
+#     of a branch in order;
+#   - scripts/no-test-key.sh and where the release builds run it;
+#   - scripts/release-pubkey.sh, the release key the edge build reads.
+# Run by ci.yml (lint job), or by hand from anywhere:
+#
+#   bash test/release/edge_test.sh [TestName ...]
+#
+# Needs bash, git, jq and go (the no-test-key tests build a tiny fake binary).
+set -euo pipefail
+shopt -s inherit_errexit
+
+root=$(cd "$(dirname "$0")/../.." && pwd)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# A clean git: no user configuration (signing, hooks, default branch).
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME=edge-test GIT_AUTHOR_EMAIL=edge-test@example.invalid
+export GIT_COMMITTER_NAME=edge-test GIT_COMMITTER_EMAIL=edge-test@example.invalid
+
+# The fake gh answers the calls the scripts make (release list, view, delete)
+# from $FAKE_RELEASES, a JSON array of {tagName, createdAt, isLatest,
+# isPrerelease, body}. A deletion is logged to $FAKE_LOG and removed from the
+# array. FAKE_FAIL=<list|view|delete> makes that call fail.
+mkdir -p "$tmp/bin"
+cat >"$tmp/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "${1:-}" = release ] || { echo "fake gh: unsupported: $*" >&2; exit 2; }
+sub=$2
+shift 2
+[ "${FAKE_FAIL:-}" != "$sub" ] || { echo "fake gh: HTTP 502 (release $sub)" >&2; exit 1; }
+case $sub in
+  list)
+    jqexpr=""
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --jq) jqexpr=$2; shift 2 ;;
+        --limit | --json) shift 2 ;;
+        *) echo "fake gh: release list $1" >&2; exit 2 ;;
+      esac
+    done
+    jq '[.[] | {tagName, createdAt, isLatest, isPrerelease}]' "$FAKE_RELEASES" | jq -r "$jqexpr"
+    ;;
+  view)
+    jq -e --arg t "$1" 'any(.[]; .tagName == $t)' "$FAKE_RELEASES" >/dev/null ||
+      { echo "release not found" >&2; exit 1; }
+    jq -r --arg t "$1" '.[] | select(.tagName == $t) | .body' "$FAKE_RELEASES"
+    ;;
+  delete)
+    echo "delete $*" >>"$FAKE_LOG"
+    jq --arg t "$1" '[.[] | select(.tagName != $t)]' "$FAKE_RELEASES" >"$FAKE_RELEASES.new"
+    mv "$FAKE_RELEASES.new" "$FAKE_RELEASES"
+    ;;
+  *) echo "fake gh: unsupported: release $sub" >&2; exit 2 ;;
+esac
+EOF
+chmod +x "$tmp/bin/gh"
+export PATH="$tmp/bin:$PATH"
+
+fail() {
+  echo "$*" >&2
+  exit 1
+}
+
+# new_repo: an empty origin ($T/origin.git) and a working clone ($T/w) on main.
+new_repo() {
+  git init -q --bare -b main "$T/origin.git"
+  git init -q -b main "$T/w"
+  git -C "$T/w" remote add origin "$T/origin.git"
+}
+
+# on BRANCH: the working clone switches to BRANCH (created at HEAD if new).
+on() {
+  git -C "$T/w" switch -q "$1" 2>/dev/null || git -C "$T/w" switch -q -c "$1"
+}
+
+# commit [-f]: one more commit on the current branch of the working clone,
+# pushed to origin (-f: force-pushed); prints its SHA.
+commit() {
+  echo "$RANDOM" >>"$T/w/f"
+  git -C "$T/w" add f
+  git -C "$T/w" commit -q -m change
+  if [ "${1:-}" = -f ]; then
+    git -C "$T/w" push -q -f origin HEAD
+  else
+    git -C "$T/w" push -q origin HEAD
+  fi
+  git -C "$T/w" rev-parse HEAD
+}
+
+# release TAG SHA BRANCH [PRERELEASE] [LATEST]: a release of SHA, one hour
+# after the previous one, with its tag on origin. BRANCH "-" writes no branch
+# line (a release published before release-edge.yml wrote one).
+n_release=0
+release() {
+  local tag=$1 sha=$2 branch=$3 pre=${4:-false} latest=${5:-false} body created
+  body="Built from \`${sha:0:7}\` (Linux amd64 and arm64, static binary)."
+  if [ "$branch" != - ]; then body="$body"$'\n\n'"branch: $branch"; fi
+  created=$(printf '2026-10-%02dT%02d:00:00Z' $((1 + n_release / 24)) $((n_release % 24)))
+  n_release=$((n_release + 1))
+  git --git-dir="$T/origin.git" tag "$tag" "$sha"
+  jq --arg t "$tag" --arg c "$created" --argjson p "$pre" --argjson l "$latest" --arg b "$body" \
+    '. + [{tagName: $t, createdAt: $c, isLatest: $l, isPrerelease: $p, body: $b}]' \
+    "$FAKE_RELEASES" >"$FAKE_RELEASES.new"
+  mv "$FAKE_RELEASES.new" "$FAKE_RELEASES"
+}
+
+# checkout: the job's checkout, a fresh clone of origin with its tags.
+checkout() {
+  rm -rf "$T/ci"
+  git clone -q "$T/origin.git" "$T/ci"
+}
+
+# want_gate WANT BRANCH SHA [REASON]: scripts/edge-gate.sh BRANCH SHA, run in
+# the checkout, prints publish=WANT; REASON is part of what it says (stderr).
+want_gate() {
+  local out
+  out=$(cd "$T/ci" && bash "$root/scripts/edge-gate.sh" "$2" "$3" 2>"$T/gate.err") ||
+    fail "edge-gate.sh $2 ${3:0:7} failed: $(cat "$T/gate.err")"
+  [ "$out" = "publish=$1" ] ||
+    fail "edge-gate.sh $2 ${3:0:7}: got '$out', want 'publish=$1' ($(cat "$T/gate.err"))"
+  [ -z "${4:-}" ] || grep -qF -- "$4" "$T/gate.err" ||
+    fail "edge-gate.sh $2 ${3:0:7}: '$4' missing in: $(cat "$T/gate.err")"
+}
+
+# left: the tags of the releases that are left, in version order.
+left() { jq -r '.[].tagName' "$FAKE_RELEASES" | sort -V | tr '\n' ' '; }
+
+# ---------------------------------------------------------------- edge-gate
+
+# The ci run of the tip of a branch ends: its commit is published, also when
+# older builds of the branch exist.
+TestEdgeGatePublishesNewTip() {
+  new_repo
+  local a b
+  a=$(commit)
+  b=$(commit)
+  release v0.3.0-edge.1 "$a" main false true
+  checkout
+  want_gate true main "$b" "publishing ${b:0:7}"
+}
+
+TestEdgeGatePublishesFirstBuildOfBranch() {
+  new_repo
+  local a
+  a=$(commit)
+  checkout
+  want_gate true main "$a"
+}
+
+# Push A, then B. The ci run of B ends first and B is published; the ci run of
+# A ends later (it was slower, or a flaky job of it was re-run). A is behind
+# the tip of main: it is not published, so main never goes back to A.
+TestEdgeGateSkipsCommitBehindBranchTip() {
+  new_repo
+  local a b
+  a=$(commit)
+  b=$(commit)
+  release v0.3.0-edge.7 "$b" main false true
+  checkout
+  want_gate false main "$a" "main moved on to ${b:0:7}"
+}
+
+# The same, while the ci run of B is still running: B publishes when it ends.
+TestEdgeGateSkipsCommitBehindTipBeforeTipIsPublished() {
+  new_repo
+  local a b
+  a=$(commit)
+  b=$(commit)
+  checkout
+  want_gate false main "$a" "main moved on to ${b:0:7}"
+  want_gate true main "$b"
+}
+
+# A re-run of the ci run of a commit that is already published (or of the
+# publishing workflow) publishes nothing: no second release of one commit.
+TestEdgeGateSkipsCommitAlreadyPublished() {
+  new_repo
+  local a b
+  a=$(commit)
+  b=$(commit)
+  release v0.3.0-edge.1 "$a" main false false
+  release v0.3.0-edge.2 "$b" main false true
+  checkout
+  want_gate false main "$b" "${b:0:7} is already in v0.3.0-edge.2"
+}
+
+# The newest release of the branch was published after the job's checkout
+# (the job waited for that publish): its tag is fetched for the comparison.
+TestEdgeGateFetchesTagPublishedAfterCheckout() {
+  new_repo
+  local b
+  commit >/dev/null
+  b=$(commit)
+  checkout
+  release v0.3.0-edge.2 "$b" main false true
+  want_gate false main "$b" "already in v0.3.0-edge.2"
+}
+
+# Only builds of the same branch count. dev was published at D; main then
+# moves to D (dev merged): main publishes its own build of D. dev publishes
+# nothing more for D.
+TestEdgeGateCountsOnlyItsBranch() {
+  new_repo
+  local a d
+  a=$(commit)
+  on dev
+  d=$(commit)
+  release v0.3.0-edge.1 "$a" main false true
+  release v0.3.0-edge.2 "$d" dev true false
+  git -C "$T/w" push -q origin "$d:refs/heads/main"
+  checkout
+  want_gate true main "$d"
+  want_gate false dev "$d" "already in v0.3.0-edge.2"
+}
+
+# Releases published before the "branch:" line: a non-pre-release is from
+# main, a pre-release from dev.
+TestEdgeGateLegacyReleasesByPrerelease() {
+  new_repo
+  local a d
+  a=$(commit)
+  on dev
+  d=$(commit)
+  release v0.3.0-edge.1 "$a" - false true
+  release v0.3.0-edge.2 "$d" - true false
+  checkout
+  want_gate false main "$a" "already in v0.3.0-edge.1"
+  want_gate false dev "$d" "already in v0.3.0-edge.2"
+}
+
+# After a force-push the published build is not in the branch's history any
+# more: the new tip is published.
+TestEdgeGatePublishesTipAfterForcePush() {
+  new_repo
+  local a b c
+  a=$(commit)
+  b=$(commit)
+  release v0.3.0-edge.1 "$b" dev true false
+  git -C "$T/w" branch -q -m dev
+  git -C "$T/w" push -q origin dev
+  git -C "$T/w" reset -q --hard "$a"
+  c=$(commit -f)
+  checkout
+  want_gate true dev "$c"
+}
+
+TestEdgeGateSkipsDeletedBranch() {
+  new_repo
+  local d
+  commit >/dev/null
+  on dev
+  d=$(commit)
+  git -C "$T/w" push -q origin --delete dev
+  checkout
+  want_gate false dev "$d" "dev no longer exists"
+}
+
+# A failing gh call fails the gate; it never guesses.
+TestEdgeGateFailsWhenGhFails() {
+  new_repo
+  local a
+  a=$(commit)
+  release v0.3.0-edge.1 "$a" main false true
+  checkout
+  local call
+  for call in list view; do
+    if (cd "$T/ci" && FAKE_FAIL=$call bash "$root/scripts/edge-gate.sh" main "$a") >"$T/out.gate" 2>&1; then
+      fail "edge-gate.sh succeeded although gh release $call failed: $(cat "$T/out.gate")"
+    fi
+    if grep -q '^publish=' "$T/out.gate"; then
+      fail "edge-gate.sh decided although gh release $call failed: $(cat "$T/out.gate")"
+    fi
+  done
+}
+
+# --------------------------------------------------------------- edge-prune
+
+# 15 builds of main and 15 of dev after a stable release, plus backend-builds:
+# the 10 newest of each branch stay, and every tag without "-edge.".
+TestEdgePruneKeepsTenPerBranch() {
+  new_repo
+  local a n
+  a=$(commit)
+  release backend-builds "$a" - true false
+  release v0.3.0 "$a" - false true
+  for n in $(seq 1 30); do
+    if [ $((n % 2)) = 1 ]; then release "v0.3.1-edge.$n" "$a" main true; else release "v0.3.1-edge.$n" "$a" dev true; fi
+  done
+  (cd "$T" && bash "$root/scripts/edge-prune.sh") >"$T/out.prune"
+  local want
+  want="backend-builds v0.3.0 $(seq -f 'v0.3.1-edge.%g' 11 30 | tr '\n' ' ')"
+  [ "$(left)" = "$want" ] || fail "left: $(left); want: $want"
+  [ "$(grep -c -- '--cleanup-tag --yes' "$FAKE_LOG")" = 10 ] || fail "gh release delete calls: $(cat "$FAKE_LOG")"
+  grep -q 'edge releases: 20 kept, 10 deleted' "$T/out.prune" || fail "summary: $(cat "$T/out.prune")"
+}
+
+TestEdgePruneDryRunDeletesNothing() {
+  new_repo
+  local a n
+  a=$(commit)
+  for n in $(seq 1 12); do release "v0.3.0-edge.$n" "$a" main false "$([ "$n" = 12 ] && echo true || echo false)"; done
+  (cd "$T" && bash "$root/scripts/edge-prune.sh" --dry-run) >"$T/out.prune"
+  [ ! -s "$FAKE_LOG" ] || fail "dry run deleted: $(cat "$FAKE_LOG")"
+  [ "$(grep -c '^would delete' "$T/out.prune")" = 2 ] || fail "dry run: $(cat "$T/out.prune")"
+  grep -q '^would delete *v0.3.0-edge.1 ' "$T/out.prune" || fail "dry run: $(cat "$T/out.prune")"
+}
+
+# The release marked latest stays although 10 newer builds of main exist.
+TestEdgePruneKeepsLatest() {
+  new_repo
+  local a n
+  a=$(commit)
+  for n in $(seq 1 15); do release "v0.3.0-edge.$n" "$a" main false "$([ "$n" = 2 ] && echo true || echo false)"; done
+  (cd "$T" && bash "$root/scripts/edge-prune.sh") >"$T/out.prune"
+  local want
+  want="v0.3.0-edge.2 $(seq -f 'v0.3.0-edge.%g' 6 15 | tr '\n' ' ')"
+  [ "$(left)" = "$want" ] || fail "left: $(left); want: $want"
+}
+
+# Releases without a "branch:" line: a non-pre-release counts as main, a
+# pre-release as dev. 10 main builds (every third) and 20 dev builds.
+TestEdgePruneLegacyRule() {
+  new_repo
+  local a n
+  a=$(commit)
+  for n in $(seq 1 30); do
+    if [ $((n % 3)) = 0 ]; then
+      release "v0.3.0-edge.$n" "$a" - false "$([ "$n" = 30 ] && echo true || echo false)"
+    else
+      release "v0.3.0-edge.$n" "$a" - true
+    fi
+  done
+  (cd "$T" && bash "$root/scripts/edge-prune.sh") >"$T/out.prune"
+  local n2 want=""
+  for n2 in 3 6 9 12 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do want="${want}v0.3.0-edge.$n2 "; done
+  [ "$(left)" = "$want" ] || fail "left: $(left); want: $want"
+}
+
+# A failing gh call stops the retention before it deletes anything.
+TestEdgePruneStopsWhenGhFails() {
+  new_repo
+  local a n
+  a=$(commit)
+  for n in $(seq 1 12); do release "v0.3.0-edge.$n" "$a" main false; done
+  if (cd "$T" && FAKE_FAIL=view bash "$root/scripts/edge-prune.sh") >"$T/out.prune" 2>&1; then
+    fail "edge-prune.sh succeeded although gh release view failed: $(cat "$T/out.prune")"
+  fi
+  [ ! -s "$FAKE_LOG" ] || fail "deleted although gh failed: $(cat "$FAKE_LOG")"
+}
+
+# ------------------------------------------------------------ release-edge.yml
+
+# The publishes of one branch run one at a time and none cancels another (a
+# newer one waits); the gate runs when the ci run ends and again when the
+# publishing job starts; the retention runs one at a time, in a job of its own.
+TestReleaseEdgeWorkflowPublishesInOrder() {
+  local wf="$root/.github/workflows/release-edge.yml"
+  # shellcheck disable=SC2016 # a workflow expression, not a shell one
+  grep -qF 'group: release-edge-${{ github.event.workflow_run.head_branch }}' "$wf" ||
+    fail "release-edge.yml: no concurrency group per branch"
+  if grep -qF 'cancel-in-progress: true' "$wf"; then
+    fail "release-edge.yml: a run cancels another one in progress"
+  fi
+  # shellcheck disable=SC2016
+  [ "$(grep -cF 'bash scripts/edge-gate.sh "$HEAD_BRANCH" "$HEAD_SHA"' "$wf")" = 2 ] ||
+    fail "release-edge.yml: edge-gate.sh must run in the gate job and when the edge job starts"
+  grep -qF "if: needs.gate.outputs.publish == 'true'" "$wf" ||
+    fail "release-edge.yml: the edge job does not wait for the gate"
+  grep -qF 'group: release-edge-retention' "$wf" ||
+    fail "release-edge.yml: the retention does not run one at a time"
+}
+
+# The signing key is a secret of two environments, not of the repository: an
+# older release-edge.yml on an older ref (a tag), which publishes on a manual
+# run without the ci gate, then finds no key. Only the jobs that sign name an
+# environment; their deployment rules (docs/dev/RELEASING.md) admit main and
+# the stable tags.
+TestReleaseWorkflowsSignInEnvironments() {
+  local wf job env
+  for wf in release-edge.yml:edge:edge-release ci.yml:release:release; do
+    IFS=: read -r wf job env <<<"$wf"
+    wf="$root/.github/workflows/$wf"
+    # The environment of each job, as "job environment" lines.
+    awk '/^  [a-z-]+:$/ { job = substr($1, 1, length($1) - 1) }
+         /^    environment: / { print job, $2 }' "$wf" >"$T/envs"
+    [ "$(cat "$T/envs")" = "$job $env" ] ||
+      fail "${wf##*/}: want only the job $job in the environment $env, got: $(cat "$T/envs")"
+  done
+}
+
+# --------------------------------------------------------------- no-test-key
+
+# fake_deyroute GOARCH DIR JSON [RC]: DIR/deyroute, a tiny static binary for
+# linux/GOARCH that answers exactly `--json version` with JSON and exit
+# status RC (default 0), as a deyroute release binary answers it. The
+# program is built once per run and per GOARCH.
+fake_deyroute() {
+  local arch=$1 dir=$2 bin="$tmp/fake-deyroute/$1/deyroute"
+  if [ ! -x "$bin" ]; then
+    mkdir -p "$tmp/fake-deyroute/src" "${bin%/*}"
+    cat >"$tmp/fake-deyroute/src/main.go" <<'EOF'
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	if len(os.Args) != 3 || os.Args[1] != "--json" || os.Args[2] != "version" {
+		fmt.Fprintln(os.Stderr, "fake deyroute: unexpected arguments:", os.Args[1:])
+		os.Exit(2)
+	}
+	exe, _ := os.Executable()
+	out, _ := os.ReadFile(filepath.Join(filepath.Dir(exe), "version.json"))
+	rc, _ := os.ReadFile(filepath.Join(filepath.Dir(exe), "version.rc"))
+	fmt.Print(string(out))
+	n, _ := strconv.Atoi(strings.TrimSpace(string(rc)))
+	os.Exit(n)
+}
+EOF
+    (cd "$tmp/fake-deyroute/src" && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o "$bin" main.go) ||
+      fail "cannot build the fake deyroute for $arch"
+  fi
+  mkdir -p "$dir"
+  cp "$bin" "$dir/deyroute"
+  printf '%s\n' "$3" >"$dir/version.json"
+  printf '%s\n' "${4:-0}" >"$dir/version.rc"
+}
+
+# host_goarch / foreign_goarch: this machine's GOARCH and the other one of
+# the two release architectures (amd64, arm64); foreign_cpu is the latter as
+# uname -m and qemu name it.
+host_goarch() { case $(uname -m) in aarch64 | arm64) echo arm64 ;; *) echo amd64 ;; esac; }
+foreign_goarch() { case $(host_goarch) in amd64) echo arm64 ;; *) echo amd64 ;; esac; }
+foreign_cpu() { case $(foreign_goarch) in arm64) echo aarch64 ;; *) echo x86_64 ;; esac; }
+
+# want_key_check WANT BINARY... [-- TEXT]: scripts/no-test-key.sh BINARY...
+# exits 0 (WANT pass) or not (WANT fail); TEXT is part of what it prints.
+want_key_check() {
+  local want=$1 rc=0 text="" args=()
+  shift
+  while [ $# -gt 0 ]; do
+    if [ "$1" = -- ]; then text=$2; break; fi
+    args+=("$1")
+    shift
+  done
+  bash "$root/scripts/no-test-key.sh" "${args[@]}" >"$T/check.out" 2>&1 || rc=$?
+  case $want in
+    pass) [ "$rc" = 0 ] || fail "no-test-key.sh ${args[*]}: exit $rc, want 0: $(cat "$T/check.out")" ;;
+    fail) [ "$rc" != 0 ] || fail "no-test-key.sh ${args[*]}: exit 0, want a failure: $(cat "$T/check.out")" ;;
+  esac
+  [ -z "$text" ] || grep -qF -- "$text" "$T/check.out" ||
+    fail "no-test-key.sh ${args[*]}: '$text' missing in: $(cat "$T/check.out")"
+}
+
+# A release binary ("test_key": false) passes.
+TestNoTestKeyPassesReleaseBinary() {
+  fake_deyroute "$(host_goarch)" "$T/rel" '{"schema":1,"version":"0.3.0","test_key":false}'
+  want_key_check pass "$T/rel/deyroute" -- "$T/rel/deyroute"
+}
+
+# A binary built with the lab's test key ("test_key": true) is refused, and
+# so is one of several binaries.
+TestNoTestKeyRefusesLabBinary() {
+  fake_deyroute "$(host_goarch)" "$T/rel" '{"schema":1,"version":"0.3.0","test_key":false}'
+  fake_deyroute "$(host_goarch)" "$T/lab" '{"schema":1,"version":"0.3.0","test_key":true}'
+  want_key_check fail "$T/lab/deyroute" -- "test_key is true"
+  want_key_check fail "$T/rel/deyroute" "$T/lab/deyroute" -- "$T/lab/deyroute"
+}
+
+# What cannot be checked is refused: no test_key field (a build that
+# predates it), an answer that is not JSON, a failing binary, a file that is
+# not an ELF binary.
+TestNoTestKeyRefusesWhatItCannotCheck() {
+  fake_deyroute "$(host_goarch)" "$T/old" '{"schema":1,"version":"0.3.0"}'
+  want_key_check fail "$T/old/deyroute" -- "test_key is absent"
+  fake_deyroute "$(host_goarch)" "$T/text" 'deyroute 0.3.0'
+  want_key_check fail "$T/text/deyroute" -- "test_key is unreadable"
+  fake_deyroute "$(host_goarch)" "$T/bad" '{"schema":1,"version":"0.3.0","test_key":false}' 3
+  want_key_check fail "$T/bad/deyroute" -- "cannot be checked"
+  printf '#!/bin/sh\necho %s\n' "'{\"test_key\":false}'" >"$T/script"
+  chmod +x "$T/script"
+  want_key_check fail "$T/script" -- "not an x86_64 or aarch64 ELF binary"
+  want_key_check fail "$T/missing" -- "no such file"
+}
+
+# A binary of the other architecture runs through qemu-<cpu>-static (here a
+# fake that answers for it and records its arguments).
+TestNoTestKeyRunsForeignBinaryThroughQemu() {
+  local cpu
+  cpu=$(foreign_cpu)
+  mkdir -p "$T/qemu"
+  cat >"$T/qemu/qemu-$cpu-static" <<EOF
+#!/bin/sh
+echo "\$*" >>"$T/qemu.log"
+cat "\$(dirname "\$1")/version.json"
+EOF
+  chmod +x "$T/qemu/qemu-$cpu-static"
+  fake_deyroute "$(foreign_goarch)" "$T/rel" '{"schema":1,"version":"0.3.0","test_key":false}'
+  fake_deyroute "$(foreign_goarch)" "$T/lab" '{"schema":1,"version":"0.3.0","test_key":true}'
+  PATH="$T/qemu:$PATH" want_key_check pass "$T/rel/deyroute"
+  PATH="$T/qemu:$PATH" want_key_check fail "$T/lab/deyroute" -- "test_key is true"
+  [ "$(cat "$T/qemu.log")" = "$T/rel/deyroute --json version"$'\n'"$T/lab/deyroute --json version" ] ||
+    fail "qemu-$cpu-static was not used as expected: $(cat "$T/qemu.log")"
+}
+
+# Both release paths check every binary before it is packed and signed:
+# the edge build of release-edge.yml (a step between the build and the
+# archives) and goreleaser (a build hook of .goreleaser.yaml, run by the
+# release job of ci.yml); both jobs install qemu-user-static first for the
+# arm64 binary.
+TestReleaseBuildsRefuseLabKey() {
+  local wf="$root/.github/workflows/release-edge.yml" build check pack sign
+  build=$(grep -n 'go build -trimpath' "$wf" | head -n 1 | cut -d: -f1 || true)
+  check=$(grep -nF 'bash scripts/no-test-key.sh dist/deyroute_*_linux_*/deyroute' "$wf" | cut -d: -f1 || true)
+  pack=$(grep -n 'tar -C dist -czf' "$wf" | cut -d: -f1 || true)
+  sign=$(grep -n 'minisign sign -in dist/SHA256SUMS' "$wf" | cut -d: -f1 || true)
+  { [ -n "$build" ] && [ -n "$check" ] && [ -n "$pack" ] && [ -n "$sign" ]; } ||
+    fail "release-edge.yml: build ($build), key check ($check), archives ($pack) or signature ($sign) not found"
+  { [ "$build" -lt "$check" ] && [ "$check" -lt "$pack" ] && [ "$pack" -lt "$sign" ]; } ||
+    fail "release-edge.yml: the key check (line $check) must come after the build ($build) and before the archives ($pack)"
+  grep -q 'apt-get install .*qemu-user-static' "$wf" || fail "release-edge.yml: no qemu-user-static for the arm64 binary"
+  awk '/^builds:/ { b = 1 } /^[a-z]/ && !/^builds:/ { b = 0 }
+       b && /^ *post:/ { p = 1; next }
+       b && p && /- cmd: bash scripts\/no-test-key.sh "\{\{ \.Path \}\}"$/ { found = 1 }
+       END { exit !found }' "$root/.goreleaser.yaml" ||
+    fail ".goreleaser.yaml: no post-build hook running scripts/no-test-key.sh on each binary"
+  awk '/^  [a-z-]+:$/ { job = $1 } job == "release:" && /apt-get install .*qemu-user-static/ { q = NR }
+       job == "release:" && /goreleaser\/goreleaser-action/ { g = NR }
+       END { exit !(q && g && q < g) }' "$root/.github/workflows/ci.yml" ||
+    fail "ci.yml: the release job does not install qemu-user-static before goreleaser"
+}
+
+# -------------------------------------------------------------- release key
+
+# scripts/release-pubkey.sh prints exactly one line, the release key: the
+# value of MINISIGN_PUBKEY in installer/install.sh. A comment that names a
+# key (a "-X …TestPublicKey=RW…" example) is not taken for it.
+TestReleasePubkeyIsTheInstallerKey() {
+  local want got
+  want=$(sed -n 's/^MINISIGN_PUBKEY="\(.*\)"$/\1/p' "$root/installer/install.sh")
+  [ -n "$want" ] || fail "installer/install.sh: no MINISIGN_PUBKEY line"
+  got=$(bash "$root/scripts/release-pubkey.sh") || fail "release-pubkey.sh failed: $got"
+  [ "$got" = "$want" ] || fail "release-pubkey.sh: want exactly the line '$want', got: '$got'"
+  # A keys.go whose comments name other keys.
+  {
+    echo '// go build -ldflags "-X github.com/localroot4/deyroute/internal/install.TestPublicKey=RWQlabkey" ./cmd/deyroute'
+    echo '// const MinisignPublicKey = "RWQcommented"'
+    cat "$root/internal/install/keys.go"
+    echo '// RW and RWQanother'
+  } >"$T/keys.go"
+  got=$(bash "$root/scripts/release-pubkey.sh" "$T/keys.go") || fail "release-pubkey.sh on a commented keys.go failed: $got"
+  [ "$got" = "$want" ] || fail "release-pubkey.sh on a commented keys.go: want '$want', got: '$got'"
+  # No key, or two: nothing is printed and the script fails.
+  grep -v '^const MinisignPublicKey' "$root/internal/install/keys.go" >"$T/none.go"
+  if got=$(bash "$root/scripts/release-pubkey.sh" "$T/none.go" 2>/dev/null); then
+    fail "release-pubkey.sh: a keys.go without the constant passed and printed '$got'"
+  fi
+  { cat "$root/internal/install/keys.go"; echo 'const MinisignPublicKey = "RWQsecond"'; } >"$T/two.go"
+  if got=$(bash "$root/scripts/release-pubkey.sh" "$T/two.go" 2>/dev/null); then
+    fail "release-pubkey.sh: a keys.go with two constants passed and printed '$got'"
+  fi
+}
+
+# The edge build reads the release key only through release-pubkey.sh: to
+# check the signature it made and for the key printed in the release notes.
+TestReleaseEdgeReadsKeyThroughScript() {
+  local wf="$root/.github/workflows/release-edge.yml"
+  if grep -n 'internal/install/keys.go' "$wf"; then
+    fail "release-edge.yml reads internal/install/keys.go itself; use scripts/release-pubkey.sh"
+  fi
+  # shellcheck disable=SC2016 # the workflow's text, not an expansion
+  [ "$(grep -cF 'key=$(bash scripts/release-pubkey.sh)' "$wf")" = 2 ] ||
+    fail "release-edge.yml: the sign and publish steps must both read the key with scripts/release-pubkey.sh"
+  # shellcheck disable=SC2016
+  grep -qF 'minisign verify -in dist/SHA256SUMS -pubkey "$key"' "$wf" ||
+    fail "release-edge.yml: the sign step does not verify SHA256SUMS with that key"
+}
+
+# The notes of a stable release: install and update lines for that version,
+# its CHANGELOG section (cut after six sections), the release key; no
+# section, no notes. ci.yml's release job passes them to goreleaser.
+TestStableReleaseNotes() {
+  local key notes
+  key=$(bash "$root/scripts/release-pubkey.sh")
+  {
+    echo '# Changelog'
+    echo
+    echo '## [Unreleased]'
+    echo
+    echo '### Added — later'
+    echo
+    echo '## [1.2.3] - 2026-01-02'
+    echo
+    for i in 1 2 3 4 5 6 7; do printf '### Fixed — item %s\n\n- fix %s\n\n' "$i" "$i"; done
+    echo '## [1.2.2] - 2026-01-01'
+    echo
+    echo '### Fixed — older'
+  } >"$T/CHANGELOG.md"
+  mkdir -p "$T/repo/scripts" "$T/repo/internal/install"
+  cp "$root/scripts/release-notes.sh" "$root/scripts/release-pubkey.sh" "$T/repo/scripts/"
+  cp "$root/internal/install/keys.go" "$T/repo/internal/install/"
+  cp "$T/CHANGELOG.md" "$T/repo/"
+  notes=$(GITHUB_REPOSITORY=o/r bash "$T/repo/scripts/release-notes.sh" 1.2.3) || fail "release-notes.sh 1.2.3 failed: $notes"
+  grep -qxF 'bash <(curl -fsSL https://github.com/o/r/releases/latest/download/install.sh)' <<<"$notes" ||
+    fail "no latest install line in: $notes"
+  grep -qF 'https://github.com/o/r/releases/download/v1.2.3/install.sh) --version 1.2.3' <<<"$notes" ||
+    fail "no pinned install line in: $notes"
+  grep -qxF '### Fixed — item 6' <<<"$notes" || fail "section 6 missing: $notes"
+  if grep -qE 'item 7|later|older' <<<"$notes"; then fail "notes run past six sections of [1.2.3]: $notes"; fi
+  grep -qxF 'More in the full changelog.' <<<"$notes" || fail "no pointer to the full changelog: $notes"
+  grep -qF "Public key: \`$key\`" <<<"$notes" || fail "no release key in: $notes"
+  if got=$(bash "$T/repo/scripts/release-notes.sh" 1.2 2>/dev/null); then
+    fail "release-notes.sh 1.2 (no such section; [1.2.3] must not match) passed: $got"
+  fi
+  grep -qF 'scripts/release-notes.sh' "$root/.github/workflows/ci.yml" ||
+    fail "ci.yml's release job does not use scripts/release-notes.sh"
+  grep -qF -- '--release-notes' "$root/.github/workflows/ci.yml" ||
+    fail "ci.yml does not pass the notes to goreleaser"
+}
+
+# ------------------------------------------------------------------- runner
+
+tests=("$@")
+if [ ${#tests[@]} = 0 ]; then
+  mapfile -t tests < <(declare -F | awk '$3 ~ /^Test/ { print $3 }')
+fi
+failed=0
+for t in "${tests[@]}"; do
+  T="$tmp/$t"
+  mkdir -p "$T"
+  export FAKE_RELEASES="$T/releases.json" FAKE_LOG="$T/gh.log"
+  printf '[]\n' >"$FAKE_RELEASES"
+  : >"$FAKE_LOG"
+  set +e
+  (
+    set -e
+    "$t"
+  ) >"$T/out" 2>&1
+  rc=$?
+  set -e
+  if [ "$rc" = 0 ]; then
+    echo "--- PASS: $t"
+  else
+    echo "--- FAIL: $t"
+    sed 's/^/    /' "$T/out"
+    failed=$((failed + 1))
+  fi
+done
+if [ "$failed" != 0 ]; then
+  echo "FAIL: $failed of ${#tests[@]} tests"
+  exit 1
+fi
+echo "PASS: ${#tests[@]} tests"

@@ -18,6 +18,7 @@ const (
 	SecretsDir      = "/etc/deyroute/secrets" // #nosec G101 -- directory path, not a credential
 	BackendsConfDir = "/etc/deyroute/backends"
 	ManifestPath    = "/etc/deyroute/backends.yaml"
+	ManifestSigPath = "/etc/deyroute/backends.yaml.minisig"
 	LibDir          = "/var/lib/deyroute"
 	BinDir          = "/var/lib/deyroute/bin"
 	StatePath       = "/var/lib/deyroute/state.db"
@@ -184,7 +185,12 @@ type Hub struct {
 	DecoySNIs   []string `yaml:"decoy_snis,omitempty"`   // Reality/Waterwall decoys (section 7.4, 19)
 	Mirror      string   `yaml:"mirror,omitempty"`       // release base override (DEYROUTE_MIRROR wins)
 	UpdateCheck bool     `yaml:"update_check,omitempty"` // daily release check, default off (section 5)
-	ACME        *ACME    `yaml:"acme,omitempty"`
+	// AutoUpdate turns the automatic update on (`deyroute update auto`):
+	// the hub installs new releases by itself. Off by default (section 5);
+	// written only when on, so a default install never blocks a rollback
+	// (NewerKeysInUse).
+	AutoUpdate bool  `yaml:"auto_update,omitempty"`
+	ACME       *ACME `yaml:"acme,omitempty"`
 
 	// Front is the CDN front listener (front mode); absent = off.
 	Front HubFront `yaml:"front,omitempty"`
@@ -325,6 +331,12 @@ type NodeSelf struct {
 	// Front holds the front dial settings; the node is in front mode iff
 	// front.secret_file is set (hub_addr is then "<front domain>:<port>").
 	Front NodeFront `yaml:"front,omitempty"`
+	// AllowUnsignedUpdates lets self.update install a deyroute binary that
+	// no signed release proves, from a hub on a development build or a hub
+	// that serves no signed release (DR-03). For test labs only; off by
+	// default and written only when on, so a default install never blocks
+	// a rollback (NewerKeysInUse).
+	AllowUnsignedUpdates bool `yaml:"allow_unsigned_updates,omitempty"`
 }
 
 // HubInfo is the subset of hub data a backend renderer needs.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ func TestJoinCommandFormat(t *testing.T) {
 	require.Equal(t, `bash <(curl -fsSL u) join 'a'\''b'`, JoinCommand("u", "a'b", ""))
 
 	// A normal mirror URL stays unquoted (the exact spec format).
-	mirror := InstallerURL("https://cdn.example.com/deyroute")
+	mirror := InstallerURL("https://cdn.example.com/deyroute", "")
 	require.Equal(t, "bash <(curl -fsSL https://cdn.example.com/deyroute/latest/install.sh) join '"+testLink+"'",
 		JoinCommand(mirror, testLink, ""))
 	// Anything the shell would interpret is single-quoted, so the pasted
@@ -64,10 +65,46 @@ func TestJoinCommandFormat(t *testing.T) {
 }
 
 func TestInstallerURL(t *testing.T) {
-	require.Equal(t, "https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh", InstallerURL(""))
-	require.Equal(t, "https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh", InstallerURL("  "))
-	require.Equal(t, "https://mirror.example/deyroute/latest/install.sh", InstallerURL("https://mirror.example/deyroute/"))
-	require.Equal(t, "https://cdn.example/latest/install.sh", InstallerURL(" https://cdn.example "))
+	require.Equal(t, "https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh", InstallerURL("", ""))
+	require.Equal(t, "https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh", InstallerURL("  ", "dev"))
+	require.Equal(t, "https://mirror.example/deyroute/latest/install.sh", InstallerURL("https://mirror.example/deyroute/", ""))
+	require.Equal(t, "https://cdn.example/latest/install.sh", InstallerURL(" https://cdn.example ", "dev"))
+	require.Equal(t, "https://github.com/localroot4/DeyRoute/releases/download/v1.0.0-rc.1/install.sh", InstallerURL("", "v1.0.0-rc.1"))
+	require.Equal(t, "https://cdn.example/v0.3.0-edge.60/install.sh", InstallerURL(" https://cdn.example ", "0.3.0-edge.60"))
+}
+
+// A hub on a release prints the installer of that release, not the newest
+// one: the version it pins stays installable after newer releases (DR-02).
+func TestJoinCommandUsesVersionedInstaller(t *testing.T) {
+	cmd := JoinCommand(InstallerURL("", "0.3.0"), testLink, "0.3.0")
+	require.Equal(t, "bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v0.3.0/install.sh) join '"+
+		testLink+"' --version 0.3.0", cmd)
+	require.Contains(t, cmd, "/download/v0.3.0/install.sh")
+	require.NotContains(t, cmd, "/latest/")
+
+	// An edge build and a leading "v" pin the same way, URL and flag alike.
+	cmd = JoinCommand(InstallerURL("", "v0.3.0-edge.60"), testLink, "v0.3.0-edge.60")
+	require.Contains(t, cmd, "/releases/download/v0.3.0-edge.60/install.sh) join '")
+	require.True(t, strings.HasSuffix(cmd, " --version 0.3.0-edge.60"), cmd)
+}
+
+// A development build pins nothing: the newest installer, no --version.
+func TestJoinCommandDevBuildUsesLatest(t *testing.T) {
+	for _, v := range []string{"dev", "", "latest", "v", "1", "1.2.3; rm -rf /", "$(id)"} {
+		cmd := JoinCommand(InstallerURL("", v), testLink, v)
+		require.Equalf(t, "bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join '"+
+			testLink+"'", cmd, "version %q", v)
+		require.NotContainsf(t, cmd, "--version", "version %q", v)
+	}
+}
+
+func TestJoinCommandMirrorVersioned(t *testing.T) {
+	require.Equal(t, "https://m.example/dey/v0.3.0/install.sh", InstallerURL("https://m.example/dey", "0.3.0"))
+	require.Equal(t, "https://m.example/dey/v0.3.0/install.sh", InstallerURL("https://m.example/dey/", "v0.3.0"))
+	require.Equal(t, "bash <(curl -fsSL https://m.example/dey/v0.3.0/install.sh) join '"+testLink+"' --version 0.3.0",
+		JoinCommand(InstallerURL("https://m.example/dey", "0.3.0"), testLink, "0.3.0"))
+	// A development build keeps the mirror's newest installer.
+	require.Equal(t, "https://m.example/dey/latest/install.sh", InstallerURL("https://m.example/dey", "dev"))
 }
 
 func TestParseRouteSource(t *testing.T) {

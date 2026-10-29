@@ -76,6 +76,7 @@ func (h *Hub) startJobs(ctx context.Context, run func(func())) {
 	run(func() { h.restartLoop(ctx) })
 	run(func() { h.trafficLoop(ctx) })
 	run(func() { h.tuneCheckLoop(ctx) })
+	run(func() { h.manifestSigLoop(ctx) })
 }
 
 // every runs fn after first and then every interval until ctx ends.

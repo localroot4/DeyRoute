@@ -2,10 +2,11 @@
 
 [فارسی](../fa/update-uninstall.md) · [Index](index.md)
 
-The hub keeps deyroute up to date by itself (automatic update, on by
-default; see below), and you can update by hand at any time. Updating
-deyroute does not interrupt the tunnels: the tunnel programs run as their
-own systemd units and are not touched while the deyroute service restarts.
+You update deyroute on the hub when you choose, and the nodes follow it.
+The hub can also update itself once a day (automatic update, off by
+default; see below). Updating deyroute does not interrupt the tunnels: the
+tunnel programs run as their own systemd units and are not touched while
+the deyroute service restarts.
 
 ## Update deyroute
 
@@ -35,7 +36,8 @@ What `deyroute update` does:
    or from your mirror;
 4. replaces `/usr/local/bin/deyroute`, keeping the old one as
    `/var/lib/deyroute/bin/deyroute.prev`, and restarts the deyroute service;
-5. the nodes follow the hub's version.
+5. the nodes follow the hub's version (see
+   [How the nodes follow](#how-the-nodes-follow)).
 
 Use only one of `--check`, `--version` and `--rollback` at a time.
 `--rollback` restores `deyroute.prev` (`DEY-S007` when there is none; then
@@ -44,23 +46,103 @@ service does not run any more (for example a bad update that keeps
 crashing) and on a node: the binaries are swapped locally and the service
 is restarted.
 
+While `config.yaml` uses a setting that an older release does not know,
+`--rollback` and `--version` to such a release are refused with `DEY-S011`:
+that release would refuse the file and the service would not start. The
+error names each setting with the first release that knows it; remove the
+setting first, then repeat the command. For `--rollback` the hub compares
+the version it recorded for `deyroute.prev` when an update or rollback
+wrote that file. When the installer or a rollback without the service has
+replaced the file since, its version is unknown, and the rollback is
+refused while any such setting is in use.
+
+## How the nodes follow
+
+When a node connects with another version than the hub's after an update
+or a rollback, the hub tells it to install the hub's version. A node
+installs a new deyroute only when the release it comes from is signed
+with the DEYROUTE release key built into the node; what the hub says
+about it is not enough:
+
+- The hub keeps the signed files of its release in
+  `/var/lib/deyroute/bin/<version>/`: `SHA256SUMS`, `SHA256SUMS.minisig`,
+  the archive `deyroute_<version>_linux_<arch>.tar.gz` of each
+  architecture it serves, and `backends.yaml` with its signature.
+  `deyroute update` and the installer (also with `--local`) leave them
+  there. A hub without them (installed before this change, or with
+  `--skip-signature`) downloads them the first time a node needs them,
+  like the release itself: through a node or your mirror. When the hub
+  starts it removes the files of versions it neither runs nor rolls back
+  to.
+- The node downloads these files from the hub and checks them itself:
+  the signature of `SHA256SUMS`, that `SHA256SUMS` lists the archive of
+  exactly the hub's version, the checksum of the archive, and that the
+  archive holds one regular file `deyroute` (no link, no path outside the
+  archive, at most 200 MB) that runs on this server.
+- Last, the node asks that binary itself: `deyroute --json version` must
+  answer `"signed_update": true`. Releases built before signed updates do
+  not say it. They are signed with the same key, but a node on one of them
+  would take any binary its hub serves, so a node never moves to one: the
+  answer is `DEY-S001` with "… was built before signed updates", and the
+  node keeps its version. A hub that serves signed releases asks only for
+  its own version, so this happens only when something on the hub asked
+  for an older release.
+- Only then the node replaces its binary (the old one stays as
+  `deyroute.prev`) and restarts; the tunnels keep running.
+- When a check fails the node installs nothing and keeps running its
+  version. The hub's log has the line "node could not install the hub's
+  version" with `DEY-S001` and the check that failed (for example
+  "SHA256SUMS.minisig is not a valid signature …" or "… does not match the
+  signed SHA256SUMS"); the hub tries again when the node reconnects. The
+  hub serves its files as they are: when a node keeps refusing them with
+  "… does not match the signed SHA256SUMS" (a damaged file on the hub),
+  delete `/var/lib/deyroute/bin/<version>/` on the hub, and it downloads
+  the release again the next time a node needs it.
+
+**Update the hub first.** A node of this version updates only from a hub
+that serves signed releases. A hub of an earlier build cannot: the node
+refuses its update with `DEY-S001` ("update the hub first") and keeps
+running. Update the hub, then the nodes follow. A node of an earlier build
+still updates from a new hub as before. The same holds after
+`deyroute update --version` or `--rollback` on the hub to a build before
+signed updates: the nodes keep their version until the hub runs a newer
+build again.
+
+**Development builds.** A hub on a development build (`deyroute version`
+shows `dev`) has no signed release, so its nodes refuse with `DEY-S012`:
+install a release on the hub. Only in a test lab, the line
+`allow_unsigned_updates: true` under `node:` in a node's
+`/etc/deyroute/config.yaml` lets that node take the hub's binary without
+a signature (from an earlier hub too). Never set it on a server with real
+users: with it, whoever controls the hub controls the node again. While
+it is set, the node refuses to install a release older than **0.3.0**
+(`DEY-S011`, every `0.3.0-edge.N` older than the node included): such a
+release does not know the key and would not start.
+
 ## Automatic update
 
-On by default. Once a day at **04:00 server time** the hub installs the
-newest release that has been out for at least **24 hours**; the nodes follow
-it as after `deyroute update`, and the tunnels keep running.
+Off by default: deyroute never installs a release unless you ask. When you
+turn it on, once a day at **04:00 server time** the hub installs the newest
+release that has been out for at least **24 hours**; the nodes follow it as
+after `deyroute update`, and the tunnels keep running.
 
 After the restart the hub checks that every tunnel that was UP and every
 node that was online before the update works again (it gives them up to 10
 minutes). If not — or if the new version does not even start — it puts the
 previous version back by itself, records a `DEY-S003` event and a dashboard
 line, and never installs that release automatically again (you still can,
-with `deyroute update`).
+with `deyroute update`). The previous version ran with your `config.yaml`
+before the update, so it loads it again. Only when you set something after
+the update that the previous version does not know would it refuse the
+file: then the new version keeps running, the event `update_rolled_back`
+is recorded with the code `DEY-S011` (Telegram sends it with the `update`
+events), and the dashboard shows `DEY-S011` for 7 days (details in
+`deyroute update auto`).
 
 ```bash
 deyroute update auto        # on or off, next release and when, last result
-deyroute update auto off    # turn it off
-deyroute update auto on     # turn it back on
+deyroute update auto on     # turn it on
+deyroute update auto off    # turn it off again
 ```
 
 ```text
@@ -72,6 +154,38 @@ deyroute update auto on     # turn it back on
   Last       updated 0.3.0-edge.39 → 0.3.0-edge.40; 1 tunnels and 1 nodes work (2026-10-09 04:03)
 ```
 
+The switch is `hub.auto_update` in `config.yaml`: `update auto on` writes
+`auto_update: true` (after an automatic backup), and `off` removes the
+key, so a backup keeps your choice and a restored hub has it again. Without
+the key the automatic update is off. To choose at setup, pass
+`--auto-update on` or `--auto-update off` (the default):
+
+```bash
+deyroute setup --role hub --name ir-1 --yes --auto-update on
+```
+
+`deyroute --json update auto` reports `"enabled"` and `"source": "config"`.
+
+While it is on, releases before **0.3.0** do not know the key, so
+`deyroute update --rollback` and `deyroute update --version V` to such a
+release (every `0.3.0-edge.N` build included) are refused with `DEY-S011`;
+run `deyroute update auto off` first. Updates to newer releases are not
+affected, and a failed automatic update still goes back to the version it
+came from: that version ran with the key.
+
+**Hubs that ran an earlier build:** before this change the automatic update
+was on by default, and the switch was kept in the state database, which a
+backup does not contain. After the update it is **off** until you turn it
+on with `deyroute update auto on`, also on a hub where it ran before. Such a
+hub records the event `auto_update_default_off` once, and `deyroute status`
+shows "automatic update is now off by default; turn it on with: deyroute
+update auto on" for 7 days. A new installation shows neither. deyroute
+also keeps writing the switch where earlier builds read it (in the state
+database, with every change of the automatic update's record and with
+`update auto on|off`), so after `update --rollback` or `update --version`
+to an earlier build the automatic update stays as it was here: off unless
+you turned it on.
+
 While it is on, `deyroute status` does not list a new release as something
 that needs attention: it is installed on schedule. A manual
 `deyroute update --rollback` also tells the automatic update to skip the
@@ -82,11 +196,29 @@ the configuration. It works even when the service is down, and on a node:
 
 ```bash
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) --version 1.2.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.2.0/install.sh) --version 1.2.0
 ```
 
 Hub and nodes must stay on the same major.minor version (see
 [Join](join.md#incompatible-versions)).
+
+## Which versions stay available
+
+- Stable releases (`vX.Y.Z`) are never removed.
+- Development builds (`…-edge.N`) are removed once 10 newer builds of the
+  same branch exist (`main` and `dev` are counted separately); the release
+  marked *latest* is never removed. A hub on a development build can join
+  nodes and reinstall its own version until then.
+- A release that is no longer published cannot be installed: its own
+  installer is gone too (`curl` reports `404`), and an installer run with
+  `--version` of it stops with `DEY-I024`. Pick a version from the
+  [releases page](https://github.com/localroot4/DeyRoute/releases), or
+  install from a copy you saved (`--local`, see
+  [Install](install.md#when-github-is-not-reachable-from-the-hub)).
+
+To keep servers on one version for a long time, use a stable release, or
+keep its files (`install.sh`, `SHA256SUMS`, `SHA256SUMS.minisig` and the
+archives) yourself.
 
 ## Update the backends
 
@@ -136,8 +268,54 @@ versions. A backend binary is never installed without a matching sha256:
 `DEY-S001` means a file did not match (it was rejected, nothing changed),
 `DEY-S006` means the manifest has no checksum for a backend. The new manifest
 is saved as `/etc/deyroute/backends.yaml` (it overrides the one built into
-deyroute). Running tunnels keep their backend versions until you run
+deyroute), with its signature next to it as
+`/etc/deyroute/backends.yaml.minisig`; your backups keep both. Running
+tunnels keep their backend versions until you run
 `deyroute update backends`.
+
+### Backends on the nodes
+
+A node installs a backend only in a version a signed manifest pins: the
+version, download address and sha256 (for the node's architecture) the hub
+asks for must be exactly those in the manifest built into the node, or in a
+manifest the hub sends along whose signature the node checks itself with
+the release key built into it. Anything else is refused before a download:
+the hub's log has the line "backend installation on a node failed" with
+`DEY-N050` and the reason ("… is not pinned by this node's built-in
+backends.yaml …"), and the transports of that backend are not used on that
+node.
+
+- **Your manifest override.** The hub sends it with its signature to the
+  nodes. A hub that saved the override with an earlier build has no
+  signature for it: when it starts it downloads one that matches the file
+  (from the newest release, then from its own), and tries again every 10
+  minutes. Until it has one, its nodes install only the versions of their
+  own built-in manifest, and the hub's log warns "the backend manifest
+  override has no valid signature …". Run `deyroute update manifest` on
+  the hub to fix it at once. Do not edit `/etc/deyroute/backends.yaml` by
+  hand: the signature would no longer match, and the nodes would get none
+  of its versions.
+- **Hub and node on different builds.** Each build has its own built-in
+  manifest. When a node's differs from the hub's, the hub sends the signed
+  manifest of its own release, which it keeps in
+  `/var/lib/deyroute/bin/<version>/` and downloads the first time a node
+  needs it. A hub on a development build has none: its nodes install only
+  the versions of their own built-in manifest.
+- **A hub of an earlier build** sends no manifest; the nodes of this
+  version then install only the versions of their own built-in manifest.
+  Update the hub first (see [How the nodes follow](#how-the-nodes-follow)).
+- **Older signed manifests.** A node checks that a manifest is signed,
+  not how old its release is: a hub can still send the signed manifest of
+  an older release and so pin an older backend version that release
+  shipped (an open question in QUESTIONS.md).
+- **Versions already installed.** After `deyroute update`, running tunnels
+  keep their backend versions until you run `deyroute update backends`, and
+  the new build's manifest may pin newer ones. A node that already has such
+  a version installed (its files match the sha256 the hub names) keeps
+  using it without a manifest: nothing is downloaded. A node that does not
+  have it yet (a new node) cannot install it, so those transports are not
+  used there: run `deyroute update backends` after an update that brings
+  new backend versions.
 
 ## Uninstall
 

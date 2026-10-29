@@ -21,6 +21,14 @@ const (
 	HeaderSHA256 = "X-Deyroute-Sha256"
 	// HeaderVersion carries the deyroute version of an asset.
 	HeaderVersion = "X-Deyroute-Version"
+	// ContentTypeTar is the body of GET /v1/assets/release/{arch}.
+	ContentTypeTar = "application/x-tar"
+
+	// MaxReleaseBundle caps the bytes a node reads from one GET
+	// /v1/assets/release/{arch} (a release archive is about 20 MiB).
+	MaxReleaseBundle = 256 << 20
+	// maxReleaseFiles caps the files of one release bundle.
+	maxReleaseFiles = 16
 
 	// MaxJoinRequest is the body limit of POST /v1/join.
 	MaxJoinRequest = 64 << 10
@@ -33,6 +41,9 @@ const (
 var (
 	uploadIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 	archRe     = regexp.MustCompile(`^[a-z0-9_]{1,32}$`)
+	// releaseNameRe is a file name of a release bundle: a plain base name,
+	// no path and no leading dot.
+	releaseNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 )
 
 // errLineTooLong is returned by lineReader for an oversized message.

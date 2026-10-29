@@ -6,8 +6,8 @@ package errors
 //
 // Placeholders used by templates are listed next to each code.
 
-// Installer / environment (DEY-I0xx). Codes I001-I012 are also used verbatim
-// by installer/install.sh.
+// Installer / environment (DEY-I0xx). Codes I001-I012 and I024 are also used
+// verbatim by installer/install.sh.
 const (
 	I001 Code = "DEY-I001" // not root
 	I002 Code = "DEY-I002" // no systemd
@@ -27,6 +27,7 @@ const (
 	I021 Code = "DEY-I021" // detected IP is private/CGNAT/loopback {ip}
 	I022 Code = "DEY-I022" // uninstall step failed {step}
 	I023 Code = "DEY-I023" // this server is not set up
+	I024 Code = "DEY-I024" // pinned release not found (HTTP 404 from every source) {version}
 )
 
 // Configuration (DEY-C0xx).
@@ -172,6 +173,7 @@ const (
 	S009 Code = "DEY-S009" // secret file unreadable or damaged {path} {reason}
 	S010 Code = "DEY-S010" // update or rollback refused while the front is in use {action} {reason}
 	S011 Code = "DEY-S011" // rollback or downgrade refused while newer config keys are set {action} {keys} {reason}
+	S012 Code = "DEY-S012" // node refuses self.update from a hub on a development build {version}
 )
 
 // Internal (DEY-X0xx).
@@ -266,6 +268,9 @@ var catalog = map[Code]Info{
 	I023: {I023, "This server is not set up yet",
 		"/etc/deyroute/config.yaml does not exist, so no deyroute service runs here",
 		"on the Iran server run: deyroute setup   on a foreign server run the join command your hub shows"},
+	I024: {I024, "Release v{version} not found",
+		"the release was removed or never existed: every download source answered HTTP 404 for its SHA256SUMS",
+		"install a version that exists, or use --local with a cached copy of that release"},
 
 	// ---------------------------------------------------------------- C
 	C001: {C001, "Unknown key in config: {key}",
@@ -631,7 +636,10 @@ var catalog = map[Code]Info{
 		"run deyroute front disable and move every front node back to a direct hub address (deyroute node set-hub HOST:PORT on each node, or join it again), then repeat the command"},
 	S011: {S011, "Cannot {action} while config.yaml uses newer settings: {keys}",
 		"{reason}: an older deyroute does not know these keys, so it refuses config.yaml (DEY-C001) and the hub would not start",
-		"undo them first (automatic tuning: deyroute optimize revert; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command"},
+		"undo them first (automatic tuning: deyroute optimize revert; automatic update: deyroute update auto off; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command"},
+	S012: {S012, "Hub runs an unsigned development build",
+		"the hub runs deyroute {version}, which is not a signed release, so this node cannot prove that the binary it would install comes from DEYROUTE; nothing was installed",
+		"install a release on the hub (deyroute update --version V), then the node follows; only in a test lab: set node.allow_unsigned_updates: true in the node's /etc/deyroute/config.yaml"},
 
 	// ---------------------------------------------------------------- X
 	X000: {X000, "Unexpected error",

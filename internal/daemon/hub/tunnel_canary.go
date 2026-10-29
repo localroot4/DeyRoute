@@ -168,7 +168,7 @@ func (c *tunnelCtl) canaryUp(ctx context.Context) error {
 	c.mu.Lock()
 	c.can.cand, c.can.loop, c.can.echo, c.can.node, c.can.rung = cand, loop, er.Port, primary, rung
 	c.mu.Unlock()
-	changed, err := h.hubWriter().Write(ctx, cand.Hub)
+	changed, err := writeHubSide(ctx, h.hubWriter(), cand)
 	if err != nil {
 		return err
 	}

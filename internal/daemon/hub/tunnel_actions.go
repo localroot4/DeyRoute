@@ -3,6 +3,8 @@ package hub
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
@@ -298,7 +300,7 @@ func (h *Hub) releaseCtlPorts(tunnel, node, transportID string) {
 // start, the start check, the post-start step (awg device configuration).
 func (h *Hub) startHubSide(ctx context.Context, tunnel, backendName string, side render.Side) error {
 	unit := systemd.UnitName(side.Instance)
-	if err := h.ensureTunnelLogDir(); err != nil {
+	if err := h.prepareTunnelLog(tunnel); err != nil {
 		return err
 	}
 	if err := h.hubHook(ctx, hookPreStart, backendName, side.ConfigDir); err != nil {
@@ -400,14 +402,78 @@ func startFailureCode(unit string) deyerr.Code {
 	return deyerr.B003
 }
 
-// ensureTunnelLogDir creates /var/log/deyroute/tunnels: systemd refuses to
-// start a unit whose StandardOutput=append: directory is missing.
+// ensureTunnelLogDir creates a missing /var/log/deyroute/tunnels as the
+// installer does (root:deyroute, systemd.TunnelLogDirMode): systemd refuses
+// to start a unit whose StandardOutput=append: directory is missing.
 func (h *Hub) ensureTunnelLogDir() error {
-	p := h.path(systemd.TunnelLogDir)
-	if err := os.MkdirAll(p, dlog.DirMode); err != nil {
-		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": p})
+	gid := -1
+	if _, g, err := h.o.DeyrouteIDs(); err == nil {
+		gid = g
+	}
+	return systemd.EnsureTunnelLogDir(h.path(systemd.TunnelLogDir), gid, h.o.Chown)
+}
+
+// prepareTunnelLog runs right before a hub unit of tunnel starts or
+// restarts: the tunnel log directory exists (ensureTunnelLogDir) and
+// <tunnel>.log is the hub's own regular file (dlog.EnsureTunnelLog), so
+// systemd, which opens it as root and follows a link, appends to root's
+// file. Whatever a backend planted there is removed and logged as "tunnel
+// log replaced". Failures are DEY-X022; the unit is then not started.
+func (h *Hub) prepareTunnelLog(tunnel string) error {
+	if err := h.ensureTunnelLogDir(); err != nil {
+		return err
+	}
+	return h.ensureTunnelLog(tunnel)
+}
+
+// ensureTunnelLog makes <tunnel>.log the hub's own regular file with one
+// link (dlog.EnsureTunnelLog) and logs what it removed there as "tunnel log
+// replaced". Errors are DEY-X022.
+func (h *Hub) ensureTunnelLog(tunnel string) error {
+	if !config.ValidID(tunnel) {
+		return nil
+	}
+	p := h.path(systemd.TunnelLogFile(tunnel))
+	if err := dlog.EnsureTunnelLog(p, func(reason string) { h.logWarn.Warn(p, reason) }); err != nil {
+		return deyerr.Wrap(deyerr.X022, err, deyerr.Params{"path": p})
 	}
 	return nil
+}
+
+// prepareTunnelLogs runs when the hub starts, right after
+// tightenTunnelLogDir and before the startup reconcile: the log of every
+// tunnel in the configuration becomes the hub's own regular file
+// (ensureTunnelLog). systemd opens a unit's log again as root on its own
+// restarts (Restart=always), which never go through prepareTunnelLog, and
+// the reconcile adopts running units without starting them, so a link a
+// backend put at a log name while tunnels/ was not sticky yet would stay
+// there. A missing tunnel log directory is left alone (no unit has run);
+// a failure is logged and the hub goes on.
+func (h *Hub) prepareTunnelLogs() {
+	if _, err := os.Lstat(h.path(systemd.TunnelLogDir)); stderrors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	for _, t := range h.Config().Tunnels {
+		if err := h.ensureTunnelLog(t.ID); err != nil {
+			h.log.Warn("cannot prepare a tunnel log", dlog.Tunnel(t.ID), dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		}
+	}
+}
+
+// tightenTunnelLogDir adds the sticky bit to an existing
+// /var/log/deyroute/tunnels of root when the hub starts
+// (systemd.TightenTunnelLogDir): an install made before it became 01770
+// left it 0770.
+func (h *Hub) tightenTunnelLogDir() {
+	dir := h.path(systemd.TunnelLogDir)
+	from, to, err := systemd.TightenTunnelLogDir(dir)
+	switch {
+	case err != nil:
+		h.log.Warn("cannot make the tunnel log directory sticky", slog.String("dir", dir), dlog.Err(err))
+	case from != to:
+		h.log.Info("tunnel log directory made sticky", slog.String("dir", dir),
+			slog.String("from", fmt.Sprintf("%04o", from)), slog.String("to", fmt.Sprintf("%04o", to)))
+	}
 }
 
 // ensureIPForward sets net.ipv4.ip_forward=1 for a NAT transport (runtime;

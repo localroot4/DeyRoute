@@ -63,14 +63,22 @@ func shellQuote(s string) string {
 // InstallerURL returns the URL of install.sh: <mirror>/latest/install.sh
 // when mirror (or the build-time install.ReleaseBase) is set, otherwise
 // https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh
-// (QUESTIONS.md B).
-func InstallerURL(mirror string) string {
+// (QUESTIONS.md B). When ver is a release (the version JoinCommand pins),
+// the installer of that release is used instead —
+// <mirror>/v<ver>/install.sh or …/releases/download/v<ver>/install.sh — so a
+// join command never mixes the newest installer with an older pinned
+// version (DR-02). A development build ("dev", "") keeps latest.
+func InstallerURL(mirror, ver string) string {
+	v, ok := releaseVersion(ver)
+	if !ok {
+		v = ""
+	}
 	base := strings.TrimSpace(mirror)
 	if base == "" {
 		base = strings.TrimSpace(install.ReleaseBase)
 	}
 	if base != "" {
-		return install.Source{Name: install.SourceMirror, BaseURL: base}.URL("", install.InstallerFile)
+		return install.Source{Name: install.SourceMirror, BaseURL: base}.URL(v, install.InstallerFile)
 	}
-	return install.Source{Name: install.SourceGitHub, BaseURL: install.GitHubReleases}.URL("", install.InstallerFile)
+	return install.Source{Name: install.SourceGitHub, BaseURL: install.GitHubReleases}.URL(v, install.InstallerFile)
 }

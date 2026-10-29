@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func writeLog(t *testing.T, content string) string {
@@ -113,4 +115,57 @@ func TestLogTailRedacts(t *testing.T) {
 	require.NotContains(t, joined, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
 	require.Equal(t, "starting", lines[0])
 	require.Contains(t, joined, "***")
+}
+
+// The tunnel logs live in a directory where the backends' user (deyroute)
+// can add names. LogTail (the log lines of a failed start, deyroute logs)
+// runs as root: it never reads through a link planted at a log's name,
+// never blocks on a FIFO and reads only a regular file.
+func TestLogTailRefusesLinkAndFIFO(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "shadow")
+	require.NoError(t, os.WriteFile(victim, []byte("root:secret-hash:19000:0:99999:7:::\n"), 0o600))
+
+	link := filepath.Join(dir, "link.log")
+	require.NoError(t, os.Symlink(victim, link))
+	lines, err := LogTail(link, FailureLogLines)
+	require.Error(t, err, "a link is not followed")
+	require.Empty(t, lines)
+
+	sub := filepath.Join(dir, "dir.log")
+	require.NoError(t, os.Mkdir(sub, 0o700))
+	lines, err = LogTail(sub, FailureLogLines)
+	require.Error(t, err, "a directory is not a log")
+	require.Empty(t, lines)
+
+	fifo := filepath.Join(dir, "fifo.log")
+	require.NoError(t, unix.Mkfifo(fifo, 0o600))
+	requireReturns(t, fifo, func() error {
+		_, err := LogTail(fifo, FailureLogLines)
+		return err
+	})
+
+	// A regular file is read as before.
+	lines, err = LogTail(writeLog(t, "one\ntwo\n"), FailureLogLines)
+	require.NoError(t, err)
+	require.Equal(t, []string{"one", "two"}, lines)
+}
+
+// requireReturns runs read, which must return an error at once instead of
+// blocking on the FIFO fifo.
+func requireReturns(t *testing.T, fifo string, read func() error) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- read() }()
+	select {
+	case err := <-done:
+		require.Error(t, err, "a FIFO is not a log")
+	case <-time.After(5 * time.Second):
+		// Release the blocked open: a writer appears and goes away.
+		if w, err := os.OpenFile(fifo, os.O_WRONLY, 0); err == nil {
+			_ = w.Close()
+		}
+		<-done
+		t.Fatal("the read blocked on a FIFO")
+	}
 }

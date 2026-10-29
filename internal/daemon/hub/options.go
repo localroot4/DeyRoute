@@ -33,10 +33,13 @@ const (
 	// EventsLogFile receives one JSON line per event (sections 2, 3, 13).
 	EventsLogFile = config.LogDir + "/events.log"
 	// AssetCacheDir caches deyroute binaries of other architectures:
-	// deyroute-<version>-<arch> (section 5, GET /v1/assets/deyroute/<arch>).
+	// deyroute-<version>-<arch> (section 5, GET /v1/assets/deyroute/<arch>),
+	// and the signed release files of a version in <version>/ (DR-03, GET
+	// /v1/assets/release/<arch>, bundle.go).
 	AssetCacheDir = config.BinDir
 	// DownloadDir stages downloads (release archives for other
-	// architectures).
+	// architectures) and the copies of the tunnel log rotation; root-only
+	// (0700), created on demand.
 	DownloadDir = config.LibDir + "/tmp"
 	// AutoBackupKeep is how many automatic backups are kept (section 5).
 	AutoBackupKeep = 20
@@ -233,6 +236,11 @@ type Options struct {
 	TrafficInterval   time.Duration
 	TrafficFlush      time.Duration
 	TuneCheckInterval time.Duration
+	// ManifestRetry (10 min) is how long the hub waits before it downloads
+	// again a signature for a manifest override that has none, or the
+	// signed backends.yaml of its release after a failed download
+	// (manifest.go).
+	ManifestRetry time.Duration
 }
 
 func (o Options) withDefaults() Options {
@@ -320,6 +328,7 @@ func (o Options) withDefaults() Options {
 	setDur(&o.TrafficInterval, DefaultTrafficInterval)
 	setDur(&o.TrafficFlush, DefaultTrafficFlush)
 	setDur(&o.TuneCheckInterval, DefaultTuneCheckInterval)
+	setDur(&o.ManifestRetry, DefaultManifestRetry)
 	if o.Location == nil {
 		o.Location = time.Local
 	}

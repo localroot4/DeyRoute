@@ -2,13 +2,16 @@ package systemd
 
 import (
 	"context"
+	stderrors "errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
 )
@@ -16,7 +19,9 @@ import (
 func newManager(t *testing.T) (*Manager, *exec.Fake) {
 	t.Helper()
 	f := exec.NewFake()
-	return &Manager{Runner: f, Root: t.TempDir()}, f
+	// Without the deyroute group: tests never chown (InstallTemplates).
+	noGroup := func(string) (int, error) { return 0, stderrors.New("no group") }
+	return &Manager{Runner: f, Root: t.TempDir(), GroupID: noGroup}, f
 }
 
 func TestInstallTemplates(t *testing.T) {
@@ -66,6 +71,58 @@ func TestInstallTemplates(t *testing.T) {
 		fi, err := os.Stat(filepath.Join(m.Root, d))
 		require.NoError(t, err, d)
 		require.True(t, fi.IsDir(), d)
+	}
+	fi, err = os.Stat(filepath.Join(m.Root, TunnelLogDir))
+	require.NoError(t, err)
+	require.NotZero(t, fi.Mode()&os.ModeSticky, "tunnels/ is sticky")
+	require.Zero(t, fi.Mode().Perm()&0o007, "tunnels/ is closed to others")
+}
+
+// InstallTemplates creates a missing tunnels/ like the installer:
+// root:deyroute 01770, or 01700 without the deyroute group. An existing one
+// keeps its mode and owner.
+func TestInstallTemplatesTunnelLogDir(t *testing.T) {
+	type chowned struct{ path, gid string }
+	for _, tc := range []struct {
+		name  string
+		group func(string) (int, error)
+		mode  os.FileMode
+		chown []chowned
+	}{
+		{"deyroute group", func(name string) (int, error) {
+			require.Equal(t, config.SystemUser, name)
+			return 4242, nil
+		}, os.ModeSticky | 0o770, []chowned{{TunnelLogDir, "4242"}}},
+		{"no deyroute group", func(string) (int, error) { return 0, stderrors.New("unknown group deyroute") },
+			os.ModeSticky | 0o700, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, f := newManager(t)
+			f.On("systemctl daemon-reload")
+			var got []chowned
+			m.GroupID = tc.group
+			m.Chown = func(p string, uid, gid int) error {
+				require.Equal(t, -1, uid)
+				rel, err := filepath.Rel(m.Root, p)
+				require.NoError(t, err)
+				got = append(got, chowned{"/" + rel, strconv.Itoa(gid)})
+				return nil
+			}
+			require.NoError(t, m.InstallTemplates(context.Background()))
+			fi, err := os.Stat(filepath.Join(m.Root, TunnelLogDir))
+			require.NoError(t, err)
+			require.Equal(t, tc.mode, fi.Mode()&(os.ModePerm|os.ModeSticky))
+			require.Equal(t, tc.chown, got)
+
+			// An existing directory is left as it is.
+			require.NoError(t, os.Chmod(filepath.Join(m.Root, TunnelLogDir), 0o750))
+			got = nil
+			require.NoError(t, m.InstallTemplates(context.Background()))
+			fi, err = os.Stat(filepath.Join(m.Root, TunnelLogDir))
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o750), fi.Mode()&(os.ModePerm|os.ModeSticky))
+			require.Empty(t, got)
+		})
 	}
 }
 

@@ -174,7 +174,7 @@ func (h *Hub) startSpeedServer(ctx context.Context, node string, seconds int) (i
 // writeDiag writes the hub side of the temporary candidate (one
 // daemon-reload) and sends its node side.
 func (h *Hub) writeDiag(ctx context.Context, tunnel string, cand *render.Candidate) error {
-	changed, err := h.hubWriter().Write(ctx, cand.Hub)
+	changed, err := writeHubSide(ctx, h.hubWriter(), cand)
 	if err != nil {
 		return err
 	}

@@ -1,8 +1,10 @@
-# Development ("edge") releases: every push to main or the development branch
-# publishes a signed GitHub release v<ver>-edge.<run>. Until the first stable
-# release (a tag vX.Y.Z, published by goreleaser in ci.yml) the edge release
-# of main is marked "latest", so the one-line installer works from GitHub (a
-# build of the development branch is always a pre-release):
+# Development ("edge") releases: when the full ci.yml run of a push to main or
+# the development branch passed (lint, race tests, coverage, govulncheck,
+# build, smoke, integration lab), the commit that run tested is published as a
+# signed GitHub release v<ver>-edge.<run>. Until the first stable release (a
+# tag vX.Y.Z, published by goreleaser in ci.yml) the edge release of main is
+# marked "latest", so the one-line installer works from GitHub (a build of
+# the development branch is always a pre-release):
 #
 #   bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh)
 #
@@ -11,30 +13,107 @@
 # become "latest": the installer and `deyroute update` keep resolving to the
 # stable release. A given edge build installs with --version <ver>.
 #
-# Signing needs the repository secret MINISIGN_SECRET_KEY (the key whose public
-# half is internal/install.MinisignPublicKey). Without it the release step is
-# skipped with a notice instead of publishing unsigned files.
+# The trigger is workflow_run: GitHub runs it with this file as it is on the
+# default branch (main), so a change here takes effect once it is on main.
+# A failed ci run, a pull_request run (also one from a fork branch named main
+# or dev) and a manual ci run publish nothing. A manual run of this workflow
+# never publishes either: it prints the version it would build and what the
+# retention would delete.
+#
+# The ci runs of a branch end in any order, so a commit is published only
+# while it is the tip of its branch and newer than the branch's newest edge
+# release (scripts/edge-gate.sh, checked when the ci run has ended and again
+# when the publishing job starts). The publishing jobs of a branch run one at
+# a time and never cancel each other; main and dev publish independently.
+#
+# Signing needs the secret MINISIGN_SECRET_KEY (the key whose public half is
+# internal/install.MinisignPublicKey) in the environment edge-release, whose
+# deployments are limited to main (a workflow_run run has the ref of main,
+# for builds of dev too). It is not a repository secret: GitHub runs a manual
+# run with the workflow file of the chosen ref, and older refs carry an older
+# release-edge.yml that publishes on a manual run without the ci gate. Such a
+# run then finds no key and publishes and deletes nothing (docs/dev/
+# RELEASING.md). Without the key the edge job skips with a notice instead of
+# publishing unsigned files.
+#
+# Retention (scripts/edge-prune.sh): a tag without "-edge." (the stable
+# channel), the release marked latest and the 10 newest edge builds of each
+# branch are never deleted. Each release's notes end with "branch: <name>".
 name: release-edge
 
 on:
-  push:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
     branches: [main, dev]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "a manual run is always a dry run: it prints the version and the edge releases the retention would delete, and publishes nothing"
+        type: boolean
+        default: true
 
 permissions:
-  contents: write
-
-concurrency:
-  group: release-edge
-  cancel-in-progress: true
+  contents: read
 
 env:
   GOTOOLCHAIN: local
   BASE_VERSION: 0.3.0
 
 jobs:
-  edge:
+  # Whether the commit of the ci run is published: only a green ci run of a
+  # push to this repository, and only while its commit is the tip of its
+  # branch and newer than the branch's newest edge release. The branches
+  # filter matches the head branch name of the ci run, and ci also runs on
+  # pull_request: without the last two conditions of the if, a fork PR from
+  # a branch named main or dev would run the edge job, with the signing key
+  # and contents: write, on the fork's commit. A run that publishes nothing
+  # stops here and never waits in the edge job's concurrency group, where it
+  # could take the place of a newer build waiting there.
+  gate:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    env:
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0 # history: is the commit in the newest release?
+      - name: tip of its branch, not published yet?
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/edge-gate.sh "$HEAD_BRANCH" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+  edge:
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    # The signing key is a secret of this environment only (see the top).
+    environment: edge-release
+    # The publishes of a branch run one at a time and none cancels another:
+    # a build waits until the one before it is done, then checks again
+    # (GitHub keeps one waiting job per group; a newer one takes its place).
+    # main and dev have a group each and publish independently.
+    concurrency:
+      group: release-edge-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
+    env:
+      # The commit and the branch the ci run tested. Under workflow_run,
+      # GITHUB_SHA and GITHUB_REF_NAME are the default branch and its head.
+      # Scripts read these variables; no expression is written into a script.
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
     steps:
       - name: signing key present?
         id: key
@@ -42,44 +121,60 @@ jobs:
           KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::notice::edge release skipped: add the repository secret MINISIGN_SECRET_KEY (see README)"
+            echo "::notice::edge release skipped: add the secret MINISIGN_SECRET_KEY to the environment edge-release (docs/dev/RELEASING.md)"
             echo "ok=false" >> "$GITHUB_OUTPUT"
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/checkout@v4
         if: steps.key.outputs.ok == 'true'
-        with: { fetch-depth: 0 } # tags: the last stable version
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0 # tags: the last stable version
+      # Again now that the build before it is published: this job may have
+      # waited for it, and the branch may have moved on meanwhile.
+      - name: still the tip of its branch, not published yet?
+        id: gate
+        if: steps.key.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/edge-gate.sh "$HEAD_BRANCH" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v5
-        if: steps.key.outputs.ok == 'true'
+        if: steps.gate.outputs.publish == 'true'
         with: { go-version: stable }
-      - name: test
-        if: steps.key.outputs.ok == 'true'
-        run: go test -count=1 ./...
+      - name: version
+        if: steps.gate.outputs.publish == 'true'
+        run: bash scripts/edge-version.sh "$HEAD_BRANCH" >> "$GITHUB_ENV"
       - name: build
-        if: steps.key.outputs.ok == 'true'
+        if: steps.gate.outputs.publish == 'true'
         run: |
           set -euo pipefail
-          STABLE=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
-          if [ -n "$STABLE" ]; then
-            IFS=. read -r major minor patch <<<"${STABLE#v}"
-            BASE="${major}.${minor}.$((patch + 1))" LATEST=false
-          else
-            BASE="$BASE_VERSION" LATEST=true
-          fi
-          # Only main moves "latest" (the one-line installer); a build of the
-          # development branch is a pre-release, installed with --version.
-          if [ "$GITHUB_REF_NAME" != main ]; then LATEST=false; fi
-          VERSION="${BASE}-edge.${GITHUB_RUN_NUMBER}"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "LATEST=$LATEST" >> "$GITHUB_ENV"
           mkdir -p dist
           for arch in amd64 arm64; do
             d="dist/deyroute_${VERSION}_linux_${arch}"
             mkdir -p "$d"
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${HEAD_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -o "$d/deyroute" ./cmd/deyroute
+          done
+      # A release binary trusts the release key only: a binary built with the
+      # integration lab's signing key (-X …/internal/install.TestPublicKey)
+      # says "test_key": true in `deyroute --json version` and stops the
+      # release here, before anything is packed or signed. The arm64 binary
+      # runs through qemu.
+      - name: no lab signing key in the binaries
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-user-static
+          bash scripts/no-test-key.sh dist/deyroute_*_linux_*/deyroute
+      - name: archives
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            d="dist/deyroute_${VERSION}_linux_${arch}"
             cp README.md README.en.md CHANGELOG.md LICENSE "$d/"
             tar -C dist -czf "dist/deyroute_${VERSION}_linux_${arch}.tar.gz" "deyroute_${VERSION}_linux_${arch}"
             rm -rf "$d"
@@ -89,16 +184,18 @@ jobs:
           cp installer/install.sh internal/backend/backends.yaml CHANGELOG.md dist/
           (cd dist && sha256sum deyroute_*.tar.gz install.sh backends.yaml CHANGELOG.md > SHA256SUMS)
       - name: sign
-        if: steps.key.outputs.ok == 'true'
+        if: steps.gate.outputs.publish == 'true'
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
         run: |
           go run ./scripts/minisign sign -in dist/SHA256SUMS
           go run ./scripts/minisign sign -in dist/backends.yaml
-          go run ./scripts/minisign verify -in dist/SHA256SUMS -pubkey "$(grep -o 'RW[A-Za-z0-9+/=]*' internal/install/keys.go)"
+          key=$(bash scripts/release-pubkey.sh)
+          go run ./scripts/minisign verify -in dist/SHA256SUMS -pubkey "$key"
       - name: publish
-        if: steps.key.outputs.ok == 'true'
+        id: publish
+        if: steps.gate.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -114,7 +211,7 @@ jobs:
           title="DEYROUTE ${VERSION}"
           if [ "$LATEST" != true ]; then title="${title} (development build)"; fi
           repo="https://github.com/${GITHUB_REPOSITORY}"
-          key=$(grep -o 'RW[A-Za-z0-9+/=]*' internal/install/keys.go)
+          key=$(bash scripts/release-pubkey.sh)
           {
             echo "**Install on the hub (Iran server)** — نصب روی هاب (سرور ایران):"
             echo
@@ -122,8 +219,8 @@ jobs:
             echo "${install}"
             echo '```'
             echo
-            echo "Already installed? Run \`deyroute update\` on the hub (the nodes follow), or let the automatic update install it at 04:00 server time."
-            echo "قبلاً نصب کرده‌اید؟ روی هاب \`deyroute update\` بزنید (نودها خودشان دنبال می‌کنند)، یا بگذارید آپدیت خودکار ساعت ۴ صبح نصبش کند."
+            echo "Already installed? Run \`deyroute update\` on the hub (the nodes follow)."
+            echo "قبلاً نصب کرده‌اید؟ روی هاب \`deyroute update\` بزنید (نودها خودشان دنبال می‌کنند)."
             echo
             echo "## What's new"
             echo
@@ -134,20 +231,68 @@ jobs:
                  on && /^## \[/{exit}
                  on { if (!seen && /^$/) next; seen=1; if (/^### /) n++; if (n > 3) exit; print }' CHANGELOG.md
             echo
-            echo "[Full changelog](${repo}/blob/${GITHUB_SHA}/CHANGELOG.md) · [راهنمای فارسی](${repo}/blob/main/docs/fa/index.md) · [English guides](${repo}/blob/main/docs/en/index.md)"
+            echo "[Full changelog](${repo}/blob/${HEAD_SHA}/CHANGELOG.md) · [راهنمای فارسی](${repo}/blob/main/docs/fa/index.md) · [English guides](${repo}/blob/main/docs/en/index.md)"
             echo
             echo "## Verify"
             echo
             echo "\`SHA256SUMS\` is signed with minisign; the installer and \`deyroute update\` check it before anything is installed. Public key: \`${key}\`"
             echo
-            echo "Built from \`${GITHUB_SHA::7}\` (Linux amd64 and arm64, static binary)."
+            echo "Built from \`${HEAD_SHA::7}\` (Linux amd64 and arm64, static binary)."
+            echo
+            # Read by the retention (scripts/edge-prune.sh): the last line.
+            echo "branch: ${HEAD_BRANCH}"
           } > dist/NOTES.md
           gh release create "v${VERSION}" dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.minisig \
             dist/install.sh dist/backends.yaml dist/backends.yaml.minisig dist/CHANGELOG.md \
-            --target "$GITHUB_SHA" "${flags[@]}" \
+            --target "$HEAD_SHA" "${flags[@]}" \
             --title "$title" \
             --notes-file dist/NOTES.md
-          # Keep only the 5 newest edge releases.
-          gh release list --limit 100 --json tagName,createdAt \
-            --jq '[.[] | select(.tagName | test("-edge\\."))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
-            while read -r tag; do gh release delete "$tag" --cleanup-tag --yes; done
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+  # After each publish, one at a time: a retention after a build of main and
+  # one after a build of dev would otherwise delete the same releases at
+  # once. A waiting retention that a newer one replaces is not missed: the
+  # newer one applies the same rules.
+  retention:
+    needs: edge
+    if: needs.edge.outputs.published == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-edge-retention
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: retention
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/edge-prune.sh
+
+  # A manual run is always a dry run, so nothing is published without the ci
+  # gate: it prints the version a build of this branch would get and the edge
+  # releases the retention would delete now. Nothing is built, published or
+  # deleted.
+  dry-run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 } # tags: the last stable version
+      - name: version (dry run)
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" != true ]; then
+            echo "::notice::a manual run never publishes; edge releases come only from a green ci run of a push. Dry run."
+          fi
+          bash scripts/edge-version.sh "$GITHUB_REF_NAME"
+          echo "nothing is published: a manual run is a dry run"
+      - name: retention (dry run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/edge-prune.sh --dry-run

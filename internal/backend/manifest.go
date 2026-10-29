@@ -44,6 +44,23 @@ func ParseManifest(data []byte) (*ManifestFile, error) {
 	return &m, nil
 }
 
+// ParseSignedManifest decodes a backends.yaml whose signature was already
+// verified, for comparing its entries only (a node checks the hub's
+// backend.install entry against it, DR-03). Unlike ParseManifest it
+// ignores keys this build does not know: the release manifest of a newer
+// build may have more.
+func ParseSignedManifest(data []byte) (*ManifestFile, error) {
+	var m ManifestFile
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		return nil, deyerr.Wrap(deyerr.S005, err, deyerr.Params{"file": "backends.yaml"})
+	}
+	for name, e := range m.Backends {
+		e.Name = name
+		m.Backends[name] = e
+	}
+	return &m, nil
+}
+
 // SetManifest replaces the active manifest (after verifying an override).
 func SetManifest(m *ManifestFile) {
 	manMu.Lock()
@@ -100,6 +117,20 @@ func ManifestFor(name string) ManifestEntry {
 		return ManifestEntry{Name: name}
 	}
 	return e
+}
+
+// manifestBlocks maps a backend that installs another backend's block of
+// backends.yaml under its own name to that block: awg/userspace installs
+// the "wireguard" block (amneziawg-go) as "awg" (internal/backend/wireguard).
+var manifestBlocks = map[string]string{"awg": "wireguard"}
+
+// ManifestBlock returns the name of the backends.yaml block that pins the
+// backend installed as name (DR-03: a node checks the pin of that block).
+func ManifestBlock(name string) string {
+	if b, ok := manifestBlocks[name]; ok {
+		return b
+	}
+	return name
 }
 
 // ResolveURL expands "{mirror}" in a manifest URL with the release base.

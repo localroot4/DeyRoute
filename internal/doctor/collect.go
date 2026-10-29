@@ -22,6 +22,7 @@ import (
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/firewall"
+	"github.com/localroot4/deyroute/internal/install"
 	"github.com/localroot4/deyroute/internal/state"
 	"github.com/localroot4/deyroute/internal/sysctl"
 	"github.com/localroot4/deyroute/internal/sysinfo"
@@ -393,8 +394,9 @@ func human(n uint64) string {
 
 // ---------------------------------------------------------------- versions
 
-// Versions returns the deyroute build and the installed backend versions
-// (/var/lib/deyroute/bin/<backend>/<version>/).
+// Versions returns the deyroute build, the installed backend versions
+// (/var/lib/deyroute/bin/<backend>/<version>/) and the signed releases kept
+// for the nodes (/var/lib/deyroute/bin/<version>/).
 func (c *Collector) Versions() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", version.String())
@@ -407,11 +409,19 @@ func (c *Collector) Versions() string {
 		fmt.Fprintf(&b, "backends: cannot list %s: %v\n", config.BinDir, err)
 	default:
 		b.WriteString("backends:\n")
+		var releases []string
 		for _, e := range entries {
 			if !e.IsDir() {
 				if e.Name() == filepath.Base(config.PrevBinaryPath) {
 					b.WriteString("  previous deyroute binary kept for rollback\n")
 				}
+				continue
+			}
+			// BinDir/<version>/ holds the signed release files the installer
+			// and the hub keep for the nodes (DR-03), not a backend; backend
+			// names never look like a version.
+			if install.IsReleaseVersion(e.Name()) {
+				releases = append(releases, e.Name())
 				continue
 			}
 			vers, _ := os.ReadDir(filepath.Join(binDir, e.Name()))
@@ -431,6 +441,10 @@ func (c *Collector) Versions() string {
 				names = []string{"(no version directory)"}
 			}
 			fmt.Fprintf(&b, "  %s %s\n", e.Name(), strings.Join(names, ", "))
+		}
+		sort.Strings(releases)
+		for _, v := range releases {
+			fmt.Fprintf(&b, "signed release kept for the nodes: %s\n", v)
 		}
 	}
 	return redactText(b.String())

@@ -150,30 +150,36 @@ func TestFetchManifest(t *testing.T) {
 	m.files[gh.Manifest("")] = data
 	m.files[gh.ManifestSig("")] = k.signHashed(t, data)
 
-	mf, raw, err := FetchManifest(context.Background(), m, []Source{base, gh}, "", k.pubString(), RetryOptions{Sleep: (&noSleep{}).sleep})
+	mf, raw, sig, err := FetchManifest(context.Background(), m, []Source{base, gh}, "", k.pubString(), RetryOptions{Sleep: (&noSleep{}).sleep})
 	require.NoError(t, err)
 	require.Equal(t, data, raw)
+	require.Equal(t, m.files[gh.ManifestSig("")], sig)
 	require.Contains(t, mf.Backends, "xray")
 
+	// The signature is kept next to the manifest (DR-03).
 	root := t.TempDir()
-	require.NoError(t, InstallManifest(root, raw))
+	require.NoError(t, InstallManifest(root, raw, sig))
 	got, err := os.ReadFile(filepath.Join(root, "etc/deyroute/backends.yaml"))
 	require.NoError(t, err)
 	require.Equal(t, data, got)
-	requireCode(t, InstallManifest(root, []byte("bogus: [")), deyerr.S005)
+	gotSig, err := os.ReadFile(filepath.Join(root, "etc/deyroute/backends.yaml.minisig"))
+	require.NoError(t, err)
+	require.Equal(t, sig, gotSig)
+	requireCode(t, InstallManifest(root, []byte("bogus: ["), sig), deyerr.S005)
+	requireCode(t, InstallManifest(root, raw, nil), deyerr.S001)
 
 	// Only badly signed copies → S001; nothing reachable → I004.
-	_, _, err = FetchManifest(context.Background(), m, []Source{base}, "", k.pubString(), RetryOptions{Sleep: (&noSleep{}).sleep})
+	_, _, _, err = FetchManifest(context.Background(), m, []Source{base}, "", k.pubString(), RetryOptions{Sleep: (&noSleep{}).sleep})
 	requireCode(t, err, deyerr.S001)
-	_, _, err = FetchManifest(context.Background(), newMapFetcher(), []Source{base}, "1.0.0", k.pubString(), RetryOptions{Sleep: (&noSleep{}).sleep})
+	_, _, _, err = FetchManifest(context.Background(), newMapFetcher(), []Source{base}, "1.0.0", k.pubString(), RetryOptions{Sleep: (&noSleep{}).sleep})
 	requireCode(t, err, deyerr.I004)
-	_, _, err = FetchManifest(context.Background(), m, nil, "", "", RetryOptions{})
+	_, _, _, err = FetchManifest(context.Background(), m, nil, "", "", RetryOptions{})
 	requireCode(t, err, deyerr.I004)
 
 	// A validly signed but invalid manifest → S005 from the strict parser.
 	bad := []byte("manifest_version: 1\nunknown_key: 1\n")
 	m.files[gh.Manifest("2.0.0")] = bad
 	m.files[gh.ManifestSig("2.0.0")] = k.signLegacy(bad)
-	_, _, err = FetchManifest(context.Background(), m, []Source{gh}, "2.0.0", k.pubString(), RetryOptions{Sleep: (&noSleep{}).sleep})
+	_, _, _, err = FetchManifest(context.Background(), m, []Source{gh}, "2.0.0", k.pubString(), RetryOptions{Sleep: (&noSleep{}).sleep})
 	requireCode(t, err, deyerr.S005)
 }

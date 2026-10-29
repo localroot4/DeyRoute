@@ -22,7 +22,11 @@ wins and the conflict goes to `QUESTIONS.md`.
   programs: `systemctl`, `nft`, `ss`, `ip`, `xray`, `rathole`, `ufw`,
   `firewall-cmd`, `iptables`, `systemd-sysusers` (QUESTIONS.md C.15),
   `userdel`/`groupdel` for uninstall (C.30) and `haproxy` (looked up for
-  direct/haproxy; only `haproxy -v` may run).
+  direct/haproxy; only `haproxy -v` may run). Outside the runner, the
+  config editor (`RunEditor`) and `deyroute --json version` of the deyroute
+  binary of a signed release before a node installs it
+  (`ReleaseVersion`, DR-03; that exact command line, a file named
+  `deyroute`, no inherited environment).
   A test in `internal/exec` scans the tree and fails on any other `os/exec` use.
 - **Testability**: every package that touches the filesystem takes a root
   directory (`Root string`, default `/`) or explicit paths so tests run in
@@ -168,6 +172,7 @@ type Runner interface { Run(ctx context.Context, name string, args []string, std
 func NewRunner() Runner          // rejects names whose base is not allowed (X004); non-zero exit → X007 wrapping stderr
 type Fake struct{...}            // records calls, scripted responses (for tests of other packages)
 func LookPath(name string) (string, error)
+func ReleaseVersion(ctx context.Context, bin string) ([]byte, error) // `<bin> --json version`, bin named deyroute (self.update, DR-03)
 ```
 
 ### internal/systemd
@@ -578,7 +583,24 @@ the alias `quota`.
 - `optimize check` and a report-only job every `Options.TuneCheckInterval`
   (6 h) compare 99-deyroute.conf with the live values and find later
   sysctl.d overrides (`DEY-X067`, event `tune_drift`).
-- Rollback: an older binary refuses the new config keys (strict decoding),
-  so `update --rollback` and `update --version` below
-  `hub.FirstTrafficVersion` are refused with `DEY-S011` while
-  `config.NewerKeysInUse()` lists any.
+- Rollback: an older binary refuses the new config keys (strict decoding).
+  `config.NewerKeysInUse()` lists the keys set in `config.yaml` that older
+  releases do not know, each with the first release that knows it
+  (`config.FirstTrafficVersion` for the monitoring and tuning keys).
+  `update --rollback` (compared with the recorded version of the previous
+  binary, `update/previous-binary` in state.db: the version with the
+  sha256 of `deyroute.prev` when an update or rollback wrote it; refused
+  for every key in use when it is not recorded so or the file changed
+  since, as the installer and a rollback without the service do) and
+  `update --version V` (only a V older than the running build) are refused
+  with `DEY-S011` while a key in use is newer than the target. A failed
+  automatic update is not rolled back to such a binary either: the new
+  binary keeps running and the dashboard shows `DEY-S011`. The keys in
+  use when the automatic update starts are recorded in
+  `update-pending.json` (`keys`): the previous binary had loaded them, so
+  only keys set after the update are compared with its version (a record
+  without `keys`, from an earlier build, compares every key).
+- A new config key is registered with one line in `newerKeys`
+  (`internal/config/newerkeys.go`): the key, its `First<Item>Version`
+  constant and whether a configuration sets it. Such a key is written only
+  when it differs from its default (`omitempty`).

@@ -42,6 +42,9 @@ type Hub struct {
 	log     *slog.Logger
 	evLog   *slog.Logger
 	closers []io.Closer
+	// logWarn logs "tunnel log replaced" once per file and reason
+	// (prepareTunnelLog).
+	logWarn *dlog.WarnOnce
 
 	cfgPath string
 	valOpts config.ValidateOptions
@@ -100,6 +103,9 @@ type Hub struct {
 	assetMu  sync.Mutex // serialises downloads of other architectures
 	digestMu sync.Mutex
 	digests  map[string]fileDigest
+
+	// man is the manifest override sent with backend.install (manifest.go).
+	man manifestState
 
 	warnMu    sync.Mutex
 	certWarns []api.Warning
@@ -182,10 +188,7 @@ func New(o Options) (_ *Hub, err error) {
 	if err := h.openState(); err != nil {
 		return nil, err
 	}
-	if err := backend.LoadManifestOverride(h.path(config.ManifestPath)); err != nil {
-		h.log.Error("the backend manifest override cannot be used; the built-in manifest stays active",
-			slog.String("path", h.path(config.ManifestPath)), dlog.Err(err), dlog.Code(deyerr.S001))
-	}
+	h.loadManifestOverride()
 	if err := h.loadTLS(); err != nil {
 		return nil, err
 	}
@@ -197,6 +200,10 @@ func New(o Options) (_ *Hub, err error) {
 	h.loadOps()
 	h.traffic = newHubTraffic(h)
 	h.reloadNotifier(cfg)
+	h.migrateAutoUpdate()
+	// Releases kept for the nodes of versions this hub neither runs nor
+	// rolls back to (an installer upgrade leaves the old one behind).
+	h.pruneBundles()
 
 	ln, err := net.Listen("tcp", o.controlListen(cfg.Hub.ControlPort))
 	if err != nil {
@@ -228,6 +235,7 @@ func (h *Hub) openLogs() error {
 		h.closers = append(h.closers, c)
 		h.log = l
 	}
+	h.logWarn = dlog.NewWarnOnce(h.log, dlog.TunnelLogReplaced)
 	ev, c, err := dlog.New(dlog.Options{Component: "events", File: h.path(EventsLogFile)})
 	if err != nil {
 		return err
@@ -407,6 +415,10 @@ func (h *Hub) Serve(ctx context.Context) error {
 			fn()
 		}()
 	}
+	// Before any tunnel unit starts: tunnels/ of an older install gets the
+	// sticky bit, and the log of every tunnel is root's own file again.
+	h.tightenTunnelLogDir()
+	h.prepareTunnelLogs()
 	// The tunnel manager is ready before the Local API accepts calls; the
 	// startup reconcile (section 9: recovery after a hub restart) runs in
 	// its own goroutine.
@@ -446,7 +458,9 @@ func (h *Hub) Serve(ctx context.Context) error {
 	run(func() { h.firewallLoop(ctx) })
 	run(func() { h.notifyLoop(ctx) })
 	run(func() { h.snapshotLoop(ctx) })
-	run(func() { dlog.RotateDirLoop(ctx, h.path(systemd.TunnelLogDir), dlog.RotateDirInterval, h.log) })
+	run(func() {
+		dlog.RotateDirLoop(ctx, h.path(systemd.TunnelLogDir), h.path(DownloadDir), dlog.RotateDirInterval, h.log)
+	})
 	h.startJobs(ctx, run)
 	h.requestFirewall()
 

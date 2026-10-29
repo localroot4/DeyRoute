@@ -148,13 +148,16 @@ func (h *Hub) logFile(ctx context.Context, path string, n int, since time.Time, 
 }
 
 // readTail returns the last n lines of path filtered by since, and the
-// file size the tail was read at (where a follow continues).
+// file size the tail was read at (where a follow continues). The file is
+// opened with dlog.OpenLogFile: a link, a FIFO or anything else but a
+// regular file has no lines and is never read through.
 func readTail(path string, n int, since time.Time) ([]string, int64) {
-	fi, err := os.Stat(path)
+	f, fi, err := dlog.OpenLogFile(path)
 	if err != nil {
 		return nil, 0
 	}
-	lines, err := systemd.LogTail(path, n)
+	defer func() { _ = f.Close() }()
+	lines, err := systemd.LogTailOf(f, fi.Size(), n)
 	if err != nil {
 		return nil, fi.Size()
 	}
@@ -186,6 +189,8 @@ func lineTime(line string) (time.Time, bool) {
 
 // follow emits the lines appended to path after offset until ctx ends or
 // emit fails. A rotated or truncated file is read again from its start.
+// Every poll opens the file with dlog.OpenLogFile: a link, a FIFO or
+// anything else but a regular file at path is not read.
 func (h *Hub) follow(ctx context.Context, path string, offset int64, emit func([]string) error) {
 	poll := time.NewTicker(h.o.FollowPoll)
 	defer poll.Stop()
@@ -194,21 +199,23 @@ func (h *Hub) follow(ctx context.Context, path string, offset int64, emit func([
 		partial []byte
 	)
 	for {
-		if fi, err := os.Stat(path); err == nil {
+		if f, fi, err := dlog.OpenLogFile(path); err == nil {
 			if fi.Size() < offset || (prev != nil && !os.SameFile(prev, fi)) {
 				offset, partial = 0, nil
 			}
 			prev = fi
+			var chunk []byte
 			if fi.Size() > offset {
-				chunk, err := readAt(path, offset, min(fi.Size()-offset, maxFollowChunk))
-				if err == nil {
-					offset += int64(len(chunk))
-					var lines []string
-					lines, partial = splitLines(append(partial, chunk...))
-					if len(lines) > 0 {
-						if err := emit(lines); err != nil {
-							return
-						}
+				chunk, err = readAt(f, offset, min(fi.Size()-offset, maxFollowChunk))
+			}
+			_ = f.Close()
+			if err == nil && len(chunk) > 0 {
+				offset += int64(len(chunk))
+				var lines []string
+				lines, partial = splitLines(append(partial, chunk...))
+				if len(lines) > 0 {
+					if err := emit(lines); err != nil {
+						return
 					}
 				}
 			}
@@ -223,13 +230,8 @@ func (h *Hub) follow(ctx context.Context, path string, offset int64, emit func([
 	}
 }
 
-// readAt reads up to n bytes of path from off.
-func readAt(path string, off, n int64) ([]byte, error) {
-	f, err := os.Open(path) // #nosec G304 -- a deyroute log file chosen by Logs
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
+// readAt reads up to n bytes of f from off.
+func readAt(f io.ReaderAt, off, n int64) ([]byte, error) {
 	buf := make([]byte, n)
 	m, err := f.ReadAt(buf, off)
 	if err != nil && !stderrors.Is(err, io.EOF) {

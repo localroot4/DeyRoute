@@ -2,6 +2,8 @@
 # S01: fresh install on a Tier 1 distribution: < 60s, exit 0, services enabled
 # Phase 2 "join < 30s" is timed here too: from the start of the node's
 # one-line `install.sh … join` to the node being online on the hub.
+# A fresh hub never updates itself: the automatic update is off, config.yaml
+# has no hub.auto_update, and there is no migration notice (DR-05).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -36,4 +38,11 @@ for pair in hub:deyroute-hub node1:deyroute-node; do
   bad=$(sh_on "$s" "find /etc/deyroute/secrets -type f ! -perm 0600 -printf '%p %m\n'")
   [ -z "$bad" ] || fail "secret files on $s are not 0600: $bad"
 done
+
+au=$(dey update auto --json)
+jq -e '.enabled == false and .source == "config"' <<<"$au" >/dev/null || fail "update auto on a fresh hub: $au"
+if on hub grep -q auto_update /etc/deyroute/config.yaml; then fail "a fresh config.yaml sets hub.auto_update"; fi
+if has_event auto_update_default_off; then fail "a fresh install recorded auto_update_default_off"; fi
+dey status --json | jq -e '[.warnings[]?.message | select(test("automatic update is now off"))] | length == 0' >/dev/null ||
+  fail "a fresh install shows the automatic update notice"
 pass "hub ${th}s, node ${tn}s, join ${jms}ms"

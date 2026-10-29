@@ -1,6 +1,7 @@
 package api
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -58,8 +59,13 @@ type ControlHandler interface {
 	// Upload receives the body of POST /v1/upload/{id} from nodeID
 	// (fetch.proxy payloads, doctor bundles).
 	Upload(ctx context.Context, id string, nodeID string, body io.Reader) error
-	// Asset opens the hub's deyroute binary for arch (GET /v1/assets/deyroute/{arch}).
-	Asset(ctx context.Context, arch string) (AssetInfo, error)
+	// Asset opens the hub's deyroute binary for arch for nodeID
+	// (GET /v1/assets/deyroute/{arch}).
+	Asset(ctx context.Context, nodeID, arch string) (AssetInfo, error)
+	// Release opens the signed release of the hub's version for arch for
+	// nodeID (GET /v1/assets/release/{arch}, FeatureSignedUpdate): the
+	// files a node needs to check and install it.
+	Release(ctx context.Context, nodeID, arch string) (ReleaseBundle, error)
 }
 
 // AssetInfo is an asset served to nodes; Reader is closed by the server.
@@ -68,6 +74,33 @@ type AssetInfo struct {
 	Size    int64  // bytes; <= 0 when unknown
 	SHA256  string // lowercase hex
 	Version string
+}
+
+// ReleaseFile is one file of a ReleaseBundle; the server closes Reader.
+type ReleaseFile struct {
+	// Name is the base name (SHA256SUMS, SHA256SUMS.minisig,
+	// deyroute_<version>_linux_<arch>.tar.gz).
+	Name string
+	// Size is the exact size in bytes.
+	Size   int64
+	Reader io.ReadCloser
+}
+
+// ReleaseBundle is the signed release the hub serves to a node: the server
+// streams Files as an uncompressed tar with Version in X-Deyroute-Version.
+// Nothing in it is trusted by the node until the signature verifies.
+type ReleaseBundle struct {
+	Version string
+	Files   []ReleaseFile
+}
+
+// Close closes the readers of every file.
+func (b ReleaseBundle) Close() {
+	for _, f := range b.Files {
+		if f.Reader != nil {
+			_ = f.Reader.Close()
+		}
+	}
 }
 
 // ControlServer is the hub side of the Control API: mTLS (TLS 1.3, ALPN
@@ -333,7 +366,12 @@ func (s *ControlServer) route(w http.ResponseWriter, r *http.Request) {
 		if !allowMethod(w, r, http.MethodGet) {
 			return
 		}
-		s.handleAsset(w, r)
+		s.handleAsset(w, r, nodeID)
+	case strings.HasPrefix(r.URL.Path, PathReleasePrefix):
+		if !allowMethod(w, r, http.MethodGet) {
+			return
+		}
+		s.handleRelease(w, r, nodeID)
 	default:
 		w.Header().Set("Content-Type", ContentTypeJSON)
 		w.WriteHeader(http.StatusNotFound)
@@ -442,7 +480,7 @@ func (s *ControlServer) handleUpload(w http.ResponseWriter, r *http.Request, nod
 	writeControlResult(w, nil)
 }
 
-func (s *ControlServer) handleAsset(w http.ResponseWriter, r *http.Request) {
+func (s *ControlServer) handleAsset(w http.ResponseWriter, r *http.Request, nodeID string) {
 	arch := strings.TrimPrefix(r.URL.Path, PathAssetsPrefix)
 	if !archRe.MatchString(arch) {
 		writeControlError(w, protoErr("", "invalid architecture"))
@@ -455,7 +493,7 @@ func (s *ControlServer) handleAsset(w http.ResponseWriter, r *http.Request) {
 				err = deyerr.Wrap(deyerr.X000, fmt.Errorf("panic in asset: %v", p), nil)
 			}
 		}()
-		return s.Handler.Asset(r.Context(), arch)
+		return s.Handler.Asset(r.Context(), nodeID, arch)
 	}()
 	if err != nil {
 		writeControlError(w, err)
@@ -480,6 +518,60 @@ func (s *ControlServer) handleAsset(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if _, err := io.Copy(w, info.Reader); err != nil {
 		s.logger().Debug("control: asset transfer ended", slog.String("arch", arch), dlog.Err(err))
+	}
+}
+
+// handleRelease serves GET /v1/assets/release/{arch}: the hub's signed
+// release for arch as an uncompressed tar, one regular file per
+// ReleaseFile in order (mode 0644, no directories). A file that ends early
+// cuts the tar short, which the client reports.
+func (s *ControlServer) handleRelease(w http.ResponseWriter, r *http.Request, nodeID string) {
+	arch := strings.TrimPrefix(r.URL.Path, PathReleasePrefix)
+	if !archRe.MatchString(arch) {
+		writeControlError(w, protoErr(nodeID, "invalid architecture"))
+		return
+	}
+	b, err := func() (b ReleaseBundle, err error) {
+		defer func() {
+			if p := recover(); p != nil {
+				s.logPanic("release", p)
+				err = deyerr.Wrap(deyerr.X000, fmt.Errorf("panic in release: %v", p), nil)
+			}
+		}()
+		return s.Handler.Release(r.Context(), nodeID, arch)
+	}()
+	if err != nil {
+		b.Close() // whatever a failing handler opened
+		writeControlError(w, err)
+		return
+	}
+	defer b.Close()
+	for _, f := range b.Files {
+		if f.Reader == nil || f.Size < 0 || !releaseNameRe.MatchString(f.Name) {
+			writeControlError(w, deyerr.Wrap(deyerr.X000, fmt.Errorf("invalid release file %q", f.Name), nil))
+			return
+		}
+	}
+	h := w.Header()
+	h.Set("Content-Type", ContentTypeTar)
+	if b.Version != "" {
+		h.Set(HeaderVersion, b.Version)
+	}
+	w.WriteHeader(http.StatusOK)
+	tw := tar.NewWriter(w)
+	for _, f := range b.Files {
+		hdr := &tar.Header{Name: f.Name, Typeflag: tar.TypeReg, Mode: 0o644, Size: f.Size, ModTime: time.Unix(0, 0)}
+		if err := tw.WriteHeader(hdr); err != nil {
+			s.logger().Debug("control: release transfer ended", slog.String("arch", arch), dlog.Err(err))
+			return
+		}
+		if _, err := io.CopyN(tw, f.Reader, f.Size); err != nil {
+			s.logger().Debug("control: release transfer ended", slog.String("arch", arch), slog.String("file", f.Name), dlog.Err(err))
+			return
+		}
+	}
+	if err := tw.Close(); err != nil {
+		s.logger().Debug("control: release transfer ended", slog.String("arch", arch), dlog.Err(err))
 	}
 }
 

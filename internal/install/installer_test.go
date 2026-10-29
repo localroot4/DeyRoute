@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 )
 
@@ -64,10 +65,25 @@ func TestInstallerStatic(t *testing.T) {
 	require.Contains(t, s, `need_val() { case "${2:-}" in "" | -*)`)
 	// wget must not multiply the 3 tries by its own default of 20.
 	require.Contains(t, s, "wget -q --tries=1 ")
+	// The HTTP status is read from curl (-w) and wget (--server-response):
+	// a 404 ends the tries of that source at once (DR-02).
+	require.Contains(t, s, `-w '%{http_code}'`)
+	require.Contains(t, s, "--server-response")
+	require.Contains(t, s, `[ "$code" != 404 ] ||`)
 	// --version latest means the newest release, as in Source.URL.
 	require.Contains(t, s, `[ "$VERSION" != latest ] || VERSION=""`)
 	// Setup flags on an existing installation are reported, not silently dropped.
 	require.Contains(t, s, "setup/join options ignored: this server is already set up")
+	// The verified release stays in the hub's asset cache (AssetCacheDir =
+	// config.BinDir) for its nodes, also with --local, and only when its
+	// signature was checked; other versions' release directories go, never
+	// a backend's (DR-03).
+	require.Contains(t, s, "k="+config.BinDir+" ")
+	require.Contains(t, s, `[[ $SKIP_SIG = 0 && $v =~ ^[0-9][0-9A-Za-z.+-]*$ ]] || return 0`)
+	require.Contains(t, s, `for o in "$k"/[0-9]*.*/; do [ "$o" = "$k/$v/" ] || rm -rf "${o%/}"; done`)
+	require.Contains(t, s, `install -m 0644 "$d/SHA256SUMS" "$d/SHA256SUMS.minisig" "$ARCHIVE" "$k/$v/"`)
+	require.Contains(t, s, `(sig_ok "$d/backends.yaml" "$d/backends.yaml.minisig")`)
+	require.Contains(t, s, "\n  install_binary; keep_bundle\n")
 
 	// Directory modes of section 2.
 	for _, want := range []string{
@@ -76,7 +92,9 @@ func TestInstallerStatic(t *testing.T) {
 		"install -d -m 0750 -o root -g deyroute /etc/deyroute/backends /var/lib/deyroute /var/log/deyroute\n",
 		"install -d -m 0755 -o root -g root /var/lib/deyroute/bin\n",
 		"install -d -m 0700 -o root -g root /var/lib/deyroute/backups\n",
-		"install -d -m 0770 -o root -g deyroute /var/log/deyroute/tunnels\n",
+		// Sticky: the backends' user may add files but never remove or
+		// rename root's (QUESTIONS.md C.48).
+		"install -d -m 1770 -o root -g deyroute /var/log/deyroute/tunnels\n",
 	} {
 		require.Contains(t, s, want)
 	}
@@ -115,10 +133,15 @@ func TestInstallerErrorCodes(t *testing.T) {
 		}
 	}
 	for _, code := range []deyerr.Code{deyerr.I001, deyerr.I002, deyerr.I003, deyerr.I004, deyerr.I005,
-		deyerr.I006, deyerr.I008, deyerr.I009, deyerr.I012} {
+		deyerr.I006, deyerr.I008, deyerr.I009, deyerr.I012, deyerr.I024} {
 		info, _ := deyerr.Lookup(code)
 		require.Contains(t, s, `"`+info.Why+`"`, "%s Why differs from the catalog", code)
 	}
+	// A pinned release that every source answers 404 for is named (DR-02).
+	i024, _ := deyerr.Lookup(deyerr.I024)
+	require.Contains(t, s, `die DEY-I024 "Release v$VERSION not found"`)
+	require.Equal(t, "Release v{version} not found", i024.Message)
+	require.Contains(t, s, `"`+i024.Fix+`"`, "DEY-I024 Fix differs from the catalog")
 	// The three-line format of section 13.
 	require.Contains(t, s, `printf '✖ %s  %s\n  Why:  %s\n  Fix:  %s\n'`)
 }

@@ -229,6 +229,28 @@ func TestCollectorVersions(t *testing.T) {
 	require.Contains(t, c.Versions(), "backends: none installed")
 }
 
+// The installer and the hub keep the signed release of a version for the
+// nodes in /var/lib/deyroute/bin/<version>/ (files only, DR-03). It is not
+// a backend: it is listed as a kept release, never as "<version> (no
+// version directory)".
+func TestCollectorVersionsKeptRelease(t *testing.T) {
+	c, _, root := newCollector(t)
+	for _, v := range []string{"0.9.0", "0.3.0-edge.61"} {
+		writeFile(t, root, "/var/lib/deyroute/bin/"+v+"/SHA256SUMS", "sums")
+		writeFile(t, root, "/var/lib/deyroute/bin/"+v+"/deyroute_"+v+"_linux_amd64.tar.gz", "archive")
+	}
+	s := c.Versions()
+	require.Contains(t, s, "backhaul v0.6.5")
+	require.Contains(t, s, "empty (no version directory)")
+	require.NotContains(t, s, "0.9.0 (no version directory)")
+	require.NotContains(t, s, "0.3.0-edge.61 (no version directory)")
+	require.Contains(t, s, "signed release kept for the nodes: 0.3.0-edge.61\n")
+	require.Contains(t, s, "signed release kept for the nodes: 0.9.0\n")
+	_, after, ok := strings.Cut(s, "backends:\n")
+	require.True(t, ok, s)
+	require.NotContains(t, after, "0.9.0 ", "a kept release is not listed as a backend")
+}
+
 func TestCollectorUnits(t *testing.T) {
 	c, f, _ := newCollector(t)
 	s := c.Units(context.Background())

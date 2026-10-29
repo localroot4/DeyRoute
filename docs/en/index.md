@@ -29,7 +29,7 @@ Ubuntu 22.04/24.04/26.04 and Debian 12/13 (amd64 or arm64); see
    is valid once, for 15 minutes:
 
    ```bash
-   bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@HUB_IP:44433#sha256:…' --version 1.0.0
+   bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://TOKEN@HUB_IP:44433#sha256:…' --version 1.0.0
    ```
 
    Within about 30 seconds the node shows up on the hub (`deyroute node list`).

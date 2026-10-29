@@ -609,6 +609,24 @@ func (h *Hub) hubWriter() *render.HubWriter {
 	return &render.HubWriter{Root: h.o.Root, Systemd: h.o.Systemd, Chown: h.o.Chown, DeyrouteIDs: h.o.DeyrouteIDs}
 }
 
+// writeHubSide writes the hub side of candidate c with w after checking its
+// unit against the privilege allowlist the nodes enforce
+// (render.CheckPrivileges, with the candidate's backend and transport): a
+// renderer that gives a backend more than its row fails here, before any
+// file or drop-in is written (DEY-X034).
+func writeHubSide(ctx context.Context, w *render.HubWriter, c *render.Candidate) (bool, error) {
+	if err := render.CheckPrivileges(c.Backend, c.Transport.Name, c.Hub.Unit); err != nil {
+		var pe *render.PrivilegeError
+		field, value := "unit", c.Hub.Instance
+		if stderrors.As(err, &pe) {
+			field, value = pe.Field, pe.Value
+		}
+		return false, deyerr.New(deyerr.X034, deyerr.Params{"field": field, "value": value}).
+			WithWhy(err.Error() + ": the privilege allowlist of the nodes does not grant it, so deyroute will not write this unit on the hub either")
+	}
+	return w.Write(ctx, c.Hub)
+}
+
 // nodeAttached is called for every new control stream of a compatible
 // node: the node may have rebooted or lost files, so its install and
 // render caches are cleared and every controller that uses it syncs.
@@ -703,7 +721,11 @@ func (h *Hub) installNode(ctx context.Context, node string, e backend.ManifestEn
 	ictx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 	var res api.BackendInstallResult
-	err := h.Call(ictx, node, api.CmdBackendInstall, api.BackendInstallArgs{Entry: e, Name: e.Name}, &res)
+	args := api.BackendInstallArgs{Entry: e, Name: e.Name}
+	// A node with signed updates installs only what a signed manifest pins
+	// (DR-03, manifest.go).
+	args.Manifest, args.ManifestSig = h.nodeManifest(ictx, node)
+	err := h.Call(ictx, node, api.CmdBackendInstall, args, &res)
 	if ctx.Err() != nil || deyerr.HasCode(err, deyerr.N003) || deyerr.HasCode(err, deyerr.N004) {
 		return err
 	}

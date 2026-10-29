@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # S20: a backend update whose download has the wrong sha256 is refused (DEY-S001), nothing changes
+# The override that announces it is signed with the lab key (override_backend,
+# DR-03), so the update is refused for the sha256, not for a missing signature
+# (DEY-N050).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -20,6 +23,10 @@ out=$(dey update backends backhaul --yes --json 2>/dev/null) || true
 log "update backends: $out"
 jq -e '[.backends[]?, .error? | select(. != null) | (.error.code? // .code?)] | index("DEY-S001") != null' <<<"$out" >/dev/null ||
   fail "DEY-S001 not reported"
+if grep -q DEY-N050 <<<"$out"; then fail "refused for the signature (DEY-N050), not for the sha256: $out"; fi
+if on node1 grep -q 'backend installation refused' /var/log/deyroute/node.log; then
+  fail "the node refused the signed override's entry"
+fi
 [ "$(sh_on hub "ls -R /var/lib/deyroute/backends 2>/dev/null; true")" = "$before" ] || fail "hub backends changed"
 [ "$(sh_on node1 "ls -R /var/lib/deyroute/backends 2>/dev/null; true")" = "$before_n" ] || fail "node backends changed"
 { [ "$(main_pid hub "$unit")" = "$hp" ] && [ "$(main_pid node1 "$unit")" = "$np" ]; } || fail "the active candidate was restarted"

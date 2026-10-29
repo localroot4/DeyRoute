@@ -75,6 +75,26 @@ func (l Layout) InstallBackend(ctx context.Context, e backend.ManifestEntry, arc
 	return l.installBackend(ctx, e, arch, f, mirror, RetryOptions{})
 }
 
+// HasBackend reports whether backend e is already installed for arch as e
+// pins it: BinDir(e.Name, e.Version) holds every binary of e matching its
+// <bin>.sha256, and its archive marker equals e's sha256 for arch.
+// InstallBackend then downloads and installs nothing.
+func (l Layout) HasBackend(e backend.ManifestEntry, arch string) bool {
+	if e.Builtin || e.System || e.Version == "" || !validComponent(e.Name) || !validComponent(versionDir(e.Version)) {
+		return false
+	}
+	sum := strings.ToLower(strings.TrimSpace(e.SHA256[arch]))
+	if !validSHA256(sum) {
+		return false
+	}
+	bins, err := entryBinaries(e)
+	if err != nil {
+		return false
+	}
+	st, _ := verifyDir(l.BinDir(e.Name, e.Version), bins, sum)
+	return st == dirOK
+}
+
 func (l Layout) installBackend(ctx context.Context, e backend.ManifestEntry, arch string, f Fetcher, mirror string, ro RetryOptions) (string, error) {
 	if e.Builtin || e.System {
 		return "", nil

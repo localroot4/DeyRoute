@@ -24,15 +24,18 @@ const (
 	CLIAutoHintOn         Key = "cli.auto.hint_on"
 	CLIAutoTurnedOn       Key = "cli.auto.turned_on"
 	CLIAutoTurnedOff      Key = "cli.auto.turned_off"
+	CLIFlagAutoUpdate     Key = "cli.flag_auto_update"
 )
 
 var autoUpdateEN = map[Key]string{
 	CLIUpdateAutoShort: "Show the automatic update, or turn it on or off",
-	CLIUpdateAutoLong: "The hub updates itself (on by default): once a day at 04:00 server time it installs the\n" +
-		"newest release that has been out for at least 24 hours, and the nodes follow. After the\n" +
-		"restart it checks that every tunnel that was UP and every node that was online works\n" +
-		"again; if not, or if the new version does not start, the previous version is put back\n" +
-		"and that release is never installed automatically. Without an argument it shows the state.",
+	CLIUpdateAutoLong: "Off by default. When on, the hub updates itself: once a day at 04:00 server time it\n" +
+		"installs the newest release that has been out for at least 24 hours, and the nodes follow.\n" +
+		"After the restart it checks that every tunnel that was UP and every node that was online\n" +
+		"works again; if not, or if the new version does not start, the previous version is put\n" +
+		"back and that release is never installed automatically. on and off set hub.auto_update in\n" +
+		"config.yaml (after an automatic backup), so backups keep the choice. Without an argument\n" +
+		"it shows the state.",
 	CLIUpdateAutoExample:  "  deyroute update auto\n  deyroute update auto off\n  deyroute update auto on",
 	CLIAutoTitle:          "AUTOMATIC UPDATE",
 	CLIAutoStatus:         "Status",
@@ -53,6 +56,7 @@ var autoUpdateEN = map[Key]string{
 	CLIAutoHintOn:         "Turn on: deyroute update auto on",
 	CLIAutoTurnedOn:       "Automatic update is on.",
 	CLIAutoTurnedOff:      "Automatic update is off; install releases with deyroute update.",
+	CLIFlagAutoUpdate:     "automatic update of the hub: on or off (default off; stored as hub.auto_update)",
 }
 
 // automatic update — merge the strings above into the English table.

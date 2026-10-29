@@ -34,6 +34,8 @@ jobs:
         with: { version: v2.13.2 }
       - name: shellcheck scripts
         run: find installer scripts test -name '*.sh' -print0 | xargs -0 -r shellcheck
+      - name: edge release scripts
+        run: bash test/release/edge_test.sh
       - name: installer size budget (<= 250 lines)
         run: test "$(wc -l < installer/install.sh)" -le 250
       - name: generated docs up to date
@@ -98,11 +100,13 @@ jobs:
     runs-on: ubuntu-24.04
     needs: build
     # Every scenario of spec section 17 in systemd containers (test/integration).
-    # Runs for main and release tags; any branch can run it by hand
-    # (workflow_dispatch, optionally one distro and a scenario list).
+    # Runs for main, dev and release tags: release-edge publishes a build of
+    # main or dev only after the whole run, this job included, passed. Any
+    # branch can run it by hand (workflow_dispatch, optionally one distro and
+    # a scenario list).
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'))
+      (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'))
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -128,18 +132,38 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     needs: [unit, build, smoke, integration]
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Only the push of a stable tag publishes; a manual run of ci at a tag
+    # (an edge tag included) runs the checks and publishes nothing.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-edge.')
     permissions:
       contents: write
+    # The signing key is a secret of this environment, whose deployments are
+    # limited to the tags v*, not a repository secret (docs/dev/RELEASING.md).
+    environment: release
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
         with: { go-version: stable }
+      # goreleaser checks every binary it builds for the integration lab's
+      # signing key (scripts/no-test-key.sh, a build hook in .goreleaser.yaml)
+      # before anything is packed, signed or published; the arm64 binary runs
+      # through qemu.
+      - name: qemu for the arm64 binary
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-user-static
+      # The release page: how to install, the [VERSION] section of
+      # CHANGELOG.md and the signing key (a tag without that section stops
+      # here). Outside the checkout: goreleaser refuses a dirty tree.
+      - name: release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/release-notes.sh "${TAG#v}" > "$RUNNER_TEMP/NOTES.md"
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes ${{ runner.temp }}/NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}

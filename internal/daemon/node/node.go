@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/render"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
@@ -45,7 +46,9 @@ const (
 	// StateFile remembers the rendered instances (config dir, backend, NAT)
 	// and the hub-supplied NAT rules across agent restarts (0600).
 	StateFile = "/var/lib/deyroute/node-state.json"
-	// DownloadDir is where fetch.proxy and self.update stage downloads.
+	// DownloadDir is where fetch.proxy and self.update stage downloads and
+	// the tunnel log rotation stages its copies; root-only (0700), created
+	// on demand.
 	DownloadDir = "/var/lib/deyroute/tmp"
 )
 
@@ -118,6 +121,11 @@ type Options struct {
 	// VerifyBinary checks the binary self.update downloaded before it is
 	// installed (arch is Options.Arch); nil = VerifyELF.
 	VerifyBinary func(path, arch string) error
+	// ReleaseVersion runs `<path> --json version` for the deyroute binary
+	// of a signed release before self.update installs it and returns what
+	// it printed: only a build that answers "signed_update": true is
+	// installed (DR-03); nil = exec.ReleaseVersion.
+	ReleaseVersion func(ctx context.Context, path string) ([]byte, error)
 	// SetHubAddr persists a new hub target (set_hub, NodeSetHub): host:port,
 	// or ws[s]://DOMAIN:PORT/SECRET for a front; nil = setup.SetHubAddr
 	// (node.hub_addr and node.front in Root/etc/deyroute/config.yaml).
@@ -183,6 +191,12 @@ func (o Options) withDefaults() Options {
 	}
 	if o.Systemd == nil {
 		o.Systemd = &systemd.Manager{Runner: o.Runner, Root: o.Root}
+	}
+	if o.DeyrouteIDs == nil {
+		o.DeyrouteIDs = render.LookupDeyrouteIDs
+	}
+	if o.Chown == nil {
+		o.Chown = os.Lchown
 	}
 	if o.SelfBinary == "" {
 		o.SelfBinary = config.BinaryPath
@@ -290,6 +304,9 @@ type agent struct {
 	reconnect chan struct{}
 	listeners *registry
 	cpu       *sysinfo.CPUSampler
+	// logWarn logs "tunnel log replaced" once per file and reason
+	// (prepareTunnelLog).
+	logWarn *dlog.WarnOnce
 	// uninstalling is set by the first uninstall command; later ones are
 	// answered without starting a second removal.
 	uninstalling atomic.Bool
@@ -336,6 +353,7 @@ func newAgent(o Options, cfg *config.Config, cfgPath string, logger *slog.Logger
 		st:        nodeState{Instances: map[string]instance{}},
 		ctx:       context.Background(),
 		cpu:       sysinfo.NewCPUSampler(o.Root),
+		logWarn:   dlog.NewWarnOnce(logger, dlog.TunnelLogReplaced),
 	}
 	a.writer = &render.HubWriter{Root: o.Root, Systemd: o.Systemd, Chown: o.Chown, DeyrouteIDs: o.DeyrouteIDs}
 	a.helloV = api.Hello{
@@ -347,6 +365,9 @@ func newAgent(o Options, cfg *config.Config, cfgPath string, logger *slog.Logger
 		CPUs:     sysinfo.CPUs(o.Root),
 		MemTotal: sysinfo.Mem(o.Root).Total,
 		Virt:     sysinfo.Virt(o.Root),
+		// The hub sends the signed backends.yaml of its release with
+		// backend.install when it pins other entries (DR-03).
+		ManifestSHA256: manifestSHA256(backend.EmbeddedManifest()),
 	}
 	return a
 }
@@ -360,6 +381,10 @@ func (a *agent) run(ctx context.Context) error {
 	a.ctx = ctx
 	a.loadState()
 	a.cleanDownloads()
+	// Before any tunnel unit starts: tunnels/ of an older install gets the
+	// sticky bit, and the log of every tunnel is root's own file again.
+	a.tightenTunnelLogDir()
+	a.prepareTunnelLogs()
 	a.registerFrontSecret()
 	start := []any{dlog.Node(a.nodeID), slog.String("version", version.Version), slog.String("hub", a.hubAddress())}
 	if a.frontMode() {
@@ -372,8 +397,9 @@ func (a *agent) run(ctx context.Context) error {
 	wg.Add(4)
 	go func() {
 		defer wg.Done()
-		// Tunnel logs: copy-and-truncate rotation (section 12).
-		dlog.RotateDirLoop(ctx, a.path(systemd.TunnelLogDir), dlog.RotateDirInterval, a.log)
+		// Tunnel logs: copy-and-truncate rotation (section 12), the copy
+		// staged in the root-only DownloadDir.
+		dlog.RotateDirLoop(ctx, a.path(systemd.TunnelLogDir), a.path(DownloadDir), dlog.RotateDirInterval, a.log)
 	}()
 	go func() {
 		defer wg.Done()
@@ -668,7 +694,7 @@ func (a *agent) later(delay time.Duration, fn func(ctx context.Context) error) {
 // (read now: an apply since the previous stream changes it).
 func (a *agent) hello() api.Hello {
 	h := a.helloV
-	h.Features = []string{api.FeatureTuneAuto}
+	h.Features = []string{api.FeatureTuneAuto, api.FeatureSignedUpdate}
 	h.TuneProfile, h.TuneHash = a.tuneState()
 	return h
 }

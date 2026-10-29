@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # S21: a backend update whose probe does not pass is rolled back automatically within 60s
+# The "new" backhaul comes from a manifest override signed with the lab key
+# (override_backend): the node installs it only because that signed
+# manifest pins it (DR-03).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 needs_online "the tunnel must run on a downloaded backend (backhaul)"
@@ -24,6 +27,9 @@ took=$((SECONDS - t0))
 log "update backends (${took}s): $out"
 jq -e '.backends[] | select(.backend == "backhaul") | .status == "rolled_back"' <<<"$out" >/dev/null || fail "not rolled back"
 [ "$took" -le 90 ] || fail "the update with rollback took ${took}s"
+pinned=$(on node1 cat /var/log/deyroute/node.log | jq -rR 'fromjson? |
+  select(.msg == "backend installed" and .backend == "backhaul" and .version == "v9.9.9") | .pinned_by')
+grep -qx 'the signed backends.yaml the hub sent' <<<"$pinned" || fail "the node did not install v9.9.9 from the signed override: ${pinned:-not installed}"
 wait_event backend_update_rolled_back "" 10
 wait_for 60 "tunnel back UP on backhaul" on_bh
 [ "$(fetch_via_hub 443)" = "$(blob_sha node1)" ] || fail "no traffic after the rollback"

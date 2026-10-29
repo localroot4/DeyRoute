@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
@@ -21,12 +22,14 @@ import (
 	"github.com/localroot4/deyroute/internal/version"
 )
 
-// Automatic update (`deyroute update auto`, on by default): once a day in
-// a quiet hour the hub installs the newest release that has been out for a
-// day, the nodes follow as after `deyroute update`, and after the restart
-// the hub checks that the tunnels and nodes that worked before work again.
-// When they do not, or the new binary does not even start, the previous
-// binary is put back and that release is never installed automatically.
+// Automatic update (`deyroute update auto`, off by default; the switch is
+// hub.auto_update in config.yaml, so it is in every backup): while it is
+// on, once a day in a quiet hour the hub installs the newest release that
+// has been out for a day, the nodes follow as after `deyroute update`, and
+// after the restart the hub checks that the tunnels and nodes that worked
+// before work again. When they do not, or the new binary does not even
+// start, the previous binary is put back and that release is never
+// installed automatically.
 
 // Defaults of the automatic update.
 const (
@@ -62,10 +65,22 @@ const (
 	autoKeepSkipped = 20
 )
 
-// autoUpdateRecord is metaAutoUpdate.
+// AutoUpdateDefaultOffEvent is emitted once by a hub that ran a build with
+// the automatic update on by default (autoNoticeText).
+const AutoUpdateDefaultOffEvent = "auto_update_default_off"
+
+// autoNoticeText tells the owner of such a hub what changed.
+const autoNoticeText = "automatic update is now off by default; turn it on with: deyroute update auto on"
+
+// autoUpdateRecord is metaAutoUpdate: runtime fields; the switch is
+// hub.auto_update. Earlier builds kept the switch here as "disabled" (on
+// when absent).
 type autoUpdateRecord struct {
-	// Disabled turns the automatic update off; the zero value is on.
-	Disabled  bool                 `json:"disabled,omitempty"`
+	// LegacyOff is that field, for earlier builds only: this build never
+	// acts on it and writes !hub.auto_update into it on every write
+	// (editAutoRecord), so an earlier build that a rollback or `update
+	// --version` starts keeps the automatic update as this build had it.
+	LegacyOff bool                 `json:"disabled,omitempty"`
 	CheckedAt time.Time            `json:"checked_at,omitzero"`
 	Seen      map[string]time.Time `json:"seen,omitempty"` // first sighting of each release
 	Skipped   []string             `json:"skipped,omitempty"`
@@ -83,6 +98,11 @@ type autoPending struct {
 	Nodes   []string  `json:"nodes,omitempty"`   // online before the update
 	Starts  int       `json:"starts,omitempty"`  // starts of To so far
 	Failed  string    `json:"failed,omitempty"`  // why To was rolled back
+	// Keys are the newer config.yaml keys (config.NewerKeysInUse) set when
+	// From started the update: From had loaded config.yaml with them, so it
+	// knows them whatever their first release. A record of an earlier
+	// build has none, so every key in use counts (autoRollback).
+	Keys []string `json:"keys,omitempty"`
 }
 
 func readAutoPending(path string) (autoPending, bool, error) {
@@ -161,16 +181,64 @@ func (h *Hub) autoRecord() autoUpdateRecord {
 	return r
 }
 
-// editAutoRecord changes metaAutoUpdate under autoMu.
+// editAutoRecord changes metaAutoUpdate under autoMu; LegacyOff follows
+// hub.auto_update.
 func (h *Hub) editAutoRecord(edit func(*autoUpdateRecord)) autoUpdateRecord {
 	h.ops.autoMu.Lock()
 	defer h.ops.autoMu.Unlock()
 	r := h.autoRecord()
 	edit(&r)
+	r.LegacyOff = !h.autoUpdateOn()
 	if err := h.st.PutMeta(metaAutoUpdate, r); err != nil {
 		h.log.Warn("cannot record the automatic update", dlog.Err(err))
 	}
 	return r
+}
+
+// autoMigration is metaAutoMigrated: written at the first start of a build
+// that keeps the switch in config.yaml. Legacy: a record of an earlier
+// build existed then, so the automatic update was on by default before.
+type autoMigration struct {
+	At     time.Time `json:"at"`
+	Legacy bool      `json:"legacy,omitempty"`
+}
+
+// migrateAutoUpdate runs at the first start of this build on a hub: it
+// writes metaAutoMigrated, and when the hub ran a build with the automatic
+// update on by default (a metaAutoUpdate record exists) it emits
+// AutoUpdateDefaultOffEvent once; updateWarnings then shows the notice for
+// autoWarnFor. A fresh install gets neither, and later starts see the
+// marker and do nothing.
+func (h *Hub) migrateAutoUpdate() {
+	var m autoMigration
+	if ok, err := h.st.GetMeta(metaAutoMigrated, &m); err != nil || ok {
+		if err != nil {
+			h.log.Warn("cannot read the automatic update migration record", dlog.Err(err))
+		}
+		return
+	}
+	var legacy json.RawMessage
+	had, err := h.st.GetMeta(metaAutoUpdate, &legacy)
+	if err != nil {
+		h.log.Warn("cannot read the automatic update record", dlog.Err(err))
+		return
+	}
+	m = autoMigration{At: h.now(), Legacy: had}
+	if err := h.st.PutMeta(metaAutoMigrated, m); err != nil {
+		h.log.Warn("cannot record the automatic update migration", dlog.Err(err))
+		return
+	}
+	if !had {
+		return
+	}
+	h.log.Warn(autoNoticeText)
+	h.Emit(state.Event{Type: AutoUpdateDefaultOffEvent, Level: state.LevelWarn, Message: autoNoticeText})
+}
+
+// autoUpdateOn reports whether the automatic update is on (hub.auto_update).
+func (h *Hub) autoUpdateOn() bool {
+	cfg := h.Config()
+	return cfg != nil && cfg.Hub != nil && cfg.Hub.AutoUpdate
 }
 
 // skip adds v to the releases never installed automatically.
@@ -249,10 +317,10 @@ func (h *Hub) autoUpdateLoop(ctx context.Context) {
 // autoUpdateTick checks for a release every autoCheckEvery and installs the
 // candidate once a day in the update hour.
 func (h *Hub) autoUpdateTick(ctx context.Context) {
-	rec := h.autoRecord()
-	if rec.Disabled {
+	if !h.autoUpdateOn() {
 		return
 	}
+	rec := h.autoRecord()
 	now := h.now()
 	if now.Sub(rec.CheckedAt) >= autoCheckEvery {
 		info, err := h.checkRelease(ctx)
@@ -304,6 +372,9 @@ func (h *Hub) autoApply(ctx context.Context, target string) {
 	path := h.path(AutoPendingPath)
 	tunnels, nodes := h.autoHealthy()
 	p := autoPending{From: version.Version, To: target, At: h.now(), Tunnels: tunnels, Nodes: nodes}
+	for _, k := range h.Config().NewerKeysInUse() {
+		p.Keys = append(p.Keys, k.Key)
+	}
 	if err := writeAutoPending(path, p); err != nil {
 		h.log.Warn("automatic update skipped: cannot record it", dlog.Err(err))
 		return
@@ -413,10 +484,22 @@ func autoMissing(p autoPending, healthy func() (tunnels, nodes []string)) []stri
 }
 
 // autoRollback puts the previous binary back after a failed verification
-// and restarts the hub; the next start records the outcome.
+// and restarts the hub; the next start records the outcome. When the
+// previous binary does not know a key set in config.yaml, it would refuse
+// the file and the hub would not start: then the new binary is kept
+// (autoKeep). The keys recorded in p were in use when the previous binary
+// started the update, so it knows them; only keys set since then, or every
+// key when p lists none, are compared with its version.
 func (h *Hub) autoRollback(path string, p autoPending, reason string) {
 	h.ops.updMu.Lock()
 	defer h.ops.updMu.Unlock()
+	keys := slices.DeleteFunc(newerKeysUnknownTo(h.Config(), p.From), func(k config.NewerKey) bool {
+		return slices.Contains(p.Keys, k.Key)
+	})
+	if len(keys) > 0 {
+		h.autoKeep(path, p, reason, keys)
+		return
+	}
 	if err := (install.SelfUpdater{Root: h.o.Root}).Rollback(); err != nil {
 		_ = os.Remove(path)
 		h.editAutoRecord(func(r *autoUpdateRecord) {
@@ -431,41 +514,80 @@ func (h *Hub) autoRollback(path string, p autoPending, reason string) {
 	if err := writeAutoPending(path, p); err != nil {
 		h.log.Warn("cannot record the automatic rollback", dlog.Err(err))
 	}
-	if err := h.st.PutMeta(metaUpdatePrevious, version.Version); err != nil {
-		h.log.Warn("cannot record the replaced version", dlog.Err(err))
-	}
+	h.recordPrevious(version.Version)
 	h.markNodesForUpdate()
 	h.log.Warn("automatic update did not verify; rolling back and restarting the hub",
 		slog.String("from", p.To), slog.String("to", p.From), slog.String("reason", reason))
 	h.scheduleRestart()
 }
 
-// UpdateAuto implements api.Local (`deyroute update auto [on|off]`).
+// autoKeep ends an automatic update that did not verify but cannot be
+// rolled back because deyroute p.From does not know keys of config.yaml:
+// the new binary keeps running, nothing restarts, the dashboard shows
+// DEY-S011 for autoWarnFor (updateWarnings: "was kept" in the record), and
+// update_rolled_back with DEY-S011 is emitted, as for an automatic update
+// that failed before the restart (the update group of Telegram has it).
+func (h *Hub) autoKeep(path string, p autoPending, reason string, keys []config.NewerKey) {
+	e := deyerr.As(newerKeysErr("roll back to deyroute "+p.From,
+		"deyroute "+p.From+" is older than the first release that knows them", keys))
+	last := "update to " + p.To + " did not verify (" + reason + ") and was kept: deyroute " + p.From +
+		" would refuse config.yaml with " + joinNewerKeys(keys)
+	h.editAutoRecord(func(r *autoUpdateRecord) { r.Last, r.LastAt = last, h.now() })
+	_ = os.Remove(path)
+	h.log.Error("automatic update did not verify and cannot be rolled back: the previous binary would refuse config.yaml; it keeps running",
+		slog.String("version", p.To), slog.String("previous", p.From), slog.String("reason", reason),
+		dlog.Err(e), dlog.Code(e.Code))
+	h.Emit(state.Event{Type: state.EvUpdateRolledBack, Level: state.LevelWarn, Code: string(e.Code),
+		Message: "automatic " + last + "; deyroute " + version.Version + " keeps running"})
+}
+
+// UpdateAuto implements api.Local (`deyroute update auto [on|off]`): on and
+// off set hub.auto_update in config.yaml through the normal change path (an
+// automatic backup first; nothing is written when it does not change).
 func (l *local) UpdateAuto(_ context.Context, mode string) (api.AutoUpdateInfo, error) {
 	h := l.h
-	var rec autoUpdateRecord
-	switch strings.ToLower(strings.TrimSpace(mode)) {
+	switch m := strings.ToLower(strings.TrimSpace(mode)); m {
 	case "":
-		rec = h.autoRecord()
-	case "on":
-		rec = h.editAutoRecord(func(r *autoUpdateRecord) { r.Disabled = false })
-		h.log.Info("automatic update turned on")
-	case "off":
-		rec = h.editAutoRecord(func(r *autoUpdateRecord) { r.Disabled = true })
-		h.log.Info("automatic update turned off")
+	case "on", "off":
+		if err := h.setAutoUpdate(m == "on"); err != nil {
+			return api.AutoUpdateInfo{}, withLog(err)
+		}
 	default:
 		return api.AutoUpdateInfo{}, withLog(deyerr.New(deyerr.C013, deyerr.Params{
 			"field": "update auto", "value": mode, "allowed": "on, off",
 		}))
 	}
-	return h.autoInfo(rec), nil
+	return h.autoInfo(h.autoRecord()), nil
+}
+
+// setAutoUpdate writes hub.auto_update (omitted when off) and, also when
+// it does not change, the switch of earlier builds in metaAutoUpdate.
+func (h *Hub) setAutoUpdate(on bool) error {
+	if h.autoUpdateOn() != on {
+		if _, err := h.autoBackup(); err != nil {
+			return err
+		}
+		if _, err := h.mutate(func(c *config.Config) error {
+			c.Hub.AutoUpdate = on
+			return nil
+		}); err != nil {
+			return err
+		}
+		if on {
+			h.log.Info("automatic update turned on (hub.auto_update: true)")
+		} else {
+			h.log.Info("automatic update turned off (hub.auto_update removed)")
+		}
+	}
+	h.editAutoRecord(func(*autoUpdateRecord) {})
+	return nil
 }
 
 // autoInfo is the answer of UpdateAuto.
 func (h *Hub) autoInfo(rec autoUpdateRecord) api.AutoUpdateInfo {
 	now := h.now()
 	info := api.AutoUpdateInfo{
-		Enabled: !rec.Disabled, Hour: h.autoHour(), MinAgeHours: int(h.o.AutoUpdateMinAge / time.Hour),
+		Enabled: h.autoUpdateOn(), Source: "config", Hour: h.autoHour(), MinAgeHours: int(h.o.AutoUpdateMinAge / time.Hour),
 		Current: version.Version, Last: rec.Last, LastAt: rec.LastAt, Skipped: rec.Skipped,
 	}
 	if p, ok, _ := readAutoPending(h.path(AutoPendingPath)); ok && p.Failed == "" {
@@ -484,19 +606,34 @@ func (h *Hub) autoInfo(rec autoUpdateRecord) api.AutoUpdateInfo {
 	return info
 }
 
+// autoWarnFor is how long the dashboard shows the outcome of an automatic
+// update that went wrong.
+const autoWarnFor = 7 * 24 * time.Hour
+
 // updateWarnings are the dashboard lines of updates: a release that is
 // newer than this hub when the automatic update will not install it (off,
-// or the release was rolled back), and the last automatic rollback.
+// or the release was rolled back), the last automatic rollback, an
+// automatic update kept because it could not be rolled back, and the
+// notice of a hub where the automatic update was on by default before
+// (migrateAutoUpdate; while it is off).
 func (h *Hub) updateWarnings() []api.Warning {
 	var out []api.Warning
 	rec := h.autoRecord()
+	on := h.autoUpdateOn()
+	var m autoMigration
+	if ok, err := h.st.GetMeta(metaAutoMigrated, &m); err == nil && ok && m.Legacy && !on && h.now().Sub(m.At) < autoWarnFor {
+		out = append(out, api.Warning{Message: autoNoticeText})
+	}
 	var upd api.UpdateInfo
 	if ok, err := h.st.GetMeta(metaUpdateCheck, &upd); err == nil && ok && install.NewerThan(upd.Latest, version.Version) &&
-		(rec.Disabled || slices.Contains(rec.Skipped, upd.Latest)) {
+		(!on || slices.Contains(rec.Skipped, upd.Latest)) {
 		out = append(out, api.Warning{Message: "deyroute " + upd.Latest + " is available (running " + version.Version + "): run deyroute update"})
 	}
-	if strings.Contains(rec.Last, "rolled back") && h.now().Sub(rec.LastAt) < 7*24*time.Hour {
+	if recent := h.now().Sub(rec.LastAt) < autoWarnFor; recent && strings.Contains(rec.Last, "rolled back") {
 		out = append(out, api.Warning{Code: string(deyerr.S003),
+			Message: "automatic " + rec.Last + "; see deyroute update auto"})
+	} else if recent && strings.Contains(rec.Last, "was kept") {
+		out = append(out, api.Warning{Code: string(deyerr.S011),
 			Message: "automatic " + rec.Last + "; see deyroute update auto"})
 	}
 	return out

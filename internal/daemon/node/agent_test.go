@@ -114,8 +114,11 @@ func TestRenderStartStopRemove(t *testing.T) {
 	require.Contains(t, string(dropIn), "append:/var/log/deyroute/tunnels/main.log")
 	reloads := e.runner.Count("systemctl daemon-reload")
 	require.Equal(t, 1, reloads)
-	_, err = os.Stat(e.path(systemd.TunnelLogDir))
+	// The tunnel log directory is created root:deyroute 01770 (QUESTIONS.md
+	// C.48), like the installer does.
+	ld, err := os.Stat(e.path(systemd.TunnelLogDir))
 	require.NoError(t, err)
+	require.Equal(t, os.ModeSticky|0o770, ld.Mode()&(os.ModePerm|os.ModeSticky))
 
 	// Rendering the same payload again changes nothing: no reload.
 	_, err = call[json.RawMessage](t, s, api.CmdBackendRender, args)
@@ -219,6 +222,10 @@ func TestRenderRejectsUnsafePayloads(t *testing.T) {
 		"hidden bin":         mod(func(a *api.BackendRenderArgs) { a.Unit.ExecStart = []string{"/var/lib/deyroute/bin/backhaul/v1/.x"} }),
 		"LD_PRELOAD":         mod(func(a *api.BackendRenderArgs) { a.Unit.Env = map[string]string{"LD_PRELOAD": base.ConfigDir + "/x.so"} }),
 		"GLIBC_TUNABLES":     mod(func(a *api.BackendRenderArgs) { a.Unit.Env = map[string]string{"GLIBC_TUNABLES": "glibc.x=1"} }),
+		"backhaul as root":   mod(func(a *api.BackendRenderArgs) { a.Unit.RunAsRoot = true }),
+		"every capability": mod(func(a *api.BackendRenderArgs) {
+			a.Unit.DropHardening = map[string]string{"CapabilityBoundingSet": "the hub says so"}
+		}),
 		"pair shell": mod(func(a *api.BackendRenderArgs) {
 			a.Unit.ExecStart = []string{config.BinaryPath, "pair", "/var/lib/deyroute/bin/backhaul/v1/backhaul", "--", "/bin/sh", "-c", "id"}
 		}),
@@ -261,6 +268,9 @@ func TestRenderRejectsUnsafePayloads(t *testing.T) {
 			a.Unit.ExecStart = []string{config.BinaryPath, "relay", "--tunnel", "main", "--config", a.ConfigDir + "/relay.json"}
 		}),
 		"wg": mod(func(a *api.BackendRenderArgs) {
+			// Root is wireguard's alone (privilege allowlist).
+			wg := renderArgs("main", "wireguard", "kernel")
+			a.Instance, a.ConfigDir = wg.Instance, wg.ConfigDir
 			a.Unit = backend.UnitSpec{Type: "oneshot", RemainAfterExit: true, RunAsRoot: true,
 				ExecStart: []string{config.BinaryPath, "wg", "up", "--config", a.ConfigDir + "/wg.json"},
 				ExecStop:  [][]string{{config.BinaryPath, "wg", "down", "--config", a.ConfigDir + "/wg.json"}}}
@@ -806,8 +816,14 @@ func TestLogsTailAndFollow(t *testing.T) {
 	}
 }
 
+// The hub's binary without a signed release (an older hub), taken only
+// with node.allow_unsigned_updates (test labs); the signed path is in
+// selfupdate_test.go.
 func TestSelfUpdate(t *testing.T) {
 	e := newEnv(t)
+	cfg := e.config()
+	cfg.Node.AllowUnsignedUpdates = true
+	require.NoError(t, config.Save(e.path(config.DefaultPath), cfg))
 	newBin := fakeELF(elf.EM_X86_64, elf.ET_EXEC)
 	e.hub.asset, e.hub.assetV = newBin, "9.9.9"
 	writeFile(t, e.path(config.BinaryPath), "old binary", 0o755)
@@ -899,16 +915,18 @@ func TestVerifyELF(t *testing.T) {
 }
 
 func TestIncompatibleHubRefusesCommands(t *testing.T) {
+	key := useTestKey(t)
 	e := newEnv(t)
-	e.hub.hello = api.Hello{Version: "99.0.0", Compatible: false}
-	e.hub.asset, e.hub.assetV = fakeELF(elf.EM_X86_64, elf.ET_EXEC), "99.0.0"
+	archive := makeArchive(t, []tarFile{{name: "deyroute", body: fakeELF(elf.EM_X86_64, elf.ET_EXEC)}})
+	e.signedHub("99.0.0", signedRelease(t, key, "99.0.0", "99.0.0", "amd64", archive), nil)
+	e.hub.hello.Compatible = false
 	s := e.start()
 	eventually(t, func() bool {
 		_, err := call[map[string]string](t, s, api.CmdSysinfo, nil)
 		return deyerr.HasCode(err, deyerr.N004)
 	}, "commands are refused with N004")
 	// self.update is still allowed: it is how the node becomes compatible.
-	_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{})
+	_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: "99.0.0"})
 	require.NoError(t, err)
 	l, err := api.Dial(e.socket, api.DialOptions{Service: ServiceName})
 	require.NoError(t, err)
@@ -924,6 +942,7 @@ func TestIncompatibleHubRefusesCommands(t *testing.T) {
 }
 
 func TestCommandErrors(t *testing.T) {
+	key := useTestKey(t)
 	e := newEnv(t)
 	s := e.start()
 	_, err := call[json.RawMessage](t, s, "no.such.command", nil)
@@ -940,9 +959,15 @@ func TestCommandErrors(t *testing.T) {
 	requireCode(t, err, deyerr.N050)
 	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "a", Entry: backend.ManifestEntry{Name: "b"}})
 	requireCode(t, err, deyerr.N050)
-	// A pinned backend without checksum is never installed (S006).
-	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul",
-		Entry: backend.ManifestEntry{Version: "v0.7.2", URLs: map[string]string{"amd64": "https://example.com/b.tar.gz"}, Archive: "tar.gz"}})
+	// A backend without checksum is never installed: no signed manifest
+	// pins it (N050), and one that does is refused for the missing
+	// checksum (S006).
+	noSum := backend.ManifestEntry{Name: "backhaul", Version: "v0.7.2", URLs: map[string]string{"amd64": "https://example.com/b.tar.gz"}, Archive: "tar.gz"}
+	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: noSum})
+	requireCode(t, err, deyerr.N050)
+	manifest := manifestOf(noSum, "")
+	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: noSum,
+		Manifest: manifest, ManifestSig: signManifest(key, manifest)})
 	requireCode(t, err, deyerr.S006)
 	// Builtin backends need nothing.
 	r, err := call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "direct", Entry: backend.ManifestEntry{Version: "builtin", Builtin: true}})
@@ -1059,6 +1084,7 @@ func tarGz(t *testing.T, name string, data []byte) []byte {
 }
 
 func TestBackendInstall(t *testing.T) {
+	key := useTestKey(t)
 	archive := tarGz(t, "backhaul", []byte("\x7fELF fake backhaul"))
 	sum := sha256.Sum256(archive)
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) }))
@@ -1066,9 +1092,12 @@ func TestBackendInstall(t *testing.T) {
 	e := newEnv(t)
 	e.opts.HTTPClient = srv.Client()
 	s := e.start()
-	entry := backend.ManifestEntry{Version: "v0.7.2", Archive: "tar.gz", Binaries: []string{"backhaul"},
+	entry := backend.ManifestEntry{Name: "backhaul", Version: "v0.7.2", Archive: "tar.gz", Binaries: []string{"backhaul"},
 		URLs: map[string]string{"amd64": srv.URL + "/backhaul_linux_amd64.tar.gz"}, SHA256: map[string]string{"amd64": hex.EncodeToString(sum[:])}}
-	res, err := call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: entry})
+	// The hub's signed manifest pins the test server's archive (DR-03).
+	manifest := manifestOf(entry, "")
+	res, err := call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: entry,
+		Manifest: manifest, ManifestSig: signManifest(key, manifest)})
 	require.NoError(t, err)
 	require.Equal(t, "/var/lib/deyroute/bin/backhaul/v0.7.2", res.BinDir)
 	require.Equal(t, backhaulBin, res.Binary)
@@ -1080,7 +1109,9 @@ func TestBackendInstall(t *testing.T) {
 	bad := entry
 	bad.Version = "v0.7.3"
 	bad.SHA256 = map[string]string{"amd64": strings.Repeat("ab", 32)}
-	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: bad})
+	manifest = manifestOf(bad, "")
+	_, err = call[api.BackendInstallResult](t, s, api.CmdBackendInstall, api.BackendInstallArgs{Name: "backhaul", Entry: bad,
+		Manifest: manifest, ManifestSig: signManifest(key, manifest)})
 	requireCode(t, err, deyerr.S001)
 	_, err = os.Stat(e.path("/var/lib/deyroute/bin/backhaul/v0.7.3"))
 	require.True(t, os.IsNotExist(err))

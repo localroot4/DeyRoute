@@ -17,7 +17,7 @@ deyroute node join-command
 ```text
 Run this command on the new node (one node per command, valid until 12:15, 15m):
 
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
 ```
 
 در منو، `3) Nodes` ← `1) Show join command` همین خط را روی یک صفحه ساده نشان می‌دهد تا کامل کپی شود (Enter شما را به منو برمی‌گرداند):
@@ -25,7 +25,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 ```text
  Run this one line on the new node (as root):
 
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0
 
  Single use; expires at 12:15:00 (in 15 minutes). Press r for a new command.
 
@@ -37,15 +37,16 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 - لینک داخل دستور این شکل را دارد: `dey://TOKEN@HUB_IP:CONTROL_PORT#CA_FINGERPRINT`. کل خط را کپی کنید و چیزی از آن را عوض نکنید.
 - هر Join command **یک‌بارمصرف** است: هر دستور فقط یک Node را وصل می‌کند. برای هر Node یک دستور تازه بسازید.
 - اعتبارش ۱۵ دقیقه است. برای زمان بیشتر از `--ttl` استفاده کنید، از `1m` تا `24h`: `deyroute node join-command --ttl 1h`.
-- `--version` باعث می‌شود Node همان نسخه‌ای را نصب کند که روی Hub است. بدون آن نصب‌کننده جدیدترین نسخه را نصب می‌کرد و Hubی که major.minor قدیمی‌تری دارد نمی‌توانست از آن Node استفاده کند (`DEY-N004`).
-- اگر Hub با `DEYROUTE_MIRROR` راه‌اندازی شده باشد، دستور نصاب را از همان Mirror دانلود می‌کند.
+- `--version` باعث می‌شود Node همان نسخه‌ای را نصب کند که روی Hub است. بدون آن نصب‌کننده جدیدترین نسخه را نصب می‌کرد و Hubی که major.minor قدیمی‌تری دارد نمی‌توانست از آن Node استفاده کند (`DEY-N004`). نصاب داخل خط هم مال همان نسخه است (`…/releases/download/v<version>/install.sh`)، نه جدیدترین نصاب. اگر روی Hub بیلد توسعه (`dev`) نصب باشد، هیچ نسخه‌ای تعیین نمی‌شود و جدیدترین نصاب استفاده می‌شود.
+- اگر Hub با `DEYROUTE_MIRROR` راه‌اندازی شده باشد، دستور نصاب را از همان Mirror دانلود می‌کند (`<mirror>/v<version>/install.sh`).
+- اگر نسخه Hub دیگر منتشرشده نباشد (مثلاً یک بیلد توسعه قدیمی که حذف شده؛ صفحه [آپدیت و حذف](update-uninstall.md)، بخش «کدام نسخه‌ها در دسترس می‌مانند»)، خط نمی‌تواند نصاب را دانلود کند (`curl: (22) The requested URL returned error: 404`) و چیزی نصب نمی‌شود. Hub را آپدیت کنید (`deyroute update`) و یک Join command تازه بسازید.
 
 ## ۲. اجرای آن روی Node
 
 روی سرور خارج با کاربر root خط را paste کنید. اگر می‌خواهید شناسه Node را خودتان انتخاب کنید، `--name` را به آخر خط اضافه کنید:
 
 ```bash
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0 --name de-1
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) join 'dey://TOKEN@5.6.7.8:44433#sha256:…' --version 1.0.0 --name de-1
 ```
 
 اگر `deyroute` از قبل روی Node نصب است، شکل کوتاه هم کار می‌کند:
@@ -119,7 +120,7 @@ Hub و Node باید نسخه major.minor یکسان داشته باشند (مث
 - روی Node: نصاب را با نسخه Hub دوباره بزنید (ارتقا در جا، تنظیمات دست نمی‌خورد):
 
 ```bash
-bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) --version 1.0.0
+bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.0/install.sh) --version 1.0.0
 ```
 
 `deyroute version` نسخه هر سرور را چاپ می‌کند.

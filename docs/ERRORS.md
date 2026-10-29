@@ -35,6 +35,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-I021` | Detected address {ip} is not a public IP | the route to the internet uses a private, CGNAT or loopback source address; nodes abroad cannot connect to it unless the provider forwards it to this server | enter the server's real public IP when setup asks (see the provider panel), or later change hub.public_ip in /etc/deyroute/config.yaml and run: deyroute config apply |
 | `DEY-I022` | Uninstall step failed: {step} | part of the removal could not complete; every other step still ran and the deyroute binary was kept | fix the cause shown below, then run deyroute uninstall again (it is safe to repeat) |
 | `DEY-I023` | This server is not set up yet | /etc/deyroute/config.yaml does not exist, so no deyroute service runs here | on the Iran server run: deyroute setup   on a foreign server run the join command your hub shows |
+| `DEY-I024` | Release v{version} not found | the release was removed or never existed: every download source answered HTTP 404 for its SHA256SUMS | install a version that exists, or use --local with a cached copy of that release |
 
 ## Configuration (DEY-C0xx)
 
@@ -186,7 +187,8 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-S008` | A backup passphrase is required | backups contain the CA key and tunnel secrets and are encrypted with age by default | enter a passphrase, or run deyroute backup --no-encrypt and keep the file private |
 | `DEY-S009` | Cannot use secret file {path} | the file is missing, empty, unreadable or damaged: {reason} | check the file (ls -l {path}); restore it from a backup (deyroute restore FILE) or recreate it through the menu |
 | `DEY-S010` | Cannot {action} while the CDN front is in use | {reason}: an older deyroute does not know the front settings in config.yaml (the hub's hub.front, a node's node.front and route), so it refuses the file (DEY-C001) and a node that updates to it can no longer start; the nodes abroad cannot be repaired remotely | run deyroute front disable and move every front node back to a direct hub address (deyroute node set-hub HOST:PORT on each node, or join it again), then repeat the command |
-| `DEY-S011` | Cannot {action} while config.yaml uses newer settings: {keys} | {reason}: an older deyroute does not know these keys, so it refuses config.yaml (DEY-C001) and the hub would not start | undo them first (automatic tuning: deyroute optimize revert; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command |
+| `DEY-S011` | Cannot {action} while config.yaml uses newer settings: {keys} | {reason}: an older deyroute does not know these keys, so it refuses config.yaml (DEY-C001) and the hub would not start | undo them first (automatic tuning: deyroute optimize revert; automatic update: deyroute update auto off; monitoring and quota keys: deyroute config edit, remove them, then deyroute config apply), then repeat the command |
+| `DEY-S012` | Hub runs an unsigned development build | the hub runs deyroute {version}, which is not a signed release, so this node cannot prove that the binary it would install comes from DEYROUTE; nothing was installed | install a release on the hub (deyroute update --version V), then the node follows; only in a test lab: set node.allow_unsigned_updates: true in the node's /etc/deyroute/config.yaml |
 
 ## Internal (DEY-X0xx)
 

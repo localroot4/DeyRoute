@@ -107,8 +107,11 @@ func (h *testHub) Session(s *api.Session) { <-s.Done() }
 func (h *testHub) Upload(context.Context, string, string, io.Reader) error {
 	return deyerr.New(deyerr.X008, deyerr.Params{"feature": "upload"})
 }
-func (h *testHub) Asset(context.Context, string) (api.AssetInfo, error) {
+func (h *testHub) Asset(context.Context, string, string) (api.AssetInfo, error) {
 	return api.AssetInfo{}, deyerr.New(deyerr.X008, deyerr.Params{"feature": "assets"})
+}
+func (h *testHub) Release(context.Context, string, string) (api.ReleaseBundle, error) {
+	return api.ReleaseBundle{}, deyerr.New(deyerr.X008, deyerr.Params{"feature": "release"})
 }
 
 func joinOpts(root, link string, steps *stepLog) JoinOptions {

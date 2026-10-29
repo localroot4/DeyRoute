@@ -69,8 +69,17 @@ three-line block is still printed on standard error):
 
 ### `deyroute version`
 
-`{"schema", "version", "commit", "date", "go"}` — `version` without a leading
-`v` (`"dev"` for local builds).
+`{"schema", "version", "commit", "date", "go", "test_key", "signed_update"}`
+— `version` without a leading `v` (`"dev"` for local builds). `test_key`
+(bool) is `true` only for a binary built with a lab signing key next to the
+release key (`-X …/internal/install.TestPublicKey=<key>`, the integration
+lab); a release binary always reports `false`. `signed_update` (bool) is
+`true`: a node on this build installs a new deyroute only from a signed
+release (DR-03). Builds before signed updates do not print it. Before a node
+installs the deyroute of the release its hub sends, it runs that binary's
+`deyroute --json version` and refuses it (`DEY-S001`) unless it says
+`"signed_update": true`; the panel can check a release it wants to roll
+out the same way.
 
 ### `deyroute setup`
 
@@ -78,9 +87,10 @@ Hub:
 `{"schema", "role": "hub", "name", "public_ip", "public_ip6", "private_ip"
 (bool: the detected address is not public), "control_port", "ca_fingerprint",
 "config_path", "sysctl_profile", "sysctl_warnings": [string],
-"firewall_managed", "service_started", "steps": [Step], "join": JoinCommand}`
-— when the join command could not be obtained, `join_error` (ErrorDTO)
-replaces `join`.
+"firewall_managed", "service_started", "auto_update" (bool: `--auto-update
+on|off`, default off; stored as `hub.auto_update`), "steps": [Step], "join":
+JoinCommand}` — when the join command could not be obtained, `join_error`
+(ErrorDTO) replaces `join`.
 
 Node (`--role node`): the document of `deyroute join`.
 
@@ -153,7 +163,12 @@ none)}`
 `advanced.monthly_quota_gib`, once per quota period) and `tune_drift` (warn:
 a tuned kernel value was changed or overridden, DEY-X067) are event types
 too; Telegram sends them when `hub.notify.telegram.events` selects `quota`
-or `tuning` (or the full names).
+or `tuning` (or the full names). `auto_update_default_off` (warn) is recorded
+once by a hub that ran a build with the automatic update on by default: it
+is off now (see `update auto`). `update_rolled_back` with `"code":
+"DEY-S011"` means an automatic update did not verify and was kept, because
+the previous version would refuse `config.yaml` (its `message` names the
+keys); the new version keeps running.
 
 ## Nodes and hub
 
@@ -486,6 +501,17 @@ written either way.
   `--version V` a failed release check does not stop the update (a note goes
   to standard error); without it the check's error is the result.
 - `--rollback`: UpdateInfo.
+
+### `deyroute update auto [on|off]`
+
+The AutoUpdateInfo DTO, also after `on` or `off`: `{"schema", "enabled"
+(hub.auto_update in config.yaml; false when the key is absent, the
+default), "source": "config" (where `enabled` comes from), "hour" (local
+hour of the daily window), "min_age_hours", "current", "next" (the release
+waiting for its turn, absent when none), "next_at", "pending" (installed and
+being checked), "last" (outcome of the last automatic update), "last_at",
+"skipped": [string] (rolled back, never installed automatically; absent
+when none)}`. A value other than `on` or `off` is a usage error (exit 1).
 
 ### `deyroute update backends [name]`
 

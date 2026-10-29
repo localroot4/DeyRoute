@@ -22,13 +22,21 @@ import (
 //	POST /v1/upload/{id}            client cert; raw body for a pending
 //	                                command (fetch.proxy payload, doctor bundle)
 //	GET  /v1/assets/deyroute/{arch}   client cert; the hub's own deyroute binary
-//	                                for arch (nodes always update from the hub)
+//	                                for arch (nodes always update from the hub;
+//	                                kept for nodes without FeatureSignedUpdate)
+//	GET  /v1/assets/release/{arch}    client cert; the signed release of the
+//	                                hub's version for arch (FeatureSignedUpdate):
+//	                                an uncompressed tar of SHA256SUMS,
+//	                                SHA256SUMS.minisig and
+//	                                deyroute_<version>_linux_<arch>.tar.gz
+//	                                (ControlClient.FetchRelease)
 const (
 	ALPN              = "deyroute/1"
 	PathJoin          = "/v1/join"
 	PathStream        = "/v1/stream"
 	PathUploadPrefix  = "/v1/upload/"
 	PathAssetsPrefix  = "/v1/assets/deyroute/"
+	PathReleasePrefix = "/v1/assets/release/"
 	HeartbeatInterval = 5 * time.Second
 	// A node is offline after this long without a heartbeat.
 	OfflineAfter = 15 * time.Second
@@ -119,16 +127,33 @@ type Hello struct {
 	TuneHash    string `json:"tune_hash,omitempty"`
 	// Features lists the optional commands this agent understands
 	// (Feature*). The hub gates them on this list, not on the version: an
-	// agent of the same major.minor may predate them.
+	// agent of the same major.minor may predate them. In the hub's hello
+	// it lists what the hub serves (FeatureSignedUpdate), so a node can
+	// tell an older hub apart the same way.
 	Features []string `json:"features,omitempty"`
+	// ManifestSHA256 is the hex sha256 of the backends.yaml built into the
+	// node (FeatureSignedUpdate nodes): when it differs from the hub's own,
+	// the hub sends the signed backends.yaml of its release with
+	// backend.install (BackendInstallArgs.Manifest).
+	ManifestSHA256 string `json:"manifest_sha256,omitempty"`
 }
 
-// Optional agent features announced in Hello.Features.
+// Optional features announced in Hello.Features.
 const (
 	// FeatureTuneAuto: the agent knows the sysctl profile "auto",
 	// CmdTunePlan, CmdTuneCheck and the tuning fields of SysctlArgs and
 	// SysctlResult.
 	FeatureTuneAuto = "tune-auto"
+	// FeatureSignedUpdate (DR-03): self.update installs only what a signed
+	// DEYROUTE release proves. A node announcing it fetches the hub's
+	// release (GET /v1/assets/release/{arch}) and checks it with the
+	// release key built into it; a hub announces it in the hello it sends
+	// to the node when it serves that endpoint. A hub on a release build
+	// never serves its own binary to such a node in place of the release.
+	// Such a node also installs a backend only when a signed manifest pins
+	// it (its built-in one, or BackendInstallArgs.Manifest), and the hub
+	// sends that manifest only to such a node.
+	FeatureSignedUpdate = "signed-update"
 )
 
 // HasFeature reports whether the Hello announces feature f.
@@ -206,10 +231,19 @@ const (
 	CmdSpeedServe      = "speed.serve"             // SpeedServeArgs → nil (built-in generator for diag speed)
 )
 
-// BackendInstallArgs installs a pinned backend on the node.
+// BackendInstallArgs installs a pinned backend on the node. A node with
+// FeatureSignedUpdate installs Entry only when it equals the entry in the
+// node's built-in backends.yaml or in Manifest, a backends.yaml whose
+// signature ManifestSig verifies with the release key built into the node
+// (DR-03). The hub sends Manifest and ManifestSig (the bytes of the files)
+// only to such nodes: its signed manifest override, or the backends.yaml
+// of its own release when the node's built-in one differs
+// (Hello.ManifestSHA256). An older hub sends neither.
 type BackendInstallArgs struct {
-	Entry backend.ManifestEntry `json:"entry"`
-	Name  string                `json:"name"`
+	Entry       backend.ManifestEntry `json:"entry"`
+	Name        string                `json:"name"`
+	Manifest    []byte                `json:"manifest,omitempty"`
+	ManifestSig []byte                `json:"manifest_sig,omitempty"`
 }
 
 // BackendInstallResult reports installed paths.
@@ -317,7 +351,12 @@ type LogsArgs struct {
 	Follow bool      `json:"follow"`
 }
 
-// SelfUpdateArgs tells the node to fetch the hub's binary.
+// SelfUpdateArgs tells the node to install the hub's version. Version is
+// the hub's version. SHA256 is what the node must receive ("" = not
+// announced): the sha256 of the hub's binary on GET /v1/assets/deyroute,
+// or of the archive deyroute_<Version>_linux_<arch>.tar.gz for a node with
+// FeatureSignedUpdate. It only catches a broken transfer; such a node trusts
+// the signed SHA256SUMS alone.
 type SelfUpdateArgs struct {
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`

@@ -83,10 +83,14 @@ systemd_ready() {
   [ "$st" = running ] || [ "$st" = degraded ]
 }
 
+# The lab release is signed with the lab key of run.sh (SHA256SUMS.minisig,
+# backends.yaml.minisig; its install.sh and binaries trust that key), so
+# every install checks the signature, as on a real server, and keeps the
+# verified release for the hub's nodes (/var/lib/deyroute/bin/<version>/).
 # install_hub SERVICE NAME [installer flags...]: one-line install + setup (spec 5).
 install_hub() {
   local s=$1 name=$2; shift 2
-  on "$s" bash /dist/install.sh --skip-signature --local "$ARCHIVE" --role hub --name "$name" --yes "$@"
+  on "$s" bash /dist/install.sh --local "$ARCHIVE" --role hub --name "$name" --yes "$@"
 }
 # join_link: a fresh join link from the hub.
 join_link() { dey node join-command --json | jq -r .link; }
@@ -95,7 +99,17 @@ install_node() {
   local s=$1 link=${2:-}
   shift $(($# > 1 ? 2 : 1))
   [ -n "$link" ] || link=$(join_link)
-  on "$s" bash /dist/install.sh --skip-signature --local "$ARCHIVE" join "$link" "$@"
+  on "$s" bash /dist/install.sh --local "$ARCHIVE" join "$link" "$@"
+}
+# lab_sign FILE...: FILE.minisig next to each FILE on this host, a signature
+# by the lab key, which the lab binaries accept where they expect the
+# release key.
+lab_sign() {
+  : "${DEY_LAB_KEYS:?run scenarios through run.sh (it makes the lab key)}"
+  local f
+  for f in "$@"; do
+    MINISIGN_SECRET_KEY=$(cat "$DEY_LAB_KEYS/lab.key") "$DEY_LAB_KEYS/minisign" sign -in "$f"
+  done
 }
 node_id_of() { dey --on "$1" status --json | jq -r .node.id; }
 node_online() { dey node list --json | jq -e --arg id "$1" '.nodes[] | select(.id == $id) | .online == true' >/dev/null; }
@@ -410,6 +424,23 @@ s.socket = c.wrap_socket(s.socket, server_side=True); s.serve_forever()'"
   wait_for 20 "https mirror up" sh_on client "ss -Hltn 'sport = :8443' | grep -q ."
   trust_lab_ca it-mirror "$(on client cat /etc/it-mirror.crt)"
 }
+# release_mirror: the signed lab release of DEY_VERSION on the lab's HTTPS
+# mirror (https_mirror; a mirror's layout is <base>/v<version>/<file>) and
+# hub.mirror set to it (config.yaml + config apply), so that `deyroute
+# update --version "$DEY_VERSION"` on the hub downloads it from there and
+# checks it as it checks a real release.
+release_mirror() {
+  https_mirror
+  sh_on client "d=/srv/mirror/v$DEY_VERSION && mkdir -p \$d && cd /dist && cp SHA256SUMS SHA256SUMS.minisig \
+    deyroute_${DEY_VERSION}_linux_$ARCH.tar.gz install.sh backends.yaml backends.yaml.minisig CHANGELOG.md \$d/"
+  sh_on hub "python3 - <<'PY'
+import re
+p = '/etc/deyroute/config.yaml'
+s = re.sub(r'(?m)^  mirror:.*\n', '', open(p).read())
+open(p, 'w').write(re.sub(r'(?m)^hub:\n', 'hub:\n  mirror: https://$CLIENT_IP:8443\n', s, count=1))
+PY"
+  dey config apply --json >/dev/null
+}
 # trust_lab_ca NAME PEM: the hub and the nodes that run trust the lab
 # certificate PEM (NAME.crt in the system store).
 trust_lab_ca() {
@@ -477,8 +508,12 @@ fake_backend_archive() {
     tar -C /tmp/fb -czf /srv/mirror/$1.tar.gz $1 && sha256sum /srv/mirror/$1.tar.gz | cut -d' ' -f1" <<<"$2"
 }
 # override_backend NAME VERSION URL SHA256: install a manifest override on the
-# hub announcing NAME at VERSION from URL, and restart the hub to load it.
+# hub announcing NAME at VERSION from URL, signed with the lab key
+# (backends.yaml.minisig next to it, as `deyroute update manifest` writes
+# it: a node installs no version that only an unsigned override pins,
+# DR-03), and restart the hub to load it. The hub must accept the signature.
 override_backend() {
+  local tmp n
   on hub python3 - "$1" "$2" "$3" "$4" <<'PY'
 import re, sys
 name, ver, url, sha = sys.argv[1:]
@@ -490,8 +525,18 @@ b2 = re.sub(r'(amd64|arm64): https?://\S+', lambda x: x.group(1) + ': ' + url, b
 b2 = re.sub(r'sha256: \{[^}]*\}', 'sha256: { amd64: "%s", arm64: "%s" }' % (sha, sha), b2)
 open('/etc/deyroute/backends.yaml', 'w').write(src.replace(b, b2))
 PY
+  tmp=$(mktemp -d)
+  on hub cat /etc/deyroute/backends.yaml >"$tmp/backends.yaml"
+  lab_sign "$tmp/backends.yaml"
+  on hub sh -c 'cat > /etc/deyroute/backends.yaml.minisig' <"$tmp/backends.yaml.minisig"
+  rm -rf "$tmp"
+  n=$(sh_on hub "cat /var/log/deyroute/hub.log 2>/dev/null | wc -l")
   on hub systemctl restart deyroute-hub
   wait_for 60 "hub back after the manifest override" sh_on hub "deyroute status --json >/dev/null"
+  # The hub checks the signature when it loads the override (at start).
+  if sh_on hub "tail -n +$((n + 1)) /var/log/deyroute/hub.log" | grep -q 'manifest override has no valid signature'; then
+    fail "the hub did not accept the lab signature of the manifest override"
+  fi
 }
 
 # secrets_of SERVICE: every secret value on a server (tokens, keys, passwords),

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -75,12 +76,93 @@ func TestNewerKeysInUse(t *testing.T) {
 	tun0(c).Advanced = &Advanced{MonthlyQuotaGiB: 1}
 	c.Tuning = &Tuning{SysctlProfile: SysctlAuto, BBR: true, NodesAuto: true, BackendTier: BackendTierMedium, WGMTU: 1380}
 	c.Monitoring = &Monitoring{}
-	require.Equal(t, []string{
-		"nodes[].backend_tier", "tunnels[].advanced.monthly_quota_gib", "tuning.sysctl_profile: auto",
-		"tuning.nodes_auto", "tuning.backend_tier", "tuning.wg_mtu", "monitoring",
+	// Each key carries the first release that knows it; the monitoring and
+	// tuning keys all came with FirstTrafficVersion.
+	v := FirstTrafficVersion
+	require.Equal(t, "0.3.0-edge.15", v)
+	require.Equal(t, []NewerKey{
+		{"nodes[].backend_tier", v}, {"tunnels[].advanced.monthly_quota_gib", v}, {"tuning.sysctl_profile: auto", v},
+		{"tuning.nodes_auto", v}, {"tuning.backend_tier", v}, {"tuning.wg_mtu", v}, {"monitoring", v},
 	}, c.NewerKeysInUse())
+	require.Equal(t, "monitoring (since 0.3.0-edge.15)", NewerKey{"monitoring", v}.String())
+
+	// hub.auto_update (on) comes first, as in the file, with its own
+	// first release: the stable 0.3.0, before which every edge build sorts.
+	c.Hub.AutoUpdate = true
+	require.Equal(t, "0.3.0", FirstAutoUpdateVersion)
+	require.Equal(t, NewerKey{"hub.auto_update", FirstAutoUpdateVersion}, c.NewerKeysInUse()[0])
+	require.Len(t, c.NewerKeysInUse(), 8)
+	c = validHub()
+	c.Hub.AutoUpdate = true
+	require.Equal(t, []NewerKey{{"hub.auto_update", "0.3.0"}}, c.NewerKeysInUse())
 	var nilCfg *Config
 	require.Nil(t, nilCfg.NewerKeysInUse())
+
+	// A node's node.allow_unsigned_updates (on), with its own first release.
+	n := NewNode("de-1", "1.2.3.4:44433", "sha256:"+strings.Repeat("ab", 32))
+	require.Empty(t, n.NewerKeysInUse())
+	n.Node.AllowUnsignedUpdates = true
+	require.Equal(t, "0.3.0", FirstAllowUnsignedUpdatesVersion)
+	require.Equal(t, []NewerKey{{"node.allow_unsigned_updates", FirstAllowUnsignedUpdatesVersion}}, n.NewerKeysInUse())
+}
+
+// TestNodeAllowUnsignedUpdatesKey: node.allow_unsigned_updates is written
+// only when true, survives save, load and Clone, and takes only a YAML bool.
+func TestNodeAllowUnsignedUpdatesKey(t *testing.T) {
+	dir := t.TempDir()
+	c := NewNode("de-1", "1.2.3.4:44433", "sha256:"+strings.Repeat("ab", 32))
+	path := filepath.Join(dir, "off.yaml")
+	require.NoError(t, SaveWith(path, c, fakeOpts()))
+	raw, err := os.ReadFile(path) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "allow_unsigned_updates")
+
+	c.Node.AllowUnsignedUpdates = true
+	path = filepath.Join(dir, "on.yaml")
+	require.NoError(t, SaveWith(path, c, fakeOpts()))
+	raw, err = os.ReadFile(path) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "allow_unsigned_updates: true")
+	back, err := LoadWith(path, fakeOpts())
+	require.NoError(t, err)
+	require.True(t, back.Node.AllowUnsignedUpdates)
+	require.True(t, Clone(back).Node.AllowUnsignedUpdates)
+
+	bad := strings.Replace(string(raw), "allow_unsigned_updates: true", "allow_unsigned_updates: maybe", 1)
+	_, err = ParseWith([]byte(bad), fakeOpts())
+	require.Error(t, err)
+	require.Equal(t, deyerr.C013, deyerr.As(err).Code)
+	require.Contains(t, deyerr.As(err).Message(), "node.allow_unsigned_updates")
+}
+
+// TestHubAutoUpdateKey: hub.auto_update is written only when true (an older
+// release can read a default config), survives save and load, and takes
+// only a YAML bool.
+func TestHubAutoUpdateKey(t *testing.T) {
+	dir := t.TempDir()
+	c := validHub()
+	path := filepath.Join(dir, "off.yaml")
+	require.NoError(t, SaveWith(path, c, fakeOpts()))
+	raw, err := os.ReadFile(path) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "auto_update")
+
+	c.Hub.AutoUpdate = true
+	path = filepath.Join(dir, "on.yaml")
+	require.NoError(t, SaveWith(path, c, fakeOpts()))
+	raw, err = os.ReadFile(path) // #nosec G304 -- test file
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "auto_update: true")
+	back, err := LoadWith(path, fakeOpts())
+	require.NoError(t, err)
+	require.True(t, back.Hub.AutoUpdate)
+	require.True(t, Clone(back).Hub.AutoUpdate)
+
+	bad := strings.Replace(string(raw), "auto_update: true", "auto_update: sometimes", 1)
+	_, err = ParseWith([]byte(bad), fakeOpts())
+	require.Error(t, err)
+	require.Equal(t, deyerr.C013, deyerr.As(err).Code)
+	require.Contains(t, deyerr.As(err).Message(), "hub.auto_update")
 }
 
 // TestMonitoringRoundTrip: the new keys survive save and load, and a config

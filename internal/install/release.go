@@ -37,6 +37,10 @@ type Release struct {
 	SHA256  string // archive sha256 from the signed SHA256SUMS
 	Binary  string // path of the extracted deyroute binary (0755)
 	Source  string // name of the source that served SHA256SUMS
+	// Sums and SumsSig are the verified SHA256SUMS and SHA256SUMS.minisig
+	// (a hub keeps them with the archive for its nodes, DR-03).
+	Sums    []byte
+	SumsSig []byte
 }
 
 // DownloadRelease fetches SHA256SUMS and SHA256SUMS.minisig from the first
@@ -49,10 +53,6 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 		return nil, deyerr.New(deyerr.I004, deyerr.Params{"file": SumsFile}).
 			WithDetail("download not configured (fetcher, sources and work dir are required)")
 	}
-	pub := opt.PublicKey
-	if pub == "" {
-		pub = MinisignPublicKey
-	}
 	if err := os.MkdirAll(opt.WorkDir, 0o700); err != nil {
 		return nil, deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": opt.WorkDir})
 	}
@@ -60,6 +60,7 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 	sigCode := ro.MismatchCode
 	var (
 		ver, file, sum  string
+		sums, sumsSig   []byte
 		srcIdx          = -1
 		lastErr, sigErr error
 	)
@@ -77,7 +78,7 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 			lastErr = err
 			continue
 		}
-		if err := VerifyMinisignAs(sigCode, SumsFile, data, sig, pub); err != nil {
+		if err := verifySumsAs(sigCode, data, sig, opt.PublicKey); err != nil {
 			sigErr = err
 			continue
 		}
@@ -94,6 +95,7 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 			continue
 		}
 		ver, file, sum, srcIdx = v, fl, sm, i
+		sums, sumsSig = data, sig
 		break
 	}
 	if srcIdx < 0 {
@@ -130,34 +132,26 @@ func DownloadRelease(ctx context.Context, opt ReleaseOptions) (*Release, error) 
 		SHA256:  sum,
 		Binary:  bins[BinaryName],
 		Source:  opt.Sources[srcIdx].Name,
+		Sums:    sums,
+		SumsSig: sumsSig,
 	}, nil
 }
 
 // FetchManifest downloads backends.yaml and backends.yaml.minisig of version
 // ("" = latest) from the first source serving a validly signed pair, and
 // parses it strictly. Signature failure → DEY-S001; unreachable → DEY-I004.
-// It returns the parsed manifest and the raw bytes for InstallManifest.
-func FetchManifest(ctx context.Context, f Fetcher, sources []Source, version, pubKey string, ro RetryOptions) (*backend.ManifestFile, []byte, error) {
-	if pubKey == "" {
-		pubKey = MinisignPublicKey
-	}
+// It returns the parsed manifest, and the raw bytes and the signature for
+// InstallManifest.
+func FetchManifest(ctx context.Context, f Fetcher, sources []Source, version, pubKey string, ro RetryOptions) (m *backend.ManifestFile, data, sig []byte, err error) {
 	var lastErr, sigErr error
 	for _, src := range sources {
-		r := ro
-		r.File = ManifestFile
-		data, _, err := FetchBytes(ctx, f, []string{src.Manifest(version)}, r)
+		data, sig, bad, err := fetchManifestPair(ctx, f, src, version, pubKey, ro)
 		if err != nil {
-			lastErr = err
-			continue
-		}
-		r.File = ManifestSigFile
-		sig, _, err := FetchBytes(ctx, f, []string{src.ManifestSig(version)}, r)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if err := VerifyMinisignAs(deyerr.S001, ManifestFile, data, sig, pubKey); err != nil {
-			sigErr = err
+			if bad {
+				sigErr = err
+			} else {
+				lastErr = err
+			}
 			continue
 		}
 		m, err := backend.ParseManifest(data)
@@ -165,10 +159,58 @@ func FetchManifest(ctx context.Context, f Fetcher, sources []Source, version, pu
 			sigErr = err
 			continue
 		}
-		return m, data, nil
+		return m, data, sig, nil
+	}
+	return nil, nil, nil, firstErr(sigErr, lastErr,
+		deyerr.New(deyerr.I004, deyerr.Params{"file": ManifestFile}).WithDetail("no download source configured"))
+}
+
+// FetchSignedManifest downloads backends.yaml and backends.yaml.minisig of
+// version ("" = latest) from the first source serving a pair whose signature
+// verifies with pubKey ("" = MinisignPublicKey), and returns both. The
+// manifest is not parsed: a hub keeps the signed pair of its release for
+// its nodes (DR-03), and a newer release's manifest may hold fields this
+// build does not know. Signature failure → DEY-S001; unreachable → DEY-I004.
+func FetchSignedManifest(ctx context.Context, f Fetcher, sources []Source, version, pubKey string, ro RetryOptions) (data, sig []byte, err error) {
+	var lastErr, sigErr error
+	for _, src := range sources {
+		data, sig, bad, err := fetchManifestPair(ctx, f, src, version, pubKey, ro)
+		if err == nil {
+			return data, sig, nil
+		}
+		if bad {
+			sigErr = err
+		} else {
+			lastErr = err
+		}
 	}
 	return nil, nil, firstErr(sigErr, lastErr,
 		deyerr.New(deyerr.I004, deyerr.Params{"file": ManifestFile}).WithDetail("no download source configured"))
+}
+
+// fetchManifestPair downloads backends.yaml and its signature from src and
+// verifies the signature with pubKey ("" = MinisignPublicKey). badSig is
+// true when the pair was downloaded but the signature does not verify
+// (DEY-S001).
+func fetchManifestPair(ctx context.Context, f Fetcher, src Source, version, pubKey string, ro RetryOptions) (data, sig []byte, badSig bool, err error) {
+	if pubKey == "" {
+		pubKey = MinisignPublicKey
+	}
+	r := ro
+	r.File = ManifestFile
+	data, _, err = FetchBytes(ctx, f, []string{src.Manifest(version)}, r)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	r.File = ManifestSigFile
+	sig, _, err = FetchBytes(ctx, f, []string{src.ManifestSig(version)}, r)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if err := VerifyMinisignAs(deyerr.S001, ManifestFile, data, sig, pubKey); err != nil {
+		return nil, nil, true, err
+	}
+	return data, sig, false, nil
 }
 
 // firstErr returns the first non-nil error. Verification failures are passed
@@ -183,15 +225,27 @@ func firstErr(errs ...error) error {
 	return nil
 }
 
-// InstallManifest writes a verified manifest to Root/etc/deyroute/backends.yaml
-// (0644, atomic); backend.LoadManifestOverride activates it.
-func InstallManifest(root string, data []byte) error {
+// InstallManifest writes a verified manifest and its signature to
+// Root/etc/deyroute/backends.yaml and backends.yaml.minisig (0644, each
+// atomically, the signature first); backend.LoadManifestOverride activates
+// the manifest. The hub sends both to its nodes, which install a backend
+// only when a signed manifest pins it (DR-03), and a backup of
+// /etc/deyroute keeps both.
+func InstallManifest(root string, data, sig []byte) error {
 	if _, err := backend.ParseManifest(data); err != nil {
 		return err
 	}
-	p := Layout{Root: root}.Path(config.ManifestPath)
+	if len(sig) == 0 {
+		return deyerr.New(deyerr.S001, deyerr.Params{"file": ManifestSigFile}).
+			WithWhy("the manifest comes without its signature, which the nodes need")
+	}
+	l := Layout{Root: root}
+	p := l.Path(config.ManifestPath)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return deyerr.Wrap(deyerr.X032, err, deyerr.Params{"path": filepath.Dir(p)})
+	}
+	if err := writeFileAtomic(l.Path(config.ManifestSigPath), sig, 0o644); err != nil {
+		return err
 	}
 	return writeFileAtomic(p, data, 0o644)
 }

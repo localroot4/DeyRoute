@@ -19,8 +19,12 @@ to a log.
 - The connection always goes from the node to the hub. The hub never logs
   in to a node, and SSH is not used.
 - A node takes no decisions of its own: it only renders files below
-  `/etc/deyroute/backends/`, runs deyroute's own backend binaries, and downloads
-  only over https.
+  `/etc/deyroute/backends/`, runs only the backend binaries deyroute installed
+  (and deyroute's own relay and WireGuard setup) with no more privileges than
+  its built-in allowlist grants that backend (see Tunnel processes below),
+  installs a new deyroute only from a release signed with the key built into
+  it, and a backend only in the version a signed manifest pins (see
+  Downloads below), and downloads only over https.
 
 ## Join tokens
 
@@ -287,9 +291,93 @@ security change. Menu: `8) Security` → `5) Audit`.
 - Each transport runs as its own systemd unit, as user `deyroute`, with only
   the right to bind low ports (`CAP_NET_BIND_SERVICE`) and a hardened sandbox
   (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, a
-  system-call filter …). Only WireGuard transports run as root with
-  `CAP_NET_ADMIN`.
+  system-call filter …).
+- A backend gets more only where the allowlist below says so. The list is
+  built into deyroute, so the hub cannot change it: a node refuses a unit that
+  asks for anything else (`DEY-N050`, naming the field), and the hub checks its
+  own units against the same list before it writes them (`DEY-X034`).
+- No backend may relax `NoNewPrivileges` or the capability bounding set.
 - A crash of one backend never takes the hub down; systemd restarts it.
+
+| Backend (transport) | Runs as root | Extra capability | Extra address family | Hardening it may relax | Extra writable path |
+| --- | --- | --- | --- | --- | --- |
+| `wireguard` (`wireguard/kernel`) | yes | `CAP_NET_ADMIN` | `AF_NETLINK` | `ProtectKernelTunables` (sets `route_localnet` when the node forwards to `127.0.0.1`) | none |
+| `awg` (`awg/userspace`) | yes | `CAP_NET_ADMIN` | `AF_NETLINK` | none | `/run/amneziawg` |
+| `rathole` | no | none | none | `MemoryDenyWriteExecute` (the release binaries are UPX-packed) | none |
+| `direct/haproxy` (the node's address check) | no | none | `AF_NETLINK` | none | none |
+| every other backend and transport | no | none | none | none | none |
+
+## Tunnel logs
+
+- The transports of a tunnel write to `/var/log/deyroute/tunnels/<tunnel>.log`.
+  systemd opens that file as root before it starts the backend, which only
+  writes through the file it was given. The directory is `1770
+  root:deyroute`: the `deyroute` user may add files there, but the sticky
+  bit stops it from removing or renaming root's files (the live logs and
+  the rotated `.gz` files). The installer, `deyroute setup` and the
+  services create it so. On a server installed before, the hub and node
+  services add the sticky bit to the existing directory when they start,
+  so `deyroute update` (which restarts them) is enough; running the
+  installer again (it repairs and keeps the configuration) also sets the
+  mode. The services only add the sticky bit, and never to a directory
+  root does not own. Check it with
+  `stat -c '%a %U:%G' /var/log/deyroute/tunnels` (`1770 root:deyroute`).
+- Before a transport starts, and for every tunnel when the service starts,
+  the hub and the node make sure that `<tunnel>.log` is root's regular file
+  with a single link: systemd would follow a link at that name as root, or
+  create the file it points to. Anything else found there (a link, a FIFO,
+  a directory, a second hard link, a file of another user) is removed and
+  an empty log is created (`0644`, as systemd creates it). The check when
+  the service starts also covers a link put there before the directory was
+  sticky. Each case is logged once per file and reason while the service
+  runs, as a warning in `hub.log` or `node.log`:
+
+  ```bash
+  grep 'tunnel log replaced' /var/log/deyroute/node.log
+  ```
+
+  The line carries `file` and `reason`: `symlink`, `not_regular`,
+  `hardlink` or `owner` (a file of another user).
+- To free space, empty a live tunnel log; never delete it:
+
+  ```bash
+  : > /var/log/deyroute/tunnels/<tunnel>.log
+  ```
+
+  systemd restarts a transport that stops by itself (after 2 seconds) and
+  opens its log again as root, without the hub or the node. While the name
+  is free, the `deyroute` user can put a link there, and systemd would
+  follow it. If a log was deleted, restart the service
+  (`systemctl restart deyroute-hub` or `deyroute-node`): it creates the log
+  again as root's file.
+- `deyroute logs` and the log lines shown with a failed start (`DEY-B003`)
+  read only a regular file: they never follow a link and never wait on a
+  FIFO at a log name.
+- The hub and the node rotate these logs as root (above 20 MB, checked
+  every minute, 5 compressed files kept). The rotation never follows a
+  symbolic link and never writes through a file name the `deyroute` user
+  could create first: a `*.log` that is a link, not a regular file, or has
+  a second hard link is skipped; the copy is made in the root-only
+  `/var/lib/deyroute/tmp` (0700); and anything the rotation finds at one of
+  the names it writes in the tunnel log directory is removed (a directory
+  with everything in it), so the rotation goes on.
+- Each such case is logged once per file and reason while the service
+  runs, as a warning in `hub.log` or `node.log`:
+
+  ```bash
+  grep 'tunnel log rotation refused' /var/log/deyroute/node.log
+  ```
+
+  The line carries `file` and `reason`: `symlink`, `not_regular`,
+  `hardlink` or `staging` (something stood at a name the rotation writes,
+  or `/var/lib/deyroute/tmp` is not root-only). DEYROUTE never creates such
+  files itself, for this warning or for `tunnel log replaced`: a process of
+  the `deyroute` user, that is a tunnel backend, did. Check that server
+  (`ps -u deyroute -o pid,args`), and update or replace the backend. The
+  lab scenario S36 plants such links, also at the log name of a tunnel
+  before it is added and at the log of a running tunnel before the
+  services restart, and checks that root files stay unchanged, that normal
+  rotation goes on and that the tunnels come up.
 
 ## A node is never an open proxy
 
@@ -307,9 +395,53 @@ transport from inside the transport itself.
 
 - Releases are signed: `SHA256SUMS` with minisign; the installer and deyroute
   itself check the signature and the checksum.
+- **A node trusts the release key, not the hub.** When a node follows the
+  hub's version, the hub passes on the signed files of its release
+  (`SHA256SUMS`, `SHA256SUMS.minisig`, the archive), and the node checks
+  them itself with the release key built into its own binary: the
+  signature, that the release is exactly the announced version, the
+  checksum of the archive, and that the archive holds one regular file
+  `deyroute` and nothing that would land outside its directory. Last, it
+  asks that binary whether it checks signed updates itself
+  (`deyroute --json version` must say `"signed_update": true`): a release
+  built before signed updates is signed with the same key, but a node on it
+  would take any binary its hub serves. Anything else is refused with
+  `DEY-S001` and nothing is installed. So someone who takes over the hub
+  cannot make the nodes install a program of their own through an update,
+  neither directly nor by way of an older release. What remains: they can
+  still move the nodes to an older signed release that checks signed
+  updates, and pin an older backend version that the signed manifest of an
+  older release names (below). A hub on a development build has no signed
+  release (`DEY-S012`); details in
+  [Update & uninstall](update-uninstall.md#how-the-nodes-follow). The lab
+  scenario S41 replaces the binary inside the release a hub keeps for its
+  nodes and checks that the node refuses it and keeps its version; S19
+  checks that a node follows a hub's `deyroute update` this way.
+- `node.allow_unsigned_updates: true` in a node's `config.yaml` turns this
+  check off for that node (test labs only); never set it on a server with
+  real users. It does not apply to the backends below.
+- Release binaries trust the release key only. Builds for the integration
+  lab may trust a second, throwaway key; `deyroute --json version` shows
+  `"test_key": true` for such a build and `false` for every release. The
+  release builds check this for every binary and publish nothing when a
+  binary says `true`.
 - Backend binaries are installed only when their sha256 matches the signed
   manifest (`DEY-S001`, `DEY-S006`). No third-party script is ever piped into
   a shell.
+- **The same holds for the backends on a node.** The hub tells a node which
+  backend version to install, with its download address and sha256. The
+  node installs it only when exactly this version, address and sha256 (for
+  its architecture) are in the manifest built into its own binary, or in a
+  manifest the hub sends along whose signature the node checks with the
+  release key built into it: the hub's signed override
+  (`deyroute update manifest`), or the signed manifest of the hub's
+  release when the node runs another build. Anything else is refused with
+  `DEY-N050` before a download. So someone who takes over the hub cannot
+  make the nodes download a program of their own as a backend either;
+  details in [Update & uninstall](update-uninstall.md#backends-on-the-nodes).
+  The node checks the signature, not the age of the manifest, so a hub can
+  still send the signed manifest of an older release and pin an older
+  backend version from it.
 - **No telemetry.** DEYROUTE sends no data about you or your users anywhere.
   The only outside traffic is: downloading DEYROUTE releases and backend
   binaries from GitHub or your mirror (through a node when the hub cannot

@@ -212,6 +212,28 @@ func TestSetupNonInteractive(t *testing.T) {
 	require.Contains(t, e.fail(1, "join", "dey://T@5.6.7.8:44433#sha256:ab"), "DEY-I013")
 }
 
+// TestSetupAutoUpdateFlag: --auto-update on|off sets hub.auto_update at
+// setup (off without the flag), and the JSON document reports it.
+func TestSetupAutoUpdateFlag(t *testing.T) {
+	e := newEnv(t)
+	var o setup.HubOptions
+	e.fakeSetup(&o)
+	doc := e.json("setup", "--role", "hub", "--name", "ir-1", "--yes")
+	require.False(t, o.AutoUpdate)
+	require.Equal(t, false, doc["auto_update"])
+	doc = e.json("setup", "--role", "hub", "--name", "ir-1", "--yes", "--auto-update", "on")
+	require.True(t, o.AutoUpdate)
+	require.Equal(t, true, doc["auto_update"])
+	e.ok("setup", "--role", "hub", "--name", "ir-1", "--yes", "--auto-update", "OFF")
+	require.False(t, o.AutoUpdate)
+	e.ok("setup", "--role", "hub", "--name", "ir-1", "--yes", "--auto-update=on")
+	require.True(t, o.AutoUpdate)
+	errOut := e.fail(1, "setup", "--role", "hub", "--name", "ir-1", "--yes", "--auto-update", "yes")
+	require.Contains(t, errOut, "DEY-C013")
+	require.Contains(t, errOut, "--auto-update")
+	require.Contains(t, e.ok("setup", "--help"), "--auto-update")
+}
+
 func TestSetupNodeAndJoin(t *testing.T) {
 	e := newEnv(t)
 	var jo setup.JoinOptions

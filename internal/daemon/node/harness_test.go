@@ -61,6 +61,16 @@ type fakeHub struct {
 	uploads map[string][]byte
 	asset   []byte
 	assetV  string
+	// release is the signed release Release serves, in order (nil = the
+	// endpoint fails with DEY-X008); releaseV is its version header.
+	release  []bundleFile
+	releaseV string
+}
+
+// bundleFile is one file of the fake hub's release.
+type bundleFile struct {
+	name string
+	data []byte
 }
 
 func newFakeHub() *fakeHub {
@@ -78,7 +88,10 @@ func (h *fakeHub) Join(context.Context, api.JoinRequest, string) (api.JoinRespon
 func (h *fakeHub) Authenticate(context.Context, string, string, string) error { return nil }
 
 func (h *fakeHub) Session(s *api.Session) {
-	_ = s.SendHello(h.hello)
+	h.mu.Lock()
+	hello := h.hello
+	h.mu.Unlock()
+	_ = s.SendHello(hello)
 	h.sessions <- s
 	<-s.Done()
 }
@@ -101,7 +114,20 @@ func (h *fakeHub) upload(id string) ([]byte, bool) {
 	return d, ok
 }
 
-func (h *fakeHub) Asset(context.Context, string) (api.AssetInfo, error) {
+func (h *fakeHub) Release(context.Context, string, string) (api.ReleaseBundle, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.release == nil {
+		return api.ReleaseBundle{}, deyerr.New(deyerr.X008, deyerr.Params{"feature": "release"})
+	}
+	b := api.ReleaseBundle{Version: h.releaseV}
+	for _, f := range h.release {
+		b.Files = append(b.Files, api.ReleaseFile{Name: f.name, Size: int64(len(f.data)), Reader: io.NopCloser(bytes.NewReader(f.data))})
+	}
+	return b, nil
+}
+
+func (h *fakeHub) Asset(context.Context, string, string) (api.AssetInfo, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.asset == nil {
@@ -437,6 +463,18 @@ func newEnv(t *testing.T) *env {
 		Uninstall: func(context.Context) error {
 			e.unins <- struct{}{}
 			return nil
+		},
+		// The fake ELF binaries of the tests cannot run: they answer as a
+		// build with signed updates. A script runs for real.
+		ReleaseVersion: func(ctx context.Context, p string) ([]byte, error) {
+			data, err := os.ReadFile(p) // #nosec G304 -- the test's own staging file
+			if err != nil {
+				return nil, err
+			}
+			if bytes.HasPrefix(data, []byte("#!")) {
+				return exec.ReleaseVersion(ctx, p)
+			}
+			return []byte(`{"schema":1,"version":"test","signed_update":true}`), nil
 		},
 		Arch:              "amd64",
 		HeartbeatInterval: 50 * time.Millisecond,

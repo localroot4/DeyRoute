@@ -55,6 +55,11 @@ func TestTunnelAddHappyPath(t *testing.T) {
 		require.FileExists(t, (&systemd.Manager{Root: te.root}).DropInPath(inst))
 	}
 	require.Equal(t, []string{hubUnit(id, "de-1", trAlpha)}, te.sd.active())
+	// The tunnel log directory is created root:deyroute 01770 (QUESTIONS.md
+	// C.48), like the installer does.
+	ld, err := os.Stat(filepath.Join(te.root, systemd.TunnelLogDir))
+	require.NoError(t, err)
+	require.Equal(t, os.ModeSticky|0o770, ld.Mode()&(os.ModePerm|os.ModeSticky))
 	order := te.order()
 	require.GreaterOrEqual(t, len(order), 2)
 	require.Equal(t, "hub start "+id+".de-1.tfa-alpha", order[0])
@@ -1214,8 +1219,14 @@ func TestTunnelAddWithoutOnlineNode(t *testing.T) {
 		st, err := te.client.Status(ctxT(t))
 		return err == nil && len(st.Tunnels[0].Warnings) == 0
 	}, testWait, 20*time.Millisecond)
-	clk.Advance(failover.DownRetryInitial + time.Second)
-	te.waitActive(tn.ID, "de-1", trAlpha)
+	// The engine re-arms its idle timer after every command it handles (the
+	// node coming online sends some), so one Advance can fall between Stop
+	// and NewTimer and fire nothing: advance until the DOWN retry has run.
+	require.Eventually(t, func() bool {
+		clk.Advance(failover.DownRetryInitial + time.Second)
+		ts, _ := te.h.tunnelState(tn.ID)
+		return ts.State == state.StateUp && ts.Active.Node == "de-1" && ts.Active.Transport == trAlpha
+	}, testWait, 200*time.Millisecond, "tunnel %s not UP on de-1/%s", tn.ID, trAlpha)
 }
 
 func TestConfigApplyReconcilesTunnels(t *testing.T) {

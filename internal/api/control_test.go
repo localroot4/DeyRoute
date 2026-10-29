@@ -76,6 +76,9 @@ type fakeHub struct {
 	uploads  map[string]string
 	upErr    error
 	asset    func(arch string) (AssetInfo, error)
+	release  func(arch string) (ReleaseBundle, error)
+	// assetNode and releaseNode are the node ids the server passed.
+	assetNode, releaseNode string
 }
 
 func newFakeHub(p *testPKI) *fakeHub {
@@ -133,11 +136,24 @@ func (f *fakeHub) Upload(_ context.Context, id, nodeID string, body io.Reader) e
 	return nil
 }
 
-func (f *fakeHub) Asset(_ context.Context, arch string) (AssetInfo, error) {
+func (f *fakeHub) Asset(_ context.Context, nodeID, arch string) (AssetInfo, error) {
+	f.mu.Lock()
+	f.assetNode = nodeID
+	f.mu.Unlock()
 	if f.asset == nil {
 		return AssetInfo{}, deyerr.New(deyerr.X008, deyerr.Params{"feature": "assets"})
 	}
 	return f.asset(arch)
+}
+
+func (f *fakeHub) Release(_ context.Context, nodeID, arch string) (ReleaseBundle, error) {
+	f.mu.Lock()
+	f.releaseNode = nodeID
+	f.mu.Unlock()
+	if f.release == nil {
+		return ReleaseBundle{}, deyerr.New(deyerr.X008, deyerr.Params{"feature": "release"})
+	}
+	return f.release(arch)
 }
 
 // startServer serves h on addr ("" = random port) until the returned stop.
@@ -307,6 +323,7 @@ func TestUnauthenticatedRejected(t *testing.T) {
 		{http.MethodPost, PathStream},
 		{http.MethodPost, PathUploadPrefix + "u1"},
 		{http.MethodGet, PathAssetsPrefix + "amd64"},
+		{http.MethodGet, PathReleasePrefix + "amd64"},
 		{http.MethodGet, PathJoin},
 		{http.MethodGet, "/nope"},
 	} {
@@ -364,6 +381,12 @@ func TestProtocolErrorsWithCert(t *testing.T) {
 
 	resp, done = rawRequest(t, cfg, http.MethodGet, "https://"+addr+PathAssetsPrefix+"../x", nil)
 	require.NotEqual(t, http.StatusOK, resp.StatusCode)
+	done()
+	resp, done = rawRequest(t, cfg, http.MethodGet, "https://"+addr+PathReleasePrefix+"x/y", nil)
+	requireCode(t, readControlResponse(resp, nil), deyerr.N015)
+	done()
+	resp, done = rawRequest(t, cfg, http.MethodPost, "https://"+addr+PathReleasePrefix+"amd64", nil)
+	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
 	done()
 
 	// A stream that does not start with hello is closed.
@@ -840,4 +863,29 @@ func TestControlStatus(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, controlStatus(errors.New("x")))
 	require.Equal(t, http.StatusBadRequest, controlStatus(deyerr.New(deyerr.C001, nil)))
 	require.Equal(t, http.StatusUnauthorized, controlStatus(deyerr.New(deyerr.N013, nil)))
+}
+
+// The signed manifest of backend.install and the node's manifest sha256
+// are additive (DR-03): an older peer neither sends nor expects them, and
+// a message without them decodes as before.
+func TestBackendInstallManifestAdditive(t *testing.T) {
+	data, err := json.Marshal(BackendInstallArgs{Name: "backhaul"})
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "manifest")
+	data, err = json.Marshal(Hello{Version: "0.3.0"})
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "manifest")
+
+	in := BackendInstallArgs{Name: "backhaul", Manifest: []byte("manifest_version: 1\n"), ManifestSig: []byte("sig\n")}
+	data, err = json.Marshal(in)
+	require.NoError(t, err)
+	var out BackendInstallArgs
+	require.NoError(t, json.Unmarshal(data, &out))
+	require.Equal(t, in, out)
+	// What an older hub sends.
+	var old BackendInstallArgs
+	require.NoError(t, json.Unmarshal([]byte(`{"entry":{"Version":"v1"},"name":"backhaul"}`), &old))
+	require.Equal(t, "v1", old.Entry.Version)
+	require.Nil(t, old.Manifest)
+	require.Nil(t, old.ManifestSig)
 }

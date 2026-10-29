@@ -117,7 +117,9 @@ func (e *env) configPath() string { return e.path(config.DefaultPath) }
 func (e *env) secret(name string) string { return filepath.Join(e.path(config.SecretsDir), name) }
 
 // systemd returns a unit manager on the environment.
-func (e *env) systemd() *systemd.Manager { return &systemd.Manager{Runner: e.runner, Root: e.root} }
+func (e *env) systemd() *systemd.Manager {
+	return &systemd.Manager{Runner: e.runner, Root: e.root, GroupID: e.lookupGroup, Chown: e.chown}
+}
 
 // validateOptions are the config checks setup uses: every transport of the
 // registry is known (internal/backend/all is imported by this package).
@@ -235,7 +237,9 @@ var layout = []layoutDir{
 	{path: config.BinDir, mode: 0o755},
 	{path: config.BackupDir, mode: 0o700},
 	{path: config.LogDir, mode: 0o750, group: true},
-	{path: config.TunnelLogDir, mode: 0o770, group: true},
+	// Sticky: the backends' user may add files but never remove or rename
+	// root's (systemd.TunnelLogDirMode, QUESTIONS.md C.48).
+	{path: config.TunnelLogDir, mode: systemd.TunnelLogDirMode, group: true},
 }
 
 // ensureLayout creates the deyroute directories that do not exist yet with

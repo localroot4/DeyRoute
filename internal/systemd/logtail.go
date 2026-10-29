@@ -3,7 +3,6 @@ package systemd
 import (
 	"bytes"
 	"io"
-	"os"
 	"strings"
 
 	deylog "github.com/localroot4/deyroute/internal/log"
@@ -30,23 +29,32 @@ const (
 // Redact): they end up in owner-visible DEY errors and doctor output, where
 // section 11 forbids tokens and keys, and backend logs may print them.
 //
+// The file is opened with deylog.OpenLogFile: the tunnel logs live in a
+// directory where the backends' user can add names, so a link there is
+// never followed, a FIFO never blocks and anything but a regular file is an
+// error (deylog.ErrNotRegular).
+//
 // A missing file returns an error matching fs.ErrNotExist; an empty file
 // returns no lines.
 func LogTail(path string, n int) ([]string, error) {
 	if n <= 0 {
 		return nil, nil
 	}
-	f, err := os.Open(path) // #nosec G304 -- log path chosen by deyroute
+	f, fi, err := deylog.OpenLogFile(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	fi, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
+	return LogTailOf(f, fi.Size(), n)
+}
 
-	off := fi.Size()
+// LogTailOf is LogTail of an open log of size bytes (deylog.OpenLogFile
+// returns both), for a reader that also needs the file's identity or size.
+func LogTailOf(f io.ReaderAt, size int64, n int) ([]string, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+	off := size
 	var chunks [][]byte // newest first
 	newlines, scanned := 0, 0
 	// n complete lines need n+1 newlines unless we reach the file start

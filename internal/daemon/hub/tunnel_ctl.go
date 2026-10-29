@@ -794,7 +794,7 @@ func (c *tunnelCtl) renderAll(ctx context.Context, t config.Tunnel, plan *render
 	w := h.hubWriter()
 	for i := range plan.Candidates {
 		pc := &plan.Candidates[i]
-		changed, err := w.Write(ctx, pc.Hub)
+		changed, err := writeHubSide(ctx, w, pc)
 		if err != nil {
 			renderFail[pc.StateCandidate().Key()] = err
 			warn = err
@@ -1319,6 +1319,9 @@ func (c *tunnelCtl) restartChanged(ctx context.Context, eng *failover.Engine, re
 				return nil
 			}
 			unit := systemd.UnitName(pc.Hub.Instance)
+			if err := h.prepareTunnelLog(c.id); err != nil {
+				return err
+			}
 			if err := h.o.Systemd.Restart(ctx, unit); err != nil {
 				return h.unitFailed(unit, c.id, err)
 			}

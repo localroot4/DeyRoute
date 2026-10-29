@@ -6,17 +6,44 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// failCreate makes the creation of the file name by createExclusive fail
+// (as a full disk would) until unblock is called. A non-empty directory no
+// longer blocks it: the rotation removes what stands at its names.
+func failCreate(t *testing.T, name string) (unblock func()) {
+	t.Helper()
+	orig := createFile
+	var mu sync.Mutex
+	blocked := true
+	createFile = func(p string, flag int, perm os.FileMode) (*os.File, error) {
+		mu.Lock()
+		b := blocked
+		mu.Unlock()
+		if b && p == name {
+			return nil, &fs.PathError{Op: "open", Path: p, Err: syscall.ENOSPC}
+		}
+		return orig(p, flag, perm)
+	}
+	t.Cleanup(func() { createFile = orig })
+	return func() {
+		mu.Lock()
+		blocked = false
+		mu.Unlock()
+	}
+}
 
 func gunzipLines(t *testing.T, path string) []string {
 	t.Helper()
@@ -153,9 +180,8 @@ func TestRotationFailureNeverLosesLines(t *testing.T) {
 	w.clock = func() time.Time { return clk }
 	_, err = w.Write([]byte("first line\n"))
 	require.NoError(t, err)
-	// Block compression: the temp output path is a non-empty directory.
-	require.NoError(t, os.Mkdir(w.RotatedPath(1)+".tmp", 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(w.RotatedPath(1)+".tmp", "f"), nil, 0o600))
+	// Block compression: the temp output cannot be created.
+	unblock := failCreate(t, w.RotatedPath(1)+".tmp")
 	_, err = w.Write([]byte("second line\n"))
 	require.NoError(t, err, "the line is written even if rotation fails")
 	require.Error(t, w.LastError())
@@ -168,7 +194,7 @@ func TestRotationFailureNeverLosesLines(t *testing.T) {
 
 	// Next rotation (after the retry delay) first finishes the pending one,
 	// then rotates again.
-	require.NoError(t, os.RemoveAll(w.RotatedPath(1)+".tmp"))
+	unblock()
 	clk = clk.Add(rotateRetryAfter)
 	_, err = w.Write([]byte("third line\n"))
 	require.NoError(t, err)
@@ -231,14 +257,12 @@ func TestRotationFailureBackoff(t *testing.T) {
 
 	_, err = w.Write([]byte("first line\n"))
 	require.NoError(t, err)
-	blocker := w.RotatedPath(1) + ".tmp"
-	require.NoError(t, os.Mkdir(blocker, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(blocker, "f"), nil, 0o600))
+	unblock := failCreate(t, w.RotatedPath(1)+".tmp")
 	_, err = w.Write([]byte("second line\n")) // rotation fails: first line pending
 	require.NoError(t, err)
 	require.Error(t, w.LastError())
 	// Unblock; within the retry delay nothing is rotated.
-	require.NoError(t, os.RemoveAll(blocker))
+	unblock()
 	_, err = w.Write([]byte("third line\n"))
 	require.NoError(t, err)
 	_, err = os.Stat(w.RotatedPath(1))

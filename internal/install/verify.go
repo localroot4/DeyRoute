@@ -23,7 +23,9 @@ func VerifyMinisign(msg, sig []byte, pubKey string) error {
 }
 
 // VerifyMinisignAs is VerifyMinisign returning code (DEY-S001 for manifests
-// and self-update, DEY-I006 for installer paths) with {file} = file.
+// and self-update, DEY-I006 for installer paths) with {file} = file. Where
+// pubKey is the release key (MinisignPublicKey), a binary built with a
+// TestPublicKey also accepts signatures by that key (the integration lab).
 func VerifyMinisignAs(code deyerr.Code, file string, msg, sig []byte, pubKey string) error {
 	params := deyerr.Params{"file": file}
 	var pk minisign.PublicKey
@@ -35,8 +37,12 @@ func VerifyMinisignAs(code deyerr.Code, file string, msg, sig []byte, pubKey str
 		return deyerr.Wrap(code, err, params).WithWhy("the signature file is malformed")
 	}
 	if s.KeyID != pk.ID() {
-		return deyerr.New(code, params).WithWhy(fmt.Sprintf(
-			"the file was signed with key %X, not with the DEYROUTE release key %X", s.KeyID, pk.ID()))
+		tk, ok := testKeyFor(pk)
+		if !ok || s.KeyID != tk.ID() {
+			return deyerr.New(code, params).WithWhy(fmt.Sprintf(
+				"the file was signed with key %X, not with the DEYROUTE release key %X", s.KeyID, pk.ID()))
+		}
+		pk = tk
 	}
 	// minisign.Verify handles both algorithms (it hashes msg with BLAKE2b-512
 	// for prehashed signatures) and checks the trusted comment.
@@ -44,6 +50,40 @@ func VerifyMinisignAs(code deyerr.Code, file string, msg, sig []byte, pubKey str
 		return deyerr.New(code, params)
 	}
 	return nil
+}
+
+// testKeyFor returns TestPublicKey when this binary has one and pk is the
+// release key MinisignPublicKey; ok is false otherwise (also for a
+// TestPublicKey that does not parse).
+func testKeyFor(pk minisign.PublicKey) (tk minisign.PublicKey, ok bool) {
+	if !HasTestKey() {
+		return tk, false
+	}
+	var rel minisign.PublicKey
+	if err := rel.UnmarshalText([]byte(MinisignPublicKey)); err != nil || !rel.Equal(pk) {
+		return tk, false
+	}
+	if err := tk.UnmarshalText([]byte(strings.TrimSpace(TestPublicKey))); err != nil {
+		return tk, false
+	}
+	return tk, true
+}
+
+// VerifySums checks that sig is a valid minisign signature of the release
+// file SHA256SUMS (the bytes sums) by pubKey ("" = MinisignPublicKey, which
+// also accepts TestPublicKey, see VerifyMinisignAs). Any failure is DEY-S001
+// for file SHA256SUMS. It is the check behind DownloadRelease, and a node
+// runs it on the release a hub serves for self.update.
+func VerifySums(sums, sig []byte, pubKey string) error {
+	return verifySumsAs(deyerr.S001, sums, sig, pubKey)
+}
+
+// verifySumsAs is VerifySums returning code.
+func verifySumsAs(code deyerr.Code, sums, sig []byte, pubKey string) error {
+	if strings.TrimSpace(pubKey) == "" {
+		pubKey = MinisignPublicKey
+	}
+	return VerifyMinisignAs(code, SumsFile, sums, sig, pubKey)
 }
 
 var sumLineRe = regexp.MustCompile(`^([0-9a-fA-F]{64}) [ *](.+)$`)
