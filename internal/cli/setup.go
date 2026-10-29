@@ -193,7 +193,7 @@ func newJoinCmd(g *Globals) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", i18n.T(i18n.CLIFlagJoinName))
-	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
+	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYesJoin))
 	_ = cmd.Flags().MarkHidden("yes")
 	// The hub's address flags are refused here (DEY-C013), not unknown.
 	addIPFlags(cmd, &ipf.publicIP, &ipf.publicIP6, &ipf.allowPrivate)

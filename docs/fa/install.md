@@ -126,7 +126,7 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/download/v1.0.
 bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/download/install.sh) --role hub --name ir-1 --yes
 ```
 
-با `--yes`، IP عمومی خودکار پیدا می‌شود، پورت کنترل 44433 (یا اولین پورت آزاد بعدی) است و سرور خودکار تنظیم می‌شود (پروفایل `auto`). همین گزینه‌ها روی برنامه نصب‌شده هم کار می‌کنند:
+با `--yes`، IP عمومی خودکار پیدا می‌شود، پورت کنترل 44433 (یا اولین پورت آزاد بعدی) است و سرور خودکار تنظیم می‌شود (پروفایل `auto`، یعنی پروفایل خودکار کرنل؛ بعداً `deyroute optimize status` آن را نشان می‌دهد). راهنمای `deyroute setup --help` هم همین را می‌گوید؛ فقط `deyroute join` پروفایل balanced را اعمال می‌کند. همین گزینه‌ها روی برنامه نصب‌شده هم کار می‌کنند:
 
 ```bash
 deyroute setup --role hub --name ir-1 --yes

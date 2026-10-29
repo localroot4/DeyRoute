@@ -1434,6 +1434,7 @@ const (
 	CLIFlagSetupName             Key = "cli.flag_setup_name"
 	CLIFlagControlPort           Key = "cli.flag_control_port"
 	CLIFlagYesSetup              Key = "cli.flag_yes_setup"
+	CLIFlagYesJoin               Key = "cli.flag_yes_join"
 	CLIFlagRepair                Key = "cli.flag_repair"
 	CLISetupRepaired             Key = "cli.setup_repaired"
 	CLIFlagJoinName              Key = "cli.flag_join_name"
@@ -2025,7 +2026,8 @@ var cliEN = map[Key]string{
 	CLIFlagRole:                  "role of this server: hub (Iran, users connect here) or node (abroad)",
 	CLIFlagSetupName:             "server name, e.g. ir-1 (default: the host name)",
 	CLIFlagControlPort:           "hub control port (default: 44433, or the next free port)",
-	CLIFlagYesSetup:              "ask nothing: use the defaults and apply the balanced kernel profile",
+	CLIFlagYesSetup:              "ask nothing: use the defaults and apply the automatic kernel profile (deyroute optimize status shows it)",
+	CLIFlagYesJoin:               "ask nothing: use the defaults and apply the balanced kernel profile",
 	CLIFlagRepair:                "repair a set-up server (unit files, directories, service restart); the config is untouched",
 	CLISetupRepaired:             "Repaired: unit files are current and %s was restarted; the configuration is unchanged.",
 	CLIFlagJoinName:              "node name, e.g. de-1 (default: the host name)",

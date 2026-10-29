@@ -156,8 +156,10 @@ bash <(curl -fsSL https://github.com/localroot4/DeyRoute/releases/latest/downloa
 ```
 
 With `--yes` the public IP is detected, the control port is 44433 (or the next
-free one) and the server is tuned automatically (profile `auto`). The same flags work on
-an installed binary:
+free one) and the server is tuned automatically (profile `auto`, the
+automatic kernel profile; `deyroute optimize status` shows it afterwards).
+`deyroute setup --help` says the same; only `deyroute join` applies the
+balanced profile. The same flags work on an installed binary:
 
 ```bash
 deyroute setup --role hub --name ir-1 --yes

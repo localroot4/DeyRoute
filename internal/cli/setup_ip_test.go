@@ -190,3 +190,26 @@ func TestSetupHubPublicIPFlagRejectsV6InV4(t *testing.T) {
 		require.Contains(t, errOut, "Invalid value for "+c.flag+":", c)
 	}
 }
+
+// TestSetupHelpNamesAutoProfile: the help of setup --yes names the profile
+// it applies (auto, see setupHub), not balanced.
+func TestSetupHelpNamesAutoProfile(t *testing.T) {
+	e := newEnv(t)
+	out := e.ok("setup", "--help")
+	require.Contains(t, out, "apply the automatic kernel profile")
+	require.NotContains(t, out, "balanced")
+	var o setup.HubOptions
+	e.fakeSetup(&o)
+	e.ok("setup", "--role", "hub", "--name", "ir-1", "--yes")
+	require.Equal(t, config.SysctlAuto, o.SysctlProfile)
+}
+
+// TestJoinHelpNamesBalancedProfile: the (hidden) join --yes keeps its own
+// help text, which names the balanced profile a join applies.
+func TestJoinHelpNamesBalancedProfile(t *testing.T) {
+	e := newEnv(t)
+	yes := newJoinCmd(e.g).Flags().Lookup("yes")
+	require.NotNil(t, yes)
+	require.Contains(t, yes.Usage, "balanced kernel profile")
+	require.NotEqual(t, newSetupCmd(e.g).Flags().Lookup("yes").Usage, yes.Usage)
+}
