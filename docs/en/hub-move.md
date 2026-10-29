@@ -62,6 +62,22 @@ In the menu: `10) Backup & Restore` → `2) Restore from a backup` asks the
 same question (`Use this server's address (the hub moved here)? (y/n) [y]`),
 and its result names the menu items of step 4.
 
+The new server sits behind NAT, or its detection fails (a private address
+such as `10.0.0.5`)? Then the restore cannot see the address the nodes must
+dial. On a terminal (and in the menu) it asks for it, with the backup's
+address as default. In a script, give it:
+
+```bash
+DEYROUTE_BACKUP_PASSPHRASE='…' deyroute restore /root/deyroute-backup-20260930T120000Z.tar.gz.age --yes --public-ip 7.7.7.7
+```
+
+Add `--public-ip6` for an IPv6 address; without it the backup's
+`hub.public_ip6` is cleared. Without `--public-ip`, a restore with `--yes`
+(or without a terminal) stops with `DEY-I025` and changes nothing.
+`--keep-address` keeps the backup's address instead (only when this server
+really owns it, for example a floating IP moved with it). The next step
+printed at the end always names the address in effect.
+
 **4. On the old hub — tell the nodes.** While the old hub still runs and the
 nodes are connected to it:
 

@@ -517,9 +517,29 @@ written either way.
 
 ### `deyroute restore FILE`
 
-`{"schema", "role", "hub_name", "node", "public_ip", "address_changed",
+Flags: `--yes`, `--public-ip IPv4`, `--public-ip6 IPv6` (only with
+`--public-ip`), `--keep-address`.
+
+`{"schema", "role", "hub_name", "node", "public_ip", "public_ip6",
+"address_changed", "address_source", "warnings": [string],
 "backup_version", "created", "previous_dir", "migrated", "sysctl_profile",
 "service_started", "steps": [Step]}`
+
+- `public_ip`, `public_ip6`: the hub addresses in effect after the restore
+  (`""` for a node backup, and `public_ip6` when the hub has none).
+- `address_source` (hub backup; `""` for a node backup): `flag`
+  (`--public-ip`), `detected` (this server's public IP, also when it equals
+  the backup's address), `kept` (`--keep-address`, or the owner kept the
+  backup's address at the terminal question), `same_server` (this server
+  already is that hub) or `asked` (typed at the terminal question).
+- `warnings` (never `null`): an address given or typed that is not public
+  (it is used as given), and a backup `hub.public_ip6` cleared because only
+  the IPv4 address was set.
+- A hub backup on another server whose detected address is private or
+  missing, with `--yes` or without a terminal and without `--public-ip` or
+  `--keep-address`: `DEY-I025`, exit 1, nothing restored. `--keep-address`
+  with `--public-ip` or `--public-ip6`, `--public-ip6` alone, an address of
+  the wrong family, or `--public-ip` with a node backup: `DEY-C013`, exit 1.
 
 ### `deyroute update`
 

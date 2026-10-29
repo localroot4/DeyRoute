@@ -95,6 +95,9 @@ last. An unencrypted backup (`.tar.gz`) asks no passphrase.
    asked whether the hub moved here ([Hub move](hub-move.md)); the menu asks
    the same question. After a yes the confirmation also says
    `The hub address changes from 5.6.7.8 to 7.7.7.7; the hub certificate is re-issued.`
+   When this server's detected address is private (NAT, floating IP) or
+   cannot be detected, you are asked to type its public IP instead; Enter
+   alone keeps the backup's address. The menu asks the same.
 4. You confirm by typing `yes`:
 
    ```text
@@ -110,8 +113,24 @@ it when you no longer need it. In scripts add `--yes` (and set
 `DEYROUTE_BACKUP_PASSPHRASE`):
 
 ```bash
-DEYROUTE_BACKUP_PASSPHRASE='long secret phrase' deyroute restore /root/hub.tar.gz.age --yes
+DEYROUTE_BACKUP_PASSPHRASE='long secret phrase' deyroute restore /root/hub.tar.gz.age --yes --public-ip 203.0.113.7
 ```
+
+The nodes' backends dial `hub.public_ip`, so a script restoring a hub says
+which address it gets:
+
+| Flag | `hub.public_ip` of the restored hub |
+|---|---|
+| `--public-ip A.B.C.D` | that address. `hub.public_ip6` is cleared unless `--public-ip6` is also given; the output's `warnings` says so. An address that is not public is used as given, with a warning. |
+| `--public-ip6 X` | sets `hub.public_ip6`; only together with `--public-ip`. |
+| `--keep-address` | the backup's addresses (IPv4 and IPv6): a rebuild of the same server, or a floating IP. Not together with `--public-ip`/`--public-ip6` (`DEY-C013`). |
+| none | this server's detected public IP. A same-server restore keeps the address. |
+
+Without a flag, with `--yes` or without a terminal, a hub backup on another
+server whose detected address is private or missing stops with `DEY-I025`
+before anything is restored: the restore never guesses the address the
+nodes dial. Re-run with `--public-ip` (or `--keep-address`). Until this
+release such a restore silently kept the old address.
 
 A node backup is restored the same way on a node; the node then reconnects
 to its hub by itself. Restoring works on a server that was set up with
