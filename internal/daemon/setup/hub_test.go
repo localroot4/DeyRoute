@@ -235,6 +235,49 @@ func TestSetupHubRerunAfterFailureReusesSecrets(t *testing.T) {
 	require.NotEqual(t, res.CAFingerprint, res3.CAFingerprint)
 }
 
+// TestSetupNoJoin: setup --no-join (HubOptions.NoJoinWindow) applies the
+// setup-time firewall with the join window closed: the control port is
+// restricted to @nodes from the first table on, not open to every source
+// until the daemon re-applies (DR-16). Without it the window is open as
+// before (the join command follows setup).
+func TestSetupNoJoin(t *testing.T) {
+	nftScript := func(f *exec.Fake) string {
+		var script string
+		for _, c := range f.Calls() {
+			if c.Line() == "nft -f -" {
+				script = string(c.Stdin)
+			}
+		}
+		return script
+	}
+	root := t.TempDir()
+	fakeProc(t, root)
+	f := hubFake()
+	o := hubOpts(root, f, nil, nil)
+	o.NoJoinWindow = true
+	res, err := SetupHub(ctxT(t), o)
+	require.NoError(t, err)
+	cfg, err := config.LoadWith(res.ConfigPath, validateOptions())
+	require.NoError(t, err)
+	spec := setupFirewallSpec(cfg, o)
+	require.True(t, spec.RestrictControl, "no join window at setup")
+	script := nftScript(f)
+	require.Contains(t, script, "ip saddr @nodes accept")
+	require.NotContains(t, script, "tcp dport 44433 accept")
+
+	// Default: the join window is open at setup, as before.
+	root2 := t.TempDir()
+	fakeProc(t, root2)
+	f2 := hubFake()
+	o2 := hubOpts(root2, f2, nil, nil)
+	res2, err := SetupHub(ctxT(t), o2)
+	require.NoError(t, err)
+	cfg2, err := config.LoadWith(res2.ConfigPath, validateOptions())
+	require.NoError(t, err)
+	require.False(t, setupFirewallSpec(cfg2, o2).RestrictControl)
+	require.Contains(t, nftScript(f2), "tcp dport 44433 accept")
+}
+
 func TestSetupHubPrivateAddressWarns(t *testing.T) {
 	root := t.TempDir()
 	f := exec.NewFake()
