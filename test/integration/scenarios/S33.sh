@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S33: wireguard/kernel and awg/userspace carry a TCP and a UDP port; a port added to wireguard/kernel carries at once; tunnel delete leaves no nft rule and no interface
+# S33: wireguard/kernel and awg/userspace carry a TCP and a UDP port; a port added to either carries at once; tunnel delete leaves no nft rule and no interface
 # Not one of the spec's S01-S30: the phase 7 acceptance of section 16. The
 # containers share the host kernel: wireguard/kernel needs its WireGuard
 # module (`ip link add type wireguard`) and awg/userspace needs /dev/net/tun;
@@ -71,7 +71,7 @@ for tr in "${transports[@]}"; do
   done
   log "$tr: hub and node units run as root with CAP_NET_ADMIN only"
 
-  if [ "$tr" = wireguard/kernel ]; then
+  if [ "$tr" = wireguard/kernel ] || [ "$tr" = awg/userspace ]; then
     hub_pid=$(main_pid hub deyroute-hub.service)
     dey port add "$T" 9443 --json >/dev/null || fail "$tr: port add 9443 failed"
     [ "$(fetch_via_hub 9443)" = "$(blob_sha node1)" ] ||
