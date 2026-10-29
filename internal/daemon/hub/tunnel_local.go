@@ -632,6 +632,7 @@ func (l *local) TunnelShow(ctx context.Context, id string) (api.TunnelDetail, er
 	var planned func(node, tr string) (int, bool)
 	if c := h.tun.lookup(t.ID); c != nil {
 		_, plan := c.snapshot()
+		c.fillProbeEffective(t, &d, ts, plan)
 		planned = func(node, tr string) (int, bool) {
 			if pc, ok := plan.Candidate(node, tr); ok {
 				return pc.ControlPort, true
@@ -1013,6 +1014,8 @@ func (h *Hub) removeTunnelUnits(ctx context.Context, t config.Tunnel, ladder []s
 		echo = 0
 	}
 	for _, n := range t.Nodes {
+		// The probe echo of the echo probe (DR-17), wherever it ran.
+		h.stopProbeEcho(ctx, t.ID, n)
 		if !h.Online(n) {
 			offline = append(offline, n)
 			if echo > 0 && n == t.Nodes[0] {

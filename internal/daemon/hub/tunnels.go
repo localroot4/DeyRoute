@@ -373,6 +373,9 @@ func (h *Hub) forgetTunnel(id string) {
 	if err := h.st.DeleteMeta(metaCanaryEcho + id); err != nil {
 		h.log.Warn("cannot delete the canary record", dlog.Tunnel(id), dlog.Err(err))
 	}
+	if err := h.st.DeleteMeta(metaProbeVerdict + id); err != nil {
+		h.log.Warn("cannot delete the probe verdicts", dlog.Tunnel(id), dlog.Err(err))
+	}
 	if err := h.secretStore().DeleteTunnel(id); err != nil {
 		h.log.Warn("cannot delete the tunnel secrets", dlog.Tunnel(id), dlog.Err(err))
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -330,7 +331,12 @@ func (g *Globals) printTunnelDetail(d api.TunnelDetail, tr *api.TrafficReport) {
 	var ps []string
 	for _, p := range d.Ports {
 		x := fmt.Sprintf("%d/%s %s %s", p.Listen, p.Proto, s.arrow, p.Target)
-		if p.Probe != "" {
+		switch {
+		case p.ProbeEffective != "" && p.ProbeEffective != cmp.Or(p.Probe, config.ProbeAuto):
+			// The hub probes differently (DR-17: auto on a silent target
+			// uses echo; echo without node support falls back to auto).
+			x += " (" + cmp.Or(p.Probe, config.ProbeAuto) + " " + s.arrow + " " + p.ProbeEffective + ")"
+		case p.Probe != "":
 			x += " (" + p.Probe + ")"
 		}
 		ps = append(ps, x)

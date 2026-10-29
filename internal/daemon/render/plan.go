@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"net"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -134,6 +135,11 @@ type Input struct {
 	// certificate (both CAs during rotate-ca); the shim verifies the hub
 	// with it. nil = CAPEM.
 	TrustPEM []byte
+	// ProbeEcho returns the hidden port map of the echo probe for a node
+	// (DR-17; ok false = none): every rung of that node is rendered with
+	// it after the tunnel's own port maps. A rung that cannot carry it is
+	// rendered without it (Candidate.ProbeEchoErr). nil = no node has one.
+	ProbeEcho func(node string) (pm config.PortMap, ok bool)
 }
 
 // FrontEligible reports whether transport tr can run through the front: a
@@ -174,6 +180,11 @@ type Candidate struct {
 	Version     string // manifest version of the backend
 	Hub         Side
 	NodeSide    Side
+	// ProbeEcho is the hub listen port of the hidden port map of the echo
+	// probe this candidate carries (0 = none); ProbeEchoErr says why a
+	// node with an echo probe has a rung without it.
+	ProbeEcho    int
+	ProbeEchoErr string
 }
 
 // StateCandidate returns the failover identity of c.
@@ -244,6 +255,16 @@ func CanaryLoopbackKey(tunnel string) string { return tunnel + "/" + CanaryDirNa
 
 // CanaryCtlKey is the control-port key of the canary unit.
 func CanaryCtlKey(tunnel string) string { return tunnel + "/" + CanaryDirName + "/ctl" }
+
+// ProbeListenKey and ProbeEchoKey are the control-port allocation keys of
+// the echo probe of a tunnel (DR-17): the hub listen port of the hidden
+// port map every rung of an echo-probed node carries, and the loopback
+// port of the node's probe echo it forwards to. They live under the
+// canary element, so a node leaving the tunnel never releases them.
+func ProbeListenKey(tunnel string) string { return tunnel + "/" + CanaryDirName + "/probe-listen" }
+
+// ProbeEchoKey is the control-port key of the node's probe echo.
+func ProbeEchoKey(tunnel string) string { return tunnel + "/" + CanaryDirName + "/probe-echo" }
 
 // CompanionCtlKey is the control-port key of the UDP companion process of
 // a candidate (backend.RenderInput.CompanionControlPort). It starts with
@@ -424,12 +445,32 @@ func (p *planner) candidate(node config.Node, rung string) (Candidate, *SkippedC
 	}
 	instance := systemd.InstanceName(t.ID, node.ID, rung)
 	ri.FirstRun = p.in.FirstRun != nil && p.in.FirstRun(instance)
+	echoErr := ""
+	if pm, ok := p.probeEcho(node.ID); ok {
+		eri := ri
+		eri.Tunnel.Ports = append(slices.Clone(ri.Tunnel.Ports), pm)
+		c, err := p.renderCandidate(b, tr, eri, instance)
+		if err == nil {
+			c.Node, c.ProbeEcho = node.ID, pm.Listen
+			return c, nil
+		}
+		// The rung works without the hidden map; only its probe falls back.
+		echoErr = skipped(node.ID, rung, err, deyerr.B002).Reason
+	}
 	c, err := p.renderCandidate(b, tr, ri, instance)
 	if err != nil {
 		return Candidate{}, skipped(node.ID, rung, err, deyerr.B002)
 	}
-	c.Node = node.ID
+	c.Node, c.ProbeEchoErr = node.ID, echoErr
 	return c, nil
+}
+
+// probeEcho returns the hidden port map of node's echo probe, if any.
+func (p *planner) probeEcho(node string) (config.PortMap, bool) {
+	if p.in.ProbeEcho == nil {
+		return config.PortMap{}, false
+	}
+	return p.in.ProbeEcho(node)
 }
 
 // renderCandidate validates and renders both sides of ri.

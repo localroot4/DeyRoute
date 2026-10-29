@@ -582,10 +582,18 @@ func (c *tunnelCtl) probePath(ctx context.Context, sc state.Candidate) failover.
 	t, plan := c.snapshot()
 	pm, tcp := t.ProbeTarget()
 	var r health.Result
-	if tcp {
+	pc, _ := plan.Candidate(sc.Node, sc.Transport)
+	if tcp && c.echoActive(pc) {
+		r = c.echoProbe(ctx, t, plan, sc, pc.ProbeEcho)
+	} else if tcp {
+		kind := probeKind(pm)
+		if kind == config.ProbeEcho {
+			// The echo probe is not available here (see probeEffective).
+			kind = config.ProbeAuto
+		}
 		addr := net.JoinHostPort(c.probeHost(plan, sc), strconv.Itoa(pm.Listen))
 		opts := health.PathOptions{AcceptCleanClose: c.closesWithoutData(sc.Node)}
-		r = health.Path(ctx, addr, probeKind(pm), remaining(ctx, probeTimeout(t)), opts)
+		r = health.Path(ctx, addr, kind, remaining(ctx, probeTimeout(t)), opts)
 	} else {
 		r = c.unitProbe(ctx, sc)
 	}
@@ -622,8 +630,19 @@ func (c *tunnelCtl) unitProbe(ctx context.Context, sc state.Candidate) health.Re
 
 // nodeService is the node_service probe of section 9: probe.tcp of the
 // tunnel's probe target on node, cached for one probe interval; unknown
-// when the node is offline (or the tunnel has no TCP target).
+// when the node is offline (or the tunnel has no TCP target). When the
+// node's silent verdict no longer matches the plan, the controller plans
+// again (the echo probe comes or goes, DR-17).
 func (c *tunnelCtl) nodeService(ctx context.Context, node string) (up, known bool) {
+	up, known = c.checkService(ctx, node)
+	if known && up && c.echoStale(node) {
+		c.kickLoop()
+	}
+	return up, known
+}
+
+// checkService is nodeService without the re-plan.
+func (c *tunnelCtl) checkService(ctx context.Context, node string) (up, known bool) {
 	h := c.h
 	t, _ := c.snapshot()
 	pm, tcp := t.ProbeTarget()
@@ -662,7 +681,9 @@ func (c *tunnelCtl) closesWithoutData(node string) bool {
 }
 
 // refreshPlain asks node (probe.tls on the probe target) whether the
-// target closes without speaking TLS; kept for plainCheckTTL.
+// target closes without speaking TLS, or stays silent (a timeout or reset;
+// the caller saw a TCP connect succeed, DR-17); kept for plainCheckTTL,
+// the silent verdict also in state.db.
 func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunnel) {
 	h := c.h
 	pm, tcp := t.ProbeTarget()
@@ -681,7 +702,12 @@ func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunn
 	if err := h.Call(cctx, node, api.CmdProbeTLS, api.ProbeArgs{Target: pm.Target, TimeoutMs: int(probeTimeout(t) / time.Millisecond)}, &res); err != nil {
 		return
 	}
+	v := probeVerdict{Silent: silentTLS(res)}
+	if v.Silent {
+		v.Why = res.Error
+	}
 	c.mu.Lock()
-	c.plain[node] = plainEntry{closes: !res.OK && res.Error == health.ReasonClosedNoData, at: h.now()}
+	c.plain[node] = plainEntry{closes: !res.OK && res.Error == health.ReasonClosedNoData, silent: v.Silent, why: v.Why, at: h.now()}
 	c.mu.Unlock()
+	c.keepVerdict(node, v)
 }

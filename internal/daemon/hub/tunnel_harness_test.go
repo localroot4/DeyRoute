@@ -181,6 +181,29 @@ type fakeSystemd struct {
 	restarts map[string]int
 	// listGate, when set, holds `systemctl list-units` until it is closed.
 	listGate chan struct{}
+	// silent makes the user ports of hub units accept connections and
+	// never answer (a raw-TCP service that waits for its client, DR-17).
+	silent bool
+	// blackhole lists transports whose hub units accept every connection
+	// and then forward nothing (a rung a censor black-holes), read at
+	// accept time.
+	blackhole map[string]bool
+}
+
+// setBlackhole black-holes (or frees) transport tr from now on.
+func (fs *fakeSystemd) setBlackhole(tr string, on bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if fs.blackhole == nil {
+		fs.blackhole = map[string]bool{}
+	}
+	fs.blackhole[tr] = on
+}
+
+func (fs *fakeSystemd) holed(tr string) bool {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return fs.blackhole[tr]
 }
 
 // setRestarts sets the NRestarts of a unit (a backend systemd restarted).
@@ -322,9 +345,78 @@ func (fs *fakeSystemd) openLocked(unit, inst string) {
 	}
 	for _, pm := range t.Ports {
 		if pm.Proto == config.ProtoTCP {
-			fs.listenLocked(unit, pm.Listen, false)
+			fs.serveLocked(unit, pm.Listen, in.Transport, func(conn net.Conn) {
+				if fs.silent {
+					_, _ = io.Copy(io.Discard, conn)
+					return
+				}
+				_, _ = io.WriteString(conn, "HTTP/1.1 200 OK\r\n\r\n")
+			})
 		}
 	}
+	// The hidden port map of the echo probe (DR-17): the hub's loopback
+	// listen port reaches the node's probe echo.
+	ports, _ := h.st.CtlPorts()
+	listen, echo := ports[render.ProbeListenKey(in.Tunnel)], ports[render.ProbeEchoKey(in.Tunnel)]
+	if listen > 0 && echo > 0 {
+		target := net.JoinHostPort("127.0.0.1", strconv.Itoa(echo))
+		fs.serveLocked(unit, listen, in.Transport, func(conn net.Conn) { relay(conn, target) })
+	}
+}
+
+// serveLocked listens on the loopback port and runs handle for every
+// connection, unless transport tr is black-holed: such a connection is
+// accepted and left without an answer.
+func (fs *fakeSystemd) serveLocked(unit string, port int, tr string, handle func(net.Conn)) {
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		fs.bindErrs = append(fs.bindErrs, unit+": "+err.Error())
+		fs.units[unit] = "failed"
+		return
+	}
+	fs.listeners[unit] = append(fs.listeners[unit], ln)
+	fs.wg.Add(1)
+	go func() {
+		defer fs.wg.Done()
+		var conns sync.WaitGroup
+		defer conns.Wait()
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conns.Add(1)
+			go func() {
+				defer conns.Done()
+				defer func() { _ = conn.Close() }()
+				if fs.holed(tr) {
+					_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+					_, _ = io.Copy(io.Discard, conn)
+					return
+				}
+				handle(conn)
+			}()
+		}
+	}()
+}
+
+// relay copies conn to and from a new connection to target.
+func relay(conn net.Conn, target string) {
+	up, err := net.Dial("tcp", target)
+	if err != nil {
+		return
+	}
+	defer func() { _ = up.Close() }()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(up, conn)
+		if tc, ok := up.(*net.TCPConn); ok {
+			_ = tc.CloseWrite()
+		}
+		close(done)
+	}()
+	_, _ = io.Copy(conn, up)
+	<-done
 }
 
 func (fs *fakeSystemd) listenLocked(unit string, port int, echo bool) {
@@ -457,6 +549,9 @@ type tunnelEnv struct {
 	*testEnv
 	o  Options
 	sd *fakeSystemd
+	// oldAgents makes the nodes joined from now on announce no
+	// FeatureEchoProbe (an agent before DR-17).
+	oldAgents bool
 }
 
 // startTunnelHub runs a hub whose systemctl is the fake systemd.
@@ -532,10 +627,16 @@ type tnode struct {
 	// (nil = the unit starts).
 	failStart func(inst string) error
 	echoes    map[int]net.Listener
-	udp       map[int]net.PacketConn
-	wg        sync.WaitGroup
-	stopEcho  context.CancelFunc
-	echoCtx   context.Context
+	// probeEchoes are the ports of echo.start calls with Probe (DR-17).
+	probeEchoes []int
+	// tlsErr, when set, is the error probe.tls reports for the target (a
+	// silent service: "timeout"); svcDown makes probe.tcp fail.
+	tlsErr   string
+	svcDown  bool
+	udp      map[int]net.PacketConn
+	wg       sync.WaitGroup
+	stopEcho context.CancelFunc
+	echoCtx  context.Context
 }
 
 // tunnelNode joins node id, installs the tunnel command handlers and
@@ -546,6 +647,10 @@ func (te *tunnelEnv) tunnelNode(id string) *tnode {
 }
 
 func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
+	if !te.oldAgents {
+		// Like the node agent of this build (DR-17).
+		fn.features = append(fn.features, api.FeatureEchoProbe)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	n := &tnode{fakeNode: fn, env: te, rendered: map[string]api.BackendRenderArgs{}, nrestarts: map[string]int{},
 		echoes: map[int]net.Listener{}, udp: map[int]net.PacketConn{}, echoCtx: ctx, stopEcho: cancel}
@@ -622,9 +727,19 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 	fn.on(api.CmdUnitStop, unitCmd("stop"))
 	fn.on(api.CmdUnitStatus, unitCmd("status"))
 	fn.on(api.CmdProbeTCP, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
+		n.tmu.Lock()
+		defer n.tmu.Unlock()
+		if n.svcDown {
+			return api.ProbeResultDTO{Error: health.ReasonRefused}, nil
+		}
 		return api.ProbeResultDTO{OK: true, RTTms: 1}, nil
 	})
 	fn.on(api.CmdProbeTLS, func(context.Context, *fakeNode, api.Command, func([]string)) (any, error) {
+		n.tmu.Lock()
+		defer n.tmu.Unlock()
+		if n.tlsErr != "" {
+			return api.ProbeResultDTO{Error: n.tlsErr}, nil
+		}
 		return api.ProbeResultDTO{OK: true, RTTms: 1}, nil
 	})
 	fn.on(api.CmdPortCheckRemote, func(_ context.Context, _ *fakeNode, cmd api.Command, _ func([]string)) (any, error) {
@@ -681,10 +796,15 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 		}
 		port := ln.Addr().(*net.TCPAddr).Port
 		n.echoes[port] = ln
+		serve := health.ServeTCPEcho
+		if args.Probe {
+			n.probeEchoes = append(n.probeEchoes, port)
+			serve = health.ServeProbeEcho
+		}
 		n.wg.Add(1)
 		go func() {
 			defer n.wg.Done()
-			_ = health.ServeTCPEcho(n.echoCtx, ln)
+			_ = serve(n.echoCtx, ln)
 		}()
 		return api.EchoResult{Port: port}, nil
 	})
@@ -716,6 +836,29 @@ func (n *tnode) cleanup() {
 	}
 	n.tmu.Unlock()
 	n.wg.Wait()
+}
+
+// setTarget sets what the node's probes of the tunnel target report:
+// tlsErr for probe.tls ("" = a TLS server answers) and whether probe.tcp
+// fails.
+func (n *tnode) setTarget(tlsErr string, down bool) {
+	n.tmu.Lock()
+	defer n.tmu.Unlock()
+	n.tlsErr, n.svcDown = tlsErr, down
+}
+
+// probeEchoList returns the ports of echo.start calls with Probe.
+func (n *tnode) probeEchoList() []int {
+	n.tmu.Lock()
+	defer n.tmu.Unlock()
+	return append([]int(nil), n.probeEchoes...)
+}
+
+// renderedArgs returns the last backend.render payload of instance.
+func (n *tnode) renderedArgs(inst string) api.BackendRenderArgs {
+	n.tmu.Lock()
+	defer n.tmu.Unlock()
+	return n.rendered[inst]
 }
 
 // renderedFor lists the instances rendered on the node for tunnel.

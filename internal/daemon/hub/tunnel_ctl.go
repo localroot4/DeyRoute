@@ -98,7 +98,9 @@ type tunnelCtl struct {
 	pending map[string]bool        // nodes that were offline during the last apply
 	fresh   map[string]bool        // nodes that attached since the last sync
 	svc     map[string]svcEntry    // node_service cache
-	plain   map[string]plainEntry  // node verdict: the target closes without TLS
+	plain   map[string]plainEntry  // node verdict: the target closes without TLS, or stays silent
+	echo    map[string]echoNode    // echo probe state per node (DR-17)
+	recMu   sync.Mutex             // read-modify-write of the metaProbeVerdict record
 	lastErr error                  // last start or probe failure (TunnelAdd)
 	first   chan error             // the result of the first Start
 	firstOK bool
@@ -131,6 +133,10 @@ type svcEntry struct {
 
 type plainEntry struct {
 	closes bool
+	// silent: the TLS hello timed out or was reset (why) while a TCP
+	// connect succeeded (DR-17).
+	silent bool
+	why    string
 	at     time.Time
 }
 
@@ -143,6 +149,7 @@ func newTunnelCtl(h *Hub, id string) *tunnelCtl {
 		fresh:   map[string]bool{},
 		svc:     map[string]svcEntry{},
 		plain:   map[string]plainEntry{},
+		echo:    map[string]echoNode{},
 		warned:  map[string]bool{},
 		crash:   map[string]crashMark{},
 		first:   make(chan error, 1),
@@ -215,6 +222,7 @@ func (c *tunnelCtl) setProblem(err error) {
 
 // warnings are the controller's dashboard lines for the tunnel.
 func (c *tunnelCtl) warnings() []string {
+	echo := c.echoWarnings()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var out []string
@@ -226,7 +234,7 @@ func (c *tunnelCtl) warnings() []string {
 			out = append(out, "node "+n+" is offline: its rungs are rendered when it reconnects")
 		}
 	}
-	return out
+	return append(out, echo...)
 }
 
 // markStarted records that sc has been started (its hub side feeds the
@@ -567,7 +575,10 @@ func (c *tunnelCtl) apply(ctx context.Context, o applyOpts) (applyResult, error)
 			}
 		}
 	}
-	plan, err := render.Plan(h.planInput(cfg, t))
+	c.ensureEcho(ctx, t, o.only)
+	in := h.planInput(cfg, t)
+	in.ProbeEcho = c.probeEchoMap()
+	plan, err := render.Plan(in)
 	if err != nil {
 		return res, err
 	}
@@ -1442,9 +1453,12 @@ func (c *tunnelCtl) dropNode(ctx context.Context, node string) error {
 			_ = c.stopCandidate(ctx, sc)
 		}
 	}
+	c.stopEcho(ctx, node)
+	c.forgetNode(node)
 	c.mu.Lock()
 	c.tun.Nodes = nodes
 	delete(c.pending, node)
+	delete(c.plain, node)
 	c.mu.Unlock()
 	return c.h.removeNodeCandidates(ctx, t.ID, node, plan.Ladder)
 }
@@ -1561,6 +1575,7 @@ func (c *tunnelCtl) loop(ctx context.Context) {
 		case <-report.C:
 			c.retryPending(ctx)
 			c.report(ctx)
+			c.refreshEcho(ctx)
 		case <-crash.C:
 			c.checkCrash(ctx)
 		case <-c.canKick:
