@@ -82,17 +82,18 @@ vmess_fetch() {
 
 # A block of the active rung is still found (S08 limits).
 for p in $P_VMESS $P_SS $P_VLESS; do
-  t=${T[$p]}
-  from=$(active_transport "$t")
-  port=$(tunnel_field "$t" '.rungs[] | select(.active) | .control_port')
+  # not t: wait_for has a local t, which the check below would see
+  tid=${T[$p]}
+  from=$(active_transport "$tid")
+  port=$(tunnel_field "$tid" '.rungs[] | select(.active) | .control_port')
   [ "${port:-0}" -gt 0 ] || fail "port $p: active rung $from has no control port"
   t0=$SECONDS
   block --node "$NODE1_IP" tcp "$port"
   block --node "$NODE1_IP" udp "$port"
-  switched() { tunnel_up "$t" && [ "$(active_transport "$t")" != "$from" ]; }
+  switched() { tunnel_up "$tid" && [ "$(active_transport "$tid")" != "$from" ]; }
   wait_for 90 "port $p: switch away from $from" switched
   took=$((SECONDS - t0))
-  log "port $p: $from -> $(active_transport "$t") in ${took}s"
+  log "port $p: $from -> $(active_transport "$tid") in ${took}s"
   [ "$took" -le 35 ] || fail "port $p: switch took ${took}s > 35s"
   unblock
 done
