@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"syscall"
@@ -37,6 +38,27 @@ type TCPEchoServer struct {
 // nil when ctx is done or ln was closed.
 func ServeTCPEcho(ctx context.Context, ln net.Listener) error {
 	return TCPEchoServer{}.Serve(ctx, ln)
+}
+
+// ProbeEchoTimeout is how long the probe echo waits for the nonce packet.
+const ProbeEchoTimeout = 10 * time.Second
+
+// ServeProbeEcho runs the probe echo of the hub's echo probe (DR-17): each
+// connection gets exactly one answer, the DEYE nonce packet of TCPEcho
+// sent back unchanged, and is closed after it. Anything else (another
+// first word, fewer bytes within ProbeEchoTimeout) is closed without an
+// answer, so the port reached through a tunnel's hidden port map echoes
+// nothing but a probe. Ownership of ln and the return value are those of
+// ServeTCPEcho.
+func ServeProbeEcho(ctx context.Context, ln net.Listener) error {
+	return serveConns(ctx, ln, "probe echo", EchoMaxConns, func(_ context.Context, c net.Conn) {
+		_ = c.SetDeadline(time.Now().Add(ProbeEchoTimeout))
+		var pkt [EchoPacketSize]byte
+		if _, err := io.ReadFull(c, pkt[:]); err != nil || string(pkt[:len(EchoMagic)]) != EchoMagic {
+			return
+		}
+		_, _ = c.Write(pkt[:])
+	})
 }
 
 // Serve accepts connections on ln until ctx is done (see ServeTCPEcho).

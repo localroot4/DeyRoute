@@ -138,6 +138,10 @@ type nodeState struct {
 	// and not stopped yet: they are opened again when the agent restarts
 	// (self.update, crash), since the canary unit keeps running.
 	Echo []int `json:"echo,omitempty"`
+	// ProbeEcho are the loopback ports of probe echoes (echo.start with
+	// Probe, DR-17), kept and reopened the same way: the active rung of a
+	// tunnel keeps using them.
+	ProbeEcho []int `json:"probe_echo,omitempty"`
 }
 
 // loadState reads StateFile; a missing or damaged file starts empty.

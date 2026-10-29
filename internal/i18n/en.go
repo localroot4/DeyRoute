@@ -573,6 +573,7 @@ const (
 	TUIProbeTCP     Key = "tui.probe.tcp"
 	TUIProbeTLS     Key = "tui.probe.tls"
 	TUIProbeHTTP    Key = "tui.probe.http"
+	TUIProbeEcho    Key = "tui.probe.echo"
 
 	// port check (Ports -> Check port, Diagnostics -> Port check)
 	TUIPCPort          Key = "tui.pc.port"
@@ -1106,6 +1107,7 @@ var tuiEN = map[Key]string{
 	TUIProbeTCP:     "tcp   the TCP connection opens",
 	TUIProbeTLS:     "tls   a TLS handshake or TLS alert comes back",
 	TUIProbeHTTP:    "http  an HTTP status line comes back (HEAD /)",
+	TUIProbeEcho:    "echo  a nonce returns through the tunnel; the node checks the service",
 
 	TUIPCPort:          "Port (e.g. 443 or 27015/udp)",
 	TUIPCNode:          "Node id (empty = first online node)",
@@ -2045,8 +2047,8 @@ var cliEN = map[Key]string{
 	CLIFlagSwitchTransport:       "transport to switch to, e.g. backhaul/tcpmux",
 	CLIFlagSwitchNode:            "node to switch to, e.g. nl-1",
 	CLIFlagTarget:                "target on the node (default 127.0.0.1:<port>)",
-	CLIFlagProbe:                 "probe kind of the port maps: auto (default), tcp, tls or http; UDP maps are always auto",
-	CLIProbeFix:                  "run it again with --probe auto, tcp, tls or http (UDP ports: auto only)",
+	CLIFlagProbe:                 "probe kind of the port maps: auto (default), tcp, tls, http or echo; UDP maps are always auto",
+	CLIProbeFix:                  "run it again with --probe auto, tcp, tls, http or echo (UDP ports: auto only)",
 	CLIFlagCheckNode:             "node that tests reachability from outside (default: the first online node)",
 	CLIFlagOpenFirewall:          "open the port in the external firewall that blocks it (ufw, firewalld, iptables, nftables); asks first unless --yes",
 	CLIFlagCount:                 "how many free ports to suggest",
@@ -2290,7 +2292,7 @@ var cliEN = map[Key]string{
 	CLIPortRemoveExample:         "  deyroute port remove main 8443\n  deyroute port remove main 27015/udp",
 	CLIPortRemoved:               "Port %s removed from tunnel %s.",
 	CLIPortSetShort:              "Change the probe kind of ports of a tunnel",
-	CLIPortSetLong:               "Change how the health probe tests ports a tunnel already has (Advanced; config.yaml\nports[].probe): auto sends a TLS hello and accepts any answer, tcp only connects, tls\nneeds a TLS handshake or alert, http needs an HTTP status line. UDP maps are always\nauto. Nothing restarts.",
+	CLIPortSetLong:               "Change how the health probe tests ports a tunnel already has (Advanced; config.yaml\nports[].probe): auto sends a TLS hello and accepts any answer, tcp only connects, tls\nneeds a TLS handshake or alert, http needs an HTTP status line, echo sends a nonce\nthrough the tunnel to the node and has the node check the service (for services\nthat stay silent). auto switches to echo by itself when the service stays silent.\nUDP maps are always auto. Nothing restarts.",
 	CLIPortSetExample:            "  deyroute port set main 443 --probe tls\n  deyroute port set main 8080,8081 --probe http\n  deyroute port set main 443 --probe auto",
 	CLIPortCheckShort:            "Check a port in four stages: local bind, firewall, from a node, via the tunnel",
 	CLIPortCheckLong:             "The most important troubleshooting tool: is the port free on this server, does a\nfirewall block it, can a node reach it from the internet, and does traffic pass\nthrough the tunnel. Filtering inside Iran is not measured.\n\nWith --open, deyroute opens the port in the external firewall that blocks it: it\nshows the exact command (ufw allow 443/tcp, firewall-cmd ..., iptables ...,\nnft ...) and runs it only after you type yes (or with --yes).",

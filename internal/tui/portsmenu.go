@@ -55,6 +55,7 @@ func probeOpts() []fieldOpt {
 		{value: config.ProbeTCP, label: i18n.T(i18n.TUIProbeTCP)},
 		{value: config.ProbeTLS, label: i18n.T(i18n.TUIProbeTLS)},
 		{value: config.ProbeHTTP, label: i18n.T(i18n.TUIProbeHTTP)},
+		{value: config.ProbeEcho, label: i18n.T(i18n.TUIProbeEcho)},
 	}
 }
 
@@ -173,6 +174,7 @@ func pickProbeKind(id string, p api.PortMapDTO) *listScreen {
 		{config.ProbeTCP, i18n.TUIProbeTCP},
 		{config.ProbeTLS, i18n.TUIProbeTLS},
 		{config.ProbeHTTP, i18n.TUIProbeHTTP},
+		{config.ProbeEcho, i18n.TUIProbeEcho},
 	} {
 		label := i18n.T(k.key)
 		if k.kind == cur {

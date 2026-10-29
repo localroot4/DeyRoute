@@ -95,6 +95,12 @@ const (
 	ProbeTCP  = "tcp"
 	ProbeTLS  = "tls"
 	ProbeHTTP = "http"
+	// ProbeEcho (DR-17) proves the tunnel end to end without talking to
+	// the service: a nonce goes through one hidden port map of the active
+	// rung to the node's probe echo and must come back, and the node
+	// reports a TCP connect to the target. Both must pass. "auto" switches
+	// to it on its own for a target that stays silent after a TLS hello.
+	ProbeEcho = "echo"
 
 	SysctlOff        = "off"
 	SysctlBalanced   = "balanced"
@@ -250,7 +256,8 @@ type PortMap struct {
 	Listen int    `yaml:"listen"`
 	Proto  string `yaml:"proto"`
 	Target string `yaml:"target"`
-	// Probe type for this port map (Advanced): auto|tcp|tls|http. Empty = auto.
+	// Probe type for this port map (Advanced): auto|tcp|tls|http|echo.
+	// Empty = auto.
 	Probe string `yaml:"probe,omitempty"`
 }
 

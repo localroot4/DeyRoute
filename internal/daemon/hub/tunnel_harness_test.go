@@ -673,7 +673,7 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 		n.tmu.Lock()
 		defer n.tmu.Unlock()
 		if _, ok := n.echoes[args.Port]; ok && args.Port != 0 {
-			return api.EchoResult(args), nil
+			return api.EchoResult{Port: args.Port}, nil
 		}
 		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(args.Port)))
 		if err != nil {

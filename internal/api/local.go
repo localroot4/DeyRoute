@@ -260,12 +260,17 @@ type Warning struct {
 	Node    string `json:"node,omitempty"`
 }
 
-// PortMapDTO is one port map.
+// PortMapDTO is one port map. ProbeEffective and ProbeReason are set only
+// on the probe port in `tunnel show` (DR-17): the probe kind the hub uses
+// now on the active node (the primary while none is active) and why it
+// differs from Probe ("" when it does not).
 type PortMapDTO struct {
-	Listen int    `json:"listen"`
-	Proto  string `json:"proto"`
-	Target string `json:"target"`
-	Probe  string `json:"probe,omitempty"`
+	Listen         int    `json:"listen"`
+	Proto          string `json:"proto"`
+	Target         string `json:"target"`
+	Probe          string `json:"probe,omitempty"`
+	ProbeEffective string `json:"probe_effective,omitempty"`
+	ProbeReason    string `json:"probe_reason,omitempty"`
 }
 
 // TunnelInfo is one dashboard row.
@@ -395,7 +400,7 @@ type PortSpec struct {
 	Listen int    `json:"listen"`
 	Proto  string `json:"proto"`
 	Target string `json:"target,omitempty"` // default 127.0.0.1:<listen>
-	Probe  string `json:"probe,omitempty"`  // auto|tcp|tls|http; default auto
+	Probe  string `json:"probe,omitempty"`  // auto|tcp|tls|http|echo; default auto
 }
 
 // TunnelAddRequest is `deyroute tunnel add` / the Add tunnel wizard.
@@ -429,7 +434,7 @@ type TunnelEditRequest struct {
 	Failover  *FailoverSettings `json:"failover,omitempty"`
 	// PortProbes sets the probe kind of existing port maps (Advanced,
 	// section 9): Listen and Proto name the map, Probe is the new kind
-	// (auto|tcp|tls|http; UDP maps stay auto). Target is ignored.
+	// (auto|tcp|tls|http|echo; UDP maps stay auto). Target is ignored.
 	PortProbes []PortSpec `json:"port_probes,omitempty"`
 }
 

@@ -54,6 +54,15 @@ const (
 	// (conservative: an edge build cannot be told apart by its version).
 	FirstUnknownControlRatePerSourceVersion = "0.3.1"
 	FirstUnknownControlRateVersion          = "0.3.1"
+	// FirstEchoProbeVersion is the first release that knows the port probe
+	// kind "echo" (DR-17; older releases refuse it with DEY-C013). The key
+	// comes after the stable 0.3.0, so the first release cut with it is
+	// 0.3.1. Every later edge build is 0.3.1-edge.N, which sorts before
+	// 0.3.1: while a port map sets probe: echo, a rollback or downgrade to
+	// any edge build is refused too. That is conservative on purpose (an
+	// edge build cannot be told apart by its version); `deyroute port set
+	// <tunnel> <port> --probe auto` first makes the rollback possible.
+	FirstEchoProbeVersion = "0.3.1"
 )
 
 // NewerKey is a config.yaml key in use that releases before Since refuse.
@@ -85,6 +94,11 @@ var newerKeys = []struct {
 	}},
 	{"tunnels[].advanced.monthly_quota_gib", FirstTrafficVersion, func(c *Config) bool {
 		return slices.ContainsFunc(c.Tunnels, func(t Tunnel) bool { return t.Advanced != nil && t.Advanced.MonthlyQuotaGiB != 0 })
+	}},
+	{"tunnels[].ports[].probe: echo", FirstEchoProbeVersion, func(c *Config) bool {
+		return slices.ContainsFunc(c.Tunnels, func(t Tunnel) bool {
+			return slices.ContainsFunc(t.Ports, func(p PortMap) bool { return p.Probe == ProbeEcho })
+		})
 	}},
 	{"tuning.sysctl_profile: auto", FirstTrafficVersion, func(c *Config) bool { return c.Tuning != nil && c.Tuning.SysctlProfile == SysctlAuto }},
 	{"tuning.nodes_auto", FirstTrafficVersion, func(c *Config) bool { return c.Tuning != nil && c.Tuning.NodesAuto }},

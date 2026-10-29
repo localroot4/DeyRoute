@@ -41,7 +41,7 @@ var (
 	Policies       = []string{PolicyTransportOnly, PolicyTransportThenNode, PolicyNodeOnly}
 	TLSModes       = []string{TLSModeAuto, TLSModeACME, TLSModeCustom}
 	Protos         = []string{ProtoTCP, ProtoUDP}
-	ProbeKinds     = []string{ProbeAuto, ProbeTCP, ProbeTLS, ProbeHTTP}
+	ProbeKinds     = []string{ProbeAuto, ProbeTCP, ProbeTLS, ProbeHTTP, ProbeEcho}
 	SysctlProfiles = []string{SysctlOff, SysctlBalanced, SysctlAggressive, SysctlAuto}
 	// TelegramEventAliases are the short names allowed in
 	// hub.notify.telegram.events; internal/notify maps each alias to the

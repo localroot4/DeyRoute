@@ -263,24 +263,26 @@ func (a *agent) udpListen(ctx context.Context, args api.UDPListenArgs) error {
 }
 
 // echoStart answers echo.start: the canary's loopback TCP echo on
-// 127.0.0.1:<port> (0 = any free port) until echo.stop (section 9). The
-// port is remembered in the state file, so the echo comes back when the
-// agent restarts while the canary unit keeps running.
+// 127.0.0.1:<port> (0 = any free port) until echo.stop (section 9), or with
+// Probe the probe echo of the hub's echo probe (DR-17, health.ServeProbeEcho:
+// it answers only the DEYE nonce packet). The port is remembered in the
+// state file, so the echo comes back when the agent restarts while the
+// tunnel unit that reaches it keeps running.
 func (a *agent) echoStart(ctx context.Context, args api.EchoArgs) (api.EchoResult, error) {
 	if args.Port < 0 || args.Port > 65535 {
 		return api.EchoResult{}, a.refuse(api.CmdEchoStart, fmt.Sprintf("port %d is out of range", args.Port))
 	}
-	port, err := a.openEcho(ctx, args.Port)
+	port, err := a.openEcho(ctx, args.Port, args.Probe)
 	if err != nil {
 		return api.EchoResult{}, err
 	}
-	a.rememberEcho(port, true)
+	a.rememberEcho(port, args.Probe, true)
 	return api.EchoResult{Port: port}, nil
 }
 
-// openEcho starts the loopback echo on port (0 = any free port) unless it
-// already runs, and returns its port.
-func (a *agent) openEcho(ctx context.Context, port int) (int, error) {
+// openEcho starts the loopback echo (the probe echo with probe) on port (0
+// = any free port) unless one already runs there, and returns its port.
+func (a *agent) openEcho(ctx context.Context, port int, probe bool) (int, error) {
 	if port > 0 && a.listeners.running(echoKey(port)) {
 		return port, nil
 	}
@@ -293,59 +295,76 @@ func (a *agent) openEcho(ctx context.Context, port int) (int, error) {
 		port = ta.Port
 	}
 	bound := ln.Addr().String()
-	if !a.listeners.start(a.ctx, echoKey(port), 0, func(ctx context.Context) error { return health.ServeTCPEcho(ctx, ln) }, a.helperExit("tcp echo", bound)) {
-		_ = ln.Close()
-		return 0, deyerr.New(deyerr.X051, deyerr.Params{"service": "tcp echo", "addr": bound})
+	service, serve, what := "tcp echo", health.ServeTCPEcho, "canary echo started"
+	if probe {
+		service, serve, what = "probe echo", health.ServeProbeEcho, "probe echo started"
 	}
-	a.log.Info("canary echo started", slog.String("addr", bound))
+	if !a.listeners.start(a.ctx, echoKey(port), 0, func(ctx context.Context) error { return serve(ctx, ln) }, a.helperExit(service, bound)) {
+		_ = ln.Close()
+		return 0, deyerr.New(deyerr.X051, deyerr.Params{"service": service, "addr": bound})
+	}
+	a.log.Info(what, slog.String("addr", bound))
 	return port, nil
 }
 
-// echoStop answers echo.stop; stopping an echo that does not run is fine.
+// echoStop answers echo.stop (either kind); stopping an echo that does not
+// run is fine.
 func (a *agent) echoStop(args api.EchoArgs) error {
 	if args.Port < 1 || args.Port > 65535 {
 		return a.refuse(api.CmdEchoStop, fmt.Sprintf("port %d is out of range", args.Port))
 	}
 	if a.listeners.stop(echoKey(args.Port)) {
-		a.log.Info("canary echo stopped", slog.Int("port", args.Port))
+		a.log.Info("loopback echo stopped", slog.Int("port", args.Port))
 	}
-	a.rememberEcho(args.Port, false)
+	a.rememberEcho(args.Port, false, false)
+	a.rememberEcho(args.Port, true, false)
 	return nil
 }
 
-// rememberEcho adds (on) or removes port in the persisted echo list. The
-// echo itself already runs or stopped, so a failed save is only logged.
-func (a *agent) rememberEcho(port int, on bool) {
+// rememberEcho adds (on) or removes port in the persisted echo list (the
+// probe echo list with probe). The echo itself already runs or stopped, so
+// a failed save is only logged.
+func (a *agent) rememberEcho(port int, probe, on bool) {
 	a.instMu.Lock()
 	defer a.instMu.Unlock()
-	i := slices.Index(a.st.Echo, port)
+	list := &a.st.Echo
+	if probe {
+		list = &a.st.ProbeEcho
+	}
+	i := slices.Index(*list, port)
 	switch {
 	case on && i < 0:
-		a.st.Echo = append(a.st.Echo, port)
-		slices.Sort(a.st.Echo)
+		*list = append(*list, port)
+		slices.Sort(*list)
 	case !on && i >= 0:
-		a.st.Echo = slices.Delete(a.st.Echo, i, i+1)
+		*list = slices.Delete(*list, i, i+1)
 	default:
 		return
 	}
 	if err := a.saveState(); err != nil {
 		a.setLastError(err)
-		a.log.Warn("cannot record the canary echo in the state file", slog.Int("port", port), dlog.Err(err))
+		a.log.Warn("cannot record the loopback echo in the state file", slog.Int("port", port), dlog.Err(err))
 	}
 }
 
-// restoreEchoes reopens the canary echoes of the state file at start.
+// restoreEchoes reopens the canary and probe echoes of the state file at
+// start.
 func (a *agent) restoreEchoes(ctx context.Context) {
 	a.instMu.Lock()
-	ports := slices.Clone(a.st.Echo)
+	canary, probe := slices.Clone(a.st.Echo), slices.Clone(a.st.ProbeEcho)
 	a.instMu.Unlock()
-	for _, p := range ports {
-		if p < 1 || p > 65535 {
-			continue
-		}
-		if _, err := a.openEcho(ctx, p); err != nil {
-			a.setLastError(err)
-			a.log.Warn("cannot reopen the canary echo", slog.Int("port", p), dlog.Err(err))
+	for _, l := range []struct {
+		ports []int
+		probe bool
+	}{{canary, false}, {probe, true}} {
+		for _, p := range l.ports {
+			if p < 1 || p > 65535 {
+				continue
+			}
+			if _, err := a.openEcho(ctx, p, l.probe); err != nil {
+				a.setLastError(err)
+				a.log.Warn("cannot reopen a loopback echo", slog.Int("port", p), slog.Bool("probe", l.probe), dlog.Err(err))
+			}
 		}
 	}
 }

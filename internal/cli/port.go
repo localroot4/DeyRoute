@@ -114,7 +114,7 @@ func newPortAddCmd(g *Globals) *cobra.Command {
 func newPortSetCmd(g *Globals) *cobra.Command {
 	var probe string
 	cmd := &cobra.Command{
-		Use:     "set <tunnel> 8443[/tcp] --probe auto|tcp|tls|http",
+		Use:     "set <tunnel> 8443[/tcp] --probe auto|tcp|tls|http|echo",
 		Short:   i18n.T(i18n.CLIPortSetShort),
 		Long:    i18n.T(i18n.CLIPortSetLong),
 		Example: i18n.T(i18n.CLIPortSetExample),

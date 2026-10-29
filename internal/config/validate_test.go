@@ -283,8 +283,8 @@ func TestCheckProbe(t *testing.T) {
 	e := deyerr.As(CheckProbe("ports[443/tcp].probe", ProtoTCP, "icmp"))
 	require.Equal(t, deyerr.C013, e.Code)
 	require.Equal(t, "ports[443/tcp].probe", e.Params["field"])
-	require.Equal(t, "auto, tcp, tls, http", e.Params["allowed"])
-	for _, p := range []string{ProbeTCP, ProbeTLS, ProbeHTTP, "icmp", ""} {
+	require.Equal(t, "auto, tcp, tls, http, echo", e.Params["allowed"])
+	for _, p := range []string{ProbeTCP, ProbeTLS, ProbeHTTP, ProbeEcho, "icmp", ""} {
 		e = deyerr.As(CheckProbe("probe", ProtoUDP, p))
 		require.Equal(t, deyerr.C013, e.Code, p)
 		require.Contains(t, e.Params["allowed"], "UDP port maps are not probed by type")
