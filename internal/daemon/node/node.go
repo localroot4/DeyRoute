@@ -23,6 +23,7 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/exec"
+	"github.com/localroot4/deyroute/internal/firewall"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/sysinfo"
@@ -332,6 +333,14 @@ type agent struct {
 	started  map[string]bool
 	pids     map[string]int // instance → MainPID seen after PostStart
 	natApply []string       // last applied NAT rule set (nil = unknown)
+	// fwLive is the fingerprint of the NAT table applied last ("" =
+	// unknown) and fwReport deduplicates its firewall_reapplied warnings;
+	// both instMu.
+	fwLive   string
+	fwReport firewall.ReportGate
+	// reassertEvery is security.firewall_reassert_s of config.yaml as read
+	// at start (0 = off, also with security.firewall_managed false).
+	reassertEvery time.Duration
 
 	certMu sync.Mutex
 	cfgMu  sync.Mutex // serialises changes of config.yaml
@@ -354,6 +363,8 @@ func newAgent(o Options, cfg *config.Config, cfgPath string, logger *slog.Logger
 		ctx:       context.Background(),
 		cpu:       sysinfo.NewCPUSampler(o.Root),
 		logWarn:   dlog.NewWarnOnce(logger, dlog.TunnelLogReplaced),
+
+		reassertEvery: cfg.FirewallReassertInterval(),
 	}
 	a.writer = &render.HubWriter{Root: o.Root, Systemd: o.Systemd, Chown: o.Chown, DeyrouteIDs: o.DeyrouteIDs}
 	a.helloV = api.Hello{
@@ -426,10 +437,14 @@ func (a *agent) run(ctx context.Context) error {
 		// keys the boot could not set are set again.
 		a.reassertTuning()
 		var inner sync.WaitGroup
-		inner.Add(2)
+		inner.Add(3)
 		go func() {
 			defer inner.Done()
 			a.monitorLoop(ctx)
+		}()
+		go func() {
+			defer inner.Done()
+			a.firewallReassertLoop(ctx)
 		}()
 		go func() {
 			defer inner.Done()

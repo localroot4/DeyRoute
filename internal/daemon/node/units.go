@@ -821,13 +821,108 @@ func (a *agent) syncFirewall(ctx context.Context, force bool) error {
 	} else {
 		err = firewall.Apply(fctx, a.o.Runner, firewall.Spec{NAT: rules})
 	}
+	a.fwLive = ""
 	if err != nil {
 		a.natApply = nil
 		return err
 	}
 	a.natApply = keys
+	if len(rules) > 0 && a.reassertEvery > 0 {
+		// Unknown ("") when nft cannot list it now: the next check takes it.
+		a.fwLive, _ = firewall.Fingerprint(fctx, a.o.Runner)
+	}
 	a.log.Info("node NAT table updated", slog.Int("rules", len(rules)))
 	return nil
+}
+
+// Reasons of reassertFirewall (firewall_reapplied).
+const (
+	reassertMissing = firewall.ReasonMissing
+	reassertDrift   = firewall.ReasonDrift
+)
+
+// firewallReassertLoop runs reassertFirewall every
+// security.firewall_reassert_s seconds (read at start; off when 0 or
+// with security.firewall_managed false).
+func (a *agent) firewallReassertLoop(ctx context.Context) {
+	if a.reassertEvery <= 0 {
+		return
+	}
+	t := time.NewTicker(a.reassertEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.reassertFirewall(ctx)
+		}
+	}
+}
+
+// reassertFirewall compares the live table inet deyroute with the NAT
+// table the agent applied last and applies it again when it is missing or
+// changed (DR-14): firewall.apply with unchanged rules short-circuits on
+// the cached rule set, so a flushed table would otherwise stay gone until
+// the rules change. It returns the reason ("missing", "drift") or "" when
+// nothing was applied. It holds instMu like every NAT change and only
+// acts while the last apply holds the desired rules; a node without NAT
+// rules has no table to restore. The warning firewall_reapplied is logged
+// at most once per 10 minutes per reason (the node keeps no events).
+func (a *agent) reassertFirewall(ctx context.Context) string {
+	if a.reassertEvery <= 0 {
+		return ""
+	}
+	a.instMu.Lock()
+	reason := a.reassertFirewallLocked(ctx)
+	report := reason != "" && a.fwReport.Due(reason, a.o.Now())
+	a.instMu.Unlock()
+	if reason == "" {
+		return ""
+	}
+	msg := "table " + firewall.TableRef + " was missing; NAT rules applied again"
+	if reason == reassertDrift {
+		msg = "table " + firewall.TableRef + " was changed by something else; NAT rules applied again"
+	}
+	attrs := []any{slog.String("event", "firewall_reapplied"), slog.String("reason", reason)}
+	if report {
+		a.log.Warn(msg, attrs...)
+	} else {
+		a.log.Info(msg+" (reported less often)", attrs...)
+	}
+	return reason
+}
+
+// reassertFirewallLocked is reassertFirewall's check and apply (instMu
+// held).
+func (a *agent) reassertFirewallLocked(ctx context.Context) string {
+	rules, _ := a.desiredNAT()
+	if len(rules) == 0 || a.natApply == nil || natKey(rules) != strings.Join(a.natApply, ";") {
+		return ""
+	}
+	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	live, err := firewall.Fingerprint(qctx, a.o.Runner)
+	cancel()
+	var reason string
+	switch {
+	case err != nil:
+		a.log.Warn("cannot list table "+firewall.TableRef+" to check it", dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		return ""
+	case live == "":
+		reason = reassertMissing
+	case a.fwLive == "":
+		a.fwLive = live // not listed after the apply: this is the table
+		return ""
+	case live != a.fwLive:
+		reason = reassertDrift
+	default:
+		return ""
+	}
+	if err := a.syncFirewall(ctx, true); err != nil {
+		a.log.Error("cannot apply table "+firewall.TableRef+" again", dlog.Err(err), dlog.Code(deyerr.As(err).Code))
+		return ""
+	}
+	return reason
 }
 
 // ensureIPForward sets net.ipv4.ip_forward=1 when an instance needs it
