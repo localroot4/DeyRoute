@@ -28,7 +28,7 @@ PY"
 dey config apply --json >/dev/null || fail "config apply with port hopping failed"
 rule="ip saddr $HUB_IP ip daddr $NODE1_IP udp dport 20000-20999 redirect to :"
 wait_for 90 "scoped hopping rule on the node" sh_on node1 "nft list chain inet deyroute prerouting | grep -qF '$rule'"
-if sh_on node1 "nft list chain inet deyroute prerouting" | grep -E 'dport 20000-20999' | grep -vqF "ip saddr $HUB_IP"; then
+if sh_on node1 "nft list chain inet deyroute prerouting" | grep -E 'dport 20000-20999' | contains -vF "ip saddr $HUB_IP"; then
   fail "an unscoped hopping rule is on the node: $(on node1 nft list chain inet deyroute prerouting)"
 fi
 sh_on hub "grep -rqs ':20000-20999' /etc/deyroute/backends/hysteria2" || fail "the hub does not dial the hopping range"
@@ -48,7 +48,7 @@ table inet it_hop {
     type filter hook input priority 0; policy accept;
     ip saddr $CLIENT_IP udp dport 20500 counter name client_plain
     ip saddr $CLIENT_IP ct status dnat counter name client_dnat
-    ip saddr $HUB_IP ct status dnat ct original proto-dst 20500 counter name hub_dnat
+    ip saddr $HUB_IP ct status dnat meta l4proto udp ct original proto-dst 20500 counter name hub_dnat
   }
 }
 EOF
