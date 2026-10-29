@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -319,4 +320,35 @@ func TestEchoVerdictKeptWhileServiceDown(t *testing.T) {
 	v, _ = c.verdict("de-1")
 	require.False(t, v.Silent)
 	require.True(t, c.echoStale("de-1"))
+}
+
+// TestEchoProbeStopsWhenNodeLeaves: a node taken out of the tunnel (tunnel
+// edit --node) gets its probe echo stopped and its record dropped.
+func TestEchoProbeStopsWhenNodeLeaves(t *testing.T) {
+	te := startTunnelHub(t)
+	te.sd.silent = true
+	de, nl := te.tunnelNode("de-1"), te.tunnelNode("nl-1")
+	de.setTarget(health.ReasonTimeout, false)
+	nl.setTarget(health.ReasonReset, false)
+	req := echoTunnel(freePort(t), "")
+	req.Backups = []string{"nl-1"}
+	te.addTunnelUp(req)
+	te.waitActive("main", "de-1", trAlpha)
+	require.NotEmpty(t, nl.probeEchoList(), "the backup node runs the probe echo too")
+	echo := nl.probeEchoList()[0]
+
+	_, err := te.client.TunnelEdit(ctxT(t), "main", api.TunnelEditRequest{Nodes: []string{"de-1"}}, nil)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		nl.tmu.Lock()
+		defer nl.tmu.Unlock()
+		return slices.Contains(nl.echoStops, echo)
+	}, testWait, 20*time.Millisecond, "the probe echo of nl-1 is stopped")
+	de.tmu.Lock()
+	require.NotContains(t, de.echoStops, echo, "de-1 keeps its probe echo")
+	de.tmu.Unlock()
+	_, ok := te.h.tun.lookup("main").records()["nl-1"]
+	require.False(t, ok)
+	_, ok = te.h.tun.lookup("main").records()["de-1"]
+	require.True(t, ok)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -189,6 +190,17 @@ func (c *tunnelCtl) ensureEcho(ctx context.Context, t config.Tunnel, only string
 			})
 		}
 		wg.Wait()
+	}
+	if only == "" {
+		// A node that left the tunnel (tunnel edit --node) keeps no echo.
+		for n, r := range c.records() {
+			if !slices.Contains(t.Nodes, n) {
+				if r.Echo {
+					c.stopEcho(ctx, n)
+				}
+				c.forgetNode(n)
+			}
+		}
 	}
 	for _, n := range nodes {
 		want := usable && kind == config.ProbeEcho

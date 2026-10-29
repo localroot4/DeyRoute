@@ -627,8 +627,10 @@ type tnode struct {
 	// (nil = the unit starts).
 	failStart func(inst string) error
 	echoes    map[int]net.Listener
-	// probeEchoes are the ports of echo.start calls with Probe (DR-17).
+	// probeEchoes are the ports of echo.start calls with Probe (DR-17),
+	// echoStops those of echo.stop calls.
 	probeEchoes []int
+	echoStops   []int
 	// tlsErr, when set, is the error probe.tls reports for the target (a
 	// silent service: "timeout"); svcDown makes probe.tcp fail.
 	tlsErr   string
@@ -791,6 +793,12 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 			return api.EchoResult{Port: args.Port}, nil
 		}
 		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(args.Port)))
+		if err != nil && args.Probe && args.Port != 0 {
+			// Another test node on this host holds the tunnel's probe echo
+			// port: on a real node it is free (one echo port per tunnel).
+			n.probeEchoes = append(n.probeEchoes, args.Port)
+			return api.EchoResult{Port: args.Port}, nil
+		}
 		if err != nil {
 			return nil, deyerr.Wrap(deyerr.P012, err, deyerr.Params{"port": args.Port, "process": "x", "addr": "127.0.0.1"})
 		}
@@ -813,6 +821,7 @@ func (te *tunnelEnv) wireNode(fn *fakeNode) *tnode {
 		decode(t, cmd, &args)
 		n.tmu.Lock()
 		defer n.tmu.Unlock()
+		n.echoStops = append(n.echoStops, args.Port)
 		if ln, ok := n.echoes[args.Port]; ok {
 			_ = ln.Close()
 			delete(n.echoes, args.Port)
