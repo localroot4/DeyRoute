@@ -6,6 +6,8 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-29
+
 ### Security — tunnel logs
 
 - The hub and the node rotate the tunnel logs in `/var/log/deyroute/tunnels`
