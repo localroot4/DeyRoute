@@ -424,6 +424,23 @@ s.socket = c.wrap_socket(s.socket, server_side=True); s.serve_forever()'"
   wait_for 20 "https mirror up" sh_on client "ss -Hltn 'sport = :8443' | grep -q ."
   trust_lab_ca it-mirror "$(on client cat /etc/it-mirror.crt)"
 }
+# release_mirror: the signed lab release of DEY_VERSION on the lab's HTTPS
+# mirror (https_mirror; a mirror's layout is <base>/v<version>/<file>) and
+# hub.mirror set to it (config.yaml + config apply), so that `deyroute
+# update --version "$DEY_VERSION"` on the hub downloads it from there and
+# checks it as it checks a real release.
+release_mirror() {
+  https_mirror
+  sh_on client "d=/srv/mirror/v$DEY_VERSION && mkdir -p \$d && cd /dist && cp SHA256SUMS SHA256SUMS.minisig \
+    deyroute_${DEY_VERSION}_linux_$ARCH.tar.gz install.sh backends.yaml backends.yaml.minisig CHANGELOG.md \$d/"
+  sh_on hub "python3 - <<'PY'
+import re
+p = '/etc/deyroute/config.yaml'
+s = re.sub(r'(?m)^  mirror:.*\n', '', open(p).read())
+open(p, 'w').write(re.sub(r'(?m)^hub:\n', 'hub:\n  mirror: https://$CLIENT_IP:8443\n', s, count=1))
+PY"
+  dey config apply --json >/dev/null
+}
 # trust_lab_ca NAME PEM: the hub and the nodes that run trust the lab
 # certificate PEM (NAME.crt in the system store).
 trust_lab_ca() {
