@@ -422,6 +422,10 @@ type TunnelAddRequest struct {
 	Failover *FailoverSettings `json:"failover,omitempty"`
 	// FixedTransport limits the tunnel to one transport (phase 2 CLI flag).
 	FixedTransport string `json:"fixed_transport,omitempty"`
+	// NoRename makes a taken id derived from Name fail with DEY-C002
+	// instead of getting a -2, -3, ... suffix. The CLI sets it in
+	// non-interactive mode; the TUI never does (DR-12).
+	NoRename bool `json:"no_rename,omitempty"`
 }
 
 // TunnelEditRequest changes mutable fields; nil/empty = unchanged.

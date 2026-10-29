@@ -258,24 +258,37 @@ func cleanRungs(rungs []string) []string {
 }
 
 // newTunnel builds the config entry of a TunnelAdd request after checking
-// it: id (derived from the name when empty; DEY-C007/C002), nodes
+// it: id (derived from the name when empty, numbered when taken unless
+// NoRename; DEY-C007/C002 before any port check), nodes
 // (DEY-C008/C010/C002), ports (section 10 rules), ladder (profile, inline
 // rungs or one fixed transport; it must keep a rung for the tunnel's
 // protocols), policy, TLS mode and failover settings.
 func (h *Hub) newTunnel(ctx context.Context, cfg *config.Config, req api.TunnelAddRequest) (config.Tunnel, error) {
 	name := cleanName(req.Name)
 	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		id = config.UniqueID(config.Slugify(name), func(s string) bool {
+	derived := id == ""
+	if derived {
+		taken := func(s string) bool {
 			_, taken := cfg.Tunnel(s)
 			return taken
-		})
+		}
+		if req.NoRename {
+			// A script gets a deterministic id or DEY-C002 below,
+			// never a -2 suffix (DR-12).
+			taken = nil
+		}
+		id = config.UniqueID(config.Slugify(name), taken)
 	}
 	if !config.ValidID(id) {
 		return config.Tunnel{}, deyerr.New(deyerr.C007, deyerr.Params{"kind": "tunnel", "id": id})
 	}
 	if _, taken := cfg.Tunnel(id); taken {
-		return config.Tunnel{}, deyerr.New(deyerr.C002, deyerr.Params{"kind": "tunnel", "id": id})
+		e := deyerr.New(deyerr.C002, deyerr.Params{"kind": "tunnel", "id": id})
+		if derived {
+			e = e.WithWhy(fmt.Sprintf("the name %q gives the tunnel id %s, which is taken", name, id)).
+				WithFix("pass the tunnel id with --id, or --allow-rename to accept a numbered id")
+		}
+		return config.Tunnel{}, e
 	}
 	if strings.TrimSpace(req.Node) == "" {
 		return config.Tunnel{}, deyerr.New(deyerr.C008, deyerr.Params{"tunnel": id})
