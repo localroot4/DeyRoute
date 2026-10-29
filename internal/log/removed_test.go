@@ -186,6 +186,24 @@ func TestSweepRemovedBounded(t *testing.T) {
 	spent, err := SweepRemoved(filepath.Join(base, "missing"), budget)
 	require.NoError(t, err)
 	require.Zero(t, spent)
+
+	// A link at the directory's name is not followed, and like a file
+	// there it is nothing to do: no tunnel log is prepared in such a
+	// directory (EnsureTunnelLog refuses it, the services warn once when
+	// they start), so the rotation loop does not report it every minute.
+	aside := filepath.Join(outside, "x.log.removed-0123456789abcdef")
+	require.NoError(t, os.Mkdir(aside, 0o700))
+	link := filepath.Join(base, "link")
+	require.NoError(t, os.Symlink(outside, link))
+	file := filepath.Join(base, "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	for _, p := range []string{link, file} {
+		spent, err := SweepRemoved(p, budget)
+		require.NoError(t, err, p)
+		require.Zero(t, spent, p)
+	}
+	_, err = os.Lstat(aside)
+	require.NoError(t, err, "nothing is removed through the link")
 }
 
 // The rotation loop deletes what was moved aside in the tunnel log

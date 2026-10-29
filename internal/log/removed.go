@@ -85,13 +85,16 @@ func isRemovedName(name string) bool {
 // call. A tree is never walked down: a directory is emptied one level at a
 // time, its own subdirectories moved up into the directory being deleted,
 // so any depth costs three descriptors, no recursion and no path. A link
-// is removed, never followed. Other names in dir are never touched, and a
-// missing dir is nothing to do. It returns the removals spent and the first
-// error; an entry that fails does not stop the others.
+// is removed, never followed. Other names in dir are never touched. A
+// missing dir is nothing to do, and so is a link or a non-directory at its
+// name, which is never followed: EnsureTunnelLog refuses such a tunnel log
+// directory and the services warn about it once when they start. It
+// returns the removals spent and the first error; an entry that fails does
+// not stop the others.
 func SweepRemoved(dir string, budget int) (int, error) {
 	d, err := os.OpenFile(filepath.Clean(dir), os.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		if stderrors.Is(err, fs.ErrNotExist) {
+		if stderrors.Is(err, fs.ErrNotExist) || stderrors.Is(err, unix.ELOOP) || stderrors.Is(err, unix.ENOTDIR) {
 			return 0, nil
 		}
 		return 0, err
