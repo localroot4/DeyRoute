@@ -11,6 +11,9 @@ wait_tunnel_up "$T"
 # connections per second. Unknown sources are limited per address (3 per
 # minute each, 30 in all), so the hammer uses up only its own budget and
 # the node reconnects from its new address all the same.
+# The join window of setup admits every source; close it, so unknown
+# sources go through the per-source limit.
+dey node join-revoke --json >/dev/null || fail "join-revoke failed"
 docker exec -d "$(cid client)" bash -c "while :; do (timeout 2 bash -c 'exec 3<>/dev/tcp/$HUB_IP/$CONTROL_PORT' >/dev/null 2>&1 &); sleep 0.5; done"
 hammered() { on hub nft list set inet deyroute ctl_unknown4 | grep -q "$CLIENT_IP"; }
 wait_for 30 "the client's hammer reaches the per-source limit" hammered

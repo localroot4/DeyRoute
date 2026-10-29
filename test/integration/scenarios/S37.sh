@@ -28,7 +28,9 @@ up_through() {
   done
 }
 
-# Hub.
+# Hub. The join window of setup leaves the @nodes set out of the table
+# (every source may connect); close it first.
+dey node join-revoke --json >/dev/null || fail "join-revoke failed"
 T=$(add_tunnel "$NODE1" 8443)
 wait_tunnel_up "$T"
 table_on hub "set nodes" || fail "no table inet deyroute on the hub"
