@@ -375,7 +375,7 @@ var catalog = map[Code]Info{
 		"check the node: systemctl status deyroute-node   and its network to the hub"},
 	N004: {N004, "Node {node} version {node_version} is incompatible with hub {hub_version}",
 		"hub and node must share the same major.minor version",
-		"run deyroute update on the hub (its nodes then update from it), or re-run the installer on this node with --version {hub_version}"},
+		"wait: a hub on a release installs its version on the node by itself when the node connects (a node that refuses it is asked again later; see the hub log). Otherwise run deyroute update on the hub, or re-run the installer on this node with --version {hub_version}"},
 	N005: {N005, "Command {command} timed out on node {node}",
 		"the node did not answer in time",
 		"check deyroute node test {node}; see the node log with deyroute logs node"},
