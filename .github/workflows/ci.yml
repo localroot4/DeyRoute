@@ -132,7 +132,9 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     needs: [unit, build, smoke, integration]
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Only the push of a stable tag publishes; a manual run of ci at a tag
+    # (an edge tag included) runs the checks and publishes nothing.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-edge.')
     permissions:
       contents: write
     # The signing key is a secret of this environment, whose deployments are
