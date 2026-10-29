@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-# S33: wireguard/kernel and awg/userspace carry a TCP and a UDP port; tunnel delete leaves no nft rule and no interface
+# S33: wireguard/kernel and awg/userspace carry a TCP and a UDP port; a port added to wireguard/kernel carries at once; tunnel delete leaves no nft rule and no interface
 # Not one of the spec's S01-S30: the phase 7 acceptance of section 16. The
 # containers share the host kernel: wireguard/kernel needs its WireGuard
 # module (`ip link add type wireguard`) and awg/userspace needs /dev/net/tun;
 # a transport the kernel cannot run is reported and left out, and the
 # scenario is skipped when neither can run. The nftables ruleset and the
 # interface list of hub and node are compared before the tunnel was added and
-# after it was deleted.
+# after it was deleted. On wireguard/kernel a port added to the running tunnel
+# carries a download at once (DR-10: the hub DNAT, the only data path of a
+# WireGuard rung, follows the port change without a failover, tunnel restart
+# or hub restart).
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 needs_online "the amneziawg-go download"
 
 setup_pair client
 serve_http node1 8443 1
+serve_http node1 9443 1
 udp_echo node1 27015
 
 transports=() missing=""
@@ -66,6 +70,19 @@ for tr in "${transports[@]}"; do
     fi
   done
   log "$tr: hub and node units run as root with CAP_NET_ADMIN only"
+
+  if [ "$tr" = wireguard/kernel ]; then
+    hub_pid=$(main_pid hub deyroute-hub.service)
+    dey port add "$T" 9443 --json >/dev/null || fail "$tr: port add 9443 failed"
+    [ "$(fetch_via_hub 9443)" = "$(blob_sha node1)" ] ||
+      fail "$tr: no download through port 9443 right after port add (hub DNAT not refreshed)"
+    [ "$(active_transport "$T")" = "$tr" ] || fail "$tr: $T left $tr after port add"
+    ! has_event switch_transport "$T" || fail "$tr: port add caused a failover"
+    [ "$(main_pid hub deyroute-hub.service)" = "$hub_pid" ] || fail "$tr: the hub daemon restarted during port add"
+    sh_on hub "nft list table inet deyroute" | grep -q 'dport 9443.*dnat' ||
+      fail "$tr: no DNAT rule for 9443 in table inet deyroute"
+    log "$tr: port 9443 added to the running tunnel carries at once"
+  fi
 
   dey tunnel delete "$T" --yes --json >/dev/null || fail "tunnel delete $T failed"
   gone() { ! sh_on hub "ip link show dev $iface" && ! sh_on node1 "ip link show dev $iface"; }
