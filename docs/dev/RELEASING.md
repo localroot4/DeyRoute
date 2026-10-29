@@ -76,7 +76,9 @@ builds amd64 and arm64 from **the commit the ci run tested**, signs
 Push a tag `vX.Y.Z`, for example `git tag v1.0.0 && git push origin v1.0.0`,
 or run the workflow `tag-release` on `main` with the version (Actions →
 tag-release → Run workflow): it tags the tip of `main` and starts the full
-ci run at that tag (every distro, every scenario). Either way, CI runs
+ci run at that tag (every distro, every scenario); after a failed release
+run, `replace` moves a tag that has no GitHub release yet to the tip of
+`main`. Either way, CI runs
 lint, unit tests, the build, the smoke jobs and the integration scenarios,
 then goreleaser publishes the signed release. It becomes *latest* for the
 installer and for `deyroute update`.
