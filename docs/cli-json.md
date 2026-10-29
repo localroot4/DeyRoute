@@ -91,15 +91,19 @@ without a question, `"wizard"` = typed in the wizard), "control_port", "ca_finge
 "config_path", "sysctl_profile", "sysctl_warnings": [string],
 "firewall_managed", "service_started", "auto_update" (bool: `--auto-update
 on|off`, default off; stored as `hub.auto_update`), "steps": [Step], "join":
-JoinCommand}` — when the join command could not be obtained, `join_error`
-(ErrorDTO) replaces `join`.
+JoinCommand, "join_window" (bool: a join command was made, so the control
+port accepts every address until it is used or expires)}` — when the join
+command could not be obtained, `join_error` (ErrorDTO) replaces `join` and
+`join_window` is false. With `--no-join` no join command is made and no join
+window opens at setup: the document has neither `join` nor `join_error`, and
+`"join_window": false`.
 
 Flags: `--public-ip A.B.C.D` and `--public-ip6 X` store exactly that address
 (canonical form) as `hub.public_ip` / `hub.public_ip6`; a private, CGNAT,
 loopback or link-local address is `DEY-C013` (field `--public-ip` or
 `--public-ip6`) unless `--allow-private-ip` (test labs: private, CGNAT and
 loopback, never link-local). The three flags are `DEY-C013` with `--role
-node` and on `deyroute join`. Every refusal comes before any setup step
+node` and on `deyroute join`; so is `--no-join` with `--role node`. Every refusal comes before any setup step
 (and before any question, unless the wizard has to ask for the role).
 
 Node (`--role node`): the document of `deyroute join`.
@@ -201,11 +205,25 @@ deyroute` missing or changed and applied it again
 reason is recorded at most once per 10 minutes. Telegram sends it when
 `hub.notify.telegram.events` names `firewall_reapplied`.
 
+`join_tokens_revoked` (info) is recorded by `deyroute node join-revoke`; its
+`message` names how many tokens were live. Telegram sends it when
+`hub.notify.telegram.events` names `join_tokens_revoked`; releases before
+0.3.1 refuse that name, so `update --rollback` to them is refused
+(`DEY-S011`) while the list names it.
+
 ## Nodes and hub
 
 ### `deyroute node join-command`
 
 `{"schema", "command", "link", "expires_at"}`
+
+### `deyroute node join-revoke`
+
+`{"schema": 1, "ok": true, "revoked"}` — `revoked` (int) is the number of
+unexpired join tokens deleted (`0` when there was none). No flags: every
+join token is revoked. The firewall is applied before the command returns,
+so the join window is closed; a failed apply is an error document (the
+tokens are deleted all the same).
 
 ### `deyroute node list`
 

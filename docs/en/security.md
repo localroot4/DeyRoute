@@ -38,6 +38,14 @@ to a log.
   IPs, plus 3 new connections per minute from each other address (30 per
   minute from all of them together) so that a node whose IP changed can
   reconnect with its certificate (see Unknown sources below).
+- `deyroute node join-revoke` deletes every unused token and applies the
+  firewall at once, so the join window closes without waiting for the expiry
+  (event `join_tokens_revoked`). `deyroute setup --no-join` sets a hub up
+  without a join command, so no join window opens at setup (see
+  [Join a node](join.md#revoke-unused-join-commands)).
+- Releases before 0.3.1 do not know the event name `join_tokens_revoked`:
+  while `hub.notify.telegram.events` names it, `deyroute update --rollback`
+  to such a release is refused (`DEY-S011`).
 - `deyroute security audit` warns about every unexpired join token: each one
   keeps the join window open until it expires. `deyroute doctor` reports the
   tokens made with a `--ttl` over 15 minutes (with their expiry) and expired

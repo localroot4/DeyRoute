@@ -57,6 +57,44 @@ Back in the menu, `r` makes a new command.
   returned error: 404`) and installs nothing. Update the hub
   (`deyroute update`) and make a new join command.
 
+### Revoke unused join commands
+
+An unused join command keeps the join window open (the control port accepts
+every address) until it expires, also after a failed join or when the line
+was shared by mistake. Revoke every unused join command at once:
+
+```bash
+deyroute node join-revoke
+```
+
+```text
+Join tokens revoked: 1. The join window is closed: the control port is restricted to the nodes (@nodes) again.
+```
+
+- The hub applies the firewall before the command returns: the control port
+  is restricted to the joined nodes at once, not when the token expires.
+- A node that runs a revoked command gets `DEY-N001`. Make a new command
+  with `deyroute node join-command`.
+- There are no flags: the command always revokes every unused join command.
+  With `--json` it prints `{"schema": 1, "ok": true, "revoked": 1}`
+  (`revoked` counts the unexpired tokens; `0` when there was none).
+- The hub records the event `join_tokens_revoked`.
+
+### Set up a hub without a join command
+
+`deyroute setup` ends with a join command, so the join window is open for
+15 minutes after every hub setup. Automation that makes its own short join
+command later can skip it:
+
+```bash
+deyroute setup --role hub --name ir-1 --yes --no-join
+```
+
+No join command is made and the setup firewall restricts the control port to
+the nodes from the start. The `--json` document then has no `join` field and
+`"join_window": false`. `--no-join` is only for a hub setup (`DEY-C013` with
+`--role node`).
+
 ## 2. Run it on the node
 
 On the foreign server, as root, paste the line. To choose the node's id, add
