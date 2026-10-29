@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"net/netip"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -685,6 +686,18 @@ func restoreForm(a *app, file string) screen {
 		t.cancellable = true // reads the backup only
 		t.next = func(_ *app, v any) screen {
 			p, _ := v.(RestorePlan)
+			if p.AskIP {
+				return newForm(title, i18n.T(i18n.TUIBuAskIPIntro, p.AskWhy, p.OldIP), []field{
+					{key: "ip", label: i18n.T(i18n.TUIBuIPField), def: p.OldIP, check: checkIP},
+				}, func(a *app, v map[string]string) tea.Cmd {
+					ip, _ := netip.ParseAddr(strings.TrimSpace(v["ip"]))
+					moved := ip.Unmap().String()
+					if moved == p.OldIP {
+						moved = ""
+					}
+					return a.replace(restoreConfirm(title, p, moved, restore))
+				})
+			}
 			if p.MovedIP == "" {
 				return restoreConfirm(title, p, "", restore)
 			}
@@ -783,6 +796,14 @@ func setHubForm(a *app) screen {
 		t.onOK = func(a *app, _ any) { a.status.HubAddr = addr }
 		return a.replace(t)
 	})
+}
+
+// checkIP accepts an IPv4 or IPv6 address without a zone (hub.public_ip).
+func checkIP(v string, _ map[string]string) error {
+	if a, err := netip.ParseAddr(strings.TrimSpace(v)); err == nil && a.Zone() == "" {
+		return nil
+	}
+	return uiErr(i18n.TUIWantIP)
 }
 
 // checkHostPort accepts the address of a hub: IP:port (or name:port).

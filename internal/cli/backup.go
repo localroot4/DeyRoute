@@ -182,10 +182,10 @@ func (g *Globals) backupEvents(ctx context.Context) (io.Reader, int, error) {
 
 // backupInfo is what restore shows before replacing anything.
 type backupInfo struct {
-	Role, HubName, NodeID, PublicIP, Version string
-	ControlPort                              int
-	Created                                  time.Time
-	Encrypted                                bool
+	Role, HubName, NodeID, PublicIP, PublicIP6, Version string
+	ControlPort                                         int
+	Created                                             time.Time
+	Encrypted                                           bool
 }
 
 // isEncrypted reports whether the backup file is age-encrypted.
@@ -264,6 +264,7 @@ func inspectBackup(path, pass string) (backupInfo, error) {
 			info.Role = c.Role
 			if c.Hub != nil {
 				info.HubName, info.PublicIP, info.ControlPort = c.Hub.Name, c.Hub.PublicIP, c.Hub.ControlPort
+				info.PublicIP6 = c.Hub.PublicIP6
 			}
 			if c.Node != nil {
 				info.NodeID = c.Node.ID
@@ -286,7 +287,7 @@ type backupManifest struct {
 }
 
 func newRestoreCmd(g *Globals) *cobra.Command {
-	var yes bool
+	var f restoreFlags
 	cmd := &cobra.Command{
 		Use:     "restore FILE",
 		Short:   i18n.T(i18n.CLIRestoreShort),
@@ -296,6 +297,9 @@ func newRestoreCmd(g *Globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), LocalOpTimeout)
 			defer cancel()
+			if err := f.check(); err != nil {
+				return err
+			}
 			path, err := filepath.Abs(args[0])
 			if err != nil {
 				return usageErr(err.Error())
@@ -314,34 +318,39 @@ func newRestoreCmd(g *Globals) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			newIP, err := g.restoreAddress(ctx, info, yes)
+			addr, err := g.restorePolicy(ctx, info, f)
 			if err != nil {
 				return err
 			}
-			if err := g.confirm(g.restoreLost(path, info, newIP), yes); err != nil {
+			if err := g.confirm(g.restoreLost(path, info, addr.ip4), f.yes); err != nil {
 				return err
 			}
 			p := g.newProgress()
-			res, err := g.restoreRun(ctx, path, pass, newIP, p.step)
+			res, err := g.restoreRun(ctx, path, pass, addr.ip4, addr.ip6, p.step)
 			if err != nil {
 				return err
 			}
 			if g.JSON {
 				return g.emitJSON(map[string]any{
 					"role": res.Role, "hub_name": res.HubName, "node": res.NodeID, "public_ip": res.PublicIP,
-					"address_changed": res.AddressChanged, "backup_version": res.BackupVersion, "created": res.Created,
+					"public_ip6": res.PublicIP6, "address_changed": res.AddressChanged, "address_source": addr.source,
+					"warnings": addr.warnings, "backup_version": res.BackupVersion, "created": res.Created,
 					"previous_dir": res.PreviousDir, "migrated": res.Migrated, "sysctl_profile": res.SysctlProfile,
 					"service_started": res.ServiceStarted, "steps": p.steps,
 				})
 			}
 			g.println()
+			for _, w := range addr.warnings {
+				g.println(g.text(g.sym().warn + " " + w))
+			}
 			if res.Role == config.RoleHub {
 				g.say(i18n.CLIRestoredHub, res.HubName)
-				addr := res.PublicIP
+				// The address in effect after the restore (moved or kept).
+				at := res.PublicIP
 				if info.ControlPort > 0 {
-					addr = res.PublicIP + ":" + strconv.Itoa(info.ControlPort)
+					at = res.PublicIP + ":" + strconv.Itoa(info.ControlPort)
 				}
-				g.say(i18n.CLIRestoreNextHub, addr, addr)
+				g.say(i18n.CLIRestoreNextHub, at, at)
 			} else {
 				g.say(i18n.CLIRestoredNode, res.NodeID)
 				g.say(i18n.CLIRestoreNextNode)
@@ -352,36 +361,11 @@ func newRestoreCmd(g *Globals) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
+	cmd.Flags().BoolVar(&f.yes, "yes", false, i18n.T(i18n.CLIFlagYes))
+	cmd.Flags().StringVar(&f.ip4, "public-ip", "", i18n.T(i18n.CLIFlagRestorePublicIP))
+	cmd.Flags().StringVar(&f.ip6, "public-ip6", "", i18n.T(i18n.CLIFlagRestorePublicIP6))
+	cmd.Flags().BoolVar(&f.keep, "keep-address", false, i18n.T(i18n.CLIFlagKeepAddress))
 	return cmd
-}
-
-// restoreAddress decides hub.public_ip for a restored hub: a hub moved to
-// a new server takes this server's public address (spec section 5, "hub
-// move"); the owner is asked on a terminal. "" keeps the backup's address:
-// always when this server already is that hub (same-server restore), and
-// when the detected address is not public.
-func (g *Globals) restoreAddress(ctx context.Context, info backupInfo, yes bool) (string, error) {
-	if info.Role != config.RoleHub || info.PublicIP == "" {
-		return "", nil
-	}
-	if c := g.localConfig(); c != nil && c.Hub != nil && c.Hub.PublicIP == info.PublicIP {
-		return "", nil
-	}
-	dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	ip, private, err := g.DetectIP(dctx)
-	cancel()
-	if err != nil || private || ip == "" || ip == info.PublicIP {
-		return "", nil
-	}
-	if !g.IsTTY || yes {
-		return ip, nil
-	}
-	use, err := g.askYesNo(i18n.T(i18n.CLIAskMovedHub, ip, info.PublicIP), true)
-	if err != nil || !use {
-		return "", err
-	}
-	return ip, nil
 }
 
 // restoreLost is the confirmation text of restore: what is replaced.
@@ -423,9 +407,9 @@ func (g *Globals) restoreSummary(info backupInfo, res *setup.RestoreResult) stri
 }
 
 // restoreRun restores a backup (shared by the CLI and the TUI).
-func (g *Globals) restoreRun(ctx context.Context, path, pass, publicIP string, progress func(api.Step)) (*setup.RestoreResult, error) {
+func (g *Globals) restoreRun(ctx context.Context, path, pass, publicIP, publicIP6 string, progress func(api.Step)) (*setup.RestoreResult, error) {
 	return g.Ops.Restore(ctx, setup.RestoreOptions{
-		Root: g.Root, Path: path, Passphrase: pass, Runner: g.Runner, PublicIP: publicIP,
+		Root: g.Root, Path: path, Passphrase: pass, Runner: g.Runner, PublicIP: publicIP, PublicIP6: publicIP6,
 		ApplySysctl: true, StartService: !g.NoService, SocketPath: g.Socket, Now: g.Now, Progress: progress,
 		Logger: g.logger(), LookupUser: g.LookupUser, LookupGroup: g.LookupGroup, Chown: g.Chown,
 	})

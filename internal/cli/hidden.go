@@ -61,19 +61,28 @@ func (g *Globals) runTUI(context.Context) error {
 		if err != nil {
 			return tui.RestorePlan{}, err
 		}
-		// Detection only (yes): the menu asks the moved-hub question itself.
-		ip, err := g.restoreAddress(ctx, info, true)
-		if err != nil {
-			return tui.RestorePlan{}, err
+		// Detection only: the menu applies its own policy (DR-08). It asks
+		// the moved-hub question for a public address elsewhere, and the
+		// address itself (the backup's as default) when detection is
+		// private or failed; it never fails with DEY-I025.
+		plan := tui.RestorePlan{Lost: g.restoreLost(path, info, ""), OldIP: info.PublicIP}
+		d := g.restoreAddress(ctx, info)
+		if !d.hub || d.sameServer {
+			return plan, nil
 		}
-		return tui.RestorePlan{Lost: g.restoreLost(path, info, ""), MovedIP: ip, OldIP: info.PublicIP}, nil
+		if why, unknown := d.unknown(); unknown {
+			plan.AskIP, plan.AskWhy = true, why
+		} else if d.ip != info.PublicIP {
+			plan.MovedIP = d.ip
+		}
+		return plan, nil
 	}
 	o.Restore = func(ctx context.Context, path, pass, publicIP string) (string, error) {
 		info, err := inspectBackup(path, pass)
 		if err != nil {
 			return "", err
 		}
-		res, err := g.restoreRun(ctx, path, pass, publicIP, nil)
+		res, err := g.restoreRun(ctx, path, pass, publicIP, "", nil)
 		if err != nil {
 			return "", err
 		}

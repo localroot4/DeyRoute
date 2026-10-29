@@ -306,6 +306,50 @@ func TestRestoreAsksMovedHub(t *testing.T) {
 	h.mustNot("Type yes", "public IP")
 }
 
+// A hub backup on a server whose detection is private (or failed): the
+// menu asks for the address with the backup's one as default; it never
+// fails like a non-interactive restore (DR-08).
+func TestTUIRestorePrivateAsks(t *testing.T) {
+	var mu sync.Mutex
+	var gotIP []string
+	o := Options{
+		Caps: Caps{Unicode: true},
+		RestoreCheck: func(_ context.Context, path, _ string) (RestorePlan, error) {
+			return RestorePlan{Lost: "Restoring " + path + " replaces this server's /etc/deyroute.", OldIP: "5.6.7.8",
+				AskIP: true, AskWhy: "10.0.0.1 is not a public IP address"}, nil
+		},
+		Restore: func(_ context.Context, _, _, ip string) (string, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			gotIP = append(gotIP, ip)
+			return "Hub ir-1 restored.", nil
+		},
+	}
+	h := newHarness(t, o)
+	h.choose("10").choose("2").typeLine("/tmp/b1").typeLine("")
+	h.must("10.0.0.1 is not a public IP address",
+		"Type this server's public IP; Enter alone keeps the backup's address 5.6.7.8",
+		"Public IP of this server [5.6.7.8]: ")
+	h.mustNot("Type yes")
+	h.typeLine("5.6.7")
+	h.must("an IPv4 or IPv6 address")
+	h.press("ctrl+u")
+	h.typeLine("203.0.113.9")
+	h.must("The hub address changes from 5.6.7.8 to 203.0.113.9", "Type yes to continue: ")
+	h.typeLine("yes")
+	h.must("Restore complete.")
+	h.press("esc")
+	// Enter alone keeps the backup's address: no change is announced.
+	h.choose("2").typeLine("/tmp/b1").typeLine("").typeLine("")
+	h.must("Restoring /tmp/b1 replaces", "Type yes")
+	h.mustNot("address changes")
+	h.typeLine("yes")
+	h.must("Restore complete.")
+	mu.Lock()
+	require.Equal(t, []string{"203.0.113.9", ""}, gotIP)
+	mu.Unlock()
+}
+
 func TestCheckHostPort(t *testing.T) {
 	for _, ok := range []string{"5.6.7.9:44433", "[2001:db8::1]:44433", "hub.example.com:443"} {
 		require.NoError(t, checkHostPort(ok, nil), ok)

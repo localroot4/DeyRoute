@@ -104,8 +104,8 @@ type RestoreOptions struct {
 	// replaces hub.public_ip6 ("" = none). Both are validated before
 	// anything is replaced (DEY-C013, also for a node backup), and the hub
 	// certificate is re-issued for them with the restored CA. The CLI
-	// compares the backup's hub.public_ip with DetectPublicIP and asks the
-	// owner (a same-server restore keeps the address).
+	// decides them (--public-ip, --keep-address, the detected address or
+	// the owner's answer; a same-server restore keeps the address).
 	PublicIP  string
 	PublicIP6 string
 	// ApplySysctl applies tuning.sysctl_profile of the restored config
