@@ -2,6 +2,7 @@ package systemd
 
 import (
 	stderrors "errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/user"
@@ -73,16 +74,27 @@ func EnsureTunnelLogDir(dir string, gid int, chown func(path string, uid, gid in
 // user can remove root's logs and plant a link at a log name that systemd
 // then follows as root; EnsureTunnelLogDir and the installer's repair run
 // keep an existing directory as it is. Only the sticky bit is added: no
-// other bit changes, and a missing dir, a link, anything that is not a
-// directory and a directory of another user are left alone (no error).
-// from and to are the mode bits (permissions, setuid, setgid, sticky)
-// before and after; from == to when nothing changed.
+// other bit changes. A missing dir is left alone (no error: it is created
+// with TunnelLogDirMode when a unit starts). A link, anything that is not a
+// directory and a directory of another user are left alone too, but with an
+// error naming the case, which the services log: dlog.EnsureTunnelLog then
+// refuses every tunnel log there (DEY-X022). from and to are the mode bits
+// (permissions, setuid, setgid, sticky) before and after; from == to when
+// nothing changed.
 func TightenTunnelLogDir(dir string) (from, to uint32, err error) {
 	fd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	switch {
 	case err == nil:
-	case stderrors.Is(err, unix.ENOENT), stderrors.Is(err, unix.ELOOP), stderrors.Is(err, unix.ENOTDIR):
+	case stderrors.Is(err, unix.ENOENT):
 		return 0, 0, nil
+	case stderrors.Is(err, unix.ELOOP), stderrors.Is(err, unix.ENOTDIR):
+		// O_DIRECTORY|O_NOFOLLOW fails with ENOTDIR on a link to a
+		// directory: Lstat tells the two apart.
+		what := "not a directory"
+		if fi, lerr := os.Lstat(dir); lerr == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			what = "a symbolic link"
+		}
+		return 0, 0, fmt.Errorf("%s is %s; it is left as it is", dir, what)
 	default:
 		return 0, 0, &fs.PathError{Op: "open", Path: dir, Err: err}
 	}
@@ -92,7 +104,10 @@ func TightenTunnelLogDir(dir string) (from, to uint32, err error) {
 		return 0, 0, &fs.PathError{Op: "fstat", Path: dir, Err: err}
 	}
 	from = st.Mode & 0o7777
-	if int64(st.Uid) != int64(os.Geteuid()) || from&unix.S_ISVTX != 0 {
+	if euid := os.Geteuid(); int64(st.Uid) != int64(euid) {
+		return from, from, fmt.Errorf("%s belongs to uid %d, not uid %d; it is left as it is", dir, st.Uid, euid)
+	}
+	if from&unix.S_ISVTX != 0 {
 		return from, from, nil
 	}
 	to = from | unix.S_ISVTX
@@ -100,6 +115,23 @@ func TightenTunnelLogDir(dir string) (from, to uint32, err error) {
 		return from, from, &fs.PathError{Op: "chmod", Path: dir, Err: err}
 	}
 	return from, to, nil
+}
+
+// TunnelLogError is the DEY-X022 of the tunnel log path that
+// deylog.EnsureTunnelLog could not prepare (err): the hub and the node then
+// do not start the unit. When the directory itself was refused
+// (deylog.ErrUnsafeLogDir: a link, not root's, or group-writable without
+// the sticky bit), the why names the reason and the fix restores the mode
+// the installer sets.
+func TunnelLogError(path string, err error) *deyerr.Error {
+	e := deyerr.Wrap(deyerr.X022, err, deyerr.Params{"path": path})
+	if stderrors.Is(err, deylog.ErrUnsafeLogDir) {
+		dir := filepath.Dir(path)
+		e = e.WithWhy(err.Error()).
+			WithFix("make " + dir + " root's own directory with the sticky bit, not a link: chown root:deyroute " + dir +
+				" && chmod 1770 " + dir + ", then retry")
+	}
+	return e
 }
 
 // lookupGroupID returns the numeric id of a system group (Manager.GroupID

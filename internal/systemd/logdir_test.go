@@ -30,8 +30,7 @@ func modeBits(t *testing.T, p string) uint32 {
 // The services add the sticky bit to an existing tunnels/ of their own user
 // (root) when they start: an install made before the directory became
 // 01770 has 0770, where the backends' user could remove or replace root's
-// logs. Only the sticky bit is added; no other bit changes, and a directory
-// of another user, a link or a file at the name is left alone.
+// logs. Only the sticky bit is added; no other bit changes.
 func TestTunnelLogDirGetsStickyBit(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -61,7 +60,14 @@ func TestTunnelLogDirGetsStickyBit(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, from, to)
 	})
+}
 
+// A link, a file or a directory of another user at tunnels/ is left alone,
+// but not silently: TightenTunnelLogDir returns an error naming it, which
+// the services log as "cannot make the tunnel log directory sticky", so the
+// weaker state shows in hub.log or node.log (a tunnel unit is then refused,
+// DEY-X022). A missing directory is no error: it is created with the mode.
+func TestTightenTunnelLogDirReportsSkipped(t *testing.T) {
 	t.Run("a link to a directory", func(t *testing.T) {
 		base := t.TempDir()
 		target := filepath.Join(base, "elsewhere")
@@ -70,7 +76,7 @@ func TestTunnelLogDirGetsStickyBit(t *testing.T) {
 		dir := filepath.Join(base, "tunnels")
 		require.NoError(t, os.Symlink(target, dir))
 		from, to, err := TightenTunnelLogDir(dir)
-		require.NoError(t, err)
+		require.ErrorContains(t, err, "symbolic link")
 		require.Equal(t, from, to)
 		require.Equal(t, uint32(0o770), modeBits(t, target))
 	})
@@ -80,7 +86,7 @@ func TestTunnelLogDirGetsStickyBit(t *testing.T) {
 		require.NoError(t, os.WriteFile(p, nil, 0o600))
 		require.NoError(t, os.Chmod(p, 0o660))
 		from, to, err := TightenTunnelLogDir(p)
-		require.NoError(t, err)
+		require.ErrorContains(t, err, "not a directory")
 		require.Equal(t, from, to)
 		require.Equal(t, uint32(0o660), modeBits(t, p))
 	})
@@ -94,9 +100,15 @@ func TestTunnelLogDirGetsStickyBit(t *testing.T) {
 		require.NoError(t, os.Chmod(dir, 0o770))
 		require.NoError(t, os.Lchown(dir, 65534, 65534))
 		from, to, err := TightenTunnelLogDir(dir)
-		require.NoError(t, err)
+		require.ErrorContains(t, err, "uid 65534")
 		require.Equal(t, uint32(0o770), from)
 		require.Equal(t, from, to)
 		require.Equal(t, uint32(0o770), modeBits(t, dir))
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		from, to, err := TightenTunnelLogDir(filepath.Join(t.TempDir(), "tunnels"))
+		require.NoError(t, err)
+		require.Equal(t, from, to)
 	})
 }

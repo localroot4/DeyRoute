@@ -46,10 +46,14 @@ const TunnelLogReplaced = "tunnel log replaced"
 //   - a missing log is created with O_CREAT|O_EXCL|O_NOFOLLOW and mode
 //     TunnelLogFileMode, so it is never an existing file or a link target.
 //
-// In the sticky tunnel log directory (01770, systemd.TightenTunnelLogDir)
-// the backends' user can then neither remove nor rename that file, so
-// systemd appends to root's file. A missing directory is an error matching
-// fs.ErrNotExist.
+// That file stays root's only while no other user can remove or rename it
+// before systemd opens the name: in the sticky tunnel log directory
+// (01770, systemd.TightenTunnelLogDir) the backends' user can do neither.
+// So the directory is checked first (checkTunnelLogDir): when it is a link,
+// not a directory, of another user, or writable by its group or others
+// without the sticky bit, nothing at path is touched and the error matches
+// ErrUnsafeLogDir; the caller must not start the unit. A missing directory
+// is an error matching fs.ErrNotExist.
 //
 // Calls for the same path run one at a time in this process (the hub
 // prepares a tunnel's log from several goroutines): a second call that saw
@@ -58,6 +62,9 @@ const TunnelLogReplaced = "tunnel log replaced"
 func EnsureTunnelLog(path string, refused func(reason string)) error {
 	path = filepath.Clean(path)
 	defer tunnelLogLocks.lock(path)()
+	if err := checkTunnelLogDir(filepath.Dir(path)); err != nil {
+		return err
+	}
 	for retried := false; ; retried = true {
 		fi, err := os.Lstat(path)
 		switch {
@@ -87,6 +94,51 @@ func EnsureTunnelLog(path string, refused func(reason string)) error {
 		}
 		// Something appeared between the Lstat and the creation: look again.
 	}
+}
+
+// ErrUnsafeLogDir is the error of EnsureTunnelLog when the directory of the
+// log lets another user remove or rename the file it would leave there, or
+// is not a directory of this process's user; the error text names the
+// directory and the reason.
+var ErrUnsafeLogDir = stderrors.New("unsafe tunnel log directory")
+
+// checkTunnelLogDir returns nil when dir is a directory, not a symbolic
+// link, of this process's user that has the sticky bit or no write
+// permission for its group and others: then no other user can remove or
+// rename a file of that user in it. The directory is opened with
+// O_DIRECTORY|O_NOFOLLOW and checked with Fstat. A missing dir matches
+// fs.ErrNotExist; any other refusal matches ErrUnsafeLogDir.
+func checkTunnelLogDir(dir string) error {
+	fd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	switch {
+	case err == nil:
+	case stderrors.Is(err, unix.ELOOP), stderrors.Is(err, unix.ENOTDIR):
+		// O_DIRECTORY|O_NOFOLLOW fails with ENOTDIR on a link to a
+		// directory: Lstat tells the two apart.
+		if fi, lerr := os.Lstat(dir); lerr == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			return unsafeLogDir(dir, "it is a symbolic link")
+		}
+		return unsafeLogDir(dir, "it is not a directory")
+	default:
+		return &fs.PathError{Op: "open", Path: dir, Err: err}
+	}
+	defer func() { _ = unix.Close(fd) }()
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return &fs.PathError{Op: "fstat", Path: dir, Err: err}
+	}
+	if euid := os.Geteuid(); int64(st.Uid) != int64(euid) {
+		return unsafeLogDir(dir, fmt.Sprintf("it belongs to uid %d, not uid %d", st.Uid, euid))
+	}
+	if st.Mode&unix.S_ISVTX == 0 && st.Mode&0o022 != 0 {
+		return unsafeLogDir(dir, fmt.Sprintf("mode %04o is writable by its group or others without the sticky bit", st.Mode&0o7777))
+	}
+	return nil
+}
+
+// unsafeLogDir is the ErrUnsafeLogDir of checkTunnelLogDir.
+func unsafeLogDir(dir, reason string) error {
+	return fmt.Errorf("%w %s: %s", ErrUnsafeLogDir, dir, reason)
 }
 
 // tunnelLogLocks serialises EnsureTunnelLog per path.
