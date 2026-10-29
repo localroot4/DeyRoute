@@ -2,6 +2,7 @@ package log
 
 import (
 	stderrors "errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -37,18 +38,25 @@ const TunnelLogReplaced = "tunnel log replaced"
 // directory. So only a regular file of this process's user (root in the
 // daemons) with a single link may stand at path:
 //   - such a file is kept as it is;
-//   - anything else (a link, a FIFO, a socket, a directory with all it
-//     holds, a file with a second hard link or of another user) is removed
-//     like the rotator removes what stands at its names (removeUntrusted: a
-//     link is removed, never followed), after refused is told the reason
-//     (RefusedSymlink, RefusedNotRegular, RefusedHardlink, RefusedOwner);
+//   - anything else (a link, a FIFO, a socket, a directory, a file with a
+//     second hard link or of another user) is removed like the rotator
+//     removes what stands at its names, after refused is told the reason
+//     (RefusedSymlink, RefusedNotRegular, RefusedHardlink, RefusedOwner).
+//     removeUntrusted unlinks a link (never followed) or a file, and renames
+//     a directory aside at once whatever it holds, which RotateDirLoop
+//     deletes later in bounded steps: the start never waits for a tree as
+//     deep as the backend made it;
 //   - a missing log is created with O_CREAT|O_EXCL|O_NOFOLLOW and mode
 //     TunnelLogFileMode, so it is never an existing file or a link target.
 //
-// In the sticky tunnel log directory (01770, systemd.TightenTunnelLogDir)
-// the backends' user can then neither remove nor rename that file, so
-// systemd appends to root's file. A missing directory is an error matching
-// fs.ErrNotExist.
+// That file stays root's only while no other user can remove or rename it
+// before systemd opens the name: in the sticky tunnel log directory
+// (01770, systemd.TightenTunnelLogDir) the backends' user can do neither.
+// So the directory is checked first (checkTunnelLogDir): when it is a link,
+// not a directory, of another user, or writable by its group or others
+// without the sticky bit, nothing at path is touched and the error matches
+// ErrUnsafeLogDir; the caller must not start the unit. A missing directory
+// is an error matching fs.ErrNotExist.
 //
 // Calls for the same path run one at a time in this process (the hub
 // prepares a tunnel's log from several goroutines): a second call that saw
@@ -57,6 +65,9 @@ const TunnelLogReplaced = "tunnel log replaced"
 func EnsureTunnelLog(path string, refused func(reason string)) error {
 	path = filepath.Clean(path)
 	defer tunnelLogLocks.lock(path)()
+	if err := checkTunnelLogDir(filepath.Dir(path)); err != nil {
+		return err
+	}
 	for retried := false; ; retried = true {
 		fi, err := os.Lstat(path)
 		switch {
@@ -86,6 +97,51 @@ func EnsureTunnelLog(path string, refused func(reason string)) error {
 		}
 		// Something appeared between the Lstat and the creation: look again.
 	}
+}
+
+// ErrUnsafeLogDir is the error of EnsureTunnelLog when the directory of the
+// log lets another user remove or rename the file it would leave there, or
+// is not a directory of this process's user; the error text names the
+// directory and the reason.
+var ErrUnsafeLogDir = stderrors.New("unsafe tunnel log directory")
+
+// checkTunnelLogDir returns nil when dir is a directory, not a symbolic
+// link, of this process's user that has the sticky bit or no write
+// permission for its group and others: then no other user can remove or
+// rename a file of that user in it. The directory is opened with
+// O_DIRECTORY|O_NOFOLLOW and checked with Fstat. A missing dir matches
+// fs.ErrNotExist; any other refusal matches ErrUnsafeLogDir.
+func checkTunnelLogDir(dir string) error {
+	fd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	switch {
+	case err == nil:
+	case stderrors.Is(err, unix.ELOOP), stderrors.Is(err, unix.ENOTDIR):
+		// O_DIRECTORY|O_NOFOLLOW fails with ENOTDIR on a link to a
+		// directory: Lstat tells the two apart.
+		if fi, lerr := os.Lstat(dir); lerr == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			return unsafeLogDir(dir, "it is a symbolic link")
+		}
+		return unsafeLogDir(dir, "it is not a directory")
+	default:
+		return &fs.PathError{Op: "open", Path: dir, Err: err}
+	}
+	defer func() { _ = unix.Close(fd) }()
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return &fs.PathError{Op: "fstat", Path: dir, Err: err}
+	}
+	if euid := os.Geteuid(); int64(st.Uid) != int64(euid) {
+		return unsafeLogDir(dir, fmt.Sprintf("it belongs to uid %d, not uid %d", st.Uid, euid))
+	}
+	if st.Mode&unix.S_ISVTX == 0 && st.Mode&0o022 != 0 {
+		return unsafeLogDir(dir, fmt.Sprintf("mode %04o is writable by its group or others without the sticky bit", st.Mode&0o7777))
+	}
+	return nil
+}
+
+// unsafeLogDir is the ErrUnsafeLogDir of checkTunnelLogDir.
+func unsafeLogDir(dir, reason string) error {
+	return fmt.Errorf("%w %s: %s", ErrUnsafeLogDir, dir, reason)
 }
 
 // tunnelLogLocks serialises EnsureTunnelLog per path.
@@ -172,13 +228,20 @@ func (w *WarnOnce) Warn(file, reason string) {
 // regular file (a symbolic link, a FIFO, a socket, a directory …).
 var ErrNotRegular = stderrors.New("not a regular file")
 
+// ErrHardlink is the error of OpenLogFile for a regular file with more than
+// one link. It matches ErrNotRegular too: the readers treat both alike.
+var ErrHardlink = fmt.Errorf("%w with a single link", ErrNotRegular)
+
 // OpenLogFile opens the log at path for reading and returns it with its
 // Fstat. The daemons read the tunnel logs as root in a directory where the
 // backends' user (deyroute) can add names, so the open never follows a link
 // (O_NOFOLLOW) and never blocks on a FIFO (O_NONBLOCK), and only a regular
-// file is accepted: anything else is a *fs.PathError wrapping ErrNotRegular.
-// A missing file matches fs.ErrNotExist. Reads of a regular file are not
-// affected by O_NONBLOCK.
+// file with a single link is accepted, as the rotation and doctor collect
+// do: with fs.protected_hardlinks=0 that user can hard-link a file it cannot
+// read (/etc/shadow) to a log name. Anything else is a *fs.PathError
+// wrapping ErrNotRegular (ErrHardlink for a second link). A missing file
+// matches fs.ErrNotExist. Reads of a regular file are not affected by
+// O_NONBLOCK.
 func OpenLogFile(path string) (*os.File, os.FileInfo, error) {
 	path = filepath.Clean(path)
 	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
@@ -197,6 +260,10 @@ func OpenLogFile(path string) (*os.File, os.FileInfo, error) {
 	if !fi.Mode().IsRegular() {
 		_ = f.Close()
 		return nil, nil, &fs.PathError{Op: "open", Path: path, Err: ErrNotRegular}
+	}
+	if _, nlink, ok := fileOwner(fi); !ok || nlink != 1 {
+		_ = f.Close()
+		return nil, nil, &fs.PathError{Op: "open", Path: path, Err: ErrHardlink}
 	}
 	return f, fi, nil
 }

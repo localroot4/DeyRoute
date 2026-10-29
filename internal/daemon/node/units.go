@@ -875,14 +875,16 @@ func (a *agent) prepareTunnelLog(tunnel string) error {
 
 // ensureTunnelLog makes <tunnel>.log the agent's own regular file with one
 // link (dlog.EnsureTunnelLog) and logs what it removed there as "tunnel log
-// replaced". Errors are DEY-X022.
+// replaced". Errors are DEY-X022 (systemd.TunnelLogError), also when the
+// tunnel log directory is not root's sticky one: a link, a directory of
+// another user, or group-writable without the sticky bit.
 func (a *agent) ensureTunnelLog(tunnel string) error {
 	if !config.ValidID(tunnel) {
 		return nil
 	}
 	p := a.path(systemd.TunnelLogFile(tunnel))
 	if err := dlog.EnsureTunnelLog(p, func(reason string) { a.logWarn.Warn(p, reason) }); err != nil {
-		return deyerr.Wrap(deyerr.X022, err, deyerr.Params{"path": p})
+		return systemd.TunnelLogError(p, err)
 	}
 	return nil
 }
@@ -915,7 +917,8 @@ func (a *agent) prepareTunnelLogs() {
 // tightenTunnelLogDir adds the sticky bit to an existing
 // /var/log/deyroute/tunnels of root when the agent starts
 // (systemd.TightenTunnelLogDir): an install made before it became 01770
-// left it 0770.
+// left it 0770. A link, a non-directory or a directory of another user is
+// left alone and logged as a warning: every tunnel log there is refused.
 func (a *agent) tightenTunnelLogDir() {
 	dir := a.path(systemd.TunnelLogDir)
 	from, to, err := systemd.TightenTunnelLogDir(dir)

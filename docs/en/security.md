@@ -320,16 +320,29 @@ security change. Menu: `8) Security` → `5) Audit`.
   so `deyroute update` (which restarts them) is enough; running the
   installer again (it repairs and keeps the configuration) also sets the
   mode. The services only add the sticky bit, and never to a directory
-  root does not own. Check it with
+  root does not own: a link at that name or a directory of another user is
+  left as it is and logged as the warning
+  `cannot make the tunnel log directory sticky`, and no transport starts
+  there (next point). Check it with
   `stat -c '%a %U:%G' /var/log/deyroute/tunnels` (`1770 root:deyroute`).
 - Before a transport starts, and for every tunnel when the service starts,
   the hub and the node make sure that `<tunnel>.log` is root's regular file
   with a single link: systemd would follow a link at that name as root, or
   create the file it points to. Anything else found there (a link, a FIFO,
   a directory, a second hard link, a file of another user) is removed and
-  an empty log is created (`0644`, as systemd creates it). The check when
-  the service starts also covers a link put there before the directory was
-  sticky. Each case is logged once per file and reason while the service
+  an empty log is created (`0644`, as systemd creates it). A directory is
+  not deleted on the spot: it is renamed
+  `<tunnel>.log.removed-<16 hex digits>` next to it, which frees the name
+  at once however deep it is, and the rotation deletes it in the
+  background (below). The check when the service starts also covers a
+  link put there before the directory was sticky. It needs `tunnels/` to
+  be root's own directory with the sticky bit (or closed to its group and
+  others): at a link, in a directory of another user, or in a
+  group-writable one without the sticky bit, the transport is not
+  started, nothing at the log name is touched and the hub or node answers
+  `DEY-X022`, whose `Why` names the reason (fix:
+  `chown root:deyroute /var/log/deyroute/tunnels && chmod 1770 /var/log/deyroute/tunnels`).
+  Each replaced log is logged once per file and reason while the service
   runs, as a warning in `hub.log` or `node.log`:
 
   ```bash
@@ -351,16 +364,23 @@ security change. Menu: `8) Security` → `5) Audit`.
   (`systemctl restart deyroute-hub` or `deyroute-node`): it creates the log
   again as root's file.
 - `deyroute logs` and the log lines shown with a failed start (`DEY-B003`)
-  read only a regular file: they never follow a link and never wait on a
-  FIFO at a log name.
+  read only a regular file with a single link: they never follow a link,
+  never wait on a FIFO and never read a file with a second hard link at a
+  log name (a node answers `DEY-X022`), as the rotation and
+  `deyroute doctor` do.
 - The hub and the node rotate these logs as root (above 20 MB, checked
   every minute, 5 compressed files kept). The rotation never follows a
   symbolic link and never writes through a file name the `deyroute` user
   could create first: a `*.log` that is a link, not a regular file, or has
   a second hard link is skipped; the copy is made in the root-only
   `/var/lib/deyroute/tmp` (0700); and anything the rotation finds at one of
-  the names it writes in the tunnel log directory is removed (a directory
-  with everything in it), so the rotation goes on.
+  the names it writes in the tunnel log directory is removed, so the
+  rotation goes on (a directory is renamed
+  `<name>.removed-<16 hex digits>`). Every minute the rotation also
+  deletes what was renamed so, in the tunnel log directory and in
+  `/var/lib/deyroute/tmp`: at most 10000 entries per directory and minute,
+  a link inside removed and never followed, so a tree as deep as the
+  backend made it never holds up the service.
 - Each such case is logged once per file and reason while the service
   runs, as a warning in `hub.log` or `node.log`:
 
@@ -376,8 +396,12 @@ security change. Menu: `8) Security` → `5) Audit`.
   (`ps -u deyroute -o pid,args`), and update or replace the backend. The
   lab scenario S36 plants such links, also at the log name of a tunnel
   before it is added and at the log of a running tunnel before the
-  services restart, and checks that root files stay unchanged, that normal
-  rotation goes on and that the tunnels come up.
+  services restart (then kills its backend, which systemd restarts by
+  itself), a chain of 3000 directories at the log name of a new tunnel and
+  a hard link at a log name, and checks that root files stay unchanged,
+  that normal rotation goes on, that the tunnels come up, that the chain
+  is deleted in the background and that `deyroute logs` refuses the hard
+  link.
 
 ## A node is never an open proxy
 

@@ -36,9 +36,9 @@ func requireOwnLog(t *testing.T, p string) os.FileInfo {
 // Before systemd opens <tunnel>.log as root for StandardOutput=append: (it
 // follows a link and creates a missing file), the daemon leaves only its
 // own regular file with one link there: anything else is removed (a
-// directory with all it holds, a link inside never followed), reported with
-// its reason, and replaced by a new empty file. What a link pointed to is
-// never touched.
+// directory is moved aside whatever it holds, a link inside never
+// followed), reported with its reason, and replaced by a new empty file.
+// What a link pointed to is never touched.
 func TestEnsureTunnelLogReplacesPlantedLink(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -88,6 +88,7 @@ func TestEnsureTunnelLogReplacesPlantedLink(t *testing.T) {
 			dir := filepath.Join(base, "log", "tunnels")
 			outside := filepath.Join(base, "etc")
 			require.NoError(t, os.MkdirAll(dir, 0o770))
+			require.NoError(t, os.Chmod(dir, os.ModeSticky|0o770))
 			require.NoError(t, os.MkdirAll(outside, 0o755))
 			victim := filepath.Join(outside, "cron")
 			require.NoError(t, os.WriteFile(victim, victimData, 0o644))
@@ -111,6 +112,76 @@ func TestEnsureTunnelLogReplacesPlantedLink(t *testing.T) {
 			require.Empty(t, reasons)
 			requireContent(t, p, []byte("a line\n"))
 		})
+	}
+}
+
+// The file EnsureTunnelLog leaves stays root's only while no other user can
+// remove or rename it before systemd opens the name: the directory must be a
+// directory (not a link) of the daemon's user that is sticky or closed to
+// its group and others. Otherwise nothing at the name is touched or created
+// and the call fails, so the unit is not started; a missing directory is
+// still fs.ErrNotExist.
+func TestEnsureTunnelLogRefusesUnsafeDirectory(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// make creates the directory of the log at dir.
+		make func(t *testing.T, dir string)
+	}{
+		{"group-writable without the sticky bit", func(t *testing.T, dir string) {
+			require.NoError(t, os.Mkdir(dir, 0o700))
+			require.NoError(t, os.Chmod(dir, 0o770))
+		}},
+		{"writable by others without the sticky bit", func(t *testing.T, dir string) {
+			require.NoError(t, os.Mkdir(dir, 0o700))
+			require.NoError(t, os.Chmod(dir, 0o707))
+		}},
+		{"a link to a sticky directory", func(t *testing.T, dir string) {
+			target := dir + "-target"
+			require.NoError(t, os.Mkdir(target, 0o700))
+			require.NoError(t, os.Chmod(target, os.ModeSticky|0o770))
+			require.NoError(t, os.Symlink(target, dir))
+		}},
+		{"another owner", func(t *testing.T, dir string) {
+			if os.Geteuid() != 0 {
+				t.Skip("chown to another user needs root")
+			}
+			require.NoError(t, os.Mkdir(dir, 0o700))
+			require.NoError(t, os.Chmod(dir, os.ModeSticky|0o770))
+			require.NoError(t, os.Lchown(dir, 65534, 65534))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			victim := filepath.Join(base, "cron")
+			require.NoError(t, os.WriteFile(victim, victimData, 0o644))
+			dir := filepath.Join(base, "tunnels")
+			tc.make(t, dir)
+			p := filepath.Join(dir, "t1.log")
+			require.NoError(t, os.Symlink(victim, p))
+			missing := filepath.Join(dir, "t2.log")
+
+			for _, name := range []string{p, missing} {
+				err := EnsureTunnelLog(name, func(r string) { t.Errorf("%s: nothing is removed, got %s", name, r) })
+				require.Error(t, err, "%s in an unsafe directory", name)
+				require.NotErrorIs(t, err, fs.ErrNotExist)
+				require.ErrorIs(t, err, ErrUnsafeLogDir)
+			}
+			fi, err := os.Lstat(p)
+			require.NoError(t, err)
+			require.NotZero(t, fi.Mode()&fs.ModeSymlink, "the link is left as it is")
+			requireAbsent(t, missing)
+			requireContent(t, victim, victimData)
+		})
+	}
+
+	// Sticky (also open to all, as /tmp) or closed to group and others: safe.
+	for _, mode := range []os.FileMode{os.ModeSticky | 0o770, os.ModeSticky | 0o777, 0o750, 0o700} {
+		dir := filepath.Join(t.TempDir(), "tunnels")
+		require.NoError(t, os.Mkdir(dir, 0o700))
+		require.NoError(t, os.Chmod(dir, mode))
+		p := filepath.Join(dir, "t1.log")
+		require.NoError(t, EnsureTunnelLog(p, func(r string) { t.Errorf("unexpected refusal %s", r) }), "mode %v", mode)
+		requireOwnLog(t, p)
 	}
 }
 
@@ -302,4 +373,31 @@ func TestOpenLogFileAcceptsOnlyRegular(t *testing.T) {
 		require.Nil(t, fi)
 	}
 	requireContent(t, victim, victimData)
+}
+
+// OpenLogFile does not read a regular file with a second hard link, as the
+// rotation and doctor collect do not: with fs.protected_hardlinks=0 the
+// backends' user can link a file it cannot read (/etc/shadow) to a log
+// name, and the daemons read the logs as root (a node for its hub, also for
+// a tunnel it never started). Once the other name is gone the file is read
+// again.
+func TestOpenLogFileRefusesHardlink(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "shadow")
+	require.NoError(t, os.WriteFile(secret, []byte("root:secret-hash:19000:0:99999:7:::\n"), 0o600))
+	p := filepath.Join(dir, "zz.log")
+	require.NoError(t, os.Link(secret, p))
+
+	f, fi, err := OpenLogFile(p)
+	require.ErrorIs(t, err, ErrNotRegular)
+	require.ErrorIs(t, err, ErrHardlink)
+	require.ErrorContains(t, err, "not a regular file with a single link")
+	require.Nil(t, f)
+	require.Nil(t, fi)
+
+	require.NoError(t, os.Remove(secret))
+	f, fi, err = OpenLogFile(p)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	require.True(t, fi.Mode().IsRegular())
 }

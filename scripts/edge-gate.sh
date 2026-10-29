@@ -38,6 +38,15 @@ tip=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
 [ "$tip" = "$sha" ] ||
   skip "$branch moved on to ${tip:0:7}; the ci run of that commit publishes it, not ${sha:0:7}"
 
+# A commit with a stable tag vX.Y.Z is released by the release job of ci.yml.
+# An edge tag on the same commit would make goreleaser, which takes the
+# highest tag of the commit, release the edge version instead.
+stable=$(git ls-remote --tags origin | awk -v s="$sha" '$1 == s {
+  t = $2; sub("^refs/tags/", "", t); sub("\\^\\{\\}$", "", t)
+  if (t ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/) { print t; exit }
+}')
+[ -z "$stable" ] || skip "${sha:0:7} is the stable release $stable, which ci.yml publishes"
+
 # The newest edge release of the branch (releases of the other branch and
 # tags without "-edge." do not count).
 newest=""

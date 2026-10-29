@@ -48,8 +48,9 @@ func (a *agent) logPath(command, target string) (string, error) {
 // readTail returns the last n (redacted) lines of path, keeping only lines
 // at or after since when they carry a JSON "ts" field, and the file size
 // the tail was read at (where a follow continues). A missing file has no
-// lines. The file is opened with dlog.OpenLogFile: a link, a FIFO or
-// anything else but a regular file is DEY-X022, never read through.
+// lines. The file is opened with dlog.OpenLogFile: a link, a FIFO, a file
+// with a second hard link or anything else but a regular file with one link
+// is DEY-X022, never read through.
 func readTail(path string, n int, since time.Time) ([]string, int64, error) {
 	if n <= 0 {
 		n = DefaultLogLines
@@ -95,8 +96,9 @@ func lineTime(line string) (time.Time, bool) {
 
 // follow emits (redacted) lines appended to path after offset until ctx
 // ends or emit fails. A rotated or truncated file is read again from its
-// start. Every poll opens the file with dlog.OpenLogFile: a link, a FIFO or
-// anything else but a regular file at path is not read (as if missing).
+// start. Every poll opens the file with dlog.OpenLogFile: a link, a FIFO, a
+// file with a second hard link or anything else but a regular file with one
+// link at path is not read (as if missing).
 func (a *agent) follow(ctx context.Context, path string, offset int64, emit func([]string) error) {
 	t := time.NewTicker(a.o.FollowPoll)
 	defer t.Stop()

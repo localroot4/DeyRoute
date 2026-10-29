@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/localroot4/deyroute/internal/api"
+	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/systemd"
 )
 
@@ -149,4 +150,63 @@ func TestNodeStartReplacesPlantedLogOfKnownTunnel(t *testing.T) {
 	fi, err = os.Stat(dir)
 	require.NoError(t, err)
 	require.Equal(t, os.ModeSticky|0o770, fi.Mode()&(os.ModePerm|os.ModeSticky))
+}
+
+// systemd opens <tunnel>.log as root right after the agent prepared it. The
+// agent's file stays its own only in a directory where no other user can
+// remove or rename it: root's sticky tunnels/ (01770), or one closed to the
+// group. In a group-writable directory without the sticky bit the
+// backends' user could put a link there between the preparation and
+// systemd's open, and a link at tunnels/ leads elsewhere. So unit.start is
+// refused there with DEY-X022, whose why names the reason, nothing at the
+// log name is touched and the unit is not started; a link at tunnels/ is
+// also reported when the agent starts.
+func TestNodeUnitStartRefusesUnsafeLogDir(t *testing.T) {
+	e := newEnv(t)
+	dir := e.path(systemd.TunnelLogDir)
+	target := dir + "-elsewhere"
+	require.NoError(t, os.MkdirAll(target, 0o750))
+	require.NoError(t, os.Chmod(target, os.ModeSticky|0o770))
+	require.NoError(t, os.Symlink(target, dir))
+	s := e.start()
+	require.Contains(t, e.logs.String(), "cannot make the tunnel log directory sticky")
+	require.Contains(t, e.logs.String(), "symbolic link")
+
+	args := renderArgs("main", "backhaul", "wssmux")
+	_, err := call[json.RawMessage](t, s, api.CmdBackendRender, args)
+	require.NoError(t, err)
+	victimData := "* * * * * root /bin/true\n"
+	victim := e.path("/etc/cron.d/x")
+	writeFile(t, victim, victimData, 0o644)
+	logFile := e.path(systemd.TunnelLogFile("main"))
+	require.NoError(t, os.Symlink(victim, logFile))
+	requireRefused := func(why string) {
+		t.Helper()
+		_, err := call[api.UnitStatus](t, s, api.CmdUnitStart, api.UnitArgs{Instance: args.Instance})
+		de := requireCode(t, err, deyerr.X022)
+		require.Contains(t, de.Why(), why)
+		require.NotEqual(t, "active", e.sys.state(unitOf(args)), "the unit is not started")
+		fi, err := os.Lstat(logFile)
+		require.NoError(t, err)
+		require.NotZero(t, fi.Mode()&os.ModeSymlink, "the link is left as it is")
+		data, err := os.ReadFile(victim)
+		require.NoError(t, err)
+		require.Equal(t, victimData, string(data), "the root file is unchanged")
+	}
+	requireRefused("symbolic link")
+
+	// A directory again, but group-writable without the sticky bit.
+	require.NoError(t, os.Remove(dir))
+	require.NoError(t, os.Rename(target, dir))
+	require.NoError(t, os.Chmod(dir, 0o770))
+	requireRefused("sticky")
+	require.Empty(t, replacedWarnings(t, e))
+
+	// With the sticky bit the unit starts and the link is replaced.
+	require.NoError(t, os.Chmod(dir, os.ModeSticky|0o770))
+	_, err = call[api.UnitStatus](t, s, api.CmdUnitStart, api.UnitArgs{Instance: args.Instance})
+	require.NoError(t, err)
+	require.Equal(t, "active", e.sys.state(unitOf(args)))
+	requireOwnLog(t, logFile)
+	require.Equal(t, []string{logFile + " symlink"}, replacedWarnings(t, e))
 }

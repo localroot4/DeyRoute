@@ -168,6 +168,25 @@ TestEdgeGateSkipsCommitBehindBranchTip() {
   want_gate false main "$a" "main moved on to ${b:0:7}"
 }
 
+# A commit tagged vX.Y.Z (tag-release.yml or a pushed tag) is the stable
+# release: no edge build of it, annotated or lightweight tag.
+TestEdgeGateSkipsStableTaggedCommit() {
+  new_repo
+  local a b
+  a=$(commit)
+  git -C "$T/w" tag -a v0.3.0 -m "DEYROUTE 0.3.0" "$a"
+  git -C "$T/w" push -q origin v0.3.0
+  checkout
+  want_gate false main "$a" "is the stable release v0.3.0"
+  b=$(commit)
+  git --git-dir="$T/origin.git" tag v0.3.1 "$b"
+  checkout
+  want_gate false main "$b" "is the stable release v0.3.1"
+  git --git-dir="$T/origin.git" tag v0.3.2-edge.9 "$b"
+  checkout
+  want_gate false main "$b" "is the stable release v0.3.1"
+}
+
 # The same, while the ci run of B is still running: B publishes when it ends.
 TestEdgeGateSkipsCommitBehindTipBeforeTipIsPublished() {
   new_repo

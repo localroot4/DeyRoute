@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/localroot4/deyroute/internal/api"
+	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/systemd"
 )
 
@@ -137,4 +138,62 @@ func TestHubStartReplacesPlantedLogOfKnownTunnel(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, os.ModeSticky|0o770, fi.Mode()&(os.ModePerm|os.ModeSticky))
 	require.Equal(t, startsBefore, te.sd.count("start", hubUnit("t1", "de-1", trAlpha)), "the running unit is adopted, not started")
+}
+
+// systemd opens <tunnel>.log as root right after the hub prepared it
+// (prepareTunnelLog, the first step of startHubSide and of the restart of a
+// changed hub unit). The hub's file stays its own only in a directory where
+// no other user can remove or rename it: root's sticky tunnels/ (01770),
+// or one closed to the group. A link at tunnels/ and a group-writable
+// directory without the sticky bit are refused with DEY-X022, whose why
+// names the reason, and nothing at the log name is touched; the link is
+// also reported in hub.log when the hub starts.
+func TestHubUnitStartRefusesUnsafeLogDir(t *testing.T) {
+	logger, logs := newFrontLog()
+	env, o := prepareEnv(t, nil, func(o *Options, _ string) { o.Logger = logger })
+	dir := filepath.Join(env.root, systemd.TunnelLogDir)
+	target := dir + "-elsewhere"
+	require.NoError(t, os.MkdirAll(target, 0o750))
+	require.NoError(t, os.Chmod(target, os.ModeSticky|0o770))
+	require.NoError(t, os.Symlink(target, dir))
+	env.startEnv(o)
+	require.Contains(t, logs.String(), "cannot make the tunnel log directory sticky")
+	require.Contains(t, logs.String(), "symbolic link")
+
+	victim := filepath.Join(env.root, "etc", "cron.d", "x")
+	require.NoError(t, os.MkdirAll(filepath.Dir(victim), 0o755))
+	victimData := []byte("* * * * * root /bin/true\n")
+	require.NoError(t, os.WriteFile(victim, victimData, 0o644))
+	logFile := filepath.Join(env.root, systemd.TunnelLogFile("t1"))
+	require.NoError(t, os.Symlink(victim, logFile))
+	requireRefused := func(why string) {
+		t.Helper()
+		err := env.h.prepareTunnelLog("t1")
+		require.Error(t, err)
+		de := deyerr.As(err)
+		require.Equal(t, deyerr.X022, de.Code, "%v", err)
+		require.Contains(t, de.Why(), why)
+		fi, err := os.Lstat(logFile)
+		require.NoError(t, err)
+		require.NotZero(t, fi.Mode()&os.ModeSymlink, "the link is left as it is")
+		data, err := os.ReadFile(victim)
+		require.NoError(t, err)
+		require.Equal(t, string(victimData), string(data), "the root file is unchanged")
+	}
+	requireRefused("symbolic link")
+
+	// A directory again, but group-writable without the sticky bit.
+	require.NoError(t, os.Remove(dir))
+	require.NoError(t, os.Rename(target, dir))
+	require.NoError(t, os.Chmod(dir, 0o770))
+	requireRefused("sticky")
+	require.NotContains(t, logs.String(), "tunnel log replaced")
+
+	// With the sticky bit the link is replaced by the hub's own file.
+	require.NoError(t, os.Chmod(dir, os.ModeSticky|0o770))
+	require.NoError(t, env.h.prepareTunnelLog("t1"))
+	fi, err := os.Lstat(logFile)
+	require.NoError(t, err)
+	require.True(t, fi.Mode().IsRegular(), "t1.log is %v", fi.Mode())
+	require.Contains(t, logs.String(), `msg="tunnel log replaced" file=`+logFile+" reason=symlink")
 }
