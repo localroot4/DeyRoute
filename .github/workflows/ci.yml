@@ -36,6 +36,8 @@ jobs:
         run: find installer scripts test -name '*.sh' -print0 | xargs -0 -r shellcheck
       - name: edge release scripts
         run: bash test/release/edge_test.sh
+      - name: systemd units identical in deploy/ and the binary
+        run: diff -r deploy/systemd internal/systemd/units
       - name: installer size budget (<= 250 lines)
         run: test "$(wc -l < installer/install.sh)" -le 250
       - name: generated docs up to date
