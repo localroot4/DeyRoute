@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S03: join with an expired token / a wrong fingerprint: DEY-N001 / DEY-N002, nothing registered; a gone --version: DEY-I024
+# S03: join with an expired token / a wrong fingerprint: DEY-N001 / DEY-N002, nothing registered; a revoked token: DEY-N001 and the control port is restricted to @nodes again; a gone --version: DEY-I024
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
 
@@ -32,6 +32,25 @@ log "deyroute join: node online after ${jms}ms"
 [ "$jms" -lt 30000 ] || fail "join took ${jms}ms (limit 30s)"
 expect_code DEY-N001 dey --on node2 join "$link" --yes >&2
 [ "$(dey node list --json | jq '.nodes | length')" = 1 ] || fail "the reused token registered a second node"
+
+# Join-token revoke (DR-16): a new join command opens the join window (the
+# control port accepts every source); node join-revoke deletes the token and
+# applies the firewall before it returns, so the port is restricted to
+# @nodes again at once, and the revoked link fails with DEY-N001.
+cport=$(dey status --json | jq -r .hub.control_port)
+ctl_rules() { on hub nft list table inet deyroute | grep -E "tcp dport $cport( |$)"; }
+revoked_link=$(join_link)
+ctl_rules | grep -qE "tcp dport $cport accept" || fail "a join command did not open the join window:"$'\n'"$(ctl_rules)"
+rv=$(dey node join-revoke --json)
+jq -e '.schema == 1 and .ok == true and .revoked == 1' <<<"$rv" >/dev/null || fail "join-revoke: $rv"
+rules=$(ctl_rules)
+grep -q "ip saddr @nodes accept" <<<"$rules" || fail "the control port is not restricted to @nodes after join-revoke:"$'\n'"$rules"
+grep -qE "tcp dport $cport drop" <<<"$rules" || fail "unknown sources are not dropped after join-revoke:"$'\n'"$rules"
+if grep -qE "tcp dport $cport accept" <<<"$rules"; then fail "the join window is still open after join-revoke:"$'\n'"$rules"; fi
+has_event join_tokens_revoked || fail "no join_tokens_revoked event"
+expect_code DEY-N001 dey --on node2 join "$revoked_link" --yes >&2
+[ "$(dey node list --json | jq '.nodes | length')" = 1 ] || fail "the revoked token registered a node"
+[ "$(dey node join-revoke --json | jq .revoked)" = 0 ] || fail "a second join-revoke found a token"
 
 # A pinned release that is gone (DR-02): when every source answers HTTP 404
 # for SHA256SUMS of --version V, the installer stops at once with DEY-I024
