@@ -223,6 +223,20 @@ All notable changes to DEYROUTE are documented here. The format follows
   announces `nat-scope`); older nodes keep the old rule (DR-18;
   docs/en/faq-filtering.md; lab S42).
 
+### Security — sandboxed hub and node services
+
+- The `deyroute-hub` and `deyroute-node` units run sandboxed (DR-20):
+  `ProtectSystem=strict` with an explicit write list, a capability bounding
+  set (`CAP_SYS_ADMIN`, `CAP_SYS_MODULE`, `CAP_SETUID`, `CAP_SETGID` and
+  `CAP_KILL` are gone), `ProtectControlGroups`, `RestrictSUIDSGID`,
+  `LockPersonality` and `SystemCallArchitectures=native`. The hub writes
+  only its own paths; the node keeps `/etc`, `/var/lib` and `/var/log`
+  writable because the uninstall the hub sends runs inside it.
+  `systemd-analyze security` exposure: 8.9 to 6.5 (hub), 8.9 to 6.6
+  (node). Existing servers get the new units when the installer runs again
+  (or on join); `deyroute update` alone keeps the units in place
+  (docs/en/security.md, QUESTIONS.md C.70).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs

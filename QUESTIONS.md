@@ -732,6 +732,82 @@ stated default until the owner decides · **[ANSWERED]** closed.
     `--public-ip6` the IPv4 address is still detected. Owner decision: a
     command or flag that lifts the marker, and whether `--public-ip` should
     accept IPv6 for an IPv6-only hub.
+66. **[OPEN] `restore --public-ip` accepts a private address (DR-08).**
+    `deyroute restore --public-ip` uses a private, CGNAT or loopback
+    address as given and reports it in `warnings` (JSON) and as a `!` line;
+    an address typed at the terminal question is recorded as
+    `address_source: "asked"` and treated the same way. DR-07
+    (`setup --public-ip`) refuses such an address unless
+    `--allow-private-ip` is also given. The restore keeps the explicit
+    operator choice because a hub moved behind a provider NAT or floating
+    IP may really be reached that way, and a refusal would leave no flag to
+    override it. Options: (a) keep this; (b) align with DR-07: refuse with
+    `DEY-C013` unless `--allow-private-ip` (a new restore flag). Owner
+    decision.
+67. **[DEFAULT] How a hub brings its nodes to its version (DR-11).** A
+    hub on a release sends `self.update` to a node of another major.minor
+    when it connects, without an update record, and then records the push
+    like `deyroute update`, so every node follows; a node of the same
+    major.minor without a record is left alone. A node newer than the hub
+    is pushed back to the hub's version (warn log): the hub's version wins.
+    A development build (`dev`) pushes nothing by itself (no signed
+    release; signed-update nodes would refuse with `DEY-S012`). A refused
+    or failed `self.update` (for example `DEY-S001`, `DEY-S012`, no signed
+    release) is retried only after a wait of 10 minutes, doubling up to 6
+    hours, kept in memory per hub run (a restart retries at once); the
+    first failure is a warning, later ones debug. `deyroute update` with
+    nothing newer calls the new local API `UpdateNodes`, which installs
+    nothing and marks the nodes of another version: the CLI never calls
+    `UpdateApply` there, so no release the owner did not see and confirm is
+    installed. `setup.Restore` writes `/var/lib/deyroute/restored-from`
+    (0600, hub backups only, the backup's version); the hub reads it once
+    at start without following links, deletes it, and marks the nodes
+    when the version differs from its own.
+68. **[DEFAULT] A taken tunnel name fails only for scripts (DR-12).** The
+    hub numbered a taken id derived from `--name` (`t5-2`) for every
+    caller, so a blind retry of a script created a second tunnel or failed
+    with a port clash (`DEY-C003`). The CLI now sets the new request field
+    `no_rename` when `--name` is given without `--id` and the command runs
+    without a terminal or with `--yes`, unless `--allow-rename`; the hub
+    then answers `DEY-C002` before the port check. A person at a terminal
+    and the menu keep the numbered id. Without `--name` the default id
+    `tunnel` is still numbered (`tunnel-2`), because the brief names only
+    `--name`; `--allow-rename` has no effect with `--id`. A hub daemon
+    older than the CLI ignores the field and numbers the id as before.
+69. **[DEFAULT] A new node order moves no traffic (DR-13).** `tunnel edit
+    --node` replaces the ordered node list. When the active node stays in
+    the list, the tunnel stays on it and returns to the new primary only
+    through the normal failback (the canary must pass `recover_threshold`
+    probes; without a canary, after `failback_after_s`); `tunnel switch
+    --node` moves it at once. When the list leaves out the active node, the
+    engine moves the tunnel at once, so the CLI asks for `yes` first
+    (`--yes` in scripts, exit 3 without a terminal). The CLI also accepts
+    ids separated by commas, like `tunnel add --backup`.
+70. **[DEFAULT] Sandbox of the root daemon units (DR-20).** Both
+    `deyroute-hub` and `deyroute-node` run with `ProtectSystem=strict`,
+    `ProtectControlGroups`, `RestrictSUIDSGID`, `LockPersonality`,
+    `SystemCallArchitectures=native` and `ProtectKernelModules=false` (the
+    host check reads `/lib/modules` for `tcp_bbr`/`sch_fq`; the daemon
+    never loads a module). Hub `ReadWritePaths`: `/etc/deyroute`,
+    `/etc/systemd/system`, `-/etc/sysctl.d`, `-/etc/modules-load.d`,
+    `-/etc/modprobe.d`, `/var/lib/deyroute`, `/var/log/deyroute`,
+    `/usr/local/bin`, `/run`. Node: `/etc`, `/var/lib`, `/var/log`,
+    `/usr/local/bin`, `/run`, wider than the brief because the
+    hub-initiated uninstall runs inside the node daemon: a listed directory
+    is a mount point whose read-only parent forbids removing it, and
+    `userdel`/`groupdel` write lock and temporary files in `/etc`.
+    `/etc/sysctl.conf` is only read and is not listed; `/run/amneziawg` is
+    written by the awg tunnel unit, not the daemon. Capabilities (both):
+    `CAP_NET_ADMIN`, `CAP_NET_RAW` (iptables-legacy `-S`),
+    `CAP_NET_BIND_SERVICE`, `CAP_DAC_OVERRIDE`, `CAP_CHOWN`, `CAP_FOWNER`,
+    `CAP_SYS_PTRACE` (port owner via `/proc/<pid>/fd` and `ss -p`,
+    `/proc/1/environ`); node also `CAP_AUDIT_WRITE` (userdel). Dropped from
+    the brief's set: `CAP_SYS_ADMIN` (root writes `/proc/sys` without it),
+    `CAP_SYS_MODULE`, `CAP_SETUID`, `CAP_SETGID`, `CAP_KILL` (no use in the
+    code). The units reach existing servers only through the installer,
+    join or restore; `deyroute update` keeps the installed units. A later
+    item can move the node uninstall's file and account steps into an
+    unsandboxed oneshot unit and then shrink the node list to the hub's.
 71. **[DEFAULT] Periodic re-assert of table inet deyroute (DR-14).** The
     hub and the nodes compare a fingerprint of `nft list table inet
     deyroute`, taken right after each apply, with the live table every
@@ -775,37 +851,18 @@ stated default until the owner decides · **[ANSWERED]** closed.
     1.0.9 on Linux 6.18 (checked); the other lab distributions ship
     nftables 1.0.2 or newer and are expected to work, which the lab matrix
     confirms.
-66. **[OPEN] `restore --public-ip` accepts a private address (DR-08).**
-    `deyroute restore --public-ip` uses a private, CGNAT or loopback
-    address as given and reports it in `warnings` (JSON) and as a `!` line;
-    an address typed at the terminal question is recorded as
-    `address_source: "asked"` and treated the same way. DR-07
-    (`setup --public-ip`) refuses such an address unless
-    `--allow-private-ip` is also given. The restore keeps the explicit
-    operator choice because a hub moved behind a provider NAT or floating
-    IP may really be reached that way, and a refusal would leave no flag to
-    override it. Options: (a) keep this; (b) align with DR-07: refuse with
-    `DEY-C013` unless `--allow-private-ip` (a new restore flag). Owner
-    decision.
-67. **[DEFAULT] How a hub brings its nodes to its version (DR-11).** A
-    hub on a release sends `self.update` to a node of another major.minor
-    when it connects, without an update record, and then records the push
-    like `deyroute update`, so every node follows; a node of the same
-    major.minor without a record is left alone. A node newer than the hub
-    is pushed back to the hub's version (warn log): the hub's version wins.
-    A development build (`dev`) pushes nothing by itself (no signed
-    release; signed-update nodes would refuse with `DEY-S012`). A refused
-    or failed `self.update` (for example `DEY-S001`, `DEY-S012`, no signed
-    release) is retried only after a wait of 10 minutes, doubling up to 6
-    hours, kept in memory per hub run (a restart retries at once); the
-    first failure is a warning, later ones debug. `deyroute update` with
-    nothing newer calls the new local API `UpdateNodes`, which installs
-    nothing and marks the nodes of another version: the CLI never calls
-    `UpdateApply` there, so no release the owner did not see and confirm is
-    installed. `setup.Restore` writes `/var/lib/deyroute/restored-from`
-    (0600, hub backups only, the backup's version); the hub reads it once
-    at start without following links, deletes it, and marks the nodes
-    when the version differs from its own.
+74. **[DEFAULT] Join-token revoke and setup without a join window
+    (DR-16).** `deyroute node join-revoke` has no flags and always deletes
+    every join token. `revoked` counts the unexpired tokens; expired
+    entries are dropped too but not counted. The event
+    `join_tokens_revoked` (info) is recorded on every call, also when
+    nothing was live, as an audit trail of the operator action. The
+    firewall is applied before the call returns; if the apply fails, the
+    tokens are already deleted and the command returns the error, so the
+    operator sees that the window may still be open. In the setup JSON
+    document `join_window` means "a join command was made" (true only when
+    `join` is present); `--no-join` with `--role node` is refused with
+    `DEY-C013` like the hub address flags.
 75. **[DEFAULT] Echo probe for silent raw-TCP targets (DR-17).** The
     spike against the pinned Xray v26.3.27 confirmed false probe failures:
     VMess tcp without TLS stays silent after the probe's TLS hello for
@@ -836,38 +893,6 @@ stated default until the owner decides · **[ANSWERED]** closed.
     extra restriction. Owner decision: limit the hub's DNAT of the hidden
     port to local sources (a firewall change), or keep the echo probe off
     NAT rungs.
-74. **[DEFAULT] Join-token revoke and setup without a join window
-    (DR-16).** `deyroute node join-revoke` has no flags and always deletes
-    every join token. `revoked` counts the unexpired tokens; expired
-    entries are dropped too but not counted. The event
-    `join_tokens_revoked` (info) is recorded on every call, also when
-    nothing was live, as an audit trail of the operator action. The
-    firewall is applied before the call returns; if the apply fails, the
-    tokens are already deleted and the command returns the error, so the
-    operator sees that the window may still be open. In the setup JSON
-    document `join_window` means "a join command was made" (true only when
-    `join` is present); `--no-join` with `--role node` is refused with
-    `DEY-C013` like the hub address flags.
-68. **[DEFAULT] A taken tunnel name fails only for scripts (DR-12).** The
-    hub numbered a taken id derived from `--name` (`t5-2`) for every
-    caller, so a blind retry of a script created a second tunnel or failed
-    with a port clash (`DEY-C003`). The CLI now sets the new request field
-    `no_rename` when `--name` is given without `--id` and the command runs
-    without a terminal or with `--yes`, unless `--allow-rename`; the hub
-    then answers `DEY-C002` before the port check. A person at a terminal
-    and the menu keep the numbered id. Without `--name` the default id
-    `tunnel` is still numbered (`tunnel-2`), because the brief names only
-    `--name`; `--allow-rename` has no effect with `--id`. A hub daemon
-    older than the CLI ignores the field and numbers the id as before.
-69. **[DEFAULT] A new node order moves no traffic (DR-13).** `tunnel edit
-    --node` replaces the ordered node list. When the active node stays in
-    the list, the tunnel stays on it and returns to the new primary only
-    through the normal failback (the canary must pass `recover_threshold`
-    probes; without a canary, after `failback_after_s`); `tunnel switch
-    --node` moves it at once. When the list leaves out the active node, the
-    engine moves the tunnel at once, so the CLI asks for `yes` first
-    (`--yes` in scripts, exit 3 without a terminal). The CLI also accepts
-    ids separated by commas, like `tunnel add --backup`.
 77. **[DEFAULT] Hysteria2 port hopping is scoped to the hub (DR-18).** The
     node's DNAT for ports 20000-20999 matches `ip saddr { hub.public_ip,
     hub.public_ip6 } ip daddr node.public_ip`. The hub's datagrams must
