@@ -212,6 +212,12 @@ Repeated events mean something on the server keeps removing the table: find
 it (a cron job, a provider agent, `ufw reload`), because between its run and
 the next check the control port is open to everyone and NAT rungs stop.
 
+When nft refuses the per-source limit of the control port, `hub.log` has the
+warning `nft refused the per-source limit of the control port` once per hub
+start, and unknown sources share one global limit (see
+[Security](security.md#unknown-sources-on-the-control-port)). There is no
+event for it.
+
 ## Problems
 
 | You see | Meaning | What to do |

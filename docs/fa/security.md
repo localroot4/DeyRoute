@@ -18,7 +18,7 @@
 
 - ۳۲ بایت تصادفی، **یک‌بارمصرف**، به‌طور پیش‌فرض ۱۵ دقیقه معتبر (`deyroute node join-command --ttl` از 1m تا 24h را می‌پذیرد) و بلافاصله بعد از مصرف پاک می‌شود.
 - اگر از یک آدرس در یک ساعت بیش از ۵ تلاش ناموفق شود، آن آدرس یک ساعت بلاک می‌شود (`DEY-N007`).
-- تا وقتی یک توکن مصرف‌نشده وجود دارد، پورت کنترل اتصال از هر آدرسی را می‌پذیرد (پنجره Join). بقیه وقت‌ها فقط IP سرورهای Node وصل‌شده را می‌پذیرد، به‌علاوه تعداد کمی اتصال جدید در دقیقه از آدرس‌های دیگر تا Nodeی که IPاش عوض شده بتواند با گواهی خودش دوباره وصل شود.
+- تا وقتی یک توکن مصرف‌نشده وجود دارد، پورت کنترل اتصال از هر آدرسی را می‌پذیرد (پنجره Join). بقیه وقت‌ها فقط IP سرورهای Node وصل‌شده را می‌پذیرد، به‌علاوه ۳ اتصال جدید در دقیقه از هر آدرس دیگر (و روی هم ۳۰ اتصال در دقیقه از همه آن‌ها) تا Nodeی که IPاش عوض شده بتواند با گواهی خودش دوباره وصل شود (بخش «آدرس‌های ناشناس» پایین‌تر).
 - `deyroute security audit` درباره هر توکن Join منقضی‌نشده هشدار می‌دهد، چون هر کدام پنجره Join را تا زمان انقضایش باز نگه می‌دارد. `deyroute doctor` توکن‌هایی را که با `--ttl` بیشتر از ۱۵ دقیقه ساخته شده‌اند (همراه زمان انقضا) و توکن‌های منقضی‌شده‌ای را که پاک نشده‌اند گزارش می‌کند.
 - اگر Join به دلیل دیگری رد شود (شناسه Node تکراری است، درخواست خراب است، یا `config.yaml` ویرایشی دارد که هنوز اعمال نشده: `DEY-C026`)، توکن مصرف نمی‌شود و Node می‌تواند با همان دستور دوباره امتحان کند.
 
@@ -33,12 +33,27 @@ table inet deyroute {
 		elements = { 1.2.3.4, 9.8.7.6 }
 	}
 
+	set ctl_unknown4 {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
+	set ctl_unknown6 {
+		type ipv6_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
 	chain input {
 		type filter hook input priority -10; policy accept;
 		ct state established,related accept
 		iif "lo" accept
 		tcp dport 44433 ip saddr @nodes accept
-		tcp dport 44433 ct state new limit rate 6/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown6 { ip6 saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
 		tcp dport 44433 drop
 		tcp dport 30000-31999 ip saddr @nodes accept
 		udp dport 30000-31999 ip saddr @nodes accept
@@ -51,6 +66,20 @@ table inet deyroute {
 
 - پورت کنترل و پورت‌های کنترل بک‌اندها (30000 تا 31999) فقط برای Nodeها باز است؛ پورت‌های تانل برای همه.
 - جدول `inet deyroute` روی خود Node فقط قوانین NAT ترنسپورت‌هایش را دارد.
+
+### آدرس‌های ناشناس روی پورت کنترل
+
+Nodeی که IP عمومی‌اش عوض شده هنوز در `@nodes` نیست: با گواهی خودش از راه پذیرش آدرس‌های ناشناس دوباره وصل می‌شود و بعد Hub آدرس جدیدش را در `@nodes` می‌گذارد. هر آدرس سهمیه جداگانه‌ای دارد: ۳ اتصال جدید در دقیقه (setهای پویای `@ctl_unknown4` و `@ctl_unknown6` برای هر آدرس یک سطل جدا را ۱۰ دقیقه نگه می‌دارند)، و همه آدرس‌های ناشناس روی هم حداکثر ۳۰ اتصال در دقیقه. پس یک اسکنر فقط سهمیه خودش را مصرف می‌کند، نه سهمیه Node را. mTLS و محدودکننده Join همچنان از هر اتصالی که رد می‌شود محافظت می‌کنند.
+
+```yaml
+security:
+  unknown_control_rate_per_source: 3/minute   # برای هر آدرس؛ پیش‌فرض 3/minute
+  unknown_control_rate: 30/minute             # همه آدرس‌های ناشناس؛ پیش‌فرض 30/minute
+```
+
+نرخ همان نرخ nft است: یک عدد در `second`، `minute`، `hour` یا `day`، و در صورت نیاز `burst N packets`. اگر burst ننویسید، نرخ هر آدرس burstی برابر عدد خودش می‌گیرد (`3/minute` یعنی ۳ اتصال هم‌زمان). هر دو کلید به‌طور پیش‌فرض در فایل نیستند. نسخه‌های قبل از 0.3.1 آن‌ها را نمی‌شناسند: تا وقتی یکی تنظیم شده، `deyroute update --rollback` به چنین نسخه‌ای رد می‌شود (`DEY-S011`).
+
+این شکلِ تفکیک‌شده بر اساس آدرس به پشتیبانی nftables از setهای پویا با limit برای هر عضو نیاز دارد. همه توزیع‌هایی که آزمایشگاه تست می‌کند آن را دارند (nftables 1.0.2 در Ubuntu 22.04، 1.0.6 در Debian 12، 1.0.9 در Ubuntu 24.04، و 1.1.x در Debian 13 و Ubuntu 26.04). اگر nft باز هم آن را رد کند (خطای syntax، یا کرنلی که این پشتیبانی را ندارد)، Hub به جایش همان قانون تکی قبلی `tcp dport 44433 ct state new limit rate 30/minute accept` را با نرخ `unknown_control_rate` اعمال می‌کند، تا ری‌استارت بعدی همین را نگه می‌دارد و هشدار `nft refused the per-source limit of the control port` را یک بار در `hub.log` می‌نویسد.
 
 ```bash
 deyroute security firewall show      # جدول و فایروال‌های پیداشده (ufw، firewalld و…)

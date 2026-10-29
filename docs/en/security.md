@@ -35,8 +35,9 @@ to a log.
   hour (`DEY-N007`).
 - While an unused token exists, the control port accepts connections from
   every address (the join window). Otherwise it accepts the joined nodes'
-  IPs, plus a few new connections per minute from other addresses so that a
-  node whose IP changed can reconnect with its certificate.
+  IPs, plus 3 new connections per minute from each other address (30 per
+  minute from all of them together) so that a node whose IP changed can
+  reconnect with its certificate (see Unknown sources below).
 - `deyroute security audit` warns about every unexpired join token: each one
   keeps the join window open until it expires. `deyroute doctor` reports the
   tokens made with a `--ttl` over 15 minutes (with their expiry) and expired
@@ -60,12 +61,27 @@ table inet deyroute {
 		elements = { 1.2.3.4, 9.8.7.6 }
 	}
 
+	set ctl_unknown4 {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
+	set ctl_unknown6 {
+		type ipv6_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
 	chain input {
 		type filter hook input priority -10; policy accept;
 		ct state established,related accept
 		iif "lo" accept
 		tcp dport 44433 ip saddr @nodes accept
-		tcp dport 44433 ct state new limit rate 6/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
+		tcp dport 44433 ct state new add @ctl_unknown6 { ip6 saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept
 		tcp dport 44433 drop
 		tcp dport 30000-31999 ip saddr @nodes accept
 		udp dport 30000-31999 ip saddr @nodes accept
@@ -79,6 +95,40 @@ table inet deyroute {
 - The control port and the backend control ports (30000–31999) are open
   only to the nodes; the tunnel ports are open to everyone.
 - A node's own `inet deyroute` table holds only NAT rules of its transports.
+
+### Unknown sources on the control port
+
+A node whose public IP changed is not in `@nodes` yet: it reconnects with
+its certificate through the admission for unknown sources, and the hub then
+puts its new address into `@nodes`. Each source address has its own budget of
+3 new connections per minute (the dynamic sets `@ctl_unknown4` and
+`@ctl_unknown6` keep one bucket per address for 10 minutes), and all unknown
+sources together get at most 30 per minute. A scanner therefore uses up only
+its own budget, not that of the node. mTLS and the join limiter still guard
+every connection that gets through.
+
+```yaml
+security:
+  unknown_control_rate_per_source: 3/minute   # per address; default 3/minute
+  unknown_control_rate: 30/minute             # all unknown sources; default 30/minute
+```
+
+A rate is an nft rate: a number per `second`, `minute`, `hour` or `day`,
+optionally with `burst N packets`. Without a burst, the per-source rate gets
+a burst of its own number (`3/minute` allows 3 at once). Both keys are
+absent by default. Releases before 0.3.1 do not know them:
+`deyroute update --rollback` to such a release is refused (`DEY-S011`)
+while one is set.
+
+The per-source form needs nftables support for dynamic sets with a limit
+per element. Every distribution the lab tests ships it (nftables 1.0.2 on
+Ubuntu 22.04, 1.0.6 on Debian 12, 1.0.9 on Ubuntu 24.04, 1.1.x on Debian 13
+and Ubuntu 26.04). When nft still refuses it (a syntax error, or a kernel
+without that support), the hub applies the earlier single rule
+`tcp dport 44433 ct state new limit rate 30/minute accept` at
+`unknown_control_rate` instead, keeps that until it restarts and writes the
+warning `nft refused the per-source limit of the control port` once to
+`hub.log`.
 
 ```bash
 deyroute security firewall show      # the table and the firewalls found (ufw, firewalld …)
