@@ -12,6 +12,7 @@ import (
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
+	deyerr "github.com/localroot4/deyroute/internal/errors"
 	dlog "github.com/localroot4/deyroute/internal/log"
 )
 
@@ -91,4 +92,25 @@ func TestNodeFirewallReassertOff(t *testing.T) {
 	}
 	a := newTestAgent(t, newFakeSys(), &recHooks{})
 	require.Equal(t, time.Minute, a.reassertEvery)
+}
+
+// TestNodeSelfUpdateRefusedWithFirewallReassertKey: the node reads
+// security.firewall_reassert_s from its own config.yaml, so while it is set
+// a self.update to a release older than the key's first one is refused
+// (DEY-S011) like for node.allow_unsigned_updates: that binary would refuse
+// config.yaml and the node could not start again. Newer targets and a node
+// without the key are not refused.
+func TestNodeSelfUpdateRefusedWithFirewallReassertKey(t *testing.T) {
+	withVersion(t, "0.3.1-edge.5")
+	cfg := config.NewNode(testNode, "5.6.7.8:44433", "sha256:"+strings.Repeat("a", 64))
+	require.NoError(t, refuseOlderThanNodeKeys(cfg, "0.3.1-edge.4"))
+	every := 30
+	cfg.Security = &config.Security{FirewallManaged: true, FirewallReassertS: &every}
+	for _, v := range []string{"0.3.1-edge.4", "0.3.0"} {
+		de := requireCode(t, refuseOlderThanNodeKeys(cfg, v), deyerr.S011)
+		require.Contains(t, de.Message(), "security.firewall_reassert_s (since 0.3.1)", v)
+		require.Contains(t, de.Fix(), "/etc/deyroute/config.yaml", v)
+	}
+	require.NoError(t, refuseOlderThanNodeKeys(cfg, "0.3.1-edge.6"))
+	require.NoError(t, refuseOlderThanNodeKeys(cfg, "0.3.1"))
 }

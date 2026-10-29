@@ -376,10 +376,10 @@ func (a *agent) currentHubHello() api.Hello {
 }
 
 // refuseOlderThanNodeKeys returns DEY-S011 when this node's config.yaml
-// sets a node key that the binary of target does not know (its first
-// release, config.NewerKeysInUse, is newer than target): that binary would
-// refuse config.yaml (DEY-C001) and the node could not start again, out of
-// the hub's reach. A target that is not older than this build knows every
+// sets a key (node.*, security.*) that the binary of target does not know
+// (its first release, config.NewerKeysInUse, is newer than target): that
+// binary would refuse config.yaml (DEY-C001) and the node could not start
+// again, out of the hub's reach. A target that is not older than this build knows every
 // key this build knows, and a target that is not a release version cannot
 // be compared; neither is refused here.
 func refuseOlderThanNodeKeys(cfg *config.Config, target string) error {
@@ -388,7 +388,9 @@ func refuseOlderThanNodeKeys(cfg *config.Config, target string) error {
 	}
 	var keys []string
 	for _, k := range cfg.NewerKeysInUse() {
-		if !strings.HasPrefix(k.Key, "node.") {
+		// The keys a node's config.yaml can hold: node.* and security.*
+		// (security.firewall_reassert_s, DR-14).
+		if !strings.HasPrefix(k.Key, "node.") && !strings.HasPrefix(k.Key, "security.") {
 			continue
 		}
 		if c, ok := install.CompareVersions(target, k.Since); ok && c < 0 {
@@ -400,7 +402,7 @@ func refuseOlderThanNodeKeys(cfg *config.Config, target string) error {
 	}
 	return deyerr.New(deyerr.S011, deyerr.Params{"action": "install deyroute " + target, "keys": strings.Join(keys, ", ")}).
 		WithWhy("version " + target + " is older than the first release that knows them: it would refuse this node's config.yaml (DEY-C001), and this node could not start again, out of the hub's reach").
-		WithFix("node.allow_unsigned_updates is for test labs only: remove it from /etc/deyroute/config.yaml on this node, then let the hub update it again").
+		WithFix("remove these keys from /etc/deyroute/config.yaml on this node (node.allow_unsigned_updates is for test labs only), then let the hub update it again").
 		WithDetail(nothingInstalled)
 }
 
