@@ -125,7 +125,7 @@ for f in "${list[@]}"; do
       for d in "$ART/$id-diagnostics"/hub.txt "$ART/$id-diagnostics"/node1.txt; do
         [ -f "$d" ] || continue
         printf '::warning title=%s %s on %s::%s\n' "$id" "${d##*/}" "$DISTRO" \
-          "$(grep -E 'level=(WARN|ERROR)|DEY-[A-Z][0-9]{3}|Failed|failed|denied|Read-only' "$d" | tail -n 30 |
+          "$(grep -E '"level":"(warn|error)"|level=(WARN|ERROR)|DEY-[A-Z][0-9]{3}|Failed|failed|denied|Read-only|^Error|nft' "$d" | tail -n 40 |
             sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }')"
       done
     fi
