@@ -691,7 +691,7 @@ func (c *tunnelCtl) apply(ctx context.Context, o applyOpts) (applyResult, error)
 				res.stale = append(res.stale, oc)
 				continue
 			}
-			if payloadHash(c.id, oc.NodeSide) != payloadHash(c.id, nc.NodeSide) {
+			if c.h.payloadHash(oc.Node, c.id, oc.NodeSide) != c.h.payloadHash(nc.Node, c.id, nc.NodeSide) {
 				res.changedNode[nc.NodeSide.Instance] = true
 			}
 		}
@@ -902,9 +902,31 @@ func skippedDetail(skips []render.SkippedCandidate) string {
 	return strings.Join(lines, "\n")
 }
 
-// payloadHash identifies the content of a node side.
-func payloadHash(tunnel string, s render.Side) string {
-	data, err := json.Marshal(render.NodePayload(tunnel, s))
+// nodePayload is render.NodePayload as node gets it: a node that does not
+// announce api.FeatureNATScope gets its NAT rules without the source and
+// destination scope (DR-18), the rules it always had; it would ignore the
+// unknown fields and apply them unscoped anyway, and the hub must not
+// count a scope as delivered that the node never applies. Once it
+// announces the feature (an update, a reconnect) the payload changes and
+// the scoped rules are sent.
+func (h *Hub) nodePayload(node, tunnel string, s render.Side) api.BackendRenderArgs {
+	p := render.NodePayload(tunnel, s)
+	if hello, _ := h.nodeHello(node); !hello.HasFeature(api.FeatureNATScope) {
+		for i := range p.NAT {
+			p.NAT[i] = p.NAT[i].Unscoped()
+		}
+	}
+	return p
+}
+
+// payloadHash identifies the content of a node side as node gets it.
+func (h *Hub) payloadHash(node, tunnel string, s render.Side) string {
+	return hashPayload(h.nodePayload(node, tunnel, s))
+}
+
+// hashPayload identifies the content of a backend.render payload.
+func hashPayload(p api.BackendRenderArgs) string {
+	data, err := json.Marshal(p)
 	if err != nil {
 		return ""
 	}
@@ -916,7 +938,8 @@ func payloadHash(tunnel string, s render.Side) string {
 // already has exactly this payload.
 func (c *tunnelCtl) renderOnNode(ctx context.Context, pc *render.Candidate) error {
 	inst := pc.NodeSide.Instance
-	sum := payloadHash(c.id, pc.NodeSide)
+	payload := c.h.nodePayload(pc.Node, c.id, pc.NodeSide)
+	sum := hashPayload(payload)
 	c.mu.Lock()
 	have := c.sent[inst]
 	c.mu.Unlock()
@@ -925,7 +948,7 @@ func (c *tunnelCtl) renderOnNode(ctx context.Context, pc *render.Candidate) erro
 	}
 	cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
 	defer cancel()
-	if err := c.h.Call(cctx, pc.Node, api.CmdBackendRender, render.NodePayload(c.id, pc.NodeSide), nil); err != nil {
+	if err := c.h.Call(cctx, pc.Node, api.CmdBackendRender, payload, nil); err != nil {
 		return err
 	}
 	c.mu.Lock()

@@ -185,7 +185,7 @@ func (h *Hub) writeDiag(ctx context.Context, tunnel string, cand *render.Candida
 	}
 	cctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
 	defer cancel()
-	return h.Call(cctx, cand.Node, api.CmdBackendRender, render.NodePayload(tunnel, cand.NodeSide), nil)
+	return h.Call(cctx, cand.Node, api.CmdBackendRender, h.nodePayload(cand.Node, tunnel, cand.NodeSide), nil)
 }
 
 // startDiag starts the temporary candidate, server side first.

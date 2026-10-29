@@ -178,7 +178,7 @@ func (c *tunnelCtl) canaryUp(ctx context.Context) error {
 		}
 	}
 	rctx, cancel := context.WithTimeout(ctx, nodeCmdTimeout)
-	err = h.Call(rctx, primary, api.CmdBackendRender, render.NodePayload(c.id, cand.NodeSide), nil)
+	err = h.Call(rctx, primary, api.CmdBackendRender, h.nodePayload(primary, c.id, cand.NodeSide), nil)
 	cancel()
 	if err != nil {
 		return err
