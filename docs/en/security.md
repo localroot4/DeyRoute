@@ -393,6 +393,70 @@ security change. Menu: `8) Security` → `5) Audit`.
 | `direct/haproxy` (the node's address check) | no | none | `AF_NETLINK` | none | none |
 | every other backend and transport | no | none | none | none | none |
 
+## The hub and node services
+
+`deyroute-hub` and `deyroute-node` run as root: they manage nftables,
+systemd units and kernel settings. Their units still keep them in a sandbox,
+so a bug in the daemon cannot write anywhere it likes:
+
+- `ProtectSystem=strict`: the whole file system is read-only for the daemon,
+  except the paths below. `ProtectHome`, `PrivateTmp` and `NoNewPrivileges`
+  stay as before.
+- A capability bounding set: the daemon keeps only the root rights it uses.
+  `CAP_SYS_ADMIN`, `CAP_SYS_MODULE`, `CAP_SETUID`, `CAP_SETGID` and
+  `CAP_KILL` are gone.
+- `ProtectControlGroups`, `RestrictSUIDSGID`, `LockPersonality` and
+  `SystemCallArchitectures=native`.
+
+| Writable path | Hub | Node | Why |
+| --- | --- | --- | --- |
+| `/etc/deyroute` | yes | yes (all of `/etc`) | configuration, secrets, backend configs, manifest |
+| `/etc/systemd/system` | yes | yes (all of `/etc`) | tunnel units, their drop-ins, the tuning's resource drop-ins and slice |
+| `/etc/sysctl.d`, `/etc/modules-load.d`, `/etc/modprobe.d` | yes, if present | yes (all of `/etc`) | the files of the kernel tuning |
+| `/var/lib/deyroute` | yes | yes (all of `/var/lib`) | state, backend binaries, `deyroute.prev`, backups, downloads |
+| `/var/log/deyroute` | yes | yes (all of `/var/log`) | daemon and tunnel logs |
+| `/usr/local/bin` | yes | yes | `update` and `update --rollback` replace `deyroute` and `dey` |
+| `/run` | yes | yes | the local API socket, the iptables lock of the firewall check |
+
+The node needs all of `/etc`, `/var/lib` and `/var/log`: the uninstall
+that the hub sends runs inside the node service. It deletes the
+directories `/etc/deyroute`, `/var/lib/deyroute` and `/var/log/deyroute`
+themselves and removes the `deyroute` account with `userdel` and
+`groupdel`, which rewrite `/etc/passwd` and `/etc/group` through
+temporary files in `/etc`. `/usr`, `/boot` and the rest of the system stay
+read-only on both.
+
+| Capability | Used for |
+| --- | --- |
+| `CAP_NET_ADMIN` | nftables, the `net.*` kernel settings, `ip` and the netlink queries |
+| `CAP_NET_RAW` | `iptables -S` of the firewall check (iptables-legacy opens a raw socket) |
+| `CAP_NET_BIND_SERVICE` | listeners below port 1024: port checks, the hub's CDN front, ACME HTTP-01 |
+| `CAP_DAC_OVERRIDE` | files of the `deyroute` user: tunnel logs, backend files |
+| `CAP_CHOWN`, `CAP_FOWNER` | the group `deyroute` and the modes of backend configs, secrets and log directories |
+| `CAP_SYS_PTRACE` | finding the program that holds a port (`ss -p`, `/proc/<pid>/fd`) and the virtualization check |
+| `CAP_AUDIT_WRITE` (node only) | `userdel` and `groupdel` of the uninstall write audit records |
+
+Kernel settings need no extra capability: root may write `/proc/sys` and
+the conntrack hash size. The kernel loads `nf_conntrack`, `tcp_bbr` and
+`sch_fq` by itself when the tuning uses them; the daemon never loads a
+module. `ProtectKernelModules` stays off only so the host check can read
+`/lib/modules` to see whether BBR is available.
+
+Check the sandbox on a server:
+
+```bash
+systemctl show deyroute-hub -p ProtectSystem -p CapabilityBoundingSet
+systemd-analyze security deyroute-hub
+```
+
+The exposure score that `systemd-analyze security` prints falls from 8.9
+to 6.5 (hub) and 6.6 (node). The new units come with the installer: a new
+install, a join and running `install.sh` again on a server write them.
+`deyroute update` alone replaces only the binary and keeps the units it
+finds. A server where `/etc/sysctl.d`, `/etc/modules-load.d` or
+`/etc/modprobe.d` did not exist when the hub started cannot get the tuning
+files there: create the directory and restart the service.
+
 ## Tunnel logs
 
 - The transports of a tunnel write to `/var/log/deyroute/tunnels/<tunnel>.log`.

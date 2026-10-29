@@ -238,6 +238,47 @@ deyroute security audit
 | `direct/haproxy` (بررسی آدرس‌های Node) | خیر | ندارد | `AF_NETLINK` | ندارد | ندارد |
 | بقیه بک‌اندها و ترنسپورت‌ها | خیر | ندارد | ندارد | ندارد | ندارد |
 
+## سرویس‌های Hub و Node
+
+`deyroute-hub` و `deyroute-node` با root اجرا می‌شوند، چون nftables، سرویس‌های systemd و تنظیمات کرنل را مدیریت می‌کنند. با این حال سرویسشان در یک محیط محدود اجرا می‌شود تا یک باگ در daemon نتواند هر جایی بنویسد:
+
+- `ProtectSystem=strict`: کل فایل‌سیستم برای daemon فقط‌خواندنی است، به‌جز مسیرهای جدول زیر. `ProtectHome`، `PrivateTmp` و `NoNewPrivileges` مثل قبل سر جایشان هستند.
+- مجموعه مجاز capabilityها (`CapabilityBoundingSet`): daemon فقط همان دسترسی‌های root را نگه می‌دارد که واقعاً به کار می‌برد. `CAP_SYS_ADMIN`، `CAP_SYS_MODULE`، `CAP_SETUID`، `CAP_SETGID` و `CAP_KILL` حذف شده‌اند.
+- `ProtectControlGroups`، `RestrictSUIDSGID`، `LockPersonality` و `SystemCallArchitectures=native`.
+
+| مسیر نوشتنی | Hub | Node | برای چه |
+| --- | --- | --- | --- |
+| `/etc/deyroute` | بله | بله (کل `/etc`) | تنظیمات، رازها، تنظیمات بک‌اندها، manifest |
+| `/etc/systemd/system` | بله | بله (کل `/etc`) | سرویس‌های تانل، drop-inهایشان، drop-inهای منابع و slice تیونینگ |
+| `/etc/sysctl.d`، `/etc/modules-load.d`، `/etc/modprobe.d` | بله، اگر وجود داشته باشد | بله (کل `/etc`) | فایل‌های تیونینگ کرنل |
+| `/var/lib/deyroute` | بله | بله (کل `/var/lib`) | state، باینری بک‌اندها، `deyroute.prev`، بکاپ‌ها، دانلودها |
+| `/var/log/deyroute` | بله | بله (کل `/var/log`) | لاگ daemon و لاگ تانل‌ها |
+| `/usr/local/bin` | بله | بله | `update` و `update --rollback` فایل‌های `deyroute` و `dey` را عوض می‌کنند |
+| `/run` | بله | بله | سوکت API محلی و قفل iptables در بررسی فایروال |
+
+Node به کل `/etc`، `/var/lib` و `/var/log` نیاز دارد، چون حذف نصبی که Hub می‌فرستد داخل خود سرویس Node اجرا می‌شود. این حذف خود پوشه‌های `/etc/deyroute`، `/var/lib/deyroute` و `/var/log/deyroute` را پاک می‌کند و حساب `deyroute` را با `userdel` و `groupdel` برمی‌دارد؛ این دو ابزار `/etc/passwd` و `/etc/group` را با فایل‌های موقت داخل `/etc` بازنویسی می‌کنند. `/usr`، `/boot` و بقیه سیستم روی هر دو فقط‌خواندنی می‌مانند.
+
+| Capability | کاربرد |
+| --- | --- |
+| `CAP_NET_ADMIN` | nftables، تنظیمات کرنل `net.*`، `ip` و پرس‌وجوهای netlink |
+| `CAP_NET_RAW` | `iptables -S` در بررسی فایروال (iptables-legacy یک raw socket باز می‌کند) |
+| `CAP_NET_BIND_SERVICE` | گوش دادن روی پورت‌های زیر ۱۰۲۴: بررسی پورت‌ها، CDN front روی Hub، ACME HTTP-01 |
+| `CAP_DAC_OVERRIDE` | فایل‌های کاربر `deyroute`: لاگ تانل‌ها و فایل‌های بک‌اند |
+| `CAP_CHOWN`، `CAP_FOWNER` | گروه `deyroute` و دسترسی‌های تنظیمات بک‌اند، رازها و پوشه‌های لاگ |
+| `CAP_SYS_PTRACE` | پیدا کردن برنامه‌ای که یک پورت را گرفته (`ss -p`، `/proc/<pid>/fd`) و تشخیص مجازی‌سازی |
+| `CAP_AUDIT_WRITE` (فقط Node) | `userdel` و `groupdel` در حذف نصب رکورد audit می‌نویسند |
+
+تنظیمات کرنل capability اضافه نمی‌خواهند: root اجازه نوشتن در `/proc/sys` و اندازه جدول hash در conntrack را دارد. وقتی تیونینگ از `nf_conntrack`، `tcp_bbr` یا `sch_fq` استفاده کند، خود کرنل آن ماژول را بار می‌کند؛ daemon هیچ ماژولی را بار نمی‌کند. `ProtectKernelModules` فقط به این دلیل خاموش مانده که بررسی سرور باید `/lib/modules` را بخواند تا ببیند BBR در دسترس است یا نه.
+
+بررسی محیط محدود روی سرور:
+
+```bash
+systemctl show deyroute-hub -p ProtectSystem -p CapabilityBoundingSet
+systemd-analyze security deyroute-hub
+```
+
+امتیاز exposure که `systemd-analyze security` نشان می‌دهد از 8.9 به 6.5 (Hub) و 6.6 (Node) پایین آمده است. سرویس‌های جدید همراه نصب‌کننده می‌آیند: نصب تازه، join و اجرای دوباره `install.sh` روی سرور آن‌ها را می‌نویسند. `deyroute update` به‌تنهایی فقط باینری را عوض می‌کند و سرویس‌های موجود را دست نمی‌زند. روی سروری که هنگام شروع Hub پوشه `/etc/sysctl.d`، `/etc/modules-load.d` یا `/etc/modprobe.d` وجود نداشت، Hub نمی‌تواند فایل تیونینگ را آنجا بنویسد: پوشه را بسازید و سرویس را دوباره راه بیندازید.
+
 ## لاگ‌های تانل
 
 - ترنسپورت‌های هر تانل در `/var/log/deyroute/tunnels/<tunnel>.log` می‌نویسند. systemd این فایل را پیش از اجرای بک‌اند و با root باز می‌کند و بک‌اند فقط در همان فایلی که به آن داده شده می‌نویسد. دسترسی این پوشه `1770 root:deyroute` است: کاربر `deyroute` می‌تواند در آن فایل بسازد، اما بیت sticky نمی‌گذارد فایل‌های root (لاگ‌های فعلی و فایل‌های `.gz` چرخیده) را پاک کند یا تغییر نام دهد. نصاب، `deyroute setup` و سرویس‌ها پوشه را همین‌طور می‌سازند. روی سروری که قبلاً نصب شده، سرویس‌های Hub و Node هنگام شروع، بیت sticky را به پوشه‌ای که از قبل هست اضافه می‌کنند؛ پس `deyroute update` (که این سرویس‌ها را دوباره راه می‌اندازد) کافی است، و اجرای دوباره نصاب (که تعمیر می‌کند و تنظیمات را نگه می‌دارد) هم این دسترسی را تنظیم می‌کند. سرویس‌ها فقط بیت sticky را اضافه می‌کنند و هیچ‌وقت به پوشه‌ای که مال root نیست دست نمی‌زنند: اگر سر این نام link یا پوشه کاربر دیگری باشد، همان‌طور می‌ماند، هشدار `cannot make the tunnel log directory sticky` ثبت می‌شود و هیچ ترنسپورتی آنجا اجرا نمی‌شود (مورد بعد). با `stat -c '%a %U:%G' /var/log/deyroute/tunnels` بررسی کنید (`1770 root:deyroute`).
