@@ -120,6 +120,15 @@ for f in "${list[@]}"; do
         "$(tail -n 40 "$ART/$id.log" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }')"
     fi
     bash -c 'source "$1/lib.sh" && diagnostics "$2"' _ "$IT_DIR" "$ART/$id-diagnostics" || true
+    # The warnings and errors of the daemons and units, as annotations too.
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      for d in "$ART/$id-diagnostics"/hub.txt "$ART/$id-diagnostics"/node1.txt; do
+        [ -f "$d" ] || continue
+        printf '::warning title=%s %s on %s::%s\n' "$id" "${d##*/}" "$DISTRO" \
+          "$(grep -E 'level=(WARN|ERROR)|DEY-[A-Z][0-9]{3}|Failed|failed|denied|Read-only' "$d" | tail -n 30 |
+            sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }')"
+      done
+    fi
   fi
   [ "${DEY_KEEP:-0}" = 1 ] || dc down -v --remove-orphans >/dev/null 2>&1 || true
 done
