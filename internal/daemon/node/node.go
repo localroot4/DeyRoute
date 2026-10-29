@@ -121,6 +121,11 @@ type Options struct {
 	// VerifyBinary checks the binary self.update downloaded before it is
 	// installed (arch is Options.Arch); nil = VerifyELF.
 	VerifyBinary func(path, arch string) error
+	// ReleaseVersion runs `<path> --json version` for the deyroute binary
+	// of a signed release before self.update installs it and returns what
+	// it printed: only a build that answers "signed_update": true is
+	// installed (DR-03); nil = exec.ReleaseVersion.
+	ReleaseVersion func(ctx context.Context, path string) ([]byte, error)
 	// SetHubAddr persists a new hub target (set_hub, NodeSetHub): host:port,
 	// or ws[s]://DOMAIN:PORT/SECRET for a front; nil = setup.SetHubAddr
 	// (node.hub_addr and node.front in Root/etc/deyroute/config.yaml).

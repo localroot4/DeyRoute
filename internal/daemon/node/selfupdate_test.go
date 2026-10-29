@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -462,4 +463,61 @@ func TestAllowUnsignedKeyNewerEdgeBuild(t *testing.T) {
 	e.signedHub("0.3.0-edge.59", signedRelease(t, key, "0.3.0-edge.59", "0.3.0-edge.59", "amd64", archive), bin)
 	_, err = call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: "0.3.0-edge.59"})
 	requireCode(t, err, deyerr.S011)
+}
+
+// versionScript is a stand-in deyroute binary: a shell script that answers
+// `--json version` with answer and exit status rc, and fails any other
+// call.
+func versionScript(answer string, rc int) []byte {
+	return []byte("#!/bin/sh\n[ \"$*\" = \"--json version\" ] || exit 9\ncat <<'EOF'\n" + answer + "\nEOF\nexit " +
+		strconv.Itoa(rc) + "\n")
+}
+
+// A hub that announces signed updates may still name an older release:
+// validly signed with the release key, but built before signed updates, so
+// once installed the node would take whatever binary the hub serves next.
+// The node asks the release's own binary (`deyroute --json version`) and
+// installs it only when it answers "signed_update": true; otherwise
+// DEY-S001 and nothing is installed.
+func TestSelfUpdateRejectsDowngradeBelowSignedUpdate(t *testing.T) {
+	key := useTestKey(t)
+	e := newEnv(t)
+	// The release binaries here are scripts this test host runs.
+	e.opts.VerifyBinary = func(string, string) error { return nil }
+	writeFile(t, e.path(config.BinaryPath), "old binary", 0o755)
+	e.signedHub("9.9.9", nil, nil)
+	s := e.start()
+
+	for _, c := range []struct {
+		name, ver, answer string
+		rc                int
+		why               string
+	}{
+		{"built before signed updates", "0.3.0-edge.60",
+			`{"schema":1,"version":"0.3.0-edge.60","commit":"abc","date":"x","go":"go1.26","test_key":false}`, 0,
+			"built before signed updates"},
+		{"says false", "9.9.9", `{"schema":1,"version":"9.9.9","signed_update":false}`, 0, "built before signed updates"},
+		{"not JSON", "9.9.9", "deyroute 9.9.9", 0, "did not answer"},
+		{"fails", "9.9.9", `{"schema":1,"version":"9.9.9","signed_update":true}`, 3, "did not answer"},
+	} {
+		archive := makeArchive(t, []tarFile{{name: "deyroute", body: versionScript(c.answer, c.rc)}})
+		e.signedHub(c.ver, signedRelease(t, key, c.ver, c.ver, "amd64", archive), nil)
+		_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: c.ver, SHA256: sum(archive)})
+		de := requireCode(t, err, deyerr.S001)
+		require.Contains(t, de.Why(), c.why, c.name)
+		require.Contains(t, de.Why(), c.ver, c.name)
+		require.Equal(t, "nothing was installed; the running binary stays", de.Detail, c.name)
+		e.requireNothingInstalled(t, "old binary", c.name)
+	}
+
+	// A release that checks signed updates itself is installed.
+	bin := versionScript(`{"schema":1,"version":"9.9.9","test_key":false,"signed_update":true}`, 0)
+	archive := makeArchive(t, []tarFile{{name: "deyroute", body: bin}})
+	e.signedHub("9.9.9", signedRelease(t, key, "9.9.9", "9.9.9", "amd64", archive), nil)
+	_, err := call[json.RawMessage](t, s, api.CmdSelfUpdate, api.SelfUpdateArgs{Version: "9.9.9", SHA256: sum(archive)})
+	require.NoError(t, err)
+	data, err := os.ReadFile(e.path(config.BinaryPath))
+	require.NoError(t, err)
+	require.Equal(t, bin, data)
+	e.requireRestart(t)
 }

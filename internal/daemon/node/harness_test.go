@@ -464,6 +464,18 @@ func newEnv(t *testing.T) *env {
 			e.unins <- struct{}{}
 			return nil
 		},
+		// The fake ELF binaries of the tests cannot run: they answer as a
+		// build with signed updates. A script runs for real.
+		ReleaseVersion: func(ctx context.Context, p string) ([]byte, error) {
+			data, err := os.ReadFile(p) // #nosec G304 -- the test's own staging file
+			if err != nil {
+				return nil, err
+			}
+			if bytes.HasPrefix(data, []byte("#!")) {
+				return exec.ReleaseVersion(ctx, p)
+			}
+			return []byte(`{"schema":1,"version":"test","signed_update":true}`), nil
+		},
 		Arch:              "amd64",
 		HeartbeatInterval: 50 * time.Millisecond,
 		BackoffMin:        20 * time.Millisecond,

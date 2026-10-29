@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"debug/elf"
 	"encoding/hex"
+	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/exec"
 	"github.com/localroot4/deyroute/internal/health"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
@@ -490,11 +492,57 @@ func (a *agent) selfUpdateSigned(ctx context.Context, ver, announced string) err
 		return refuse(deyerr.New(deyerr.S001, deyerr.Params{"file": archive}).
 			WithWhy("the signed release holds a binary this node cannot run: " + err.Error()))
 	}
+	if err := a.checkSignedUpdates(ctx, bin, ver, archive); err != nil {
+		return refuse(err)
+	}
 	if err := (install.SelfUpdater{Root: a.o.Root}).Install(bin); err != nil {
 		return err
 	}
 	a.log.Info("deyroute binary of the signed release installed; restarting the node service", slog.String("version", ver))
 	a.later(a.o.RestartDelay, a.restartSelf)
+	return nil
+}
+
+// checkSignedUpdates asks the deyroute binary of the signed release ver
+// (at bin, in the root-only staging directory) whether it checks signed
+// updates itself: `deyroute --json version` must answer
+// "signed_update": true. A release built before signed updates is genuine
+// and validly signed, but once installed, its node takes any binary a hub
+// serves with only the sha256 the hub announces compared. A hub that serves
+// signed releases (api.FeatureSignedUpdate) only ever names its own
+// version, which checks them, so such a self.update is refused (DEY-S001)
+// and nothing is installed. Peers are told apart by what the build says it
+// can do, never by its version: every 0.3.x edge build shares one.
+//
+// exec.ReleaseVersion runs it (only `deyroute --json version`, without the
+// agent's environment, at most 15 s) as root, as the installer test-runs
+// the binary it installs: it is the release's own code, verified against
+// the release key, which the node would run as root once installed. As the
+// backends' user deyroute, a compromised backend could trace it and answer
+// in its place.
+func (a *agent) checkSignedUpdates(ctx context.Context, bin, ver, archive string) error {
+	run := a.o.ReleaseVersion
+	if run == nil {
+		run = exec.ReleaseVersion
+	}
+	out, err := run(ctx, bin)
+	var answer struct {
+		SignedUpdate *bool `json:"signed_update"`
+	}
+	if err == nil {
+		err = json.Unmarshal(bytes.TrimSpace(out), &answer)
+	}
+	if err != nil {
+		return deyerr.New(deyerr.S001, deyerr.Params{"file": archive}).
+			WithWhy("the deyroute binary of release " + ver + " did not answer `deyroute --json version` (" +
+				dlog.Redact(err.Error()) + "), so this node cannot tell whether it checks signed updates itself")
+	}
+	if answer.SignedUpdate == nil || !*answer.SignedUpdate {
+		return deyerr.New(deyerr.S001, deyerr.Params{"file": archive}).
+			WithWhy("release " + ver + " was built before signed updates: once installed, this node would take any deyroute binary the hub serves").
+			WithFix("nothing to do on this node, it keeps its version. A hub that serves signed releases never asks for an older one by itself: " +
+				"if nobody rolled the hub back to " + ver + ", check the hub; otherwise update the hub to a release with signed updates (deyroute update on the hub) and the nodes follow")
+	}
 	return nil
 }
 

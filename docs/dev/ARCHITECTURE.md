@@ -22,7 +22,11 @@ wins and the conflict goes to `QUESTIONS.md`.
   programs: `systemctl`, `nft`, `ss`, `ip`, `xray`, `rathole`, `ufw`,
   `firewall-cmd`, `iptables`, `systemd-sysusers` (QUESTIONS.md C.15),
   `userdel`/`groupdel` for uninstall (C.30) and `haproxy` (looked up for
-  direct/haproxy; only `haproxy -v` may run).
+  direct/haproxy; only `haproxy -v` may run). Outside the runner, the
+  config editor (`RunEditor`) and `deyroute --json version` of the deyroute
+  binary of a signed release before a node installs it
+  (`ReleaseVersion`, DR-03; that exact command line, a file named
+  `deyroute`, no inherited environment).
   A test in `internal/exec` scans the tree and fails on any other `os/exec` use.
 - **Testability**: every package that touches the filesystem takes a root
   directory (`Root string`, default `/`) or explicit paths so tests run in
@@ -168,6 +172,7 @@ type Runner interface { Run(ctx context.Context, name string, args []string, std
 func NewRunner() Runner          // rejects names whose base is not allowed (X004); non-zero exit → X007 wrapping stderr
 type Fake struct{...}            // records calls, scripted responses (for tests of other packages)
 func LookPath(name string) (string, error)
+func ReleaseVersion(ctx context.Context, bin string) ([]byte, error) // `<bin> --json version`, bin named deyroute (self.update, DR-03)
 ```
 
 ### internal/systemd
