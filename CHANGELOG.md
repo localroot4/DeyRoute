@@ -143,6 +143,27 @@ All notable changes to DEYROUTE are documented here. The format follows
   incompatible (`DEY-N004`) until an update that `deyroute update` could
   not start; the `DEY-N004` fix text says what happens now (DR-11).
 
+### Added — echo probe
+
+- Port probe kind `echo` (DR-17): a random nonce goes through one hidden
+  port map of the active rung to a probe echo on the node and must come
+  back, and the node must reach the service with a TCP connect.
+  `deyroute port set <tunnel> <port> --probe echo`; `tunnel show --json`
+  gives `probe_effective` and `probe_reason` on the probe port. Nodes
+  announce `echo-probe`; a node without it keeps the auto probe and the
+  dashboard warns. While a port sets `probe: echo`, a rollback below 0.3.1
+  is refused (`DEY-S011`).
+
+### Fixed — silent raw-TCP services
+
+- A tunnel to a raw-TCP service that stays silent after a TLS hello
+  (VMess over TCP without TLS, Shadowsocks-2022) failed the default auto
+  probe on every rung and went DOWN although it worked (DR-17). The hub
+  now detects such a target on the node (the TLS hello times out or is
+  reset while a TCP connect succeeds) and uses the echo probe for it; a
+  blocked rung is still detected and switched away from
+  (docs/en/first-tunnel.md, docs/en/troubleshooting.md, lab S38).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs

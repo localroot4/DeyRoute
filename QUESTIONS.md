@@ -806,6 +806,36 @@ stated default until the owner decides · **[ANSWERED]** closed.
     (0600, hub backups only, the backup's version); the hub reads it once
     at start without following links, deletes it, and marks the nodes
     when the version differs from its own.
+75. **[DEFAULT] Echo probe for silent raw-TCP targets (DR-17).** The
+    spike against the pinned Xray v26.3.27 confirmed false probe failures:
+    VMess tcp without TLS stays silent after the probe's TLS hello for
+    about half of the UUIDs (Xray's drain size is seeded by its users), and
+    Shadowsocks-2022 resets the connection. Default chosen as recommended
+    by the brief: a new port probe kind `echo` (transport: a nonce through
+    one hidden port map of the active rung, a hub port in the backend
+    control range 30000-31999 forwarded to a nonce-only probe echo on the
+    node's 127.0.0.1; service: the node's TCP connect to the target; both
+    must pass), and `auto` switches to it for a node whose own TLS probe of
+    the target times out or is reset while a TCP connect succeeds. The
+    verdict changes only on a conclusive TLS result, is kept in state.db
+    with whether the echo ran, and is asked again at most every 5 minutes
+    while the tunnel fails. Only nodes announcing `api.FeatureEchoProbe`
+    ("echo-probe") get it; older nodes keep the auto probe and a warning. A
+    rung that cannot carry the map (direct/haproxy, a 65th map on
+    direct/*, which checks config.MaxPortMaps) keeps the auto probe.
+    Rejected: treating silence as success (a black-holed rung is silent
+    too). `probe: echo` is registered in the rollback guard with
+    FirstEchoProbeVersion 0.3.1.
+76. **[OPEN] Exposure of the hidden echo port on NAT rungs (DR-17).** On
+    a rung whose hub side forwards with DNAT (WireGuard/AmneziaWG), the
+    hidden map is DNATed like a user port, so it is reachable from every
+    source, as the canary's loopback port already is; the node's probe
+    echo answers only a DEYE nonce with the same nonce. On WireGuard rungs
+    its 127.0.0.1 target also turns on route_localnet for the tunnel
+    interface on the node when no user target needed it. Default kept: no
+    extra restriction. Owner decision: limit the hub's DNAT of the hidden
+    port to local sources (a firewall change), or keep the echo probe off
+    NAT rungs.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
