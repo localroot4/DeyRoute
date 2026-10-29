@@ -868,6 +868,19 @@ stated default until the owner decides · **[ANSWERED]** closed.
     engine moves the tunnel at once, so the CLI asks for `yes` first
     (`--yes` in scripts, exit 3 without a terminal). The CLI also accepts
     ids separated by commas, like `tunnel add --backup`.
+77. **[DEFAULT] Hysteria2 port hopping is scoped to the hub (DR-18).** The
+    node's DNAT for ports 20000-20999 matches `ip saddr { hub.public_ip,
+    hub.public_ip6 } ip daddr node.public_ip`. The hub's datagrams must
+    therefore leave from `hub.public_ip` (or `hub.public_ip6` for an IPv6
+    node); a hub with several addresses whose UDP leaves from another one
+    no longer matches, the rung fails its probes and the tunnel moves to
+    the next rung (the FAQ says to turn hopping off then). Defaults: the
+    node drops `DAddr` when it is not one of its own addresses (1:1 NAT)
+    and logs once; a node address of a family the hub has no public
+    address of, or a loopback/link-local address, keeps the unscoped rule;
+    a node without `nat-scope` keeps the unscoped rule. Owner option: scope
+    by the source address the node sees on the hub's control connection
+    instead of `hub.public_ip`.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

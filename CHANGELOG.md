@@ -211,6 +211,18 @@ All notable changes to DEYROUTE are documented here. The format follows
   `--allow-rename` to keep the numbered id; on a terminal without `--yes`
   nothing changes (QUESTIONS.md C.68, DR-12).
 
+### Fixed — Hysteria2 port hopping scoped to the hub
+
+- Hysteria2 port hopping no longer redirects every UDP datagram to ports
+  20000–20999 of the node: the DNAT matches only the hub's public
+  addresses (`hub.public_ip`, `hub.public_ip6`) as source and the node's
+  public address as destination, so other UDP services of the node in
+  that range keep their traffic. A node behind 1:1 NAT (its public IP is
+  not one of its own addresses) keeps the source scope only and logs that
+  once. A node gets the scoped rule once it runs this version (it
+  announces `nat-scope`); older nodes keep the old rule (DR-18;
+  docs/en/faq-filtering.md; lab S42).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs
