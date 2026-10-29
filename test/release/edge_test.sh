@@ -5,7 +5,8 @@
 #   - scripts/edge-prune.sh: the retention;
 #   - the parts of .github/workflows/release-edge.yml that keep the publishes
 #     of a branch in order;
-#   - scripts/no-test-key.sh and where the release builds run it.
+#   - scripts/no-test-key.sh and where the release builds run it;
+#   - scripts/release-pubkey.sh, the release key the edge build reads.
 # Run by ci.yml (lint job), or by hand from anywhere:
 #
 #   bash test/release/edge_test.sh [TestName ...]
@@ -540,6 +541,52 @@ TestReleaseBuildsRefuseLabKey() {
        job == "release:" && /goreleaser\/goreleaser-action/ { g = NR }
        END { exit !(q && g && q < g) }' "$root/.github/workflows/ci.yml" ||
     fail "ci.yml: the release job does not install qemu-user-static before goreleaser"
+}
+
+# -------------------------------------------------------------- release key
+
+# scripts/release-pubkey.sh prints exactly one line, the release key: the
+# value of MINISIGN_PUBKEY in installer/install.sh. A comment that names a
+# key (a "-X …TestPublicKey=RW…" example) is not taken for it.
+TestReleasePubkeyIsTheInstallerKey() {
+  local want got
+  want=$(sed -n 's/^MINISIGN_PUBKEY="\(.*\)"$/\1/p' "$root/installer/install.sh")
+  [ -n "$want" ] || fail "installer/install.sh: no MINISIGN_PUBKEY line"
+  got=$(bash "$root/scripts/release-pubkey.sh") || fail "release-pubkey.sh failed: $got"
+  [ "$got" = "$want" ] || fail "release-pubkey.sh: want exactly the line '$want', got: '$got'"
+  # A keys.go whose comments name other keys.
+  {
+    echo '// go build -ldflags "-X github.com/localroot4/deyroute/internal/install.TestPublicKey=RWQlabkey" ./cmd/deyroute'
+    echo '// const MinisignPublicKey = "RWQcommented"'
+    cat "$root/internal/install/keys.go"
+    echo '// RW and RWQanother'
+  } >"$T/keys.go"
+  got=$(bash "$root/scripts/release-pubkey.sh" "$T/keys.go") || fail "release-pubkey.sh on a commented keys.go failed: $got"
+  [ "$got" = "$want" ] || fail "release-pubkey.sh on a commented keys.go: want '$want', got: '$got'"
+  # No key, or two: nothing is printed and the script fails.
+  grep -v '^const MinisignPublicKey' "$root/internal/install/keys.go" >"$T/none.go"
+  if got=$(bash "$root/scripts/release-pubkey.sh" "$T/none.go" 2>/dev/null); then
+    fail "release-pubkey.sh: a keys.go without the constant passed and printed '$got'"
+  fi
+  { cat "$root/internal/install/keys.go"; echo 'const MinisignPublicKey = "RWQsecond"'; } >"$T/two.go"
+  if got=$(bash "$root/scripts/release-pubkey.sh" "$T/two.go" 2>/dev/null); then
+    fail "release-pubkey.sh: a keys.go with two constants passed and printed '$got'"
+  fi
+}
+
+# The edge build reads the release key only through release-pubkey.sh: to
+# check the signature it made and for the key printed in the release notes.
+TestReleaseEdgeReadsKeyThroughScript() {
+  local wf="$root/.github/workflows/release-edge.yml"
+  if grep -n 'internal/install/keys.go' "$wf"; then
+    fail "release-edge.yml reads internal/install/keys.go itself; use scripts/release-pubkey.sh"
+  fi
+  # shellcheck disable=SC2016 # the workflow's text, not an expansion
+  [ "$(grep -cF 'key=$(bash scripts/release-pubkey.sh)' "$wf")" = 2 ] ||
+    fail "release-edge.yml: the sign and publish steps must both read the key with scripts/release-pubkey.sh"
+  # shellcheck disable=SC2016
+  grep -qF 'minisign verify -in dist/SHA256SUMS -pubkey "$key"' "$wf" ||
+    fail "release-edge.yml: the sign step does not verify SHA256SUMS with that key"
 }
 
 # ------------------------------------------------------------------- runner

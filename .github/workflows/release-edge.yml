@@ -191,7 +191,8 @@ jobs:
         run: |
           go run ./scripts/minisign sign -in dist/SHA256SUMS
           go run ./scripts/minisign sign -in dist/backends.yaml
-          go run ./scripts/minisign verify -in dist/SHA256SUMS -pubkey "$(grep -o 'RW[A-Za-z0-9+/=]*' internal/install/keys.go)"
+          key=$(bash scripts/release-pubkey.sh)
+          go run ./scripts/minisign verify -in dist/SHA256SUMS -pubkey "$key"
       - name: publish
         id: publish
         if: steps.gate.outputs.publish == 'true'
@@ -210,7 +211,7 @@ jobs:
           title="DEYROUTE ${VERSION}"
           if [ "$LATEST" != true ]; then title="${title} (development build)"; fi
           repo="https://github.com/${GITHUB_REPOSITORY}"
-          key=$(grep -o 'RW[A-Za-z0-9+/=]*' internal/install/keys.go)
+          key=$(bash scripts/release-pubkey.sh)
           {
             echo "**Install on the hub (Iran server)** — نصب روی هاب (سرور ایران):"
             echo

@@ -84,7 +84,10 @@ Signing needs the secret **`MINISIGN_SECRET_KEY`** (and `MINISIGN_PASSWORD`
 if the key is encrypted). The public half is in `internal/install/keys.go`
 and `installer/install.sh`. Generate a new pair with
 `go run ./scripts/minisign keygen`; if the key changes, update both files
-before the next release.
+before the next release. The edge build reads the key with
+`scripts/release-pubkey.sh`, which takes only the one line
+`const MinisignPublicKey = "…"` of `keys.go` (to verify the signature it
+made and for the key printed in the release notes), so keep it on one line.
 
 The integration lab signs its own release with a throwaway key that
 `test/integration/run.sh` makes for each run: its binaries trust that key
