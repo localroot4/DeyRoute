@@ -1,7 +1,9 @@
 package i18n
 
 // The address of a restored hub (`deyroute restore --public-ip
-// --public-ip6 --keep-address`, cli/restoreaddr.go; menu Backup & Restore).
+// --public-ip6 --keep-address`, cli/restoreaddr.go; menu Backup & Restore),
+// and the nodes a restored or updated hub brings to its version
+// (`deyroute update`, DR-11).
 const (
 	CLIFlagRestorePublicIP   Key = "cli.flag_restore_public_ip"
 	CLIFlagRestorePublicIP6  Key = "cli.flag_restore_public_ip6"
@@ -21,6 +23,9 @@ const (
 	TUIBuAskIPIntro          Key = "tui.bu.ask_ip_intro"
 	TUIBuIPField             Key = "tui.bu.ip_field"
 	TUIWantIP                Key = "tui.want_ip"
+	CLIUpdateNodesQueued     Key = "cli.update_nodes_queued"
+	CLIUpdateNodeQueued      Key = "cli.update_node_queued"
+	CLIUpdateNodesFailed     Key = "cli.update_nodes_failed"
 )
 
 var restoreEN = map[Key]string{
@@ -42,6 +47,9 @@ var restoreEN = map[Key]string{
 	TUIBuAskIPIntro:          "%s.\nType this server's public IP; Enter alone keeps the backup's address %s (right only if this server owns it: same server or floating IP). A new address re-issues the hub certificate.",
 	TUIBuIPField:             "Public IP of this server",
 	TUIWantIP:                "Enter an IPv4 or IPv6 address, for example 203.0.113.7.",
+	CLIUpdateNodesQueued:     "%d nodes run another version; they install deyroute %s from the hub when they connect.",
+	CLIUpdateNodeQueued:      "1 node runs another version; it installs deyroute %s from the hub when it connects.",
+	CLIUpdateNodesFailed:     "! The hub could not tell its nodes to follow its version (%s %s); nodes of another major.minor still get it when they connect.",
 }
 
 // restore address — merge the strings above into the English table.

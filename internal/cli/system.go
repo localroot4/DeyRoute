@@ -1010,10 +1010,20 @@ func newUpdateCmd(g *Globals) *cobra.Command {
 			}
 			if target == "" {
 				if !info.Available {
+					// Nothing to install, but the nodes of another
+					// version still follow the hub (DR-11). The hub
+					// installs nothing in this call.
+					info.NodesQueued = g.updateNodes(ctx, l)
 					if g.JSON {
 						return g.emitJSON(info)
 					}
 					g.say(i18n.CLIUpToDate, orDash(info.Current))
+					switch {
+					case info.NodesQueued == 1:
+						g.say(i18n.CLIUpdateNodeQueued, orDash(info.Current))
+					case info.NodesQueued > 1:
+						g.say(i18n.CLIUpdateNodesQueued, info.NodesQueued, orDash(info.Current))
+					}
 					return nil
 				}
 				target = info.Latest
@@ -1044,6 +1054,21 @@ func newUpdateCmd(g *Globals) *cobra.Command {
 	f.BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYes))
 	cmd.AddCommand(newUpdateBackendsCmd(g), newUpdateManifestCmd(g), newUpdateAutoCmd(g))
 	return cmd
+}
+
+// updateNodes asks the hub to tell its nodes of another version to install
+// its version (api.Local.UpdateNodes) and returns how many. A daemon
+// without that method (an older build) is skipped quietly; another error
+// is a note on stderr: the update result itself stays valid.
+func (g *Globals) updateNodes(ctx context.Context, l api.Local) int {
+	n, err := l.UpdateNodes(ctx)
+	if err != nil {
+		if e := deyerr.As(err); e.Code != deyerr.X006 || !strings.Contains(e.Message(), "unknown method") {
+			g.note(i18n.CLIUpdateNodesFailed, e.Code, e.Message())
+		}
+		return 0
+	}
+	return n
 }
 
 func (g *Globals) printUpdateInfo(info api.UpdateInfo) error {

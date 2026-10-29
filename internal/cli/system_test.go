@@ -611,10 +611,14 @@ func TestUpdateCommands(t *testing.T) {
 	require.Len(t, doc["steps"], 2)
 
 	info = api.UpdateInfo{Current: "1.1.0"}
+	nodesAsked := 0
+	e.stub.UpdateNodesFn = func(context.Context) (int, error) { nodesAsked++; return 0, nil }
 	require.Contains(t, e.ok("update"), "deyroute 1.1.0 is up to date.")
 	require.Contains(t, e.ok("update", "--check"), "up to date")
 	doc = e.json("update")
 	require.Equal(t, false, doc["available"])
+	require.NotContains(t, doc, "nodes_queued")
+	require.Equal(t, 2, nodesAsked, "update (not --check) tells the hub to bring its nodes along")
 
 	e.stub.UpdateRollbackFn = func(context.Context) (api.UpdateInfo, error) { return api.UpdateInfo{Current: "1.0.0"}, nil }
 	require.Contains(t, e.fail(3, "update", "--rollback"), "previous deyroute binary")
@@ -688,4 +692,46 @@ func TestOptimizeStatusDetails(t *testing.T) {
 		require.Contains(t, out, want)
 	}
 	require.NotContains(t, out, "--details\n", "no hint when the details are shown")
+}
+
+// `deyroute update` with nothing newer installs nothing, but the hub tells
+// its nodes of another version to follow (DR-11, UpdateNodes); --check
+// changes nothing. An older daemon without UpdateNodes is not an error.
+func TestUpdateNewestQueuesStaleNodes(t *testing.T) {
+	e := newEnv(t)
+	e.stub.UpdateCheckFn = func(context.Context) (api.UpdateInfo, error) {
+		return api.UpdateInfo{Current: "1.1.0", Latest: "1.1.0"}, nil
+	}
+	e.stub.UpdateApplyFn = func(context.Context, string, func(api.Step)) (api.UpdateInfo, error) {
+		t.Fatal("nothing newer: nothing is installed")
+		return api.UpdateInfo{}, nil
+	}
+	calls := 0
+	e.stub.UpdateNodesFn = func(context.Context) (int, error) { calls++; return 2, nil }
+	out := e.ok("update")
+	require.Contains(t, out, "deyroute 1.1.0 is up to date.")
+	require.Contains(t, out, "2 nodes run another version")
+	require.Equal(t, 1, calls)
+	doc := e.json("update", "--yes")
+	require.EqualValues(t, 2, doc["nodes_queued"])
+	e.ok("update", "--check")
+	require.Equal(t, 2, calls)
+	e.stub.UpdateNodesFn = func(context.Context) (int, error) { return 1, nil }
+	require.Contains(t, e.ok("update"), "1 node runs another version; it installs deyroute 1.1.0")
+
+	// An older daemon does not know UpdateNodes.
+	e.stub.UpdateNodesFn = func(context.Context) (int, error) {
+		return 0, deyerr.New(deyerr.X006, deyerr.Params{"status": "404 unknown method UpdateNodes"})
+	}
+	out = e.ok("update")
+	require.Contains(t, out, "is up to date.")
+	require.NotContains(t, out, "could not tell")
+	require.Empty(t, e.errOut.String())
+	// Another failure is reported, the result stays "up to date".
+	e.stub.UpdateNodesFn = func(context.Context) (int, error) {
+		return 0, deyerr.New(deyerr.X003, deyerr.Params{"service": "deyroute-hub"})
+	}
+	out = e.ok("update")
+	require.Contains(t, out, "is up to date.")
+	require.Contains(t, out, "could not tell its nodes to follow its version (DEY-X003")
 }
