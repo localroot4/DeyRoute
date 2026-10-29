@@ -262,7 +262,7 @@ func SetupHub(ctx context.Context, o HubOptions) (*HubResult, error) {
 		if profile == config.SysctlAuto {
 			warnings, err = e.applyAutoProfile(ctx, config.RoleHub, o.TunePlan, cfg.Tuning.BBR, HubReserved(cfg))
 		} else {
-			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false)
+			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false, nil)
 		}
 		res.SysctlWarnings = warnings
 		switch {
@@ -317,9 +317,11 @@ func sameIP(a, b string) bool {
 
 // applySysctl applies profile with BBR as configured; ipForward adds
 // net.ipv4.ip_forward = 1 (only when a WireGuard transport exists, which is
-// never the case during setup or join).
-func applySysctl(root, profile string, bbr, ipForward bool) ([]string, error) {
-	_, warnings, err := sysctl.Manager{Root: root}.ApplyWith(sysctl.ApplyOptions{Profile: profile, BBR: bbr, IPForward: ipForward})
+// never the case during setup or join) and reserved are added to
+// net.ipv4.ip_local_reserved_ports.
+func applySysctl(root, profile string, bbr, ipForward bool, reserved []string) ([]string, error) {
+	_, warnings, err := sysctl.Manager{Root: root}.ApplyWith(sysctl.ApplyOptions{Profile: profile, BBR: bbr, IPForward: ipForward,
+		Reserved: reserved})
 	return warnings, err
 }
 

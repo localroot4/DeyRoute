@@ -282,7 +282,7 @@ func Restore(ctx context.Context, o RestoreOptions) (*RestoreResult, error) {
 	if !o.ApplySysctl || profile == "" || profile == config.SysctlOff {
 		e.rep.skip(StepSysctl, profile)
 	} else {
-		warnings, err := applySysctl(e.root, profile, cfg.Tuning.BBR, keepIPForward(e.root))
+		warnings, err := applySysctl(e.root, profile, cfg.Tuning.BBR, keepIPForward(e.root), nil)
 		res.SysctlWarnings = warnings
 		switch {
 		case err != nil:

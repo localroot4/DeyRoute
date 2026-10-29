@@ -49,6 +49,15 @@ type JoinOptions struct {
 	// the node role with NodeReserved); nil computes it at the sysctl step.
 	// Only for auto.
 	TunePlan *HostTune
+	// ReservePorts are the entries of join --reserve-ports (ports and
+	// ranges, CanonicalPortEntry). With ApplySysctl they are reserved with
+	// the control range (NodeReserved) and saved to ReservePortsFile for
+	// the profiles the hub pushes later; ignored without ApplySysctl.
+	ReservePorts []string
+	// OptOut: the owner declined kernel tuning explicitly (join --sysctl
+	// off, "no" to the kernel question). Without ApplySysctl the join
+	// writes HubTuningOffFile, so the node refuses the hub's tuning too.
+	OptOut bool
 	// StartService installs the unit templates, runs `systemctl enable
 	// --now deyroute-node.service` and waits for the local API socket.
 	StartService bool
@@ -100,6 +109,9 @@ type JoinResult struct {
 	Compatible     bool
 	SysctlProfile  string
 	SysctlWarnings []string
+	// ReservedPorts are the entries the applied profile reserved (the
+	// control range and ReservePorts); empty when no profile was applied.
+	ReservedPorts  []string
 	ServiceStarted bool
 	// Front is true when the node joined through the hub's CDN front (HubAddr
 	// is then the front domain and port).
@@ -185,11 +197,21 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 	if profile == "" {
 		profile = config.SysctlBalanced
 	}
+	reserved := NodeReserved()
 	if o.ApplySysctl {
 		if _, err := sysctl.Profile(profile, false); err != nil {
 			return nil, fail(StepConfig, err)
 		}
+		for _, p := range o.ReservePorts {
+			c, ok := CanonicalPortEntry(p)
+			if !ok {
+				return nil, fail(StepConfig, deyerr.New(deyerr.C013, deyerr.Params{
+					"field": "--reserve-ports", "value": p, "allowed": "ports 1-65535 and ranges a-b"}))
+			}
+			reserved = appendUnique(reserved, c)
+		}
 	}
+	saved := reserved[len(NodeReserved()):]
 
 	// keys (and the directory layout the secrets go to)
 	e.rep.start(StepKeys)
@@ -209,6 +231,19 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 		return nil, fail(StepKeys, err)
 	}
 	joined := false // config.yaml written: the front secret file stays
+	// The --reserve-ports list (or none: a list of an earlier attempt
+	// goes) is saved before the token is spent, and removed again when the
+	// join fails.
+	if err := SaveReservePorts(e.root, saved); err != nil {
+		return nil, fail(StepKeys, err)
+	}
+	if len(saved) > 0 {
+		defer func() {
+			if !joined {
+				_ = SaveReservePorts(e.root, nil)
+			}
+		}()
+	}
 	if link.Front() {
 		// Before the one-shot POST: if the join succeeds the node must
 		// already hold what it needs to reach the hub again. Removed when
@@ -280,28 +315,41 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 	if link.Front() {
 		cfg.Node.Front = config.NodeFront{SecretFile: config.DefaultFrontSecretFile, Scheme: frontScheme}
 	}
-	if !o.ApplySysctl {
-		e.rep.skip(StepSysctl, config.SysctlOff)
-	} else {
+	switch {
+	case !o.ApplySysctl && o.OptOut:
+		// Only an explicit opt-out of this join refuses the hub's tuning
+		// later; a failed sysctl step below never does.
+		if err := WriteHubTuningOff(e.root); err != nil {
+			e.rep.warn(StepSysctl, config.SysctlOff, err)
+		} else {
+			e.rep.skip(StepSysctl, config.SysctlOff)
+		}
+	case !o.ApplySysctl:
+		if err := removeHubTuningOff(e.root); err != nil {
+			e.rep.warn(StepSysctl, config.SysctlOff, err)
+		} else {
+			e.rep.skip(StepSysctl, config.SysctlOff)
+		}
+	default:
 		var warnings []string
-		var err error
-		if profile == config.SysctlAuto {
+		err := removeHubTuningOff(e.root)
+		if err == nil && profile == config.SysctlAuto {
 			// The node's own plan; when the hub's tuning.nodes_auto is set
 			// the hub sends its inputs (tuning.bbr, IP forwarding) once the
 			// node is connected.
-			warnings, err = e.applyAutoProfile(ctx, config.RoleNode, o.TunePlan, cfg.Tuning.BBR, NodeReserved())
-		} else {
-			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false)
+			warnings, err = e.applyAutoProfile(ctx, config.RoleNode, o.TunePlan, cfg.Tuning.BBR, reserved)
+		} else if err == nil {
+			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false, reserved)
 		}
 		res.SysctlWarnings = warnings
 		switch {
 		case err != nil:
 			e.rep.warn(StepSysctl, profile, err)
 		case len(warnings) > 0:
-			res.SysctlProfile = profile
+			res.SysctlProfile, res.ReservedPorts = profile, reserved
 			e.rep.warn(StepSysctl, sysctlDetail(profile, warnings), nil)
 		default:
-			res.SysctlProfile = profile
+			res.SysctlProfile, res.ReservedPorts = profile, reserved
 			e.rep.ok(StepSysctl, profile)
 		}
 	}

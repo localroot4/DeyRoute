@@ -202,6 +202,7 @@ func fakeProc(t *testing.T, root string) {
 		"fs/file-max":                               "9223372036854775807",
 		"net/ipv4/ip_forward":                       "0",
 		"net/ipv4/tcp_notsent_lowat":                "4294967295",
+		"net/ipv4/ip_local_reserved_ports":          "",
 	}
 	for k, v := range keys {
 		p := filepath.Join(root, "proc/sys", k)
