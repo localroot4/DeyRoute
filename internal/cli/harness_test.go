@@ -222,3 +222,12 @@ func TestVersionTestKey(t *testing.T) {
 	t.Cleanup(func() { install.TestPublicKey = old })
 	require.Equal(t, true, e.json("version")["test_key"])
 }
+
+// `deyroute --json version` says that this build checks signed updates: a
+// node on it installs a new deyroute only from a signed release. A node
+// asks the binary of the release a hub sends it the same question, and an
+// older build, which does not print the field, is not installed (DR-03).
+func TestVersionSignedUpdate(t *testing.T) {
+	e := newEnv(t)
+	require.Equal(t, true, e.json("version")["signed_update"])
+}

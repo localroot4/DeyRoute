@@ -221,9 +221,13 @@ func newVersionCmd(g *Globals) *cobra.Command {
 			if g.JSON {
 				// test_key: the binary also trusts a lab signing key
 				// (install.TestPublicKey); a release must say false.
+				// signed_update: a node on this build installs a new
+				// deyroute only from a signed release. A node asks the
+				// binary of the release a hub sends it, and refuses one
+				// without it (DR-03): never drop it.
 				return g.emitJSON(map[string]any{
 					"version": version.Version, "commit": version.Commit, "date": version.Date, "go": version.GoVersion(),
-					"test_key": install.HasTestKey(),
+					"test_key": install.HasTestKey(), "signed_update": true,
 				})
 			}
 			g.say(i18n.CLIVersionLine, version.Display(), version.Commit, version.Date,

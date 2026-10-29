@@ -69,11 +69,17 @@ three-line block is still printed on standard error):
 
 ### `deyroute version`
 
-`{"schema", "version", "commit", "date", "go", "test_key"}` — `version`
-without a leading `v` (`"dev"` for local builds). `test_key` (bool) is
-`true` only for a binary built with a lab signing key next to the release
-key (`-X …/internal/install.TestPublicKey=<key>`, the integration lab); a
-release binary always reports `false`.
+`{"schema", "version", "commit", "date", "go", "test_key", "signed_update"}`
+— `version` without a leading `v` (`"dev"` for local builds). `test_key`
+(bool) is `true` only for a binary built with a lab signing key next to the
+release key (`-X …/internal/install.TestPublicKey=<key>`, the integration
+lab); a release binary always reports `false`. `signed_update` (bool) is
+`true`: a node on this build installs a new deyroute only from a signed
+release (DR-03). Builds before signed updates do not print it. Before a node
+installs the deyroute of the release its hub sends, it runs that binary's
+`deyroute --json version` and refuses it (`DEY-S001`) unless it says
+`"signed_update": true`; the panel can check a release it wants to roll
+out the same way.
 
 ### `deyroute setup`
 
