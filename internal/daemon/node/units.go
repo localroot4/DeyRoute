@@ -343,6 +343,16 @@ func (a *agent) checkNAT(command string, rules []backend.NATRule) error {
 	}
 	var local []netip.Addr
 	for _, r := range rules {
+		// The scope (DR-18) names the hub and this node: plain unicast
+		// addresses, never loopback, link-local or multicast.
+		for _, s := range r.SAddr {
+			if !scopeAddr(s) {
+				return a.refuse(command, fmt.Sprintf("NAT source %q is not a unicast address", s))
+			}
+		}
+		if r.DAddr != "" && !scopeAddr(r.DAddr) {
+			return a.refuse(command, fmt.Sprintf("NAT destination %q is not a unicast address", r.DAddr))
+		}
 		hi := r.DportHigh
 		if hi == 0 {
 			hi = r.DportLow
@@ -376,6 +386,14 @@ func (a *agent) checkNAT(command string, rules []backend.NATRule) error {
 		}
 	}
 	return nil
+}
+
+// scopeAddr reports whether s is an address a NAT scope may name: a
+// global unicast address (private ranges included, as in a lab or behind
+// NAT).
+func scopeAddr(s string) bool {
+	a, err := netip.ParseAddr(strings.TrimSpace(s))
+	return err == nil && a.Zone() == "" && a.Unmap().IsGlobalUnicast()
 }
 
 // interfaceAddrs returns the addresses of this host's interfaces (the
@@ -796,7 +814,54 @@ func (a *agent) desiredNAT() (rules []backend.NATRule, ipForward bool) {
 		add(rec.NAT)
 		ipForward = ipForward || rec.IPForward
 	}
-	return rules, ipForward
+	return a.localDAddr(rules), ipForward
+}
+
+// localDAddr drops the destination (DAddr) of every rule whose destination
+// is not an address of this node (DR-18): on a VPS behind 1:1 NAT the
+// packets arrive with the private interface address as destination, so
+// `ip daddr <public_ip>` would never match and port hopping would break;
+// the source scope stays. The addresses are read on every apply, so a
+// floating IP added later is matched again. Each address (and an
+// unreadable address list) is logged once per process. rules is the
+// caller's copy; the caller holds instMu.
+func (a *agent) localDAddr(rules []backend.NATRule) []backend.NATRule {
+	var local []netip.Addr
+	var lerr error
+	read := false
+	for i, r := range rules {
+		if r.DAddr == "" {
+			continue
+		}
+		if !read {
+			local, lerr = a.o.LocalAddrs()
+			read = true
+		}
+		d, err := netip.ParseAddr(r.DAddr) // valid: checkNAT
+		if err == nil && lerr == nil && slices.Contains(local, d.Unmap()) {
+			continue
+		}
+		rules[i].DAddr = ""
+		if a.daddrLogged == nil {
+			a.daddrLogged = map[string]bool{}
+		}
+		key := r.DAddr
+		if lerr != nil {
+			key = ""
+		}
+		if a.daddrLogged[key] {
+			continue
+		}
+		a.daddrLogged[key] = true
+		if lerr != nil {
+			a.log.Warn("the addresses of this node cannot be read: NAT rules are applied without their destination address",
+				slog.String("daddr", r.DAddr), dlog.Err(lerr))
+			continue
+		}
+		a.log.Warn("NAT destination "+r.DAddr+" is not an address of this node (behind NAT?): the rule matches its source addresses only",
+			slog.String("daddr", r.DAddr))
+	}
+	return rules
 }
 
 // syncFirewall makes the node's table inet deyroute hold exactly the desired
@@ -937,7 +1002,12 @@ func (a *agent) ensureIPForward() error {
 }
 
 func natRuleKey(r backend.NATRule) string {
-	return fmt.Sprintf("%s|%d|%d|%s|%d|%s", r.Proto, r.DportLow, r.DportHigh, r.ToAddr, r.ToPort, r.Iface)
+	k := fmt.Sprintf("%s|%d|%d|%s|%d|%s", r.Proto, r.DportLow, r.DportHigh, r.ToAddr, r.ToPort, r.Iface)
+	if len(r.SAddr) > 0 || r.DAddr != "" {
+		// The scope (DR-18) makes another rule; unscoped keys stay as before.
+		k += "|" + strings.Join(r.SAddr, ",") + "|" + r.DAddr
+	}
+	return k
 }
 
 func natKey(rs []backend.NATRule) string {

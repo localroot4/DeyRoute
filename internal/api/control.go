@@ -161,6 +161,11 @@ const (
 	// carries it through one hidden port map of the active rung. The hub
 	// uses the echo probe only on nodes that announce this feature.
 	FeatureEchoProbe = "echo-probe"
+	// FeatureNATScope (DR-18): the agent applies the source and
+	// destination scope of a NAT rule (backend.NATRule SAddr, DAddr). The
+	// hub sends a scoped rule only to such an agent; an older one gets the
+	// rule without the scope, which it would otherwise apply unscoped.
+	FeatureNATScope = "nat-scope"
 )
 
 // HasFeature reports whether the Hello announces feature f.

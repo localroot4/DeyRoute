@@ -338,6 +338,10 @@ type agent struct {
 	// both instMu.
 	fwLive   string
 	fwReport firewall.ReportGate
+	// daddrLogged holds the NAT destinations already reported as not an
+	// address of this node ("" = the address list could not be read);
+	// instMu.
+	daddrLogged map[string]bool
 	// reassertEvery is security.firewall_reassert_s of config.yaml as read
 	// at start (0 = off, also with security.firewall_managed false).
 	reassertEvery time.Duration
@@ -709,7 +713,7 @@ func (a *agent) later(delay time.Duration, fn func(ctx context.Context) error) {
 // (read now: an apply since the previous stream changes it).
 func (a *agent) hello() api.Hello {
 	h := a.helloV
-	h.Features = []string{api.FeatureTuneAuto, api.FeatureSignedUpdate, api.FeatureEchoProbe}
+	h.Features = []string{api.FeatureTuneAuto, api.FeatureSignedUpdate, api.FeatureEchoProbe, api.FeatureNATScope}
 	h.TuneProfile, h.TuneHash = a.tuneState()
 	return h
 }
