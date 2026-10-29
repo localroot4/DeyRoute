@@ -9,6 +9,7 @@
     "expires_at": "2026-09-30T12:15:00Z",
     "link": ""
   },
+  "join_window": true,
   "name": "ir-1",
   "private_ip": false,
   "public_ip": "203.0.113.7",

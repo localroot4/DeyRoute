@@ -27,15 +27,15 @@ const (
 var joinRevokeEN = map[Key]string{
 	CLINodeJoinRevokeShort:   "Revoke every join command not used yet and close the join window at once",
 	CLINodeJoinRevokeExample: "  deyroute node join-revoke\n  deyroute node join-revoke --json",
-	CLINodeJoinRevoked:       "%d join tokens revoked. The control port accepts only the nodes in @nodes again.",
-	CLINodeJoinRevokedNone:   "No join token was live. The control port accepts only the nodes in @nodes.",
-	CLIFlagNoJoin: "make no join command and keep the control port closed to unknown addresses " +
+	CLINodeJoinRevoked:       "Join tokens revoked: %d. The join window is closed: the control port is restricted to the nodes (@nodes) again.",
+	CLINodeJoinRevokedNone:   "No join token was live. The join window is closed: the control port is restricted to the nodes (@nodes).",
+	CLIFlagNoJoin: "make no join command and open no join window: the control port stays restricted to the nodes " +
 		"(create one later with: deyroute node join-command)",
 	CLINoJoinHubOnly:       "only for deyroute setup --role hub",
 	CLINoJoinHubOnlyFix:    "drop --no-join: a node makes no join commands",
 	CLISetupNoJoinNext:     "1. No join command was made (--no-join). When the node is ready, create one with: deyroute node join-command",
 	TUIEvJoinTokensRevoked: "join",
-	HubJoinTokensRevoked:   "%d join tokens revoked; the control port is restricted to the nodes again",
+	HubJoinTokensRevoked:   "join tokens revoked: %d; the control port is restricted to the nodes again",
 }
 
 // join revoke — merge the strings above into the English table.

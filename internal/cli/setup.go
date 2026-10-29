@@ -40,6 +40,9 @@ type setupFlags struct {
 	// loopback address for them (--allow-private-ip, test labs).
 	publicIP, publicIP6 string
 	allowPrivate        bool
+	// noJoin makes no join command and opens no join window (--no-join,
+	// DR-16).
+	noJoin bool
 }
 
 // ipFlags are the hub address flags of setup (and the refused ones of join).
@@ -158,6 +161,7 @@ func newSetupCmd(g *Globals) *cobra.Command {
 	cmd.Flags().BoolVar(&f.yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
 	cmd.Flags().StringVar(&f.autoUpdate, "auto-update", "off", i18n.T(i18n.CLIFlagAutoUpdate))
 	addIPFlags(cmd, &f.publicIP, &f.publicIP6, &f.allowPrivate)
+	cmd.Flags().BoolVar(&f.noJoin, "no-join", false, i18n.T(i18n.CLIFlagNoJoin))
 	cmd.Flags().BoolVar(&f.repair, "repair", false, i18n.T(i18n.CLIFlagRepair))
 	_ = cmd.Flags().MarkHidden("repair")
 	return cmd
@@ -349,6 +353,10 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 	if role == config.RoleNode {
 		if err := ipf.hubOnly(); err != nil {
 			return err
+		}
+		if f.noJoin {
+			return deyerr.New(deyerr.C013, deyerr.Params{"field": "--no-join", "value": "true", "allowed": i18n.T(i18n.CLINoJoinHubOnly)}).
+				WithFix(i18n.T(i18n.CLINoJoinHubOnlyFix))
 		}
 	}
 	// Checked before any question: the flags are canonical from here on.
@@ -547,6 +555,7 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 		AutoUpdate:  strings.EqualFold(strings.TrimSpace(f.autoUpdate), "on"),
 		ApplySysctl: f.yes, StartService: !g.NoService, SocketPath: g.Socket, Now: g.Now, Logger: g.logger(),
 		LookupUser: g.LookupUser, LookupGroup: g.LookupGroup, Chown: g.Chown,
+		NoJoinWindow: f.noJoin,
 	}
 	if o.Name != "" {
 		if err := checkName(o.Name); err != nil {
@@ -622,7 +631,14 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 	if !o.ApplySysctl && !interactive && !g.JSON {
 		g.say(i18n.CLISysctlSkipped)
 	}
-	jc, jerr := g.joinCommand(ctx, 0)
+	// --no-join: no join command, so no join window (DR-16).
+	var (
+		jc   api.JoinCommand
+		jerr error
+	)
+	if !f.noJoin {
+		jc, jerr = g.joinCommand(ctx, 0)
+	}
 	if g.JSON {
 		doc := map[string]any{
 			"role": config.RoleHub, "name": o.Name, "public_ip": res.PublicIP, "public_ip6": res.PublicIP6,
@@ -630,10 +646,15 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 			"config_path": res.ConfigPath, "sysctl_profile": res.SysctlProfile, "sysctl_warnings": nonNil(res.SysctlWarnings),
 			"firewall_managed": res.FirewallManaged, "service_started": res.ServiceStarted, "steps": p.steps,
 			"auto_update": o.AutoUpdate, "public_ip_source": ipSource,
+			// join_window: a join token exists, so the control port is
+			// open to every source until it is used or expires.
+			"join_window": !f.noJoin && jerr == nil,
 		}
-		if jerr == nil {
+		switch {
+		case f.noJoin:
+		case jerr == nil:
 			doc["join"] = jc
-		} else {
+		default:
 			doc["join_error"] = api.ToDTO(jerr)
 		}
 		return g.emitJSON(doc)
@@ -648,6 +669,10 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 	}
 	g.println()
 	g.println(g.styleOut(styleBold, g.text(i18n.T(i18n.CLINextTitle))))
+	if f.noJoin {
+		g.println("   " + g.text(i18n.T(i18n.CLISetupNoJoinNext)))
+		return nil
+	}
 	if jerr != nil {
 		g.printf("%s", g.text(deyerr.As(jerr).Format(g.unicode())))
 		g.say(i18n.CLIJoinCmdLater)
