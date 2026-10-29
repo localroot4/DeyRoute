@@ -83,10 +83,14 @@ systemd_ready() {
   [ "$st" = running ] || [ "$st" = degraded ]
 }
 
+# The lab release is signed with the lab key of run.sh (SHA256SUMS.minisig,
+# backends.yaml.minisig; its install.sh and binaries trust that key), so
+# every install checks the signature, as on a real server, and keeps the
+# verified release for the hub's nodes (/var/lib/deyroute/bin/<version>/).
 # install_hub SERVICE NAME [installer flags...]: one-line install + setup (spec 5).
 install_hub() {
   local s=$1 name=$2; shift 2
-  on "$s" bash /dist/install.sh --skip-signature --local "$ARCHIVE" --role hub --name "$name" --yes "$@"
+  on "$s" bash /dist/install.sh --local "$ARCHIVE" --role hub --name "$name" --yes "$@"
 }
 # join_link: a fresh join link from the hub.
 join_link() { dey node join-command --json | jq -r .link; }
@@ -95,7 +99,17 @@ install_node() {
   local s=$1 link=${2:-}
   shift $(($# > 1 ? 2 : 1))
   [ -n "$link" ] || link=$(join_link)
-  on "$s" bash /dist/install.sh --skip-signature --local "$ARCHIVE" join "$link" "$@"
+  on "$s" bash /dist/install.sh --local "$ARCHIVE" join "$link" "$@"
+}
+# lab_sign FILE...: FILE.minisig next to each FILE on this host, a signature
+# by the lab key, which the lab binaries accept where they expect the
+# release key.
+lab_sign() {
+  : "${DEY_LAB_KEYS:?run scenarios through run.sh (it makes the lab key)}"
+  local f
+  for f in "$@"; do
+    MINISIGN_SECRET_KEY=$(cat "$DEY_LAB_KEYS/lab.key") "$DEY_LAB_KEYS/minisign" sign -in "$f"
+  done
 }
 node_id_of() { dey --on "$1" status --json | jq -r .node.id; }
 node_online() { dey node list --json | jq -e --arg id "$1" '.nodes[] | select(.id == $id) | .online == true' >/dev/null; }

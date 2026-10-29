@@ -144,7 +144,7 @@ log "replaced: hub $(replaced hub hub | tr '\n' ';') node1 $(replaced node1 node
 # 4. An existing directory of an older install (0770, no sticky bit) gets the
 # mode from the installer's repair run (install -d on an existing directory).
 on node1 chmod 0770 "$D"
-on node1 bash /dist/install.sh --skip-signature --local "$ARCHIVE" >&2 || fail "the installer's repair run failed"
+on node1 bash /dist/install.sh --local "$ARCHIVE" >&2 || fail "the installer's repair run failed"
 m=$(on node1 stat -c '%a %U:%G' "$D")
 [ "$m" = "1770 root:deyroute" ] || fail "after the installer's repair run $D is $m, want 1770 root:deyroute"
 wait_node_online "$NODE1" 90
