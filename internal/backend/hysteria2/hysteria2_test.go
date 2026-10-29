@@ -347,6 +347,12 @@ func TestHysteria2HoppingNATScoped(t *testing.T) {
 	// No hub address of the node's family: unscoped, as before.
 	in.Hub.PublicIP6 = ""
 	require.Equal(t, rule(nil, ""), render(in))
+	// Nor a hub and node on one host (loopback, which a node refuses).
+	in = hopFixture(t)
+	in.Hub.PublicIP, in.Node.PublicIP = "127.0.0.1", "127.0.0.1"
+	require.Equal(t, rule(nil, ""), render(in))
+	in.Hub.PublicIP = "5.6.7.8"
+	require.Equal(t, rule(nil, ""), render(in))
 
 	// The rule renders and validates in the node table.
 	in = hopFixture(t)

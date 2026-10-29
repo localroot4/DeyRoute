@@ -136,21 +136,18 @@ func renderServer(in backend.RenderInput, p planned) backend.Rendered {
 // when it is not one of its own addresses (1:1 NAT at a cloud provider).
 // When the hub has no public address of the node's family (an IPv6 node
 // without hub.public_ip6), its datagrams would match no source: the rule
-// stays unscoped, as before DR-18.
+// stays unscoped, as before DR-18. So does a loopback or link-local
+// address (a hub and node on one host), which a node refuses as a scope.
 func hopNAT(in backend.RenderInput) backend.NATRule {
 	r := backend.NATRule{Proto: config.ProtoUDP, DportLow: HopLow, DportHigh: HopHigh, ToPort: in.ControlPort}
 	var src []netip.Addr
 	for _, s := range []string{in.Hub.PublicIP, in.Hub.PublicIP6} {
-		if a, err := netip.ParseAddr(s); err == nil && a.Zone() == "" {
-			src = append(src, a.Unmap())
+		if a, ok := scopeAddr(s); ok {
+			src = append(src, a)
 		}
 	}
-	node, err := netip.ParseAddr(in.Node.PublicIP)
-	if err != nil || node.Zone() != "" {
-		return r
-	}
-	node = node.Unmap()
-	if !slices.ContainsFunc(src, func(a netip.Addr) bool { return a.Is4() == node.Is4() }) {
+	node, ok := scopeAddr(in.Node.PublicIP)
+	if !ok || !slices.ContainsFunc(src, func(a netip.Addr) bool { return a.Is4() == node.Is4() }) {
 		return r
 	}
 	for _, a := range src {
@@ -158,6 +155,17 @@ func hopNAT(in backend.RenderInput) backend.NATRule {
 	}
 	r.DAddr = node.String()
 	return r
+}
+
+// scopeAddr parses s as an address a NAT scope may name (a global unicast
+// address, as the node checks it).
+func scopeAddr(s string) (netip.Addr, bool) {
+	a, err := netip.ParseAddr(s)
+	if err != nil || a.Zone() != "" {
+		return netip.Addr{}, false
+	}
+	a = a.Unmap()
+	return a, a.IsGlobalUnicast()
 }
 
 // renderClient renders the hub side (client.yaml) that binds the user ports.
