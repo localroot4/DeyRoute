@@ -42,7 +42,9 @@ ctl_rules() { on hub nft list table inet deyroute | grep -E "tcp dport $cport( |
 revoked_link=$(join_link)
 ctl_rules | grep -qE "tcp dport $cport accept" || fail "a join command did not open the join window:"$'\n'"$(ctl_rules)"
 rv=$(dey node join-revoke --json)
-jq -e '.schema == 1 and .ok == true and .revoked == 1' <<<"$rv" >/dev/null || fail "join-revoke: $rv"
+# Every live token goes: the one above and any an earlier step left
+# unused (the wrong-fingerprint join never spends its token).
+jq -e '.schema == 1 and .ok == true and .revoked >= 1' <<<"$rv" >/dev/null || fail "join-revoke: $rv"
 rules=$(ctl_rules)
 grep -q "ip saddr @nodes accept" <<<"$rules" || fail "the control port is not restricted to @nodes after join-revoke:"$'\n'"$rules"
 grep -qE "tcp dport $cport drop" <<<"$rules" || fail "unknown sources are not dropped after join-revoke:"$'\n'"$rules"
