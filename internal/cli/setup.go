@@ -34,6 +34,104 @@ type setupFlags struct {
 	yes        bool
 	repair     bool
 	autoUpdate string // on|off: hub.auto_update
+	// publicIP and publicIP6 are hub.public_ip and hub.public_ip6
+	// (--public-ip, --public-ip6); allowPrivate accepts a private, CGNAT or
+	// loopback address for them (--allow-private-ip, test labs).
+	publicIP, publicIP6 string
+	allowPrivate        bool
+}
+
+// ipFlags are the hub address flags of setup (and the refused ones of join).
+type ipFlags struct {
+	publicIP, publicIP6 string
+	allowPrivate        bool
+}
+
+// addIPFlags registers --public-ip, --public-ip6 and --allow-private-ip.
+func addIPFlags(cmd *cobra.Command, ip4, ip6 *string, allow *bool) {
+	cmd.Flags().StringVar(ip4, "public-ip", "", i18n.T(i18n.CLIFlagPublicIP))
+	cmd.Flags().StringVar(ip6, "public-ip6", "", i18n.T(i18n.CLIFlagPublicIP6))
+	cmd.Flags().BoolVar(allow, "allow-private-ip", false, i18n.T(i18n.CLIFlagAllowPrivateIP))
+}
+
+// given returns the first address flag that is set ("" when none).
+func (f ipFlags) given() (flag, value string) {
+	switch {
+	case strings.TrimSpace(f.publicIP) != "":
+		return "--public-ip", f.publicIP
+	case strings.TrimSpace(f.publicIP6) != "":
+		return "--public-ip6", f.publicIP6
+	case f.allowPrivate:
+		return "--allow-private-ip", "true"
+	}
+	return "", ""
+}
+
+// hubOnly refuses the address flags where no hub is set up (--role node,
+// join): DEY-C013 with the first flag given; nil without one.
+func (f ipFlags) hubOnly() error {
+	flag, value := f.given()
+	if flag == "" {
+		return nil
+	}
+	return deyerr.New(deyerr.C013, deyerr.Params{"field": flag, "value": value, "allowed": i18n.T(i18n.CLIPublicIPHubOnly)}).
+		WithFix(i18n.T(i18n.CLIPublicIPHubOnlyFix))
+}
+
+// check validates the address flags of a hub setup and returns them in
+// canonical form. --public-ip takes IPv4 (a 4-in-6 form is stored as IPv4),
+// --public-ip6 IPv6; both must be public (setup.IsPublicIP) unless
+// --allow-private-ip, which accepts private, CGNAT and loopback addresses
+// but never a link-local one. Errors: DEY-C013 with the flag as field.
+func (f ipFlags) check() (ip4, ip6 string, err error) {
+	if f.allowPrivate && strings.TrimSpace(f.publicIP) == "" && strings.TrimSpace(f.publicIP6) == "" {
+		return "", "", deyerr.New(deyerr.C013, deyerr.Params{"field": "--allow-private-ip", "value": "true",
+			"allowed": i18n.T(i18n.CLIAllowPrivateNeedsIP)}).WithFix(i18n.T(i18n.CLIAllowPrivateNeedsIPFix))
+	}
+	if ip4, err = publicIPFlag("--public-ip", f.publicIP, false, f.allowPrivate); err != nil {
+		return "", "", err
+	}
+	if ip6, err = publicIPFlag("--public-ip6", f.publicIP6, true, f.allowPrivate); err != nil {
+		return "", "", err
+	}
+	return ip4, ip6, nil
+}
+
+// cgnatPrefix is the shared address space of RFC 6598 (carrier-grade NAT).
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+// publicIPFlag validates one address flag (see ipFlags.check); "" when the
+// flag is empty.
+func publicIPFlag(flag, value string, v6, allowPrivate bool) (string, error) {
+	s := strings.TrimSpace(value)
+	if s == "" {
+		return "", nil
+	}
+	bad := func(allowed string) error {
+		return deyerr.New(deyerr.C013, deyerr.Params{"field": flag, "value": value, "allowed": allowed}).
+			WithFix(i18n.T(i18n.CLIPublicIPFix))
+	}
+	family := i18n.T(i18n.CLIWantIPv4)
+	if v6 {
+		family = i18n.T(i18n.CLIWantIPv6)
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil || a.Zone() != "" {
+		return "", bad(family)
+	}
+	if !v6 {
+		a = a.Unmap()
+	}
+	if a.Is4() == v6 || a.Is4In6() {
+		return "", bad(family)
+	}
+	if !setup.IsPublicIP(a) {
+		lab := a.IsPrivate() || a.IsLoopback() || (a.Is4() && cgnatPrefix.Contains(a))
+		if !allowPrivate || !lab {
+			return "", bad(i18n.T(i18n.CLIWantPublicIP))
+		}
+	}
+	return a.String(), nil
 }
 
 func newSetupCmd(g *Globals) *cobra.Command {
@@ -58,6 +156,7 @@ func newSetupCmd(g *Globals) *cobra.Command {
 	cmd.Flags().IntVar(&f.port, "control-port", 0, i18n.T(i18n.CLIFlagControlPort))
 	cmd.Flags().BoolVar(&f.yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
 	cmd.Flags().StringVar(&f.autoUpdate, "auto-update", "off", i18n.T(i18n.CLIFlagAutoUpdate))
+	addIPFlags(cmd, &f.publicIP, &f.publicIP6, &f.allowPrivate)
 	cmd.Flags().BoolVar(&f.repair, "repair", false, i18n.T(i18n.CLIFlagRepair))
 	_ = cmd.Flags().MarkHidden("repair")
 	return cmd
@@ -66,6 +165,7 @@ func newSetupCmd(g *Globals) *cobra.Command {
 func newJoinCmd(g *Globals) *cobra.Command {
 	var name string
 	var yes bool
+	var ipf ipFlags
 	cmd := &cobra.Command{
 		Use:     "join 'dey://TOKEN@HUB_IP:PORT#FP'",
 		Short:   i18n.T(i18n.CLIJoinShort),
@@ -75,6 +175,9 @@ func newJoinCmd(g *Globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), LocalOpTimeout)
 			defer cancel()
+			if err := ipf.hubOnly(); err != nil {
+				return err
+			}
 			if g.configured() {
 				return deyerr.New(deyerr.I013, deyerr.Params{"role": g.role()})
 			}
@@ -92,6 +195,11 @@ func newJoinCmd(g *Globals) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", i18n.T(i18n.CLIFlagJoinName))
 	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T(i18n.CLIFlagYesSetup))
 	_ = cmd.Flags().MarkHidden("yes")
+	// The hub's address flags are refused here (DEY-C013), not unknown.
+	addIPFlags(cmd, &ipf.publicIP, &ipf.publicIP6, &ipf.allowPrivate)
+	for _, n := range []string{"public-ip", "public-ip6", "allow-private-ip"} {
+		_ = cmd.Flags().MarkHidden(n)
+	}
 	return cmd
 }
 
@@ -131,6 +239,17 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 	case "on", "off":
 	default:
 		return deyerr.New(deyerr.C013, deyerr.Params{"field": "--auto-update", "value": f.autoUpdate, "allowed": "on, off"})
+	}
+	ipf := ipFlags{publicIP: f.publicIP, publicIP6: f.publicIP6, allowPrivate: f.allowPrivate}
+	if role == config.RoleNode {
+		if err := ipf.hubOnly(); err != nil {
+			return err
+		}
+	}
+	// Checked before any question: the flags are canonical from here on.
+	var err error
+	if f.publicIP, f.publicIP6, err = ipf.check(); err != nil {
+		return err
 	}
 	st := &stepper{}
 	if role == "" {
@@ -177,11 +296,14 @@ func (g *Globals) setup(ctx context.Context, f setupFlags) error {
 }
 
 // hubQuestions is the number of questions the hub wizard asks after the
-// role: name (unless --name), public IP, control port (unless
-// --control-port) and automatic tuning.
+// role: name (unless --name), public IP (unless --public-ip), control port
+// (unless --control-port) and automatic tuning.
 func hubQuestions(f setupFlags) int {
-	n := 2
+	n := 1
 	if strings.TrimSpace(f.name) == "" {
+		n++
+	}
+	if f.publicIP == "" {
 		n++
 	}
 	if f.port == 0 {
@@ -314,6 +436,7 @@ func (g *Globals) checkControlPort(s string) error {
 func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, st *stepper) error {
 	o := setup.HubOptions{
 		Root: g.Root, Runner: g.Runner, Name: strings.TrimSpace(f.name), ControlPort: f.port,
+		PublicIP: f.publicIP, PublicIP6: f.publicIP6,
 		Mirror: strings.TrimSpace(g.Getenv(EnvMirror)), SysctlProfile: config.SysctlAuto,
 		AutoUpdate:  strings.EqualFold(strings.TrimSpace(f.autoUpdate), "on"),
 		ApplySysctl: f.yes, StartService: !g.NoService, SocketPath: g.Socket, Now: g.Now, Logger: g.logger(),
@@ -329,6 +452,11 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 			return err
 		}
 	}
+	// public_ip_source: where hub.public_ip came from.
+	ipSource := "detected"
+	if o.PublicIP != "" {
+		ipSource = "flag"
+	}
 	if interactive {
 		var err error
 		if o.Name == "" {
@@ -339,8 +467,11 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 				return err
 			}
 		}
-		if o.PublicIP, err = g.askPublicIP(ctx, st); err != nil {
-			return err
+		if o.PublicIP == "" {
+			if o.PublicIP, err = g.askPublicIP(ctx, st); err != nil {
+				return err
+			}
+			ipSource = "wizard"
 		}
 		if o.ControlPort == 0 {
 			def := setup.SuggestControlPort(config.DefaultControlPort, g.PortBusy)
@@ -392,7 +523,7 @@ func (g *Globals) setupHub(ctx context.Context, f setupFlags, interactive bool, 
 			"private_ip": res.PrivateIP, "control_port": res.ControlPort, "ca_fingerprint": res.CAFingerprint,
 			"config_path": res.ConfigPath, "sysctl_profile": res.SysctlProfile, "sysctl_warnings": nonNil(res.SysctlWarnings),
 			"firewall_managed": res.FirewallManaged, "service_started": res.ServiceStarted, "steps": p.steps,
-			"auto_update": o.AutoUpdate,
+			"auto_update": o.AutoUpdate, "public_ip_source": ipSource,
 		}
 		if jerr == nil {
 			doc["join"] = jc
