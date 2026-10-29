@@ -259,6 +259,24 @@ a direct address: "front: unchanged")
 
 `{"schema", "tunnel": TunnelInfo, "steps": [Step]}`
 
+Flags: `--id <id>` (the exact tunnel id), `--allow-rename`, besides `--node`,
+`--ports`, `--name`, `--ladder`, `--backup`, `--tls-mode` and `--yes`.
+
+- **Scripts must pass `--id`.** The id is then exactly the one given;
+  `tunnel.id` repeats it. A taken id is `DEY-C002` (exit 1) and nothing is
+  created, so two identical calls create one tunnel. An invalid id
+  (`[a-z0-9-]{2,32}`) is `DEY-C007`.
+- Without `--id` the id is derived from `--name`. When that id is taken and
+  the command runs without a terminal or with `--yes`, it is `DEY-C002`
+  (exit 1), checked before the ports (never `DEY-C003` for this case), and
+  nothing is created. `--allow-rename` accepts a numbered id instead
+  (`t5-2`); read it from `tunnel.id`. On a terminal without `--yes` the
+  numbered id is used as before. Without `--name` the default id `tunnel`
+  is still numbered (`tunnel-2`, …).
+- The Local API field behind this is `TunnelAddRequest.no_rename` (bool,
+  omitted when false): the CLI sets it for a `--name` without `--id` in
+  non-interactive mode unless `--allow-rename`; the menu never sets it.
+
 ### `deyroute tunnel list`
 
 `{"schema", "tunnels": [TunnelInfo]}`

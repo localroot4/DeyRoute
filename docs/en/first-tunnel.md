@@ -102,6 +102,8 @@ On a terminal it first shows a summary and asks `Create the tunnel?` (y or n; En
 | `--node <id>` | primary node (required) |
 | `--ports …` | listen ports (required), see the table below |
 | `--name N` | display name; the tunnel **id** is derived from it (`main`) |
+| `--id <id>` | the exact tunnel id (`[a-z0-9-]`, 2–32 characters); a taken id fails with `DEY-C002` |
+| `--allow-rename` | without a terminal or with `--yes`: give a taken `--name` a numbered id instead of failing |
 | `--ladder default` | a ladder profile, or an inline list such as `backhaul/wssmux,rathole/noise` |
 | `--backup <id>` | backup node(s); repeat the flag or separate ids with commas |
 | `--yes` | do not show the summary first |
@@ -109,6 +111,25 @@ On a terminal it first shows a summary and asks `Create the tunnel?` (y or n; En
 The tunnel id is what all other commands use (`deyroute tunnel show main`).
 Without `--name` the id is `tunnel` (then `tunnel-2`, …); `deyroute tunnel list`
 shows it.
+
+When the id derived from `--name` is taken, the result depends on who runs
+the command:
+
+- On a terminal, without `--yes`, the tunnel gets a numbered id (`main-2`)
+  and the summary is shown as usual.
+- Without a terminal or with `--yes` (a script), the command stops with
+  `DEY-C002` and exit code 1 and creates nothing. `--allow-rename` brings
+  back the numbered id.
+
+Scripts pass the id with `--id`: then the id is always the one you gave, and
+a second identical call fails with `DEY-C002` instead of creating a second
+tunnel. A retry after a lost answer is therefore safe:
+
+```bash
+deyroute tunnel add --id t5 --name "Panel 5" --node de-1 --ports 2083 --yes --json
+```
+
+An invalid id fails with `DEY-C007`.
 
 More examples:
 
