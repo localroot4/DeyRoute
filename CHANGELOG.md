@@ -62,6 +62,61 @@ All notable changes to DEYROUTE are documented here. The format follows
   render passes the check, so a working install does not change. The list
   is in `docs/en/security.md` (Tunnel processes).
 
+### Security — nodes install only what a signed release proves
+
+- A node no longer installs whatever its hub serves. When it follows the
+  hub's version, the hub passes on the signed files of its release
+  (`SHA256SUMS`, `SHA256SUMS.minisig`, the archive) and the node checks
+  them with the release key built into its own binary: the signature, that
+  the release is exactly the announced version, the checksum of the
+  archive, that the archive holds a single regular file `deyroute` (at most
+  200 MB, nothing outside its directory), and that this binary checks
+  signed updates itself (`deyroute --json version` says
+  `"signed_update": true`). Anything else is refused with `DEY-S001`;
+  nothing is installed and the node keeps its version
+  (docs/en/update-uninstall.md, "How the nodes follow"; lab S19, S41).
+- A node installs a backend only in a version that a signed manifest pins:
+  the version, download address and sha256 for its architecture must be
+  those of the manifest built into it, or of a manifest the hub sends with
+  a signature the node checks itself (the hub's override, or the manifest
+  of the hub's own release when the node runs another build). Anything else
+  is refused with `DEY-N050` before a download. A version already installed
+  exactly as pinned is kept without a manifest (QUESTIONS.md C.62;
+  "Backends on the nodes"; lab S20, S21).
+- `deyroute update manifest` now keeps the signature as
+  `/etc/deyroute/backends.yaml.minisig` next to the override; both are in
+  backups. An override saved by an earlier build has no signature: the hub
+  fetches a matching one at start and every 10 minutes, and until then its
+  nodes install only the versions built into them (warning "the backend
+  manifest override has no valid signature …"; fix:
+  `deyroute update manifest`).
+- The hub keeps the signed release of its version for its nodes in
+  `/var/lib/deyroute/bin/<version>/`: `deyroute update` and the installer
+  (also with `--local`) leave it there, and a hub without it downloads it
+  the first time a node needs it (through a node first). The installer
+  keeps it on every server it installs, nodes included (QUESTIONS.md
+  C.60). `deyroute doctor` lists it as "signed release kept for the
+  nodes".
+- **Migration: update the hub first.** A node of this version refuses the
+  update of a hub of an earlier build (`DEY-S001`, "update the hub first")
+  and keeps running; nodes of earlier builds update from a new hub as
+  before. After `deyroute update --version` or `--rollback` on the hub to
+  an earlier build, the nodes keep their version. A hub on a development
+  build has no signed release: its nodes refuse with `DEY-S012`.
+
+### Added — signed updates
+
+- `DEY-S012` "Hub runs an unsigned development build".
+- `node.allow_unsigned_updates` in a node's `config.yaml` (default false,
+  written only when true; for test labs only): that node takes the hub's
+  binary without a signature, from a development build or from an earlier
+  hub. It does not apply to backends. While it is set, the node refuses to
+  install a release older than both itself and 0.3.0 (`DEY-S011`, every
+  older `0.3.0-edge.N` included) (QUESTIONS.md C.58).
+- `deyroute --json version` gains `"test_key"` (true only for a lab build
+  that trusts a second, throwaway signing key; both release paths refuse to
+  publish such a binary) and `"signed_update": true` (docs/cli-json.md).
+
 ### Changed — the automatic update is off by default
 
 - **The automatic update is now off by default** (spec section 5: an update

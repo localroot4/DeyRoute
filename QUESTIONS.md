@@ -585,6 +585,92 @@ stated default until the owner decides · **[ANSWERED]** closed.
     d) The readers accept `nlink > 1` (C.56).
     Owner decision: (1), (2), or keep the documented rule and restart
     affected units by hand.
+58. **[DEFAULT] `node.allow_unsigned_updates`, a lab-only switch (DR-03).**
+    New node key, bool, default false, written only when true, so a default
+    install never blocks a rollback. With it, self.update takes the hub's
+    binary without a signature as before DR-03: from a hub on a development
+    build (otherwise `DEY-S012`) and, beyond the brief, from a hub of an
+    earlier build that serves no signed release (otherwise `DEY-S001`), so a
+    lab can mix builds. It does not apply to `backend.install`. The key is
+    registered in the per-key rollback guard with
+    `FirstAllowUnsignedUpdatesVersion` = 0.3.0, for the reason of C.49 (edge
+    builds cannot be told apart by version): while it is set, the node
+    refuses a self.update to a release older than both itself and 0.3.0
+    (`DEY-S011`, every older `0.3.0-edge.N` included). Documented as
+    lab-only in `update-uninstall.md` and `security.md`.
+59. **[DEFAULT] A node installs only a release that checks signed updates
+    itself (DR-03).** The brief's checks (signature, version in
+    `SHA256SUMS`, archive sha256, safe extraction) accept any signed
+    release, also one built before signed updates, whose node then takes
+    any binary the hub serves; signatures do not expire. Before it installs,
+    the node now runs the extracted binary's `deyroute --json version` and
+    requires the new additive field `"signed_update": true`; otherwise
+    `DEY-S001` and nothing is installed. This asks the build what it can do
+    (brief section 2.2) instead of using a version floor, which would have
+    to be 0.3.0 (edge builds sort before it) and would stop every node
+    update between edge builds until then. Only `internal/exec` may start
+    programs (spec section 15), so the run is `exec.ReleaseVersion`, a
+    narrow path beside the config editor: exactly `<path> --json version`
+    for an absolute path to a file named `deyroute`, in its own directory,
+    with only `PATH` and `LC_ALL=C`, at most 15 s and 64 KiB of output; the
+    runner's allow-list is unchanged (`docs/dev/ARCHITECTURE.md`). It runs
+    as root, as the installer test-runs the binary it installs: the code is
+    the release's own, verified against the release key, and as the
+    backends' user `deyroute` a compromised backend could trace it and
+    answer for it. An honest hub never meets the refusal: it names only its
+    own version, and a hub rolled back to an earlier build announces no
+    `signed-update` and is refused as an earlier hub.
+60. **[DEFAULT] Where the signed release is kept (DR-03).** In
+    `/var/lib/deyroute/bin/<version>/`, the hub's `AssetCacheDir`, beside
+    the backend directories (backend names never contain a dot). The
+    installer keeps the verified `SHA256SUMS`, `SHA256SUMS.minisig` and
+    archive (and `backends.yaml` with its signature when they lie next to a
+    `--local` archive and verify) on every server it installs, nodes
+    included: it runs before setup or join decides the role (`--no-setup`
+    is the panel's path), and `install.sh` has 249 of its 250 lines. On a
+    node the copy (one archive) is never served; the next installer run
+    replaces it. The installer removes the release directories of other
+    versions; the hub at start removes those of versions it neither runs
+    nor rolls back to (`deyroute.prev`). `deyroute doctor` lists them apart
+    from the backends. Owner decision: keep, or drop the copy on nodes (for
+    example in `join`).
+61. **[DEFAULT] S19 updates through `deyroute update` and self.update; the
+    installer phase is a same-version repair (DR-03).** The brief asks to
+    add a hub-driven self.update step to S19. S19 upgrades from
+    `DEY_OLD_VERSION` to `DEY_VERSION`, and a second upgrade would need a
+    third lab build, so the installer-driven upgrade of both servers became
+    `deyroute update --version` from a lab HTTPS mirror on the hub and
+    self.update alone on the node. Re-running the installer under traffic
+    stays as a second phase: with the prober still running,
+    `install.sh --local` of the same release on the hub, then on the node
+    (`setup --repair` restarts each service); no request may fail and the
+    backend units keep their PIDs. Every lab install now checks the lab
+    signature (`--skip-signature` is gone from `lib.sh` and the scenarios).
+62. **[DEFAULT] A backend version already installed needs no manifest
+    (DR-03).** The brief accepts a `backend.install` entry only when the
+    node's built-in manifest or a signed one from the hub pins it. After
+    `deyroute update` the hub keeps the backend versions running tunnels
+    use until `deyroute update backends`, and the node's new built-in
+    manifest may no longer pin them, so every node would refuse them after
+    each hub restart. A node now accepts, without a manifest, an entry that
+    is installed exactly as pinned (the directory's archive marker is the
+    entry's sha256 and every binary matches its `.sha256` file,
+    `Layout.HasBackend`); nothing is downloaded then. A new node cannot
+    install such a version: the docs say to run `deyroute update backends`
+    after an update that brings new backend versions.
+63. **[OPEN] Older signed backend manifests (DR-03).** A node checks that a
+    manifest is signed with the release key, not how old its release is,
+    and signatures do not expire. A hub can therefore send the signed
+    `backends.yaml` of any older release and make its nodes install an
+    older backend version that release pinned, possibly one with a known
+    flaw. The binaries are still upstream releases that DEYROUTE once
+    pinned; the same holds for self.update to an older release that checks
+    signed updates (C.59). Options: (a) keep this; (b) refuse a manifest
+    that pins an older version than the node's built-in one (breaks a node
+    on a newer build than its hub, which brief section 2.2 requires to
+    work); (c) add a release sequence to the signed manifest and refuse
+    manifests older than the node's build (only for releases after the
+    change). Owner decision.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
