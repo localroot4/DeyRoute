@@ -35,23 +35,24 @@ func TestFirewallSpec(t *testing.T) {
 	}
 	s := FirewallSpec(cfg, []Side{active, {}}, false, DefaultUnknownControlRate)
 	require.Equal(t, firewall.Spec{
-		ControlPort:        44433,
-		RestrictControl:    true,
-		UnknownControlRate: "6/minute",
-		NodeIPs4:           []string{"1.2.3.4", "9.8.7.6"},
-		NodeIPs6:           []string{"2001:db8::9"},
-		CtlLow:             30000,
-		CtlHigh:            31999,
-		ListenTCP:          []int{443, 2053},
-		ListenUDP:          []int{443, 27015},
-		NAT:                active.NAT,
-		Masquerade:         []string{"dey-main"},
-		ClampMSS:           1380,
+		ControlPort:                 44433,
+		RestrictControl:             true,
+		UnknownControlRate:          "30/minute",
+		UnknownControlRatePerSource: "3/minute",
+		NodeIPs4:                    []string{"1.2.3.4", "9.8.7.6"},
+		NodeIPs6:                    []string{"2001:db8::9"},
+		CtlLow:                      30000,
+		CtlHigh:                     31999,
+		ListenTCP:                   []int{443, 2053},
+		ListenUDP:                   []int{443, 27015},
+		NAT:                         active.NAT,
+		Masquerade:                  []string{"dey-main"},
+		ClampMSS:                    1380,
 	}, s)
 	require.NoError(t, s.Validate())
 	out := firewall.Render(s)
 	require.Contains(t, out, "tcp dport 44433 ip saddr @nodes accept")
-	require.Contains(t, out, "tcp dport 44433 ct state new limit rate 6/minute accept")
+	require.Contains(t, out, "tcp dport 44433 ct state new add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept")
 	require.Contains(t, out, "tcp dport 44433 drop")
 	require.Contains(t, out, "dnat ip to 10.77.0.2:443")
 	require.NotContains(t, out, "8443", "disabled tunnels are not opened")
@@ -60,6 +61,7 @@ func TestFirewallSpec(t *testing.T) {
 	j := FirewallSpec(cfg, nil, true, DefaultUnknownControlRate)
 	require.False(t, j.RestrictControl)
 	require.Empty(t, j.UnknownControlRate)
+	require.Empty(t, j.UnknownControlRatePerSource)
 	require.Empty(t, j.NAT, "NAT only for active candidates")
 	require.Empty(t, j.Masquerade)
 	out = firewall.Render(j)
@@ -70,6 +72,7 @@ func TestFirewallSpec(t *testing.T) {
 	// No rate: unknown sources are dropped.
 	d := FirewallSpec(cfg, nil, false, "")
 	require.True(t, d.RestrictControl)
+	require.Empty(t, d.UnknownControlRatePerSource)
 	require.NotContains(t, firewall.Render(d), "limit rate")
 
 	// IPv6 hub.
@@ -171,4 +174,24 @@ func TestFirewallSpecFront(t *testing.T) {
 	// A disabled front keeps its settings but opens nothing.
 	cfg.Hub.Front.Enabled = false
 	require.Zero(t, FirewallSpec(cfg, nil, false, "").FrontPort)
+}
+
+// TestFirewallSpecControlRates: the unknown sources of the control port are
+// admitted per source at security.unknown_control_rate_per_source under the
+// global rate the hub passes (security.unknown_control_rate); both default
+// to 3/minute and 30/minute (DR-15).
+func TestFirewallSpecControlRates(t *testing.T) {
+	cfg := fwConfig()
+	require.Equal(t, "30/minute", DefaultUnknownControlRate)
+	s := FirewallSpec(cfg, nil, false, DefaultUnknownControlRate)
+	require.Equal(t, "3/minute", s.UnknownControlRatePerSource)
+	cfg.Security.UnknownControlRatePerSource = "5/minute burst 2 packets"
+	cfg.Security.UnknownControlRate = "60/minute"
+	_, global := cfg.UnknownControlRates()
+	s = FirewallSpec(cfg, nil, false, global)
+	require.Equal(t, "60/minute", s.UnknownControlRate)
+	require.Equal(t, "5/minute burst 2 packets", s.UnknownControlRatePerSource)
+	require.NoError(t, s.Validate())
+	require.Contains(t, firewall.Render(s),
+		"tcp dport 44433 ct state new add @ctl_unknown6 { ip6 saddr limit rate 5/minute burst 2 packets } limit rate 60/minute accept")
 }

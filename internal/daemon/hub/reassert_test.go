@@ -273,3 +273,108 @@ func TestRollbackRefusedWithFirewallReassertKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "#!old", string(data))
 }
+
+// TestRollbackRefusedWithControlRateKeys: security.unknown_control_rate and
+// security.unknown_control_rate_per_source (written only when set) are
+// unknown to releases before 0.3.1, each with its own first version: while
+// either is set a rollback or a downgrade to an older build is refused
+// (DEY-S011); updates to newer builds are not. Without them nothing is
+// refused.
+func TestRollbackRefusedWithControlRateKeys(t *testing.T) {
+	old := version.Version
+	t.Cleanup(func() { version.Version = old }) // after the hub stopped
+	version.Version = "0.3.1-edge.5"
+	env := startHub(t, func(c *config.Config) {
+		c.Security.UnknownControlRatePerSource = "5/minute"
+		c.Security.UnknownControlRate = "60/minute"
+	})
+	l := env.h.Local()
+	ctx := ctxT(t)
+	bin := filepath.Join(env.root, config.BinaryPath)
+	prev := filepath.Join(env.root, config.PrevBinaryPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(bin), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(prev), 0o755))
+	require.NoError(t, os.WriteFile(bin, []byte("#!new"), 0o755))  // #nosec G306 -- test binary
+	require.NoError(t, os.WriteFile(prev, []byte("#!old"), 0o755)) // #nosec G306 -- test binary
+	env.h.recordPrevious("0.3.1-edge.4")
+
+	_, err := l.UpdateRollback(ctx)
+	require.Equal(t, deyerr.S011, codeOf(err))
+	msg := deyerr.As(err).Message()
+	require.Contains(t, msg, "security.unknown_control_rate_per_source (since 0.3.1)")
+	require.Contains(t, msg, "security.unknown_control_rate (since 0.3.1)")
+	_, err = l.UpdateApply(ctx, "0.3.0", nil)
+	require.Equal(t, deyerr.S011, codeOf(err))
+	_, err = l.UpdateApply(ctx, "0.3.1-edge.6", nil)
+	require.NotEqual(t, deyerr.S011, codeOf(err))
+
+	for _, step := range []struct {
+		edit func(c *config.Config)
+		key  string
+	}{
+		{func(c *config.Config) { c.Security.UnknownControlRatePerSource = "" }, "security.unknown_control_rate (since 0.3.1)"},
+		{func(c *config.Config) {
+			c.Security.UnknownControlRate = ""
+			c.Security.UnknownControlRatePerSource = "5/minute"
+		}, "security.unknown_control_rate_per_source (since 0.3.1)"},
+	} {
+		_, err = env.h.mutate(func(c *config.Config) error {
+			step.edit(c)
+			return nil
+		})
+		require.NoError(t, err)
+		_, err = l.UpdateRollback(ctx)
+		require.Equal(t, deyerr.S011, codeOf(err))
+		require.Equal(t, 1, strings.Count(deyerr.As(err).Message(), "(since"), deyerr.As(err).Message())
+		require.Contains(t, deyerr.As(err).Message(), step.key)
+	}
+
+	_, err = env.h.mutate(func(c *config.Config) error {
+		c.Security.UnknownControlRatePerSource = ""
+		return nil
+	})
+	require.NoError(t, err)
+	_, err = l.UpdateRollback(ctx)
+	require.NoError(t, err)
+}
+
+// TestHubFirewallFallsBackToGlobalLimit: the hub applies the per-source
+// admission of the control port by default (3/minute per source, 30/minute
+// in all, DR-15); when nft refuses it with a syntax error, the hub applies
+// the single global rule instead, remembers that for its run (no second
+// try, one warning) and reports the table it applied.
+func TestHubFirewallFallsBackToGlobalLimit(t *testing.T) {
+	env, o := prepareEnv(t, func(c *config.Config) {
+		c.Nodes = append(c.Nodes, config.Node{ID: "de-1", Name: "de-1", PublicIP: "1.2.3.4", CertFingerprint: config.SpecPlaceholderFingerprint})
+	})
+	o.DisableFirewall = false
+	var mu sync.Mutex
+	var applied []string
+	env.runner.Handler = func(c exec.Call) (exec.Response, bool) {
+		if c.Line() != "nft -f -" || strings.Contains(string(c.Stdin), firewall.StatsTable) {
+			return exec.Response{}, false
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		applied = append(applied, string(c.Stdin))
+		if strings.Contains(string(c.Stdin), "add @ctl_unknown4") {
+			return exec.Fail(1, "Error: syntax error, unexpected add"), true
+		}
+		return exec.OK(""), true
+	}
+	env.startEnv(o)
+	require.Eventually(t, func() bool { return !env.h.Firewall().Applied.IsZero() }, testWait, 10*time.Millisecond)
+	fw := env.h.Firewall()
+	require.NoError(t, fw.Err)
+	require.Equal(t, "30/minute", fw.Spec.UnknownControlRate)
+	require.Empty(t, fw.Spec.UnknownControlRatePerSource, "the spec as applied")
+	require.NoError(t, env.h.applyFirewall(ctxT(t)))
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, applied, 3, "per-source, global, then global at once")
+	require.Contains(t, applied[0], "add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute accept")
+	for _, s := range applied[1:] {
+		require.NotContains(t, s, "ctl_unknown")
+		require.Contains(t, s, "tcp dport 44433 ct state new limit rate 30/minute accept")
+	}
+}

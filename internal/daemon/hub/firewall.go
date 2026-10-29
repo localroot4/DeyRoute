@@ -148,7 +148,8 @@ func (h *Hub) applyFirewallLocked(ctx context.Context) error {
 			sides = append(sides, carry)
 		}
 	}
-	spec := render.FirewallSpec(cfg, sides, h.joins.Active(), render.DefaultUnknownControlRate)
+	_, global := cfg.UnknownControlRates()
+	spec := render.FirewallSpec(cfg, sides, h.joins.Active(), global)
 	if h.ctlPort != 0 {
 		// The port the control listener is bound to, not a changed
 		// hub.control_port that takes effect only at the next restart.
@@ -168,7 +169,9 @@ func (h *Hub) applyFirewallLocked(ctx context.Context) error {
 	switch {
 	case managed && !h.o.DisableFirewall:
 		actx, cancel := context.WithTimeout(ctx, firewallApplyTimeout)
-		err = firewall.Apply(actx, h.o.Runner, spec)
+		// The spec as applied: without the per-source rate once nft refused
+		// it (DR-15 fallback).
+		spec, err = h.fwApplier.Apply(actx, spec)
 		cancel()
 		if err != nil {
 			h.log.Error("firewall apply failed", dlog.Err(err), dlog.Code(deyerr.As(err).Code))
