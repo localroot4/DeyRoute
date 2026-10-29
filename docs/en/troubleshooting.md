@@ -215,8 +215,9 @@ Check:
 3. The probe kind is `tls`, `tcp` or `http`: set it back with
    `deyroute port set main 443 --probe auto`, or force the echo probe with
    `--probe echo`.
-4. The service was down when the tunnel was added: the hub asks the node
-   again every minute while the tunnel does not pass its probe.
+4. The service was down when the tunnel was added: while the tunnel does
+   not pass its probe, the hub asks the node again (at most every 5
+   minutes) and switches to the echo probe by itself.
 
 ### The service on the node is down — `DEY-F005`
 

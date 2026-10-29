@@ -424,10 +424,13 @@ func (h *Hub) probeTunnelPort(ctx context.Context, tunnel string, port int) heal
 	if c := h.tun.lookup(tunnel); c != nil {
 		st := c.engineState()
 		_, plan := c.snapshot()
+		if r, ok := c.echoPortProbe(ctx, *t, plan, st.Active, pm, probeTimeout(*t)); ok {
+			return r
+		}
 		host = c.probeHost(plan, st.Active)
 		opts.AcceptCleanClose = c.closesWithoutData(st.Active.Node)
 	}
-	return health.Path(ctx, net.JoinHostPort(host, strconv.Itoa(port)), probeKind(pm), probeTimeout(*t), opts)
+	return health.Path(ctx, net.JoinHostPort(host, strconv.Itoa(port)), pathKind(pm), probeTimeout(*t), opts)
 }
 
 // suggestPorts returns up to n free ports (section 10: Cloudflare ports
@@ -479,7 +482,10 @@ func (l *local) DiagProbe(ctx context.Context, tunnel string, allPorts bool) ([]
 	}
 	out := make([]api.ProbeReport, 0, len(maps))
 	for _, pm := range maps {
-		rep := api.ProbeReport{Tunnel: t.ID, Port: pm.Listen, Proto: pm.Proto, Kind: probeKind(pm)}
+		rep := api.ProbeReport{Tunnel: t.ID, Port: pm.Listen, Proto: pm.Proto, Kind: pathKind(pm)}
+		if c != nil && c.echoUsedFor(active, pm) {
+			rep.Kind = config.ProbeEcho
+		}
 		var r health.Result
 		switch {
 		case pm.Proto == config.ProtoUDP && c != nil && !active.IsZero():

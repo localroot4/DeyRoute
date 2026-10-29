@@ -93,6 +93,19 @@ func TestProbeEchoKind(t *testing.T) {
 	require.True(t, samples[len(samples)-1].OK, "%+v", samples[len(samples)-1])
 	require.Equal(t, state.StateUp, ts.State)
 
+	// diag probe and the 60-second report use the echo probe on the probe
+	// port too (health.Path has no kind "echo").
+	reps, err := te.client.DiagProbe(ctxT(t), "main", true)
+	require.NoError(t, err)
+	require.Len(t, reps, 1)
+	require.Equal(t, config.ProbeEcho, reps[0].Kind)
+	require.True(t, reps[0].OK, reps[0].Error)
+	te.h.tun.lookup("main").report(ctxT(t))
+	ps, err := te.h.st.Probes("main", portsProbeNode, strconv.Itoa(port)+"/tcp")
+	require.NoError(t, err)
+	require.NotEmpty(t, ps)
+	require.True(t, ps[len(ps)-1].OK, ps[len(ps)-1].Error)
+
 	// Success needs both: the node now reports the service down.
 	n.setTarget("", true)
 	require.Eventually(t, func() bool {
@@ -251,4 +264,59 @@ func TestEchoProbeKeptAcrossHubRestart(t *testing.T) {
 	require.Equal(t, payload, string(n.renderedArgs(inst).Files["test.conf"]))
 	ts, _ := env2.h.tunnelState("main")
 	require.Equal(t, state.StateUp, ts.State)
+}
+
+// TestEchoVerdictKeptWhileServiceDown: a refused TLS probe (the service is
+// down) says nothing about how the service answers: the silent verdict and
+// the echo probe stay, so the tunnel is not planned twice around an outage.
+func TestEchoVerdictKeptWhileServiceDown(t *testing.T) {
+	for _, tc := range []struct {
+		res        api.ProbeResultDTO
+		silent, ok bool
+	}{
+		{api.ProbeResultDTO{OK: true}, false, true},
+		{api.ProbeResultDTO{Error: health.ReasonNotTLS}, false, true},
+		{api.ProbeResultDTO{Error: health.ReasonClosedNoData}, false, true},
+		{api.ProbeResultDTO{Error: health.ReasonTimeout}, true, true},
+		{api.ProbeResultDTO{Error: health.ReasonReset}, true, true},
+		{api.ProbeResultDTO{Error: health.ReasonRefused}, false, false},
+		{api.ProbeResultDTO{Error: health.ReasonUnreachable}, false, false},
+	} {
+		v, ok := verdictOf(tc.res)
+		require.Equal(t, tc.silent, v.Silent, tc.res.Error)
+		require.Equal(t, tc.ok, ok, tc.res.Error)
+	}
+
+	te := startTunnelHub(t)
+	te.sd.silent = true
+	n := te.tunnelNode("de-1")
+	n.setTarget(health.ReasonTimeout, false)
+	te.addTunnelUp(echoTunnel(freePort(t), ""))
+	te.waitActive("main", "de-1", trAlpha)
+	c := te.h.tun.lookup("main")
+	tun, _ := c.snapshot()
+	n.setTarget(health.ReasonRefused, false)
+	c.mu.Lock()
+	e := c.plain["de-1"]
+	e.at = time.Time{} // due again
+	c.plain["de-1"] = e
+	c.mu.Unlock()
+	c.refreshPlain(ctxT(t), "de-1", tun)
+	v, known := c.verdict("de-1")
+	require.True(t, known)
+	require.True(t, v.Silent, "a refused probe keeps the verdict")
+	require.False(t, c.echoStale("de-1"))
+	require.Equal(t, config.ProbeEcho, probePort(t, te, "main").ProbeEffective)
+
+	// A TLS answer is conclusive: the verdict changes and a re-plan is due.
+	n.setTarget("", false)
+	c.mu.Lock()
+	e = c.plain["de-1"]
+	e.at = time.Time{}
+	c.plain["de-1"] = e
+	c.mu.Unlock()
+	c.refreshPlain(ctxT(t), "de-1", tun)
+	v, _ = c.verdict("de-1")
+	require.False(t, v.Silent)
+	require.True(t, c.echoStale("de-1"))
 }

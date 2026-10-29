@@ -586,14 +586,11 @@ func (c *tunnelCtl) probePath(ctx context.Context, sc state.Candidate) failover.
 	if tcp && c.echoActive(pc) {
 		r = c.echoProbe(ctx, t, plan, sc, pc.ProbeEcho)
 	} else if tcp {
-		kind := probeKind(pm)
-		if kind == config.ProbeEcho {
-			// The echo probe is not available here (see probeEffective).
-			kind = config.ProbeAuto
-		}
+		// probe: echo without the echo probe here probes like auto (see
+		// probeEffective).
 		addr := net.JoinHostPort(c.probeHost(plan, sc), strconv.Itoa(pm.Listen))
 		opts := health.PathOptions{AcceptCleanClose: c.closesWithoutData(sc.Node)}
-		r = health.Path(ctx, addr, kind, remaining(ctx, probeTimeout(t)), opts)
+		r = health.Path(ctx, addr, pathKind(pm), remaining(ctx, probeTimeout(t)), opts)
 	} else {
 		r = c.unitProbe(ctx, sc)
 	}
@@ -702,12 +699,18 @@ func (c *tunnelCtl) refreshPlain(ctx context.Context, node string, t config.Tunn
 	if err := h.Call(cctx, node, api.CmdProbeTLS, api.ProbeArgs{Target: pm.Target, TimeoutMs: int(probeTimeout(t) / time.Millisecond)}, &res); err != nil {
 		return
 	}
-	v := probeVerdict{Silent: silentTLS(res)}
-	if v.Silent {
-		v.Why = res.Error
+	v, measured := verdictOf(res)
+	conclusive := measured
+	if !conclusive {
+		// Refused, unreachable…: the service is down, which says nothing
+		// about how it answers; the last verdict stays.
+		v, measured = c.verdict(node)
 	}
 	c.mu.Lock()
-	c.plain[node] = plainEntry{closes: !res.OK && res.Error == health.ReasonClosedNoData, silent: v.Silent, why: v.Why, at: h.now()}
+	c.plain[node] = plainEntry{closes: !res.OK && res.Error == health.ReasonClosedNoData,
+		silent: v.Silent, why: v.Why, measured: measured, at: h.now()}
 	c.mu.Unlock()
-	c.keepVerdict(node, v)
+	if conclusive {
+		c.keepVerdict(node, v)
+	}
 }

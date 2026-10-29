@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/backend"
@@ -67,9 +68,17 @@ type echoNode struct {
 	why   string // why it is wanted but not ready
 }
 
-// silentTLS reports a TLS probe error of a silent service.
-func silentTLS(res api.ProbeResultDTO) bool {
-	return !res.OK && (res.Error == health.ReasonTimeout || res.Error == health.ReasonReset)
+// verdictOf reads the node's TLS probe of the target: a timeout or a
+// reset is silent; a TLS answer, other bytes or a clean close are not;
+// anything else (refused, unreachable) is not conclusive.
+func verdictOf(res api.ProbeResultDTO) (v probeVerdict, conclusive bool) {
+	switch {
+	case res.OK, res.Error == health.ReasonNotTLS, res.Error == health.ReasonClosedNoData:
+		return probeVerdict{}, true
+	case res.Error == health.ReasonTimeout, res.Error == health.ReasonReset:
+		return probeVerdict{Silent: true, Why: res.Error}, true
+	}
+	return probeVerdict{}, false
 }
 
 // echoKind reports whether the probe port of t may use the echo probe:
@@ -126,7 +135,7 @@ func (c *tunnelCtl) verdict(node string) (v probeVerdict, known bool) {
 	c.mu.Lock()
 	e, ok := c.plain[node]
 	c.mu.Unlock()
-	if ok {
+	if ok && e.measured {
 		return probeVerdict{Silent: e.silent, Why: e.why}, true
 	}
 	r, ok := c.records()[node]
@@ -345,6 +354,35 @@ func (c *tunnelCtl) echoProbe(ctx context.Context, t config.Tunnel, plan render.
 		return health.Result{Err: reasonServiceDown}
 	}
 	return r
+}
+
+// echoUsedFor reports whether port map pm of the tunnel is probed with
+// the echo probe on candidate sc: it is the probe port and sc carries the
+// hidden map of a ready echo.
+func (c *tunnelCtl) echoUsedFor(sc state.Candidate, pm config.PortMap) bool {
+	t, plan := c.snapshot()
+	probe, tcp := t.ProbeTarget()
+	if !tcp || sc.IsZero() || pm.Listen != probe.Listen || pm.Proto != probe.Proto {
+		return false
+	}
+	pc, _ := plan.Candidate(sc.Node, sc.Transport)
+	return c.echoActive(pc)
+}
+
+// echoPortProbe probes port map pm with the echo probe when the tunnel
+// uses it there on candidate sc (echoUsedFor); ok is false otherwise.
+func (c *tunnelCtl) echoPortProbe(ctx context.Context, t config.Tunnel, plan render.TunnelPlan, sc state.Candidate,
+	pm config.PortMap, timeout time.Duration) (health.Result, bool) {
+	if !c.echoUsedFor(sc, pm) {
+		return health.Result{}, false
+	}
+	pc, _ := plan.Candidate(sc.Node, sc.Transport)
+	if pc == nil {
+		return health.Result{}, false
+	}
+	pctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return c.echoProbe(pctx, t, plan, sc, pc.ProbeEcho), true
 }
 
 // probeEffective is the probe kind the hub uses for the tunnel now on

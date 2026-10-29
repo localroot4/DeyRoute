@@ -137,7 +137,10 @@ type plainEntry struct {
 	// connect succeeded (DR-17).
 	silent bool
 	why    string
-	at     time.Time
+	// measured: silent and why come from a conclusive TLS probe (here or
+	// in state.db), not from a refused or unreachable target.
+	measured bool
+	at       time.Time
 }
 
 func newTunnelCtl(h *Hub, id string) *tunnelCtl {
@@ -1754,7 +1757,7 @@ func (c *tunnelCtl) report(ctx context.Context) {
 			continue
 		}
 		maps = append(maps, pm)
-		targets = append(targets, health.Target{Addr: net.JoinHostPort(host, strconv.Itoa(pm.Listen)), Kind: probeKind(pm)})
+		targets = append(targets, health.Target{Addr: net.JoinHostPort(host, strconv.Itoa(pm.Listen)), Kind: pathKind(pm)})
 	}
 	if len(targets) == 0 {
 		return
@@ -1763,6 +1766,9 @@ func (c *tunnelCtl) report(ctx context.Context) {
 	now := h.now()
 	for i, r := range results {
 		pm := maps[i]
+		if er, ok := c.echoPortProbe(ctx, t, plan, st.Active, pm, probeTimeout(t)); ok {
+			r = er // the probe port of an echo-probed candidate (DR-17)
+		}
 		err := h.st.AppendProbe(t.ID, portsProbeNode, strconv.Itoa(pm.Listen)+"/"+pm.Proto, state.ProbeSample{
 			At: now, OK: r.OK, RTT: r.RTT, Kind: "port:" + strconv.Itoa(pm.Listen), Error: r.Err,
 		})
@@ -1775,6 +1781,16 @@ func (c *tunnelCtl) report(ctx context.Context) {
 // runningState reports states in which a candidate runs and is probed.
 func runningState(s string) bool {
 	return s == state.StateUp || s == state.StateDegraded || s == state.StatePaused
+}
+
+// pathKind is the health.Path kind of a port map: probeKind, with echo
+// as auto (the echo probe needs the hidden port map of the active
+// candidate, see echoPortProbe; without it the hub probes like auto).
+func pathKind(pm config.PortMap) string {
+	if k := probeKind(pm); k != config.ProbeEcho {
+		return k
+	}
+	return config.ProbeAuto
 }
 
 // probeKind is the probe kind of a port map (auto by default).
