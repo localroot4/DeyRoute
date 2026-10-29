@@ -401,11 +401,18 @@ transport from inside the transport itself.
   them itself with the release key built into its own binary: the
   signature, that the release is exactly the announced version, the
   checksum of the archive, and that the archive holds one regular file
-  `deyroute` and nothing that would land outside its directory. Anything
-  else is refused with `DEY-S001` and nothing is installed. So someone who
-  takes over the hub cannot make the nodes install a program of their own
-  through an update. A hub on a development build has no signed release
-  (`DEY-S012`); details in
+  `deyroute` and nothing that would land outside its directory. Last, it
+  asks that binary whether it checks signed updates itself
+  (`deyroute --json version` must say `"signed_update": true`): a release
+  built before signed updates is signed with the same key, but a node on it
+  would take any binary its hub serves. Anything else is refused with
+  `DEY-S001` and nothing is installed. So someone who takes over the hub
+  cannot make the nodes install a program of their own through an update,
+  neither directly nor by way of an older release. What remains: they can
+  still move the nodes to an older signed release that checks signed
+  updates, and pin an older backend version that the signed manifest of an
+  older release names (below). A hub on a development build has no signed
+  release (`DEY-S012`); details in
   [Update & uninstall](update-uninstall.md#how-the-nodes-follow). The lab
   scenario S41 replaces the binary inside the release a hub keeps for its
   nodes and checks that the node refuses it and keeps its version; S19
@@ -432,6 +439,9 @@ transport from inside the transport itself.
   `DEY-N050` before a download. So someone who takes over the hub cannot
   make the nodes download a program of their own as a backend either;
   details in [Update & uninstall](update-uninstall.md#backends-on-the-nodes).
+  The node checks the signature, not the age of the manifest, so a hub can
+  still send the signed manifest of an older release and pin an older
+  backend version from it.
 - **No telemetry.** DEYROUTE sends no data about you or your users anywhere.
   The only outside traffic is: downloading DEYROUTE releases and backend
   binaries from GitHub or your mirror (through a node when the hub cannot

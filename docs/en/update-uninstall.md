@@ -78,9 +78,17 @@ about it is not enough:
   the signature of `SHA256SUMS`, that `SHA256SUMS` lists the archive of
   exactly the hub's version, the checksum of the archive, and that the
   archive holds one regular file `deyroute` (no link, no path outside the
-  archive, at most 200 MB) that runs on this server. Only then it replaces
-  its binary (the old one stays as `deyroute.prev`) and restarts; the
-  tunnels keep running.
+  archive, at most 200 MB) that runs on this server.
+- Last, the node asks that binary itself: `deyroute --json version` must
+  answer `"signed_update": true`. Releases built before signed updates do
+  not say it. They are signed with the same key, but a node on one of them
+  would take any binary its hub serves, so a node never moves to one: the
+  answer is `DEY-S001` with "… was built before signed updates", and the
+  node keeps its version. A hub that serves signed releases asks only for
+  its own version, so this happens only when something on the hub asked
+  for an older release.
+- Only then the node replaces its binary (the old one stays as
+  `deyroute.prev`) and restarts; the tunnels keep running.
 - When a check fails the node installs nothing and keeps running its
   version. The hub's log has the line "node could not install the hub's
   version" with `DEY-S001` and the check that failed (for example
@@ -95,7 +103,10 @@ about it is not enough:
 that serves signed releases. A hub of an earlier build cannot: the node
 refuses its update with `DEY-S001` ("update the hub first") and keeps
 running. Update the hub, then the nodes follow. A node of an earlier build
-still updates from a new hub as before.
+still updates from a new hub as before. The same holds after
+`deyroute update --version` or `--rollback` on the hub to a build before
+signed updates: the nodes keep their version until the hub runs a newer
+build again.
 
 **Development builds.** A hub on a development build (`deyroute version`
 shows `dev`) has no signed release, so its nodes refuse with `DEY-S012`:
@@ -293,6 +304,10 @@ node.
 - **A hub of an earlier build** sends no manifest; the nodes of this
   version then install only the versions of their own built-in manifest.
   Update the hub first (see [How the nodes follow](#how-the-nodes-follow)).
+- **Older signed manifests.** A node checks that a manifest is signed,
+  not how old its release is: a hub can still send the signed manifest of
+  an older release and so pin an older backend version that release
+  shipped (an open question in QUESTIONS.md).
 - **Versions already installed.** After `deyroute update`, running tunnels
   keep their backend versions until you run `deyroute update backends`, and
   the new build's manifest may pin newer ones. A node that already has such
