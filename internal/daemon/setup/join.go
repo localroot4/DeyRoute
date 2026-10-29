@@ -331,14 +331,18 @@ func Join(ctx context.Context, o JoinOptions) (*JoinResult, error) {
 			e.rep.skip(StepSysctl, config.SysctlOff)
 		}
 	default:
+		if err := removeHubTuningOff(e.root); err != nil {
+			e.log.Warn("a marker of an earlier join attempt cannot be removed; the node refuses the hub's tuning until it is",
+				slog.String("path", HubTuningOffFile), slog.String("err", err.Error()))
+		}
 		var warnings []string
-		err := removeHubTuningOff(e.root)
-		if err == nil && profile == config.SysctlAuto {
+		var err error
+		if profile == config.SysctlAuto {
 			// The node's own plan; when the hub's tuning.nodes_auto is set
 			// the hub sends its inputs (tuning.bbr, IP forwarding) once the
 			// node is connected.
 			warnings, err = e.applyAutoProfile(ctx, config.RoleNode, o.TunePlan, cfg.Tuning.BBR, reserved)
-		} else if err == nil {
+		} else {
 			warnings, err = applySysctl(e.root, profile, cfg.Tuning.BBR, false, reserved)
 		}
 		res.SysctlWarnings = warnings
