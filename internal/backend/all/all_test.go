@@ -5,6 +5,7 @@ import (
 
 	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
+	"github.com/localroot4/deyroute/internal/install"
 )
 
 // Every rung of the built-in ladders must resolve to a registered transport,
@@ -52,5 +53,23 @@ func TestBuiltinLaddersHaveNoOptionalRung(t *testing.T) {
 	})
 	if err != nil || len(got) != 4 || got[2] != "wireguard/kernel" {
 		t.Errorf("custom UDP ladder with wireguard/kernel: %v %v", got, err)
+	}
+}
+
+// A node installs a backend only when a signed manifest pins it (DR-03):
+// the entry every registered backend asks a node to install must pass that
+// check against the built-in backends.yaml, also when the backend installs
+// another backend's block under its own name (awg).
+func TestEveryBackendEntryIsPinnedForNodes(t *testing.T) {
+	for _, b := range backend.All() {
+		e := b.Manifest()
+		if e.Builtin || e.System {
+			continue
+		}
+		for _, arch := range []string{"amd64", "arm64"} {
+			if _, err := install.CheckBackendEntry(e, arch, backend.EmbeddedManifest(), nil, nil, ""); err != nil {
+				t.Errorf("%s: %v", b.Name(), err)
+			}
+		}
 	}
 }

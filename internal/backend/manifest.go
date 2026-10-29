@@ -119,6 +119,20 @@ func ManifestFor(name string) ManifestEntry {
 	return e
 }
 
+// manifestBlocks maps a backend that installs another backend's block of
+// backends.yaml under its own name to that block: awg/userspace installs
+// the "wireguard" block (amneziawg-go) as "awg" (internal/backend/wireguard).
+var manifestBlocks = map[string]string{"awg": "wireguard"}
+
+// ManifestBlock returns the name of the backends.yaml block that pins the
+// backend installed as name (DR-03: a node checks the pin of that block).
+func ManifestBlock(name string) string {
+	if b, ok := manifestBlocks[name]; ok {
+		return b
+	}
+	return name
+}
+
 // ResolveURL expands "{mirror}" in a manifest URL with the release base.
 func ResolveURL(url, mirror string) string {
 	return strings.ReplaceAll(url, "{mirror}", strings.TrimRight(mirror, "/"))

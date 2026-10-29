@@ -143,3 +143,26 @@ func TestFetchManifestSig(t *testing.T) {
 	_, err = FetchManifestSig(context.Background(), m, nil, []string{""}, data, k.pubString(), ro)
 	requireCode(t, err, deyerr.I004)
 }
+
+// awg/userspace installs the "wireguard" block of backends.yaml
+// (amneziawg-go) under its own name; the pin is the block's, so the renamed
+// entry passes and no other renaming does.
+func TestCheckBackendEntryAWGInstallsWireguardBlock(t *testing.T) {
+	embedded := backend.EmbeddedManifest()
+	builtin, err := backend.ParseManifest(embedded)
+	require.NoError(t, err)
+	e := builtin.Backends["wireguard"]
+	e.Name = "awg"
+	src, err := CheckBackendEntry(e, "amd64", embedded, nil, nil, "")
+	require.NoError(t, err)
+	require.Equal(t, PinnedBuiltIn, src)
+
+	other := builtin.Backends["gost"]
+	other.Name = "xray"
+	_, err = CheckBackendEntry(other, "amd64", embedded, nil, nil, "")
+	require.Error(t, err, "a block pinned under another backend's name")
+	other = builtin.Backends["gost"]
+	other.Name = "awg"
+	_, err = CheckBackendEntry(other, "amd64", embedded, nil, nil, "")
+	require.Error(t, err, "awg pins only the wireguard block")
+}

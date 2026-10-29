@@ -58,10 +58,11 @@ func CheckBackendEntry(e backend.ManifestEntry, arch string, embedded, manifest,
 	return PinnedSigned, nil
 }
 
-// samePin reports whether m has an entry named e.Name with e's version and
-// e's URL and sha256 for arch.
+// samePin reports whether the block of m that pins e.Name
+// (backend.ManifestBlock: awg installs the "wireguard" block) has e's
+// version and e's URL and sha256 for arch.
 func samePin(m *backend.ManifestFile, e backend.ManifestEntry, arch string) bool {
-	p, ok := m.Backends[e.Name]
+	p, ok := m.Backends[backend.ManifestBlock(e.Name)]
 	if !ok || e.Name == "" || p.Version != e.Version || p.URLs[arch] != e.URLs[arch] {
 		return false
 	}
