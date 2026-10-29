@@ -38,11 +38,14 @@ const TunnelLogReplaced = "tunnel log replaced"
 // directory. So only a regular file of this process's user (root in the
 // daemons) with a single link may stand at path:
 //   - such a file is kept as it is;
-//   - anything else (a link, a FIFO, a socket, a directory with all it
-//     holds, a file with a second hard link or of another user) is removed
-//     like the rotator removes what stands at its names (removeUntrusted: a
-//     link is removed, never followed), after refused is told the reason
-//     (RefusedSymlink, RefusedNotRegular, RefusedHardlink, RefusedOwner);
+//   - anything else (a link, a FIFO, a socket, a directory, a file with a
+//     second hard link or of another user) is removed like the rotator
+//     removes what stands at its names, after refused is told the reason
+//     (RefusedSymlink, RefusedNotRegular, RefusedHardlink, RefusedOwner).
+//     removeUntrusted unlinks a link (never followed) or a file, and renames
+//     a directory aside at once whatever it holds, which RotateDirLoop
+//     deletes later in bounded steps: the start never waits for a tree as
+//     deep as the backend made it;
 //   - a missing log is created with O_CREAT|O_EXCL|O_NOFOLLOW and mode
 //     TunnelLogFileMode, so it is never an existing file or a link target.
 //

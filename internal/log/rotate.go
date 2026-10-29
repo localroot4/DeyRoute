@@ -292,7 +292,7 @@ func rotatedPath(path string, n int) string { return path + "." + strconv.Itoa(n
 // directory, where a tunnel backend may have planted anything: the
 // compressed file is first written to <path>.1.gz.tmp, created exclusively
 // (createExclusive), and a name that is not a regular file is removed (a
-// directory with what it holds, removeUntrusted), never renamed along or
+// directory is moved aside, removeUntrusted), never renamed along or
 // renamed onto (renameRotated). refuse is told about each such name
 // (RefusedStaging).
 func compressAndShift(path string, keep int, in io.Reader, refuse func(reason string)) error {
@@ -364,11 +364,15 @@ func removeName(p string) error {
 	return nil
 }
 
-// removeUntrusted removes what stands at p, a name the rotator writes: a
-// directory goes with everything in it (os.RemoveAll works below p with
-// descriptors and O_NOFOLLOW, so a link inside is removed, never followed),
-// anything else is unlinked. A directory planted there with files in it must
-// not stop every later rotation. A missing p is not an error.
+// removeUntrusted frees p, a name the rotator or EnsureTunnelLog writes:
+// anything but a directory is unlinked (a link is removed, never
+// followed); a directory is renamed aside in the same directory as
+// <p>.removed-<16 hex digits> (moveAside) whatever it holds, and
+// RotateDirLoop deletes it later in bounded steps (SweepRemoved) in the
+// tunnel log and staging directories; the other directories of the
+// RotatingWriter logs are root's alone. A directory planted there must
+// neither stop every later rotation nor make the caller walk a tree as
+// deep as its planter likes. A missing p is not an error.
 func removeUntrusted(p string) error {
 	fi, err := os.Lstat(p)
 	if stderrors.Is(err, fs.ErrNotExist) {
@@ -378,7 +382,7 @@ func removeUntrusted(p string) error {
 		return err
 	}
 	if fi.IsDir() {
-		return os.RemoveAll(p)
+		return moveAside(p)
 	}
 	return removeName(p)
 }
@@ -767,7 +771,10 @@ const maxRefusalWarnings = 1024
 // to l. The hub and the node agent run it for /var/log/deyroute/tunnels
 // (section 12: 20 MB, 5 files kept) with /var/lib/deyroute/tmp. A refused
 // log is logged as the warning "tunnel log rotation refused" with its file
-// and reason, once per file and reason while the daemon runs.
+// and reason, once per file and reason while the daemon runs. Each tick
+// also deletes what was moved aside in both directories (a directory found
+// at a name the daemons write), at most SweepBudget removals per directory
+// (SweepRemoved).
 func RotateDirLoop(ctx context.Context, dir, staging string, interval time.Duration, l *slog.Logger) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -779,6 +786,11 @@ func RotateDirLoop(ctx context.Context, dir, staging string, interval time.Durat
 		}
 		if err != nil {
 			l.Warn("tunnel log rotation failed", Err(err))
+		}
+		for _, d := range []string{dir, staging} {
+			if _, err := SweepRemoved(d, SweepBudget); err != nil {
+				l.Warn("tunnel log rotation failed", Err(err))
+			}
 		}
 		select {
 		case <-ctx.Done():

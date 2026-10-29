@@ -302,9 +302,10 @@ func TestRotateCopyTruncatePlantedRegularStaging(t *testing.T) {
 }
 
 // A directory with files in it, planted at a name the rotation writes or
-// shifts, is removed with what it holds (a link inside is removed, never
-// followed) and the rotation completes: it never stops with the live log
-// truncated and its copy stuck in the staging directory.
+// shifts, is moved aside with what it holds (a link inside is never
+// followed; SweepRemoved deletes it later) and the rotation completes: it
+// never stops with the live log truncated and its copy stuck in the
+// staging directory.
 func TestRotateCopyTruncatePlantedDirectory(t *testing.T) {
 	older := []byte("older rotation\n")
 	for _, tc := range []struct {

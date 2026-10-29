@@ -36,9 +36,9 @@ func requireOwnLog(t *testing.T, p string) os.FileInfo {
 // Before systemd opens <tunnel>.log as root for StandardOutput=append: (it
 // follows a link and creates a missing file), the daemon leaves only its
 // own regular file with one link there: anything else is removed (a
-// directory with all it holds, a link inside never followed), reported with
-// its reason, and replaced by a new empty file. What a link pointed to is
-// never touched.
+// directory is moved aside whatever it holds, a link inside never
+// followed), reported with its reason, and replaced by a new empty file.
+// What a link pointed to is never touched.
 func TestEnsureTunnelLogReplacesPlantedLink(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
