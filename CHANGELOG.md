@@ -106,6 +106,43 @@ All notable changes to DEYROUTE are documented here. The format follows
   reported blocked; it now counts as a rate-limited accept, like
   `limit rate … accept`.
 
+### Added — restore address flags, nodes follow an up-to-date hub
+
+- `deyroute restore` takes `--public-ip IPv4`, `--public-ip6 IPv6` (only
+  with `--public-ip`) and `--keep-address` for a restored hub. `--json`
+  adds `address_source` (`flag`, `detected`, `kept`, `same_server`,
+  `asked`), `public_ip6` and `warnings`. An address that is not public is
+  used as given, with a warning; an IPv4-only move clears the backup's
+  `hub.public_ip6` and says so (DR-08, docs/en/backup.md).
+- `deyroute update` with no newer release installs nothing but tells the
+  hub's nodes of another version to install the hub's version; `--json`
+  adds `nodes_queued` (DR-11).
+
+### Changed — restore without an address, nodes of another version
+
+- `deyroute restore` of a hub backup on another server whose detected
+  address is private or missing now stops with the new `DEY-I025` when it
+  runs with `--yes` or without a terminal, before anything is restored;
+  on a terminal it asks for the address (the menu too). Migration: scripts
+  that restore a hub pass `--public-ip` (or `--keep-address` when the
+  server owns the old address) (DR-08).
+- A hub sends its version to a node of another major.minor as soon as the
+  node connects, without a prior `deyroute update`, and after a restore
+  from a backup of another version every node follows. A node newer than
+  the hub is moved back to the hub's version (logged as a warning). A
+  node that refuses the update is asked again only after a wait (10
+  minutes, doubling up to 6 hours). A hub on a development build pushes
+  nothing by itself (DR-11, docs/en/update-uninstall.md).
+
+### Fixed — restored hubs
+
+- A restored hub no longer keeps advertising the old address silently
+  when this server's detected address is private, and the next step
+  printed after a restore names the address in effect (DR-08).
+- A restored hub on a newer release no longer leaves every node
+  incompatible (`DEY-N004`) until an update that `deyroute update` could
+  not start; the `DEY-N004` fix text says what happens now (DR-11).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs

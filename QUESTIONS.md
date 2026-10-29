@@ -775,6 +775,37 @@ stated default until the owner decides · **[ANSWERED]** closed.
     1.0.9 on Linux 6.18 (checked); the other lab distributions ship
     nftables 1.0.2 or newer and are expected to work, which the lab matrix
     confirms.
+66. **[OPEN] `restore --public-ip` accepts a private address (DR-08).**
+    `deyroute restore --public-ip` uses a private, CGNAT or loopback
+    address as given and reports it in `warnings` (JSON) and as a `!` line;
+    an address typed at the terminal question is recorded as
+    `address_source: "asked"` and treated the same way. DR-07
+    (`setup --public-ip`) refuses such an address unless
+    `--allow-private-ip` is also given. The restore keeps the explicit
+    operator choice because a hub moved behind a provider NAT or floating
+    IP may really be reached that way, and a refusal would leave no flag to
+    override it. Options: (a) keep this; (b) align with DR-07: refuse with
+    `DEY-C013` unless `--allow-private-ip` (a new restore flag). Owner
+    decision.
+67. **[DEFAULT] How a hub brings its nodes to its version (DR-11).** A
+    hub on a release sends `self.update` to a node of another major.minor
+    when it connects, without an update record, and then records the push
+    like `deyroute update`, so every node follows; a node of the same
+    major.minor without a record is left alone. A node newer than the hub
+    is pushed back to the hub's version (warn log): the hub's version wins.
+    A development build (`dev`) pushes nothing by itself (no signed
+    release; signed-update nodes would refuse with `DEY-S012`). A refused
+    or failed `self.update` (for example `DEY-S001`, `DEY-S012`, no signed
+    release) is retried only after a wait of 10 minutes, doubling up to 6
+    hours, kept in memory per hub run (a restart retries at once); the
+    first failure is a warning, later ones debug. `deyroute update` with
+    nothing newer calls the new local API `UpdateNodes`, which installs
+    nothing and marks the nodes of another version: the CLI never calls
+    `UpdateApply` there, so no release the owner did not see and confirm is
+    installed. `setup.Restore` writes `/var/lib/deyroute/restored-from`
+    (0600, hub backups only, the backup's version); the hub reads it once
+    at start without following links, deletes it, and marks the nodes
+    when the version differs from its own.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
