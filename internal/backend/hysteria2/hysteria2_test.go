@@ -26,6 +26,7 @@ import (
 	"github.com/localroot4/deyroute/internal/backend"
 	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
+	"github.com/localroot4/deyroute/internal/firewall"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -300,7 +301,8 @@ func TestPortHopping(t *testing.T) {
 	in := hopFixture(t)
 	node, err := New().Render(in, backend.SideNode)
 	require.NoError(t, err)
-	require.Equal(t, []backend.NATRule{{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30001}}, node.NAT)
+	require.Equal(t, []backend.NATRule{{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30001,
+		SAddr: []string{"5.6.7.8"}, DAddr: "1.2.3.4"}}, node.NAT)
 	hub, err := New().Render(in, backend.SideHub)
 	require.NoError(t, err)
 	require.Empty(t, hub.NAT)
@@ -315,6 +317,45 @@ func TestPortHopping(t *testing.T) {
 	require.NoError(t, err)
 	strict(t, hub.Files[ClientFile], &c)
 	require.Equal(t, "[2001:db8::7]:20000-20999", c.Server)
+}
+
+// TestHysteria2HoppingNATScoped: the hopping DNAT on the node matches only
+// the hub's public addresses (hub.public_ip, hub.public_ip6) as sources
+// and the node's public address as destination (DR-18); the node drops the
+// destination when that address is not one of its own (node package,
+// TestHysteria2HoppingNATBehindNAT). A node address of a family the hub
+// has no public address of keeps the unscoped rule: the hub's datagrams
+// would match no source.
+func TestHysteria2HoppingNATScoped(t *testing.T) {
+	render := func(in backend.RenderInput) []backend.NATRule {
+		t.Helper()
+		r, err := New().Render(in, backend.SideNode)
+		require.NoError(t, err)
+		return r.NAT
+	}
+	rule := func(saddr []string, daddr string) []backend.NATRule {
+		return []backend.NATRule{{Proto: "udp", DportLow: HopLow, DportHigh: HopHigh, ToPort: 30001, SAddr: saddr, DAddr: daddr}}
+	}
+	in := hopFixture(t)
+	require.Equal(t, rule([]string{"5.6.7.8"}, "1.2.3.4"), render(in))
+
+	in.Hub.PublicIP6 = "2001:db8::5"
+	require.Equal(t, rule([]string{"5.6.7.8", "2001:db8::5"}, "1.2.3.4"), render(in))
+	in.Node.PublicIP = "2001:db8::7"
+	require.Equal(t, rule([]string{"5.6.7.8", "2001:db8::5"}, "2001:db8::7"), render(in))
+
+	// No hub address of the node's family: unscoped, as before.
+	in.Hub.PublicIP6 = ""
+	require.Equal(t, rule(nil, ""), render(in))
+
+	// The rule renders and validates in the node table.
+	in = hopFixture(t)
+	spec := firewall.Spec{NAT: render(in)}
+	require.NoError(t, spec.Validate())
+	require.Contains(t, firewall.Render(spec), "ip saddr { 5.6.7.8 } ip daddr 1.2.3.4 udp dport 20000-20999 redirect to :30001")
+
+	// Without hopping there is no NAT at all.
+	require.Empty(t, render(fixture(t)))
 }
 
 // aclLine is the rule syntax of extras/outbounds/acl/parse.go (v2.12.3).

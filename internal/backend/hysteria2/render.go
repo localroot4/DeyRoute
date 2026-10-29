@@ -3,7 +3,9 @@ package hysteria2
 import (
 	"encoding/json"
 	"net"
+	"net/netip"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -122,9 +124,39 @@ func renderServer(in backend.RenderInput, p planned) backend.Rendered {
 		Binds: []backend.PortUse{{Port: in.ControlPort, Proto: config.ProtoUDP, Addr: "0.0.0.0", Purpose: "control"}},
 	}
 	if p.hopping {
-		// Port hopping: every UDP port of the range lands on <ctl>.
-		r.NAT = []backend.NATRule{{Proto: config.ProtoUDP, DportLow: HopLow, DportHigh: HopHigh, ToPort: in.ControlPort}}
+		r.NAT = []backend.NATRule{hopNAT(in)}
 	}
+	return r
+}
+
+// hopNAT is the node's port-hopping rule: every UDP port of the range
+// lands on <ctl>, but only for datagrams from the hub's public addresses
+// to the node's public address (DR-18), so other UDP services of the
+// node in 20000-20999 keep their traffic. The node drops the destination
+// when it is not one of its own addresses (1:1 NAT at a cloud provider).
+// When the hub has no public address of the node's family (an IPv6 node
+// without hub.public_ip6), its datagrams would match no source: the rule
+// stays unscoped, as before DR-18.
+func hopNAT(in backend.RenderInput) backend.NATRule {
+	r := backend.NATRule{Proto: config.ProtoUDP, DportLow: HopLow, DportHigh: HopHigh, ToPort: in.ControlPort}
+	var src []netip.Addr
+	for _, s := range []string{in.Hub.PublicIP, in.Hub.PublicIP6} {
+		if a, err := netip.ParseAddr(s); err == nil && a.Zone() == "" {
+			src = append(src, a.Unmap())
+		}
+	}
+	node, err := netip.ParseAddr(in.Node.PublicIP)
+	if err != nil || node.Zone() != "" {
+		return r
+	}
+	node = node.Unmap()
+	if !slices.ContainsFunc(src, func(a netip.Addr) bool { return a.Is4() == node.Is4() }) {
+		return r
+	}
+	for _, a := range src {
+		r.SAddr = append(r.SAddr, a.String())
+	}
+	r.DAddr = node.String()
 	return r
 }
 
