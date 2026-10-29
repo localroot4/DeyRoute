@@ -589,6 +589,48 @@ TestReleaseEdgeReadsKeyThroughScript() {
     fail "release-edge.yml: the sign step does not verify SHA256SUMS with that key"
 }
 
+# The notes of a stable release: install and update lines for that version,
+# its CHANGELOG section (cut after six sections), the release key; no
+# section, no notes. ci.yml's release job passes them to goreleaser.
+TestStableReleaseNotes() {
+  local key notes
+  key=$(bash "$root/scripts/release-pubkey.sh")
+  {
+    echo '# Changelog'
+    echo
+    echo '## [Unreleased]'
+    echo
+    echo '### Added — later'
+    echo
+    echo '## [1.2.3] - 2026-01-02'
+    echo
+    for i in 1 2 3 4 5 6 7; do printf '### Fixed — item %s\n\n- fix %s\n\n' "$i" "$i"; done
+    echo '## [1.2.2] - 2026-01-01'
+    echo
+    echo '### Fixed — older'
+  } >"$T/CHANGELOG.md"
+  mkdir -p "$T/repo/scripts" "$T/repo/internal/install"
+  cp "$root/scripts/release-notes.sh" "$root/scripts/release-pubkey.sh" "$T/repo/scripts/"
+  cp "$root/internal/install/keys.go" "$T/repo/internal/install/"
+  cp "$T/CHANGELOG.md" "$T/repo/"
+  notes=$(GITHUB_REPOSITORY=o/r bash "$T/repo/scripts/release-notes.sh" 1.2.3) || fail "release-notes.sh 1.2.3 failed: $notes"
+  grep -qxF 'bash <(curl -fsSL https://github.com/o/r/releases/latest/download/install.sh)' <<<"$notes" ||
+    fail "no latest install line in: $notes"
+  grep -qF 'https://github.com/o/r/releases/download/v1.2.3/install.sh) --version 1.2.3' <<<"$notes" ||
+    fail "no pinned install line in: $notes"
+  grep -qxF '### Fixed — item 6' <<<"$notes" || fail "section 6 missing: $notes"
+  if grep -qE 'item 7|later|older' <<<"$notes"; then fail "notes run past six sections of [1.2.3]: $notes"; fi
+  grep -qxF 'More in the full changelog.' <<<"$notes" || fail "no pointer to the full changelog: $notes"
+  grep -qF "Public key: \`$key\`" <<<"$notes" || fail "no release key in: $notes"
+  if got=$(bash "$T/repo/scripts/release-notes.sh" 1.2 2>/dev/null); then
+    fail "release-notes.sh 1.2 (no such section; [1.2.3] must not match) passed: $got"
+  fi
+  grep -qF 'scripts/release-notes.sh' "$root/.github/workflows/ci.yml" ||
+    fail "ci.yml's release job does not use scripts/release-notes.sh"
+  grep -qF -- '--release-notes' "$root/.github/workflows/ci.yml" ||
+    fail "ci.yml does not pass the notes to goreleaser"
+}
+
 # ------------------------------------------------------------------- runner
 
 tests=("$@")

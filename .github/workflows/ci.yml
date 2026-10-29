@@ -153,10 +153,17 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends qemu-user-static
+      # The release page: how to install, the [VERSION] section of
+      # CHANGELOG.md and the signing key (a tag without that section stops
+      # here). Outside the checkout: goreleaser refuses a dirty tree.
+      - name: release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/release-notes.sh "${TAG#v}" > "$RUNNER_TEMP/NOTES.md"
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes ${{ runner.temp }}/NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}

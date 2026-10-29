@@ -78,6 +78,13 @@ CI runs lint, unit tests, the build, the smoke jobs and the integration
 scenarios, then goreleaser publishes the signed release. It becomes *latest*
 for the installer and for `deyroute update`.
 
+Before the tag, rename `## [Unreleased]` in `CHANGELOG.md` to
+`## [X.Y.Z] - <date>` and open a new empty `## [Unreleased]` above it. The
+release page is made from that section by `scripts/release-notes.sh` (the
+install and update lines, its first six sections, the signing key); a tag
+whose version has no section publishes nothing. Only a pushed tag without
+`-edge.` publishes; a manual ci run at a tag runs the checks only.
+
 ## Signing key
 
 Signing needs the secret **`MINISIGN_SECRET_KEY`** (and `MINISIGN_PASSWORD`
