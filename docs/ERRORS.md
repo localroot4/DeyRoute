@@ -36,6 +36,7 @@ Placeholders such as `{port}` are filled at runtime. CLI exit codes: `1` for eve
 | `DEY-I022` | Uninstall step failed: {step} | part of the removal could not complete; every other step still ran and the deyroute binary was kept | fix the cause shown below, then run deyroute uninstall again (it is safe to repeat) |
 | `DEY-I023` | This server is not set up yet | /etc/deyroute/config.yaml does not exist, so no deyroute service runs here | on the Iran server run: deyroute setup   on a foreign server run the join command your hub shows |
 | `DEY-I024` | Release v{version} not found | the release was removed or never existed: every download source answered HTTP 404 for its SHA256SUMS | install a version that exists, or use --local with a cached copy of that release |
+| `DEY-I025` | Cannot determine this server's public address for the restored hub | {reason}; a restore without a terminal never guesses the address the nodes dial, and nothing was restored | re-run with --public-ip <this server's public IP> (see the provider panel), or with --keep-address if this server really owns {old_ip} (same server, floating IP) |
 
 ## Configuration (DEY-C0xx)
 

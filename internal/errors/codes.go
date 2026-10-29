@@ -28,6 +28,7 @@ const (
 	I022 Code = "DEY-I022" // uninstall step failed {step}
 	I023 Code = "DEY-I023" // this server is not set up
 	I024 Code = "DEY-I024" // pinned release not found (HTTP 404 from every source) {version}
+	I025 Code = "DEY-I025" // restored hub: public address unknown {reason} {old_ip}
 )
 
 // Configuration (DEY-C0xx).
@@ -272,6 +273,9 @@ var catalog = map[Code]Info{
 	I024: {I024, "Release v{version} not found",
 		"the release was removed or never existed: every download source answered HTTP 404 for its SHA256SUMS",
 		"install a version that exists, or use --local with a cached copy of that release"},
+	I025: {I025, "Cannot determine this server's public address for the restored hub",
+		"{reason}; a restore without a terminal never guesses the address the nodes dial, and nothing was restored",
+		"re-run with --public-ip <this server's public IP> (see the provider panel), or with --keep-address if this server really owns {old_ip} (same server, floating IP)"},
 
 	// ---------------------------------------------------------------- C
 	C001: {C001, "Unknown key in config: {key}",
