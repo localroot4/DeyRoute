@@ -25,6 +25,8 @@ type Stub struct {
 	SettingsSetFn func(ctx context.Context, req api.SettingsRequest) error
 	// NodeJoinCommandFn implements NodeJoinCommand.
 	NodeJoinCommandFn func(ctx context.Context, ttl time.Duration) (api.JoinCommand, error)
+	// NodeJoinRevokeFn implements NodeJoinRevoke.
+	NodeJoinRevokeFn func(ctx context.Context) (int, error)
 	// NodeListFn implements NodeList.
 	NodeListFn func(ctx context.Context) ([]api.NodeInfo, error)
 	// NodeRenameFn implements NodeRename.
@@ -194,6 +196,15 @@ func (s *Stub) NodeJoinCommand(ctx context.Context, ttl time.Duration) (api.Join
 		return zero, notImplemented("NodeJoinCommand")
 	}
 	return s.NodeJoinCommandFn(ctx, ttl)
+}
+
+// NodeJoinRevoke calls NodeJoinRevokeFn or returns DEY-X008 when it is nil.
+func (s *Stub) NodeJoinRevoke(ctx context.Context) (int, error) {
+	if s.NodeJoinRevokeFn == nil {
+		var zero int
+		return zero, notImplemented("NodeJoinRevoke")
+	}
+	return s.NodeJoinRevokeFn(ctx)
 }
 
 // NodeList calls NodeListFn or returns DEY-X008 when it is nil.

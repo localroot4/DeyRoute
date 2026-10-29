@@ -14,6 +14,7 @@ import (
 	"github.com/localroot4/deyroute/internal/daemon/setup"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 	"github.com/localroot4/deyroute/internal/health"
+	"github.com/localroot4/deyroute/internal/i18n"
 	"github.com/localroot4/deyroute/internal/install"
 	dlog "github.com/localroot4/deyroute/internal/log"
 	"github.com/localroot4/deyroute/internal/state"
@@ -77,6 +78,30 @@ func (l *local) NodeJoinCommand(ctx context.Context, ttl time.Duration) (api.Joi
 	h.wakeFirewall()
 	h.log.Info("join command created", slog.Time("expires", expires))
 	return api.JoinCommand{Command: cmd, Link: link, ExpiresAt: expires}, nil
+}
+
+// NodeJoinRevoke implements api.Local (`deyroute node join-revoke`,
+// DR-16): every join token is deleted (atomic rewrite under the token
+// lock), the firewall is applied before it returns, so the join window is
+// closed (the control port is restricted to @nodes again) when the command
+// ends, and the firewall loop forgets the old expiry. Event
+// join_tokens_revoked names how many tokens were live. An apply that fails
+// is returned: the tokens are gone, but the window may still be open.
+func (l *local) NodeJoinRevoke(ctx context.Context) (int, error) {
+	h := l.h
+	n, err := h.joins.RevokeAll()
+	if err != nil {
+		return 0, withLog(err)
+	}
+	h.Emit(state.Event{Type: state.EvJoinTokensRevoked, Level: state.LevelInfo,
+		Message: i18n.T(i18n.HubJoinTokensRevoked, n)})
+	h.log.Info("join tokens revoked", slog.Int("revoked", n))
+	err = h.applyFirewall(ctx)
+	h.wakeFirewall()
+	if err != nil {
+		return n, withLog(err)
+	}
+	return n, nil
 }
 
 // NodeRename implements api.Local: only the display name changes (ids are

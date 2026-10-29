@@ -36,6 +36,10 @@ type Local interface {
 
 	// ---- nodes (hub)
 	NodeJoinCommand(ctx context.Context, ttl time.Duration) (JoinCommand, error)
+	// NodeJoinRevoke deletes every join token, applies the firewall at once
+	// (the join window closes) and returns how many tokens were live
+	// (`deyroute node join-revoke`, DR-16).
+	NodeJoinRevoke(ctx context.Context) (int, error)
 	NodeList(ctx context.Context) ([]NodeInfo, error)
 	NodeRename(ctx context.Context, id, name string) error
 	NodeRemove(ctx context.Context, id string) error

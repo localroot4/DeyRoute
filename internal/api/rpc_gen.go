@@ -53,6 +53,13 @@ func (c *localClient) NodeJoinCommand(ctx context.Context, ttl time.Duration) (J
 	return out, err
 }
 
+// NodeJoinRevoke implements Local.NodeJoinRevoke by calling the daemon over the unix socket.
+func (c *localClient) NodeJoinRevoke(ctx context.Context) (int, error) {
+	var out int
+	err := c.call(ctx, "NodeJoinRevoke", nil, &out)
+	return out, err
+}
+
 // NodeList implements Local.NodeList by calling the daemon over the unix socket.
 func (c *localClient) NodeList(ctx context.Context) ([]NodeInfo, error) {
 	var out []NodeInfo
@@ -452,6 +459,9 @@ func NewLocalHandler(impl Local, logger *slog.Logger) http.Handler {
 				return nil, err
 			}
 			return impl.NodeJoinCommand(ctx, a0)
+		}},
+		"NodeJoinRevoke": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
+			return impl.NodeJoinRevoke(ctx)
 		}},
 		"NodeList": {arity: 0, stream: false, call: func(ctx context.Context, _ []json.RawMessage, _ *rpcCallbacks) (any, error) {
 			return impl.NodeList(ctx)
