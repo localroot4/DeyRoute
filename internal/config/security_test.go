@@ -83,6 +83,18 @@ func TestFirewallReappliedEventNeedsNewerRelease(t *testing.T) {
 		c.NewerKeysInUse())
 }
 
+// TestJoinTokensRevokedEventNeedsNewerRelease: a release before
+// FirstJoinTokensRevokedVersion refuses hub.notify.telegram.events naming
+// join_tokens_revoked, so the rollback guard counts it like a key (DR-16).
+func TestJoinTokensRevokedEventNeedsNewerRelease(t *testing.T) {
+	c := validHub()
+	c.Hub.Notify.Telegram.Events = []string{"down", "join_tokens_revoked"}
+	require.NoError(t, c.Validate(fakeOpts()))
+	require.Equal(t, []NewerKey{{"hub.notify.telegram.events: join_tokens_revoked", FirstJoinTokensRevokedVersion}},
+		c.NewerKeysInUse())
+	require.Equal(t, "0.3.1", FirstJoinTokensRevokedVersion)
+}
+
 // TestValidateRatePerSource: security.unknown_control_rate_per_source and
 // security.unknown_control_rate take an nft rate ("3/minute", optionally
 // "… burst N packets"), are absent by default (3/minute per source, 30/minute

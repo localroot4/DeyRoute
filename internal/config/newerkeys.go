@@ -63,6 +63,13 @@ const (
 	// edge build cannot be told apart by its version); `deyroute port set
 	// <tunnel> <port> --probe auto` first makes the rollback possible.
 	FirstEchoProbeVersion = "0.3.1"
+	// FirstJoinTokensRevokedVersion is the first release that knows the
+	// event join_tokens_revoked in hub.notify.telegram.events (DR-16). As
+	// for FirstFirewallReassertVersion, every 0.3.1-edge.N sorts before
+	// 0.3.1, so while the list names it a rollback to an edge build is
+	// refused too (conservative: an edge build cannot be told apart by its
+	// version).
+	FirstJoinTokensRevokedVersion = "0.3.1"
 )
 
 // NewerKey is a config.yaml key in use that releases before Since refuse.
@@ -121,6 +128,9 @@ var newerKeys = []struct {
 	}},
 	{"security.unknown_control_rate", FirstUnknownControlRateVersion, func(c *Config) bool {
 		return c.Security != nil && c.Security.UnknownControlRate != ""
+	}},
+	{"hub.notify.telegram.events: join_tokens_revoked", FirstJoinTokensRevokedVersion, func(c *Config) bool {
+		return c.Hub != nil && slices.Contains(c.Hub.Notify.Telegram.Events, EventJoinTokensRevoked)
 	}},
 }
 

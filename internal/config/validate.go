@@ -62,7 +62,7 @@ var (
 		"service_down", "backend_crash", "probe_error", "update_applied", "update_rolled_back",
 		"backend_update_rolled_back", "node_ip_changed", "acme_failed", "rung_skipped",
 		"rung_restored", "config_applied", "traffic_quota", "tune_drift",
-		EventFirewallReapplied,
+		EventFirewallReapplied, EventJoinTokensRevoked,
 	}
 )
 
@@ -71,6 +71,12 @@ var (
 // Releases before FirstFirewallReassertVersion refuse it in
 // hub.notify.telegram.events (NewerKeysInUse).
 const EventFirewallReapplied = "firewall_reapplied"
+
+// EventJoinTokensRevoked is the event of `deyroute node join-revoke`
+// (state.EvJoinTokensRevoked, DR-16). Releases before
+// FirstJoinTokensRevokedVersion refuse it in hub.notify.telegram.events
+// (NewerKeysInUse).
+const EventJoinTokensRevoked = "join_tokens_revoked" // #nosec G101 -- event name, not a credential
 
 // ValidTelegramEvent reports whether e may appear in
 // hub.notify.telegram.events (an alias or a full event name).

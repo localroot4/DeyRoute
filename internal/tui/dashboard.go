@@ -509,6 +509,7 @@ var eventWords = map[string]i18n.Key{
 	state.EvTrafficQuota:      i18n.TUIEvTrafficQuota,
 	state.EvTuneDrift:         i18n.TUIEvTuneDrift,
 	state.EvFirewallReapplied: i18n.TUIEvFirewallReapplied,
+	state.EvJoinTokensRevoked: i18n.TUIEvJoinTokensRevoked,
 	eventUpdateAvailable:      i18n.TUIEvUpdateAvailable,
 }
 

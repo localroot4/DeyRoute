@@ -72,6 +72,10 @@ const (
 	// and applied it again (security.firewall_reassert_s, DR-14); Reason
 	// is "missing" or "drift". At most one per reason in 10 minutes.
 	EvFirewallReapplied = "firewall_reapplied"
+	// EvJoinTokensRevoked is emitted by `deyroute node join-revoke`: every
+	// join token was deleted and the join window closed (DR-16). Message
+	// names how many tokens were live.
+	EvJoinTokensRevoked = "join_tokens_revoked" // #nosec G101 -- event name, not a credential
 )
 
 // Event levels.
