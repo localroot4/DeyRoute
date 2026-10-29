@@ -45,6 +45,15 @@ const (
 	// on purpose, as for FirstAutoUpdateVersion (an edge build cannot be
 	// told apart by its version).
 	FirstFirewallReassertVersion = "0.3.1"
+	// FirstUnknownControlRatePerSourceVersion and
+	// FirstUnknownControlRateVersion are the first releases that know
+	// security.unknown_control_rate_per_source and
+	// security.unknown_control_rate (DR-15). As for
+	// FirstFirewallReassertVersion, every 0.3.1-edge.N sorts before 0.3.1,
+	// so while a key is set a rollback to an edge build is refused too
+	// (conservative: an edge build cannot be told apart by its version).
+	FirstUnknownControlRatePerSourceVersion = "0.3.1"
+	FirstUnknownControlRateVersion          = "0.3.1"
 )
 
 // NewerKey is a config.yaml key in use that releases before Since refuse.
@@ -92,6 +101,12 @@ var newerKeys = []struct {
 	}},
 	{"hub.notify.telegram.events: firewall_reapplied", FirstFirewallReassertVersion, func(c *Config) bool {
 		return c.Hub != nil && slices.Contains(c.Hub.Notify.Telegram.Events, EventFirewallReapplied)
+	}},
+	{"security.unknown_control_rate_per_source", FirstUnknownControlRatePerSourceVersion, func(c *Config) bool {
+		return c.Security != nil && c.Security.UnknownControlRatePerSource != ""
+	}},
+	{"security.unknown_control_rate", FirstUnknownControlRateVersion, func(c *Config) bool {
+		return c.Security != nil && c.Security.UnknownControlRate != ""
 	}},
 }
 

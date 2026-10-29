@@ -69,3 +69,21 @@ func (c *Config) FirewallReassertInterval() time.Duration {
 	}
 	return time.Duration(max(n, 0)) * time.Second
 }
+
+// UnknownControlRates returns the nft rates at which addresses outside the
+// nodes may open new control-port connections: per source address and in
+// all (security.unknown_control_rate_per_source and
+// security.unknown_control_rate, their defaults when unset).
+func (c *Config) UnknownControlRates() (perSource, global string) {
+	perSource, global = DefaultUnknownControlRatePerSource, DefaultUnknownControlRate
+	if c == nil || c.Security == nil {
+		return perSource, global
+	}
+	if c.Security.UnknownControlRatePerSource != "" {
+		perSource = c.Security.UnknownControlRatePerSource
+	}
+	if c.Security.UnknownControlRate != "" {
+		global = c.Security.UnknownControlRate
+	}
+	return perSource, global
+}

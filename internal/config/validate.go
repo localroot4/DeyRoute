@@ -466,8 +466,24 @@ func (v *validator) backendTier(field, tier string) {
 	}
 }
 
+// rateRe is an nft `limit rate` argument: packets per unit with an
+// optional packet burst (firewall renders exactly what matches it).
+var rateRe = regexp.MustCompile(`^[1-9][0-9]{0,8}/(second|minute|hour|day)( burst [1-9][0-9]{0,8} packets)?$`)
+
+// ValidRate reports whether r can be rendered as nft `limit rate <r>`
+// ("3/minute", "10/second burst 20 packets").
+func ValidRate(r string) bool { return rateRe.MatchString(r) }
+
 // security checks the security: section.
 func (v *validator) security(s *Security) {
+	for _, f := range [...]struct{ field, rate string }{
+		{"security.unknown_control_rate_per_source", s.UnknownControlRatePerSource},
+		{"security.unknown_control_rate", s.UnknownControlRate},
+	} {
+		if f.rate != "" && !ValidRate(f.rate) {
+			v.bad(f.field, f.rate, "an nft rate such as 3/minute or 10/second burst 20 packets")
+		}
+	}
 	if p := s.FirewallReassertS; p != nil && *p != 0 && (*p < MinFirewallReassertS || *p > MaxFirewallReassertS) {
 		v.bad("security.firewall_reassert_s", *p,
 			fmt.Sprintf("0 (off) or %d-%d seconds", MinFirewallReassertS, MaxFirewallReassertS))

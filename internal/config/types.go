@@ -59,6 +59,12 @@ const (
 	DefaultFirewallReassertS = 60
 	MinFirewallReassertS     = 10
 	MaxFirewallReassertS     = 3600
+	// DefaultUnknownControlRatePerSource and DefaultUnknownControlRate are
+	// security.unknown_control_rate_per_source and
+	// security.unknown_control_rate when they are not set (DR-15; before,
+	// one global bucket of 6/minute).
+	DefaultUnknownControlRatePerSource = "3/minute"
+	DefaultUnknownControlRate          = "30/minute"
 )
 
 // Enumerations.
@@ -327,6 +333,14 @@ type Security struct {
 	// DefaultFirewallReassertS, 0 = off. Absent unless the owner sets it,
 	// so a default install never blocks a rollback (NewerKeysInUse).
 	FirewallReassertS *int `yaml:"firewall_reassert_s,omitempty"`
+	// UnknownControlRatePerSource is the nft rate at which one address
+	// outside the nodes may open new control-port connections ("3/minute",
+	// optionally "… burst N packets"; without a burst the burst is N of
+	// the rate), and UnknownControlRate caps them all together (DR-15). ""
+	// = DefaultUnknownControlRatePerSource and DefaultUnknownControlRate;
+	// absent unless the owner sets them (NewerKeysInUse).
+	UnknownControlRatePerSource string `yaml:"unknown_control_rate_per_source,omitempty"`
+	UnknownControlRate          string `yaml:"unknown_control_rate,omitempty"`
 }
 
 // NodeSelf is the node: section of a node config.
