@@ -172,6 +172,21 @@ All notable changes to DEYROUTE are documented here. The format follows
   rules followed only after a failover, `tunnel restart` or a hub restart
   (DR-10).
 
+### Added — join-token revoke, setup without a join window
+
+- `deyroute node join-revoke` deletes every unused join token and applies
+  the firewall at once, so the control port is restricted to the nodes
+  again without waiting for the tokens to expire. JSON:
+  `{"schema": 1, "ok": true, "revoked": N}`; event `join_tokens_revoked`
+  (DR-16). Releases before 0.3.1 refuse that event name in
+  `hub.notify.telegram.events`, so a rollback to them is refused
+  (`DEY-S011`) while the list names it.
+- `deyroute setup --no-join` sets a hub up without a join command and opens
+  no join window at setup: the setup firewall restricts the control port to
+  the nodes from the start. The JSON document then has no `join` field and
+  `"join_window": false`; every hub setup document now carries
+  `join_window` (DR-16, docs/en/join.md, docs/en/security.md, lab S03).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs

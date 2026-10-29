@@ -836,6 +836,18 @@ stated default until the owner decides · **[ANSWERED]** closed.
     extra restriction. Owner decision: limit the hub's DNAT of the hidden
     port to local sources (a firewall change), or keep the echo probe off
     NAT rungs.
+74. **[DEFAULT] Join-token revoke and setup without a join window
+    (DR-16).** `deyroute node join-revoke` has no flags and always deletes
+    every join token. `revoked` counts the unexpired tokens; expired
+    entries are dropped too but not counted. The event
+    `join_tokens_revoked` (info) is recorded on every call, also when
+    nothing was live, as an audit trail of the operator action. The
+    firewall is applied before the call returns; if the apply fails, the
+    tokens are already deleted and the command returns the error, so the
+    operator sees that the window may still be open. In the setup JSON
+    document `join_window` means "a join command was made" (true only when
+    `join` is present); `--no-join` with `--role node` is refused with
+    `DEY-C013` like the hub address flags.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
