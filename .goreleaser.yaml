@@ -4,7 +4,9 @@ project_name: deyroute
 before:
   hooks:
     - go mod verify
-    - go test ./...
+    # No go test here: the release job runs only after the unit job (race
+    # tests), the build, the smoke jobs and the integration lab passed on
+    # this commit; a second run could only fail on a flaky test.
     # Signs internal/backend/backends.yaml into dist-extra/backends.yaml.minisig
     # when MINISIGN_SECRET_KEY is set (CI release job).
     - sh scripts/sign-manifest.sh

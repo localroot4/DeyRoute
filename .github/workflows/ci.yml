@@ -167,8 +167,19 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean --release-notes ${{ runner.temp }}/NOTES.md
+          install-only: true
+      # GORELEASER_CURRENT_TAG: goreleaser takes the highest tag of the
+      # commit, and an edge tag on the same commit would win. Its error lines
+      # also become annotations, which can be read without the job log.
+      - name: goreleaser
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+        run: |
+          set -o pipefail
+          if ! goreleaser release --clean --release-notes "$RUNNER_TEMP/NOTES.md" 2>&1 | tee "$RUNNER_TEMP/goreleaser.log"; then
+            grep -E '⨯|error' "$RUNNER_TEMP/goreleaser.log" | tail -n 10 | sed 's/^/::error::/'
+            exit 1
+          fi
