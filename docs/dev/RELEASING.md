@@ -73,17 +73,22 @@ builds amd64 and arm64 from **the commit the ci run tested**, signs
 
 ## Stable releases
 
-Push a tag `vX.Y.Z`, for example `git tag v1.0.0 && git push origin v1.0.0`.
-CI runs lint, unit tests, the build, the smoke jobs and the integration
-scenarios, then goreleaser publishes the signed release. It becomes *latest*
-for the installer and for `deyroute update`.
+Push a tag `vX.Y.Z`, for example `git tag v1.0.0 && git push origin v1.0.0`,
+or run the workflow `tag-release` on `main` with the version (Actions →
+tag-release → Run workflow): it tags the tip of `main` and starts the full
+ci run at that tag (every distro, every scenario). Either way, CI runs
+lint, unit tests, the build, the smoke jobs and the integration scenarios,
+then goreleaser publishes the signed release. It becomes *latest* for the
+installer and for `deyroute update`.
 
 Before the tag, rename `## [Unreleased]` in `CHANGELOG.md` to
 `## [X.Y.Z] - <date>` and open a new empty `## [Unreleased]` above it. The
 release page is made from that section by `scripts/release-notes.sh` (the
 install and update lines, its first six sections, the signing key); a tag
-whose version has no section publishes nothing. Only a pushed tag without
-`-edge.` publishes; a manual ci run at a tag runs the checks only.
+whose version has no section publishes nothing. Only a tag without
+`-edge.` publishes, from its push or from the manual ci run that
+`tag-release` starts; any other manual ci run at a tag runs the checks
+only.
 
 ## Signing key
 

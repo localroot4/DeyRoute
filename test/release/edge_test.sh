@@ -631,6 +631,21 @@ TestStableReleaseNotes() {
     fail "ci.yml does not pass the notes to goreleaser"
 }
 
+# tag-release.yml tags only main, only with a CHANGELOG section, and starts
+# ci.yml at the tag on every distro and scenario; only such a manual run (or
+# the tag's push) may publish, never one with fewer checks or at an edge tag.
+TestTagReleaseRunsTheFullCI() {
+  local tr="$root/.github/workflows/tag-release.yml" ci="$root/.github/workflows/ci.yml"
+  grep -qF "if: github.ref == 'refs/heads/main'" "$tr" || fail "tag-release.yml does not require main"
+  grep -qF 'CHANGELOG.md' "$tr" || fail "tag-release.yml does not check CHANGELOG.md"
+  # shellcheck disable=SC2016 # the workflow's text, not an expansion
+  grep -qF 'gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$tag" -f distro=all -f scenarios=' "$tr" ||
+    fail "tag-release.yml does not start ci.yml at the tag on every distro and scenario"
+  grep -qF "(github.event_name == 'workflow_dispatch' && inputs.distro == 'all' && inputs.scenarios == '')" "$ci" ||
+    fail "ci.yml's release job publishes a manual run with fewer checks"
+  grep -qF "!contains(github.ref, '-edge.')" "$ci" || fail "ci.yml's release job publishes edge tags"
+}
+
 # ------------------------------------------------------------------- runner
 
 tests=("$@")
