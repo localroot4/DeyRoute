@@ -5,6 +5,7 @@ package backend
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -338,6 +339,13 @@ type NATRule struct {
 func (r NATRule) Unscoped() NATRule {
 	r.SAddr, r.DAddr = nil, ""
 	return r
+}
+
+// Equal reports whether r and o are the same rule, scope included.
+func (r NATRule) Equal(o NATRule) bool {
+	return r.Proto == o.Proto && r.DportLow == o.DportLow && r.DportHigh == o.DportHigh &&
+		r.ToAddr == o.ToAddr && r.ToPort == o.ToPort && r.Iface == o.Iface &&
+		r.DAddr == o.DAddr && slices.Equal(r.SAddr, o.SAddr)
 }
 
 // Rendered is one side's output.

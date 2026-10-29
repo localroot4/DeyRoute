@@ -74,3 +74,23 @@ func TestHelpers(t *testing.T) {
 		t.Fatal("server side")
 	}
 }
+
+// NATRule.Equal compares every field, the scope included.
+func TestNATRuleEqual(t *testing.T) {
+	a := NATRule{Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30123,
+		SAddr: []string{"5.6.7.8"}, DAddr: "1.2.3.4"}
+	if !a.Equal(a) {
+		t.Fatal("a rule differs from itself")
+	}
+	for name, b := range map[string]NATRule{
+		"proto": {Proto: "tcp", DportLow: 20000, DportHigh: 20999, ToPort: 30123, SAddr: []string{"5.6.7.8"}, DAddr: "1.2.3.4"},
+		"port":  {Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30124, SAddr: []string{"5.6.7.8"}, DAddr: "1.2.3.4"},
+		"saddr": {Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30123, SAddr: []string{"5.6.7.9"}, DAddr: "1.2.3.4"},
+		"daddr": {Proto: "udp", DportLow: 20000, DportHigh: 20999, ToPort: 30123, SAddr: []string{"5.6.7.8"}},
+		"scope": a.Unscoped(),
+	} {
+		if a.Equal(b) {
+			t.Errorf("%s: rules compare equal", name)
+		}
+	}
+}

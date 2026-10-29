@@ -274,7 +274,7 @@ func (c *tunnelCtl) refreshStartedLocked(plan *render.TunnelPlan) bool {
 		if !ok {
 			continue
 		}
-		if !slices.Equal(old.NAT, pc.Hub.NAT) || !slices.Equal(old.Masquerade, pc.Hub.Masquerade) {
+		if !slices.EqualFunc(old.NAT, pc.Hub.NAT, backend.NATRule.Equal) || !slices.Equal(old.Masquerade, pc.Hub.Masquerade) {
 			changed = true
 		}
 		c.started[k] = pc.Hub
