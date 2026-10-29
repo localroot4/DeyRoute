@@ -210,6 +210,7 @@ func New(o Options) (_ *Hub, err error) {
 	h.importRestoredEvents()
 	h.loadNodes()
 	h.loadOps()
+	h.noteRestoredFrom()
 	h.traffic = newHubTraffic(h)
 	h.reloadNotifier(cfg)
 	h.migrateAutoUpdate()

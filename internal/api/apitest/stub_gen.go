@@ -127,6 +127,8 @@ type Stub struct {
 	UpdateApplyFn func(ctx context.Context, version string, progress func(api.Step)) (api.UpdateInfo, error)
 	// UpdateRollbackFn implements UpdateRollback.
 	UpdateRollbackFn func(ctx context.Context) (api.UpdateInfo, error)
+	// UpdateNodesFn implements UpdateNodes.
+	UpdateNodesFn func(ctx context.Context) (int, error)
 	// UpdateAutoFn implements UpdateAuto.
 	UpdateAutoFn func(ctx context.Context, mode string) (api.AutoUpdateInfo, error)
 	// UpdateBackendsFn implements UpdateBackends.
@@ -633,6 +635,15 @@ func (s *Stub) UpdateRollback(ctx context.Context) (api.UpdateInfo, error) {
 		return zero, notImplemented("UpdateRollback")
 	}
 	return s.UpdateRollbackFn(ctx)
+}
+
+// UpdateNodes calls UpdateNodesFn or returns DEY-X008 when it is nil.
+func (s *Stub) UpdateNodes(ctx context.Context) (int, error) {
+	if s.UpdateNodesFn == nil {
+		var zero int
+		return zero, notImplemented("UpdateNodes")
+	}
+	return s.UpdateNodesFn(ctx)
 }
 
 // UpdateAuto calls UpdateAutoFn or returns DEY-X008 when it is nil.

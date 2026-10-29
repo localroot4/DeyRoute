@@ -117,6 +117,10 @@ type Local interface {
 	UpdateCheck(ctx context.Context) (UpdateInfo, error)
 	UpdateApply(ctx context.Context, version string, progress func(Step)) (UpdateInfo, error)
 	UpdateRollback(ctx context.Context) (UpdateInfo, error)
+	// UpdateNodes installs nothing: it tells every known node that runs
+	// another version than the hub to install the hub's (`deyroute update`
+	// when the hub runs the newest release) and returns how many do.
+	UpdateNodes(ctx context.Context) (int, error)
 	// UpdateAuto shows the automatic update (mode "") or turns it on|off.
 	UpdateAuto(ctx context.Context, mode string) (AutoUpdateInfo, error)
 	UpdateBackends(ctx context.Context, name string, progress func(Step)) ([]BackendUpdate, error)
@@ -908,6 +912,9 @@ type UpdateInfo struct {
 	Available bool   `json:"available"`
 	Changelog string `json:"changelog,omitempty"`
 	Previous  string `json:"previous,omitempty"`
+	// NodesQueued is the number of nodes told to install the hub's version
+	// by `deyroute update` when nothing newer exists (UpdateNodes).
+	NodesQueued int `json:"nodes_queued,omitempty"`
 }
 
 // AutoUpdateInfo is the automatic update of the hub (`update auto`): while
