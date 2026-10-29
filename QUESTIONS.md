@@ -848,6 +848,26 @@ stated default until the owner decides · **[ANSWERED]** closed.
     document `join_window` means "a join command was made" (true only when
     `join` is present); `--no-join` with `--role node` is refused with
     `DEY-C013` like the hub address flags.
+68. **[DEFAULT] A taken tunnel name fails only for scripts (DR-12).** The
+    hub numbered a taken id derived from `--name` (`t5-2`) for every
+    caller, so a blind retry of a script created a second tunnel or failed
+    with a port clash (`DEY-C003`). The CLI now sets the new request field
+    `no_rename` when `--name` is given without `--id` and the command runs
+    without a terminal or with `--yes`, unless `--allow-rename`; the hub
+    then answers `DEY-C002` before the port check. A person at a terminal
+    and the menu keep the numbered id. Without `--name` the default id
+    `tunnel` is still numbered (`tunnel-2`), because the brief names only
+    `--name`; `--allow-rename` has no effect with `--id`. A hub daemon
+    older than the CLI ignores the field and numbers the id as before.
+69. **[DEFAULT] A new node order moves no traffic (DR-13).** `tunnel edit
+    --node` replaces the ordered node list. When the active node stays in
+    the list, the tunnel stays on it and returns to the new primary only
+    through the normal failback (the canary must pass `recover_threshold`
+    probes; without a canary, after `failback_after_s`); `tunnel switch
+    --node` moves it at once. When the list leaves out the active node, the
+    engine moves the tunnel at once, so the CLI asks for `yes` first
+    (`--yes` in scripts, exit 3 without a terminal). The CLI also accepts
+    ids separated by commas, like `tunnel add --backup`.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

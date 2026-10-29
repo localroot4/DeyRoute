@@ -187,6 +187,30 @@ All notable changes to DEYROUTE are documented here. The format follows
   `"join_window": false`; every hub setup document now carries
   `join_window` (DR-16, docs/en/join.md, docs/en/security.md, lab S03).
 
+### Added — tunnel add --id, tunnel edit --node
+
+- `deyroute tunnel add --id <id>` creates the tunnel with exactly that id;
+  a taken id is `DEY-C002` and nothing is created, so a retried call
+  never makes a second tunnel (invalid id: `DEY-C007`). Scripts must pass
+  `--id`. `--allow-rename` keeps the numbered id (`t5-2`) for a taken
+  `--name` without a terminal. The Local API request gains the additive
+  field `no_rename` (docs/en/first-tunnel.md, docs/cli-json.md, DR-12).
+- `deyroute tunnel edit <id> --node A --node B` sets the exact ordered node
+  list, primary first. A new order moves no traffic: the active node stays
+  active and the canary fails back to the new primary on its normal
+  schedule. A list without the active node needs a typed `yes`, or `--yes`
+  (new for `tunnel edit`); without a terminal it exits 3 and changes
+  nothing (docs/en/backup-node.md, docs/cli-json.md, DR-13).
+
+### Changed — a taken tunnel name fails for scripts
+
+- `deyroute tunnel add --name N` without a terminal or with `--yes` now
+  fails with `DEY-C002` (exit 1, checked before the ports, nothing
+  created) when the id derived from the name is taken, instead of
+  creating `N-2`. Migration: scripts pass `--id <id>`, or add
+  `--allow-rename` to keep the numbered id; on a terminal without `--yes`
+  nothing changes (QUESTIONS.md C.68, DR-12).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs
