@@ -303,3 +303,30 @@ func TestOpenLogFileAcceptsOnlyRegular(t *testing.T) {
 	}
 	requireContent(t, victim, victimData)
 }
+
+// OpenLogFile does not read a regular file with a second hard link, as the
+// rotation and doctor collect do not: with fs.protected_hardlinks=0 the
+// backends' user can link a file it cannot read (/etc/shadow) to a log
+// name, and the daemons read the logs as root (a node for its hub, also for
+// a tunnel it never started). Once the other name is gone the file is read
+// again.
+func TestOpenLogFileRefusesHardlink(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "shadow")
+	require.NoError(t, os.WriteFile(secret, []byte("root:secret-hash:19000:0:99999:7:::\n"), 0o600))
+	p := filepath.Join(dir, "zz.log")
+	require.NoError(t, os.Link(secret, p))
+
+	f, fi, err := OpenLogFile(p)
+	require.ErrorIs(t, err, ErrNotRegular)
+	require.ErrorIs(t, err, ErrHardlink)
+	require.ErrorContains(t, err, "not a regular file with a single link")
+	require.Nil(t, f)
+	require.Nil(t, fi)
+
+	require.NoError(t, os.Remove(secret))
+	f, fi, err = OpenLogFile(p)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	require.True(t, fi.Mode().IsRegular())
+}

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	deyerr "github.com/localroot4/deyroute/internal/errors"
 )
 
 // The tunnel logs live in a directory where the backends' user (deyroute)
@@ -55,6 +57,41 @@ func TestNodeReadTailRefusesLink(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	a.follow(ctx, link, 0, func(ls []string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, ls...)
+		return nil
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotContains(t, strings.Join(got, "\n"), "secret-hash")
+	require.Empty(t, got)
+}
+
+// With fs.protected_hardlinks=0 a backend can hard-link a root-only file to
+// the log name of any tunnel, also one this node never starts (logs.tail
+// takes any valid tunnel id), and a hostile hub would then read it through
+// logs.tail. The node reads only a log with a single link: the hard link
+// is DEY-X022 and follow streams nothing.
+func TestNodeReadTailRefusesHardlink(t *testing.T) {
+	dir := t.TempDir()
+	secret := "root:secret-hash:19000:0:99999:7:::"
+	victim := filepath.Join(dir, "shadow")
+	writeFile(t, victim, secret+"\n", 0o600)
+	p := filepath.Join(dir, "zz.log")
+	require.NoError(t, os.Link(victim, p))
+
+	lines, _, err := readTail(p, 10, time.Time{})
+	require.Error(t, err, "a file with a second hard link is not read")
+	require.Equal(t, deyerr.X022, deyerr.As(err).Code)
+	require.Empty(t, lines)
+
+	a := &agent{o: Options{FollowPoll: 5 * time.Millisecond}}
+	var mu sync.Mutex
+	var got []string
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	a.follow(ctx, p, 0, func(ls []string) error {
 		mu.Lock()
 		defer mu.Unlock()
 		got = append(got, ls...)

@@ -31,8 +31,8 @@ const (
 //
 // The file is opened with deylog.OpenLogFile: the tunnel logs live in a
 // directory where the backends' user can add names, so a link there is
-// never followed, a FIFO never blocks and anything but a regular file is an
-// error (deylog.ErrNotRegular).
+// never followed, a FIFO never blocks and anything but a regular file with
+// a single link is an error (deylog.ErrNotRegular).
 //
 // A missing file returns an error matching fs.ErrNotExist; an empty file
 // returns no lines.

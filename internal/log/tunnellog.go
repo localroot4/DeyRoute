@@ -2,6 +2,7 @@ package log
 
 import (
 	stderrors "errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -172,13 +173,20 @@ func (w *WarnOnce) Warn(file, reason string) {
 // regular file (a symbolic link, a FIFO, a socket, a directory …).
 var ErrNotRegular = stderrors.New("not a regular file")
 
+// ErrHardlink is the error of OpenLogFile for a regular file with more than
+// one link. It matches ErrNotRegular too: the readers treat both alike.
+var ErrHardlink = fmt.Errorf("%w with a single link", ErrNotRegular)
+
 // OpenLogFile opens the log at path for reading and returns it with its
 // Fstat. The daemons read the tunnel logs as root in a directory where the
 // backends' user (deyroute) can add names, so the open never follows a link
 // (O_NOFOLLOW) and never blocks on a FIFO (O_NONBLOCK), and only a regular
-// file is accepted: anything else is a *fs.PathError wrapping ErrNotRegular.
-// A missing file matches fs.ErrNotExist. Reads of a regular file are not
-// affected by O_NONBLOCK.
+// file with a single link is accepted, as the rotation and doctor collect
+// do: with fs.protected_hardlinks=0 that user can hard-link a file it cannot
+// read (/etc/shadow) to a log name. Anything else is a *fs.PathError
+// wrapping ErrNotRegular (ErrHardlink for a second link). A missing file
+// matches fs.ErrNotExist. Reads of a regular file are not affected by
+// O_NONBLOCK.
 func OpenLogFile(path string) (*os.File, os.FileInfo, error) {
 	path = filepath.Clean(path)
 	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
@@ -197,6 +205,10 @@ func OpenLogFile(path string) (*os.File, os.FileInfo, error) {
 	if !fi.Mode().IsRegular() {
 		_ = f.Close()
 		return nil, nil, &fs.PathError{Op: "open", Path: path, Err: ErrNotRegular}
+	}
+	if _, nlink, ok := fileOwner(fi); !ok || nlink != 1 {
+		_ = f.Close()
+		return nil, nil, &fs.PathError{Op: "open", Path: path, Err: ErrHardlink}
 	}
 	return f, fi, nil
 }

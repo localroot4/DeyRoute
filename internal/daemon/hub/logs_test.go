@@ -65,3 +65,35 @@ func TestHubReadTailRefusesLink(t *testing.T) {
 		t.Fatal("readTail blocked on a FIFO")
 	}
 }
+
+// With fs.protected_hardlinks=0 a backend can hard-link a root-only file to
+// a tunnel log name. The hub reads only a log with a single link: the hard
+// link shows no lines, with and without follow.
+func TestHubReadTailRefusesHardlink(t *testing.T) {
+	dir := t.TempDir()
+	secret := "root:secret-hash:19000:0:99999:7:::"
+	victim := filepath.Join(dir, "shadow")
+	require.NoError(t, os.WriteFile(victim, []byte(secret+"\n"), 0o600))
+	p := filepath.Join(dir, "t.log")
+	require.NoError(t, os.Link(victim, p))
+
+	lines, _ := readTail(p, 10, time.Time{})
+	require.NotContains(t, strings.Join(lines, "\n"), "secret-hash", "a file with a second hard link is not read")
+	require.Empty(t, lines)
+
+	h := &Hub{o: Options{FollowPoll: 5 * time.Millisecond}}
+	var mu sync.Mutex
+	var got []string
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	h.follow(ctx, p, 0, func(ls []string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, ls...)
+		return nil
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotContains(t, strings.Join(got, "\n"), "secret-hash", "follow does not read a file with a second hard link")
+	require.Empty(t, got)
+}

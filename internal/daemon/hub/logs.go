@@ -149,8 +149,9 @@ func (h *Hub) logFile(ctx context.Context, path string, n int, since time.Time, 
 
 // readTail returns the last n lines of path filtered by since, and the
 // file size the tail was read at (where a follow continues). The file is
-// opened with dlog.OpenLogFile: a link, a FIFO or anything else but a
-// regular file has no lines and is never read through.
+// opened with dlog.OpenLogFile: a link, a FIFO, a file with a second hard
+// link or anything else but a regular file with one link has no lines and
+// is never read through.
 func readTail(path string, n int, since time.Time) ([]string, int64) {
 	f, fi, err := dlog.OpenLogFile(path)
 	if err != nil {
@@ -189,8 +190,9 @@ func lineTime(line string) (time.Time, bool) {
 
 // follow emits the lines appended to path after offset until ctx ends or
 // emit fails. A rotated or truncated file is read again from its start.
-// Every poll opens the file with dlog.OpenLogFile: a link, a FIFO or
-// anything else but a regular file at path is not read.
+// Every poll opens the file with dlog.OpenLogFile: a link, a FIFO, a file
+// with a second hard link or anything else but a regular file with one link
+// at path is not read.
 func (h *Hub) follow(ctx context.Context, path string, offset int64, emit func([]string) error) {
 	poll := time.NewTicker(h.o.FollowPoll)
 	defer poll.Stop()
