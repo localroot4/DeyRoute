@@ -82,7 +82,10 @@ masquerade:
 The node binds `<ctl>/udp` (purpose `control`). With
 `advanced.hysteria_port_hopping: true` the node side also returns
 `Rendered.NAT = [udp 20000-20999 -> <ctl>]` (local redirect) for the
-`inet deyroute` table.
+`inet deyroute` table, scoped to the hub's public addresses (`SAddr`:
+`hub.public_ip`, `hub.public_ip6`) and the node's public address
+(`DAddr`). The node drops `DAddr` when it is not one of its own addresses
+(1:1 NAT); the hub sends the scope only to nodes announcing `nat-scope`.
 
 ### Hub: `client.yaml`
 
@@ -162,7 +165,10 @@ credentials, and the port is still limited to a configured target port.
 
 - Needs UDP between hub and node; the rung is skipped while the UDP probe
   fails or has not run yet, and re-tested every 30 minutes.
-- With port hopping the node redirects all external UDP to ports
-  20000-20999; do not run other public UDP services in that range on the node.
+- With port hopping the node redirects UDP to ports 20000-20999 from the
+  hub's public addresses only; a hub that sends from another address does
+  not match. A node with an older DEYROUTE version, or an IPv6 node while
+  the hub has no `hub.public_ip6`, still redirects that range from every
+  source: do not run other public UDP services in it there.
 - The node service sees the node's own address, not the user's IP.
 - `udpForwarding` uses the upstream default session timeout (60 s).
