@@ -80,6 +80,7 @@ import (
 	"strings"
 
 	"github.com/localroot4/deyroute/internal/backend"
+	"github.com/localroot4/deyroute/internal/config"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
 )
 
@@ -106,6 +107,19 @@ const (
 const (
 	SetNodes  = "nodes"
 	SetNodes6 = "nodes6"
+)
+
+// Names of the dynamic sets of the per-source admission of unknown
+// control-port sources (Spec.UnknownControlRatePerSource): one element
+// with its own rate bucket per source address, forgotten after
+// ctlUnknownTimeout.
+const (
+	SetCtlUnknown4 = "ctl_unknown4"
+	SetCtlUnknown6 = "ctl_unknown6"
+	// ctlUnknownSize bounds each set; ctlUnknownTimeout is how long a
+	// source's bucket lives.
+	ctlUnknownSize    = 65535
+	ctlUnknownTimeout = "10m"
 )
 
 // Names of the interval sets holding the Cloudflare edge ranges (rendered
@@ -150,7 +164,19 @@ type Spec struct {
 	// before the control-port drop, so a node whose public IP changed can
 	// reconnect with its certificate (section 11, QUESTIONS.md C.23). mTLS
 	// and the join limiter protect the port. "" = drop everyone else.
+	// With UnknownControlRatePerSource it is the global cap behind the
+	// per-source limit.
 	UnknownControlRate string
+	// UnknownControlRatePerSource, when non-empty together with
+	// UnknownControlRate, limits the admission per source address (DR-15):
+	// each source is added to the dynamic set @ctl_unknown4/@ctl_unknown6
+	// with its own bucket at this rate (without a burst, a burst of the
+	// rate's count), and UnknownControlRate caps all of them together, so
+	// one scanner can no longer use up the admission of a node whose IP
+	// changed. "" = the single global rule at UnknownControlRate (the
+	// fallback for an nft that cannot render the per-source form, see
+	// Applier).
+	UnknownControlRatePerSource string
 	// FrontPort is the hub's CDN front listener port (front mode, 0 = none).
 	// It is reachable from the Internet side only, never through @nodes: the
 	// traffic comes from the CDN edges, not from the nodes.
@@ -195,12 +221,22 @@ func (s Spec) clampMSS() int {
 	return DefaultClampMSS
 }
 
-// rateRe is an nft `limit rate` argument deyroute renders: packets per unit
-// with an optional packet burst.
-var rateRe = regexp.MustCompile(`^[1-9][0-9]{0,8}/(second|minute|hour|day)( burst [1-9][0-9]{0,8} packets)?$`)
+// validRate reports whether r can be rendered as `limit rate <r>`: packets
+// per unit with an optional packet burst (config.ValidRate, which checks
+// the configuration keys the same way).
+func validRate(r string) bool { return config.ValidRate(r) }
 
-// validRate reports whether r can be rendered as `limit rate <r>`.
-func validRate(r string) bool { return rateRe.MatchString(r) }
+// withBurst returns rate r with a burst of its own count when it has none
+// ("3/minute" → "3/minute burst 3 packets"): nft's default burst of 5
+// packets would let a source open more connections at once than its rate
+// allows in a whole interval.
+func withBurst(r string) string {
+	if strings.Contains(r, " burst ") {
+		return r
+	}
+	n, _, _ := strings.Cut(r, "/")
+	return r + " burst " + n + " packets"
+}
 
 // ifaceRe is a Linux interface name (IFNAMSIZ-1 = 15 bytes; no '/', ':',
 // whitespace or quotes).
@@ -229,6 +265,9 @@ func (s Spec) Validate() error {
 	}
 	if s.UnknownControlRate != "" && !validRate(s.UnknownControlRate) {
 		add("unknown control rate %q invalid (want e.g. 6/minute)", s.UnknownControlRate)
+	}
+	if s.UnknownControlRatePerSource != "" && !validRate(s.UnknownControlRatePerSource) {
+		add("unknown control rate per source %q invalid (want e.g. 3/minute)", s.UnknownControlRatePerSource)
 	}
 	if s.CtlLow != 0 || s.CtlHigh != 0 {
 		if !validPort(s.CtlLow) || !validPort(s.CtlHigh) || s.CtlLow > s.CtlHigh {

@@ -3,6 +3,7 @@ package firewall
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	deyerr "github.com/localroot4/deyroute/internal/errors"
@@ -38,6 +39,72 @@ func Apply(ctx context.Context, r exec.Runner, s Spec) error {
 		return nftError(err, stderr)
 	}
 	return nil
+}
+
+// Applier is Apply with the fallback of the per-source control-port limit
+// (DR-15): when nft refuses a table with Spec.UnknownControlRatePerSource
+// because it cannot parse it, or the kernel cannot run it ("syntax error",
+// "not supported"), the same Spec without the per-source rate (the single
+// global rule at UnknownControlRate) is applied instead, and every later
+// apply of this Applier goes straight to that: one Applier lives as long
+// as the daemon run, so the first refusal is cached and reported once
+// (OnFallback). No version is parsed. Any other failure is returned as it
+// is. Safe for concurrent use.
+type Applier struct {
+	Runner exec.Runner
+	// OnFallback, when set, is called once, with the refusal, when the
+	// fallback is taken.
+	OnFallback func(err error)
+
+	mu     sync.Mutex
+	global bool
+}
+
+// Apply applies s (see Applier) and returns the Spec it applied: s, or s
+// without UnknownControlRatePerSource after the fallback (s when nothing
+// could be applied).
+func (a *Applier) Apply(ctx context.Context, s Spec) (Spec, error) {
+	a.mu.Lock()
+	global := a.global
+	a.mu.Unlock()
+	if global || s.UnknownControlRatePerSource == "" {
+		s.UnknownControlRatePerSource = ""
+		return s, Apply(ctx, a.Runner, s)
+	}
+	err := Apply(ctx, a.Runner, s)
+	if err == nil || !unsupportedRule(err) || !strings.Contains(Render(s), "@"+SetCtlUnknown4) {
+		return s, err
+	}
+	g := s
+	g.UnknownControlRatePerSource = ""
+	if gerr := Apply(ctx, a.Runner, g); gerr != nil {
+		return s, err // the global rule fails as well: the per-source rate was not the cause
+	}
+	a.mu.Lock()
+	first := !a.global
+	a.global = true
+	a.mu.Unlock()
+	if first && a.OnFallback != nil {
+		a.OnFallback(err)
+	}
+	return g, nil
+}
+
+// GlobalOnly reports whether the fallback was taken.
+func (a *Applier) GlobalOnly() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.global
+}
+
+// unsupportedRule reports whether an nft failure means that nft cannot
+// parse the script or the kernel cannot run a rule of it.
+func unsupportedRule(err error) bool {
+	msg := err.Error()
+	if e := deyerr.As(err); e != nil {
+		msg += " " + e.Detail
+	}
+	return strings.Contains(msg, "syntax error") || strings.Contains(msg, "not supported")
 }
 
 // Remove deletes `table inet deyroute` and nothing else. It is idempotent: a

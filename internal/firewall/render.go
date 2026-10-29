@@ -26,9 +26,12 @@ const renderHeader = "# Managed by deyroute. Do not edit: this table is replaced
 // normalized is a Spec with invalid entries dropped, duplicates removed and
 // everything sorted, so Render is deterministic whatever the input order.
 type normalized struct {
-	controlPort     int
-	restrict        bool
-	unknownRate     string
+	controlPort int
+	restrict    bool
+	unknownRate string
+	// perSource is the per-source rate with its burst ("" = the single
+	// global rule at unknownRate).
+	perSource       string
 	v4, v6          []netip.Addr
 	withV6          bool
 	ctlLow, ctlHigh int
@@ -49,6 +52,9 @@ func normalize(s Spec) normalized {
 	n := normalized{restrict: s.RestrictControl, clampMSS: s.clampMSS()}
 	if validRate(s.UnknownControlRate) {
 		n.unknownRate = s.UnknownControlRate
+		if s.RestrictControl && validRate(s.UnknownControlRatePerSource) {
+			n.perSource = withBurst(s.UnknownControlRatePerSource)
+		}
 	}
 	if validPort(s.ControlPort) {
 		n.controlPort = s.ControlPort
@@ -167,6 +173,9 @@ func Render(s Spec) string {
 	if n.withV6 {
 		blocks = append(blocks, renderSet(SetNodes6, "ipv6_addr", n.v6))
 	}
+	if n.perSource != "" && n.controlPort != 0 {
+		blocks = append(blocks, renderDynamicSet(SetCtlUnknown4, "ipv4_addr"), renderDynamicSet(SetCtlUnknown6, "ipv6_addr"))
+	}
 	if len(n.cf4) > 0 {
 		blocks = append(blocks, renderIntervalSet(SetCF4, "ipv4_addr", n.cf4))
 	}
@@ -244,7 +253,16 @@ func inputRules(n normalized) []string {
 		m := "tcp dport " + strconv.Itoa(n.controlPort)
 		if n.restrict {
 			fromNodes(m)
-			if n.unknownRate != "" {
+			switch {
+			case n.perSource != "":
+				// Both families always: an unknown source may come over
+				// IPv6 even when the hub announces no IPv6 address, as it
+				// could through the single global rule.
+				for _, f := range [...]struct{ set, saddr string }{{SetCtlUnknown4, "ip saddr"}, {SetCtlUnknown6, "ip6 saddr"}} {
+					rules = append(rules, m+" ct state new add @"+f.set+" { "+f.saddr+" limit rate "+n.perSource+
+						" } limit rate "+n.unknownRate+" accept")
+				}
+			case n.unknownRate != "":
 				rules = append(rules, m+" ct state new limit rate "+n.unknownRate+" accept")
 			}
 			rules = append(rules, m+" drop")
@@ -381,6 +399,13 @@ func renderIntervalSet(name, typ string, prefixes []netip.Prefix) string {
 		s[i] = p.String()
 	}
 	return renderSetBody(name, typ, true, s)
+}
+
+// renderDynamicSet renders a set the packet path fills (`add @set { … }`),
+// whose elements expire after ctlUnknownTimeout.
+func renderDynamicSet(name, typ string) string {
+	return "\tset " + name + " {\n\t\ttype " + typ + "\n\t\tsize " + strconv.Itoa(ctlUnknownSize) +
+		"\n\t\tflags dynamic,timeout\n\t\ttimeout " + ctlUnknownTimeout + "\n\t}\n"
 }
 
 func renderSetBody(name, typ string, interval bool, elems []string) string {
