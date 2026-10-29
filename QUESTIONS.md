@@ -732,6 +732,49 @@ stated default until the owner decides · **[ANSWERED]** closed.
     `--public-ip6` the IPv4 address is still detected. Owner decision: a
     command or flag that lifts the marker, and whether `--public-ip` should
     accept IPv6 for an IPv6-only hub.
+71. **[DEFAULT] Periodic re-assert of table inet deyroute (DR-14).** The
+    hub and the nodes compare a fingerprint of `nft list table inet
+    deyroute`, taken right after each apply, with the live table every
+    `security.firewall_reassert_s` seconds (new key; absent = 60, 0 = off,
+    10-3600, off with `security.firewall_managed: false`) and apply the
+    table again when it is missing or changed. The fingerprint ignores the
+    order of set elements and the elements of dynamic sets, which the
+    kernel fills. The check holds the apply lock and acts only while the
+    last apply succeeded; a failed apply stays reported as `DEY-P019` and
+    is retried by the next change, not every minute. The hub emits
+    `firewall_reapplied` (reason `missing|drift`) at most once per 10
+    minutes per reason. A node only logs it: it has no event store, and
+    sending it to the hub would need a protocol feature. A node reads the
+    key at start (a change needs `systemctl restart deyroute-node`); the
+    hub follows `config apply`. The rollback guard counts the key whenever
+    it is present (an explicit 60 too: an older release refuses it all
+    the same), and `firewall_reapplied` in `hub.notify.telegram.events`
+    counts the same way; both have first version 0.3.1. The node's
+    self.update guard now counts `security.*` keys as well as `node.*`.
+72. **[DEFAULT] Per-source admission of unknown control-port sources
+    (DR-15).** The single global `limit rate 6/minute` becomes a limit per
+    source address (`security.unknown_control_rate_per_source`, default
+    `3/minute`) through the dynamic sets `@ctl_unknown4/6` (size 65535,
+    10-minute timeout), under a global cap
+    (`security.unknown_control_rate`, default `30/minute`). This changes a
+    live default, as brief section 2.2 lists. A per-source rate without a
+    burst gets a burst of its own count (`3/minute burst 3 packets`, as in
+    the brief's design), because nft's default burst of 5 would exceed the
+    per-minute budget. The IPv6 rule is rendered even on a hub without
+    IPv6, as the old global rule covered IPv6 too. Both keys are absent by
+    default and each has its own first version 0.3.1 in the rollback
+    guard.
+73. **[DEFAULT] Fallback when nft refuses the per-source form (DR-15).**
+    No nftables version is parsed. When applying the table fails and nft's
+    message contains "syntax error" or "not supported" (an old kernel), the
+    hub applies the earlier single rule `ct state new limit rate R accept`
+    with R = `security.unknown_control_rate` (default 30/minute; the old
+    6/minute default is not kept). It keeps that until the hub restarts and
+    logs one warning. Any other failure, or a fallback that fails too, is
+    reported as before and not cached. The per-source form works with nft
+    1.0.9 on Linux 6.18 (checked); the other lab distributions ship
+    nftables 1.0.2 or newer and are expected to work, which the lab matrix
+    confirms.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

@@ -60,6 +60,52 @@ All notable changes to DEYROUTE are documented here. The format follows
   when another program adds or removes its own reservation; only a port
   deyroute wants that is missing counts (DR-09).
 
+### Added — the firewall table comes back by itself
+
+- The hub and every node now check their table `inet deyroute` every 60
+  seconds and apply it again when it is missing or changed (`nft flush
+  ruleset` by an admin or a provider script, `ufw reload` on some systems,
+  another tool). The new key `security.firewall_reassert_s` sets the
+  interval (10-3600 seconds, 0 = off; absent = 60). A node checks only
+  while it has NAT rules (WireGuard/AmneziaWG rungs, Hysteria2 port
+  hopping) and no longer keeps a flushed table gone until its rules
+  change. Nothing is checked with `security.firewall_managed: false`. The
+  hub records the warning event `firewall_reapplied` (reason `missing` or
+  `drift`, at most once per 10 minutes per reason; Telegram sends it when
+  `hub.notify.telegram.events` names it); a node writes the same warning
+  to `node.log` (docs/en/security.md, docs/en/monitoring.md, lab S37).
+- Releases before 0.3.1 do not know `security.firewall_reassert_s` or
+  `firewall_reapplied` in `hub.notify.telegram.events`: while either is
+  set, `deyroute update --rollback` and `update --version` to such a
+  release are refused (`DEY-S011`), and a node refuses a self.update to
+  such a release while its own `config.yaml` sets the key.
+
+### Changed — unknown control-port sources are limited per address
+
+- A node whose public IP changed reconnects through the admission for
+  unknown sources. That admission was one global bucket of 6 new
+  connections per minute, which a single scanner could use up. Each
+  source address now has its own budget of 3 per minute (burst 3; the
+  dynamic sets `@ctl_unknown4`/`@ctl_unknown6`, 10-minute buckets) and all
+  unknown sources together at most 30 per minute. New keys
+  `security.unknown_control_rate_per_source` (default `3/minute`) and
+  `security.unknown_control_rate` (default `30/minute`) take nft rates.
+  When nft or the kernel refuses the per-source form, the hub applies the
+  earlier single rule at `unknown_control_rate`, keeps it until it
+  restarts and logs `nft refused the per-source limit of the control
+  port` once (docs/en/security.md, lab S27).
+- **Migration:** nothing to do; the hub applies the new rules at its next
+  start. While either new key is set, a rollback below 0.3.1 is refused
+  (`DEY-S011`).
+
+### Fixed — port check behind a per-source limit
+
+- `deyroute port check` read an nftables rule of another firewall that
+  adds the source to a set with a per-element limit (`add @set { ip saddr
+  limit rate … }`, `meter`) as never matching, so a port behind it was
+  reported blocked; it now counts as a rate-limited accept, like
+  `limit rate … accept`.
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs
