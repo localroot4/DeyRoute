@@ -164,6 +164,14 @@ All notable changes to DEYROUTE are documented here. The format follows
   blocked rung is still detected and switched away from
   (docs/en/first-tunnel.md, docs/en/troubleshooting.md, lab S38).
 
+### Fixed — port changes on NAT rungs
+
+- `port add` and `port remove` on an active `wireguard/*` or `awg/*` rung
+  now update the hub DNAT before the command returns: the new port carries
+  traffic at once and a removed port loses its NAT rule. Before, the NAT
+  rules followed only after a failover, `tunnel restart` or a hub restart
+  (DR-10).
+
 ## [0.3.0] - 2026-10-29
 
 ### Security — tunnel logs
