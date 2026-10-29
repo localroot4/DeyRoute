@@ -111,6 +111,12 @@ for f in "${list[@]}"; do
   if [ "$st" = FAIL ]; then
     failed=$((failed + 1))
     tail -n 25 "$ART/$id.log" | sed 's/^/     | /'
+    # In CI, the end of the log is also an annotation of the check run, which
+    # can be read without downloading the job log or the artifacts.
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      printf '::error title=%s failed on %s::%s\n' "$id" "$DISTRO" \
+        "$(tail -n 40 "$ART/$id.log" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{ printf "%s%%0A", $0 }')"
+    fi
     bash -c 'source "$1/lib.sh" && diagnostics "$2"' _ "$IT_DIR" "$ART/$id-diagnostics" || true
   fi
   [ "${DEY_KEEP:-0}" = 1 ] || dc down -v --remove-orphans >/dev/null 2>&1 || true
