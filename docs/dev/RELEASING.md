@@ -86,6 +86,18 @@ and `installer/install.sh`. Generate a new pair with
 `go run ./scripts/minisign keygen`; if the key changes, update both files
 before the next release.
 
+The integration lab signs its own release with a throwaway key that
+`test/integration/run.sh` makes for each run: its binaries trust that key
+next to the release key (`-X …/internal/install.TestPublicKey=<key>`), and
+only its copy of `install.sh` checks it. A release binary must never trust
+it. Both release paths refuse such a binary before anything is packed or
+signed: `scripts/no-test-key.sh` runs each binary with `--json version` and
+fails unless it answers `"test_key": false` (the step "no lab signing key in
+the binaries" of `release-edge.yml`, and a post-build hook in
+`.goreleaser.yaml`). The arm64 binary runs through qemu; both jobs install
+`qemu-user-static` first. A local `goreleaser release --snapshot` needs
+`qemu-user-static` and `jq` too, or its arm64 build fails the check.
+
 The secrets belong to two **environments** (Settings → Environments), not to
 the repository:
 

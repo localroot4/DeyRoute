@@ -406,13 +406,18 @@ transport from inside the transport itself.
   takes over the hub cannot make the nodes install a program of their own
   through an update. A hub on a development build has no signed release
   (`DEY-S012`); details in
-  [Update & uninstall](update-uninstall.md#how-the-nodes-follow).
+  [Update & uninstall](update-uninstall.md#how-the-nodes-follow). The lab
+  scenario S41 replaces the binary inside the release a hub keeps for its
+  nodes and checks that the node refuses it and keeps its version; S19
+  checks that a node follows a hub's `deyroute update` this way.
 - `node.allow_unsigned_updates: true` in a node's `config.yaml` turns this
   check off for that node (test labs only); never set it on a server with
   real users. It does not apply to the backends below.
 - Release binaries trust the release key only. Builds for the integration
   lab may trust a second, throwaway key; `deyroute --json version` shows
-  `"test_key": true` for such a build and `false` for every release.
+  `"test_key": true` for such a build and `false` for every release. The
+  release builds check this for every binary and publish nothing when a
+  binary says `true`.
 - Backend binaries are installed only when their sha256 matches the signed
   manifest (`DEY-S001`, `DEY-S006`). No third-party script is ever piped into
   a shell.

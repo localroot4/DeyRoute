@@ -49,7 +49,7 @@ checklist (section 18) with the test that proves it. Three kinds of evidence:
 | 6 | Hysteria2 skipped with UDP closed, yellow event | lab S16 |
 | 7 | WireGuard kernel and AWG userspace carry TCP and UDP | lab S33, run for awg/userspace (TCP 8443 and UDP 27015); wireguard/kernel: **pending** — the kernel of the lab host has no WireGuard module, S33 runs it where the kernel has one (CI); unit `internal/backend/wireguard` |
 | 7 | deleting a tunnel leaves no nft rules or interfaces | lab S33, run for awg/userspace (`nft list ruleset` and `ip link` of hub and node before the tunnel and after `tunnel delete`); unit `internal/daemon/hub` |
-| 8 | hub update without packet loss | lab S19, run (0 of 67 requests through the Xray client failed while hub and node were updated) |
+| 8 | hub update without packet loss | lab S19: the hub runs `deyroute update` from a lab mirror of the signed lab release and the node follows through self.update, installing the release only after checking its signature (DR-03); run with the earlier flow, the installer on both servers (0 of 67 requests through the Xray client failed while hub and node were updated) |
 | 8 | restore on a new server, nodes reconnect without join | lab S22, run |
 | 8 | `uninstall` restores sysctl, nftables, files | lab S23, run |
 | 8 | doctor diagnoses an offline node | unit `internal/doctor` |
@@ -89,7 +89,7 @@ A lab scenario measures without a pass/fail criterion of the spec:
 | every DEY code in `docs/ERRORS.md` with Why/Fix | unit `internal/errors` (CI rejects codes without Why/Fix) |
 | fa/en docs: install, join, first tunnel, backup node, troubleshooting, filtering FAQ, hub move, backup | `docs/fa/`, `docs/en/` |
 | `docs/backends/<name>.md` per backend with pinned version and README link | `docs/backends/` |
-| signed release (minisign), `SHA256SUMS`, `install.sh`, `backends.yaml` on mirror and GitHub | `release-edge` (GitHub); owner mirror **pending** (QUESTIONS.md A) |
+| signed release (minisign), `SHA256SUMS`, `install.sh`, `backends.yaml` on mirror and GitHub | `release-edge` (GitHub); owner mirror **pending** (QUESTIONS.md A). The lab signs its release with a throwaway key and every lab install checks it; a node installs only what a signed release proves: lab S19, S41 (a tampered archive on the hub is refused), S20 and S21 (signed manifest overrides), unit `internal/install`, `internal/daemon/node`; no release binary trusts the lab key: `scripts/no-test-key.sh` in `release-edge` and goreleaser, tested by `test/release/edge_test.sh` |
 | `CHANGELOG.md` complete, `QUESTIONS.md` answers | repository root |
 | independent security review | multi-agent reviews of the control API, join, firewall and renderers (commit history); a human second reviewer **pending** |
 | 72-hour test on real servers | **pending** |
