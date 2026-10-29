@@ -3,8 +3,10 @@
 # criteria of section 16 that S01-S30 do not cover), S34 (front mode),
 # S35 (a measurement of "passes, then cut" filtering; its numbers go to
 # S35-measure.txt beside the logs), S36 (links a backend user plants in
-# the tunnel log directory) and S41 (a hub that serves a tampered deyroute
-# binary: the node refuses it) in Docker containers running systemd.
+# the tunnel log directory), S37 (nft flush ruleset on hub and node: table
+# inet deyroute comes back by itself) and S41 (a hub that serves a tampered
+# deyroute binary: the node refuses it) in Docker containers running
+# systemd.
 # Usage (from anywhere; needs docker compose, go, jq):
 #
 #   DISTRO=ubuntu-24.04 test/integration/run.sh            # every scenario

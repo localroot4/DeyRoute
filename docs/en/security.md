@@ -100,6 +100,34 @@ from the command you confirmed. This also works with
 `security.firewall_managed: false`, which concerns only table `inet deyroute`.
 A provider's firewall panel is never touched.
 
+### The table comes back by itself
+
+Another tool can remove or change `inet deyroute`: `nft flush ruleset` by
+an admin or a provider script, `ufw reload` on some systems. The hub and
+every node therefore list the table every 60 seconds and compare it with the
+one they applied. A missing or changed table is applied again at once, under
+the same lock as every other apply, so a check never races a real change. A
+node checks only while it has NAT rules (a WireGuard or AmneziaWG rung,
+Hysteria2 port hopping); without them it has no table. The order in which
+nft lists set elements does not count as a change, nor do the addresses
+the kernel adds to a dynamic set.
+
+```yaml
+security:
+  firewall_reassert_s: 60   # seconds, 10-3600; 0 = off; default 60
+```
+
+The key is absent by default. With `security.firewall_managed: false`
+nothing is ever checked or applied. The hub records the event
+`firewall_reapplied` (reason `missing` or `drift`, see
+[Traffic and load](monitoring.md#firewall-events)); a node writes the same
+warning to its log (`/var/log/deyroute/node.log`). Each reason is reported at
+most once per 10 minutes; the table is applied again every time. Releases
+before 0.3.1 do not know the key: `deyroute update --rollback` to such a
+release is refused (`DEY-S011`) while it is set. Lab scenario S37 flushes
+the ruleset on a hub and on a node with a WireGuard rung and checks that the
+table comes back while the tunnel stays up.
+
 ## Traffic counting: `table inet deyroute_stats`
 
 To show how much each tunnel carries (`deyroute stats`, the dashboard,

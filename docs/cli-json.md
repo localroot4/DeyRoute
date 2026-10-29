@@ -195,6 +195,12 @@ is off now (see `update auto`). `update_rolled_back` with `"code":
 the previous version would refuse `config.yaml` (its `message` names the
 keys); the new version keeps running.
 
+`firewall_reapplied` (warn) means the periodic check found table `inet
+deyroute` missing or changed and applied it again
+(`security.firewall_reassert_s`); `reason` is `missing` or `drift`, and each
+reason is recorded at most once per 10 minutes. Telegram sends it when
+`hub.notify.telegram.events` names `firewall_reapplied`.
+
 ## Nodes and hub
 
 ### `deyroute node join-command`
