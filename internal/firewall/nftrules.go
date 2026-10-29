@@ -468,6 +468,21 @@ func (p *nftParser) run() {
 			}
 		case "limit":
 			p.limit()
+		case "add", "update":
+			// `add @set { key [timeout T] [limit …] }`: a set statement.
+			if !strings.HasPrefix(p.at(p.i), "@") {
+				p.and(maybe)
+				continue
+			}
+			p.i++
+			p.setStatement()
+		case "meter":
+			// `meter NAME [size N] { key … }`, the older form.
+			p.i++
+			if p.at(p.i) == "size" {
+				p.i += 2
+			}
+			p.setStatement()
 		case "comment":
 			p.i++
 		default:
@@ -835,6 +850,32 @@ func (p *nftParser) limit() {
 			continue
 		}
 		break
+	}
+}
+
+// setStatement skips the "{ key [timeout T] [stateful statements] }" of a
+// set or meter statement at p.i. Adding the key filters nothing; a limit
+// inside is judged like a plain limit statement: a rate-limited accept
+// stays a match, `limit rate over` may or may not match.
+func (p *nftParser) setStatement() {
+	if p.at(p.i) != "{" {
+		p.and(maybe)
+		return
+	}
+	depth := 0
+	for ; p.i < len(p.toks); p.i++ {
+		switch p.toks[p.i] {
+		case "{":
+			depth++
+		case "}":
+			depth--
+		case "over":
+			p.and(maybe)
+		}
+		if depth == 0 {
+			p.i++
+			return
+		}
 	}
 }
 

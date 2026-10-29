@@ -727,3 +727,85 @@ func TestEvalEdgeCases(t *testing.T) {
 	require.Equal(t, yes, not(no))
 	require.Equal(t, maybe, not(maybe))
 }
+
+// nftDynamicListing is table inet deyroute with the per-source admission of
+// the control port as nft 1.0.9 lists it once a source has connected.
+const nftDynamicListing = `table inet deyroute {
+	set nodes {
+		type ipv4_addr
+		elements = { 1.2.3.4 }
+	}
+
+	set ctl_unknown4 {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+		elements = { 192.0.2.7 limit rate 3/minute burst 3 packets expires 9m57s472ms,
+			     198.51.100.9 limit rate 3/minute burst 3 packets expires 4m2s }
+	}
+
+	set ctl_unknown6 {
+		type ipv6_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 10m
+	}
+
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+		ct state established,related accept
+		iif "lo" accept
+		tcp dport 44433 ip saddr @nodes accept
+		tcp dport 44433 ct state new add @ctl_unknown4 { ip saddr limit rate 3/minute burst 3 packets } limit rate 30/minute burst 5 packets accept
+		tcp dport 44433 ct state new add @ctl_unknown6 { ip6 saddr limit rate 3/minute burst 3 packets } limit rate 30/minute burst 5 packets accept
+		tcp dport 44433 drop
+	}
+}
+`
+
+// TestNFTRulesParsesDynamicSetLimit: the ruleset parser reads dynamic sets
+// whose elements carry a limit and an expiry, and a rule that adds the
+// source to such a set with a per-element limit (DR-15, and the older
+// meter form) is a rate-limited accept, like a plain `limit rate … accept`
+// (only `limit rate over` is uncertain). Before, the set statement read as
+// a source match that never matches, so a port behind it looked blocked.
+func TestNFTRulesParsesDynamicSetLimit(t *testing.T) {
+	tables := parseNFTRuleset(nftDynamicListing)
+	require.Len(t, tables, 1)
+	tb := tables[0]
+	require.Equal(t, []string{"192.0.2.7", "198.51.100.9"}, tb.sets["ctl_unknown4"])
+	require.Empty(t, tb.sets["ctl_unknown6"])
+	require.Len(t, tb.inputChains(), 1)
+	require.Len(t, tb.inputChains()[0].rules, 6)
+
+	b, u, detail := tb.ruleset(44433, "tcp").blocks("input")
+	require.False(t, b, detail)
+	require.False(t, u, detail)
+	b, u, _ = tb.ruleset(443, "tcp").blocks("input")
+	require.False(t, b || u)
+
+	// Our own rendering parses the same way, as the global rule did.
+	for _, name := range []string{"hub_per_source_rate", "hub_unknown_rate"} {
+		tb = parseNFTRuleset(Render(goldenSpecs[name]))[0]
+		b, u, detail = tb.ruleset(44433, "tcp").blocks("input")
+		require.False(t, b, "%s %s", name, detail)
+		require.False(t, u, "%s %s", name, detail)
+	}
+
+	sets := map[string][]string{}
+	for _, c := range []struct {
+		rule  string
+		match tri
+	}{
+		{`tcp dport 22 ct state new add @scan { ip saddr limit rate 3/minute burst 3 packets } accept`, yes},
+		{`tcp dport 22 ct state new add @scan { ip saddr limit rate 3/minute } limit rate 30/minute accept`, yes},
+		{`tcp dport 22 ct state new update @scan { ip saddr limit rate over 3/minute } drop`, maybe},
+		{`tcp dport 22 meter flood size 128000 { ip saddr timeout 10s limit rate 10/second } accept`, yes},
+		{`tcp dport 22 add @seen { ip saddr } accept`, yes},
+		{`tcp dport 22 add @seen { ip saddr timeout 1m } accept`, yes},
+		{`tcp dport 23 add @scan { ip saddr limit rate 3/minute } accept`, no},
+	} {
+		require.Equal(t, c.match, nftRule(c.rule, sets, 22, "tcp").match, c.rule)
+	}
+}
