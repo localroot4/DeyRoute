@@ -906,6 +906,15 @@ stated default until the owner decides · **[ANSWERED]** closed.
     a node without `nat-scope` keeps the unscoped rule. Owner option: scope
     by the source address the node sees on the hub's control connection
     instead of `hub.public_ip`.
+78. **[DEFAULT] The security audit warns while Telegram is on (DR-27).**
+    The bot token is part of the Telegram API address, and the hub posts
+    through an online node first, so every message hands the token to a
+    node. `deyroute security audit` therefore reports check `telegram` as
+    `warn` while `hub.notify.telegram.enabled` is true, and `ok` otherwise.
+    Default: warn, so `clean` is false with Telegram on; the message names
+    the remedy (a bot made for these alerts only, revoke the token in
+    @BotFather when a node is lost). Owner option: report it as `ok` with
+    the same text when the owner accepts the risk.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

@@ -6,6 +6,13 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — Telegram in the security audit
+
+- `deyroute security audit` has a new check `telegram`: a warning while
+  Telegram notifications are on, because every message hands the bot token
+  to an online node; `ok` when they are off. With Telegram on, the audit is
+  no longer clean (DR-27).
+
 ## [0.3.1] - 2026-10-29
 
 ### Added

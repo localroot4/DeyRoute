@@ -218,6 +218,13 @@ start, and unknown sources share one global limit (see
 [Security](security.md#unknown-sources-on-the-control-port)). There is no
 event for it.
 
+## Telegram and the audit
+
+Telegram messages leave through an online node, so each one hands the bot
+token to that node. While notifications are on, `deyroute security audit`
+reports a `telegram` warning that says so; it is expected, not a fault.
+Details in [Security](security.md).
+
 ## Problems
 
 | You see | Meaning | What to do |

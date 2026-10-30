@@ -369,8 +369,8 @@ deyroute security audit
 ```
 
 Lists publicly open ports, file permissions, certificate expiry, nodes with
-an old version and unexpired join tokens. Run it after every
-security change. Menu: `8) Security` → `5) Audit`.
+an old version, unexpired join tokens and Telegram notifications. Run it
+after every security change. Menu: `8) Security` → `5) Audit`.
 
 ## Tunnel processes
 
@@ -628,6 +628,10 @@ transport from inside the transport itself.
   node's control connection (mutual TLS). The node uses it only for that
   request to `api.telegram.org`, the only address it posts to for the hub,
   and keeps it out of its logs. Use a bot made for these alerts only.
+  While notifications are on, `deyroute security audit` warns about it
+  (check `telegram`), so the audit is never clean with Telegram on. If a
+  node is lost or taken over, revoke the token in @BotFather and set the
+  new one with `deyroute notify telegram set`.
 
 ## Checklist
 

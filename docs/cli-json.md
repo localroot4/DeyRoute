@@ -558,7 +558,10 @@ removed), never the token.
 ### `deyroute security audit`
 
 `{"schema", "clean", "items": [{"check", "severity" (ok|warn|error),
-"message"}]}`
+"message"}]}` — `check` is one of `public-ports`, `secret-permissions`,
+`certificates`, `node-versions`, `join-tokens`, `firewall`, `control-port`
+and `telegram` (warn while Telegram notifications are on: the bot token
+travels to the nodes).
 
 ### `deyroute notify telegram set`
 

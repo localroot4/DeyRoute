@@ -356,6 +356,7 @@ func TestSecurityAudit(t *testing.T) {
 	require.Equal(t, sevOK, byCheck[AuditControl][0].Severity)
 	require.Equal(t, sevOK, byCheck[AuditVersions][0].Severity)
 	require.Equal(t, sevOK, byCheck[AuditCerts][0].Severity)
+	require.Equal(t, sevOK, byCheck[AuditTelegram][0].Severity)
 	require.False(t, rep.Clean)
 
 	// Only deyroute ports, then problems of every other kind.
@@ -393,6 +394,36 @@ func TestSecurityAudit(t *testing.T) {
 	require.Equal(t, sevWarn, sev[AuditControl])
 	require.Equal(t, sevError, sev[AuditVersions])
 	require.Equal(t, sevWarn, sev[AuditPorts])
+}
+
+// DR-27: with Telegram on, the audit warns that the bot token travels to
+// the nodes, and the report is no longer clean.
+func TestSecurityAuditWarnsOnTelegramToken(t *testing.T) {
+	env := startHub(t, nil)
+	ctx := ctxT(t)
+	env.runner.On("ss -Hlntup", exec.OK(`tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=10,fd=3))`+"\n"))
+	rep, err := env.client.SecurityAudit(ctx)
+	require.NoError(t, err)
+	require.True(t, rep.Clean, "%v", rep.Items)
+
+	_, err = env.h.mutate(func(c *config.Config) error {
+		c.Hub.Notify.Telegram = config.Telegram{Enabled: true, BotTokenFile: config.DefaultTelegramTokenFile, ChatID: "123456789"}
+		return nil
+	})
+	require.NoError(t, err)
+	rep, err = env.client.SecurityAudit(ctx)
+	require.NoError(t, err)
+	require.False(t, rep.Clean)
+	var tg []api.AuditItem
+	for _, it := range rep.Items {
+		if it.Check == AuditTelegram {
+			tg = append(tg, it)
+		}
+	}
+	require.Len(t, tg, 1)
+	require.Equal(t, sevWarn, tg[0].Severity)
+	require.Contains(t, tg[0].Message, "bot token")
+	require.Contains(t, tg[0].Message, "node")
 }
 
 func TestDecoyCheck(t *testing.T) {
