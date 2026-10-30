@@ -142,6 +142,11 @@ never engaged; the reason is open (QUESTIONS.md C.81).
 
 ### Failover on real servers
 
+Status (DR-25): **pending**. The run needs the owner's servers: a hub in
+Iran and two nodes abroad with 1 vCPU and 1 GB RAM, on a route with real
+filtering. Nothing below has been measured yet; the methods above are
+ready, and the lab numbers above do not replace these.
+
 | Measurement | Goal | p50 | p95 | max | Runs |
 | --- | --- | --- | --- | --- | --- |
 | Block → UP on next rung (S08) | ≤ 35 s (p95) | pending | pending | pending | pending |
