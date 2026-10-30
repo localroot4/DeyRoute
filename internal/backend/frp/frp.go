@@ -118,6 +118,9 @@ func (*Backend) Name() string { return Name }
 // Transports returns every frp transport. All are Reverse and carry tcp
 // and udp proxies; every one consumes the tunnel TLS certificate (TLS is
 // mandatory, spec 7.3); quic and kcp run over UDP between node and hub.
+// With the tunnel's advanced.proxy_protocol frpc puts a PROXY protocol
+// header before the data of each tcp proxy (DR-21), so the service on the
+// node sees the user's address on its TCP ports.
 func (*Backend) Transports() []backend.Transport {
 	out := make([]backend.Transport, 0, len(specs))
 	for _, s := range specs {
@@ -129,6 +132,8 @@ func (*Backend) Transports() []backend.Transport {
 			NeedsUDP:  s.udp != noUDP,
 			NeedsTLS:  true,
 			Stealth:   s.stealth,
+			// TCP ports only: frp v0.71.0 sends the header for tcp proxies.
+			ClientIPPreserved: true,
 		})
 	}
 	return out

@@ -166,6 +166,11 @@ const (
 	// hub sends a scoped rule only to such an agent; an older one gets the
 	// rule without the scope, which it would otherwise apply unscoped.
 	FeatureNATScope = "nat-scope"
+	// FeatureProxyHeader (DR-21): the agent's echo, probe echo and speed
+	// helpers skip a leading PROXY protocol v1 header. The hub sends an
+	// frp rung with advanced.proxy_protocol only to such an agent; an older
+	// one gets the rung without the header, so its probes keep working.
+	FeatureProxyHeader = "proxy-header"
 )
 
 // HasFeature reports whether the Hello announces feature f.

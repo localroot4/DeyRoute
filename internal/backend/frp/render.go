@@ -1,6 +1,7 @@
 package frp
 
 import (
+	"bytes"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -112,6 +113,28 @@ func renderServer(in backend.RenderInput, sp spec, proxies []proxy) backend.Rend
 	}
 }
 
+// ProxyProtocolVersion is the PROXY protocol version frpc sends with the
+// tunnel's advanced.proxy_protocol: v1, as direct/haproxy's send-proxy.
+const ProxyProtocolVersion = "v1"
+
+// proxyProtocolKey is the frpc proxy key that turns the header on.
+const proxyProtocolKey = "transport.proxyProtocolVersion"
+
+// WithoutProxyProtocol returns frpc.toml data without its PROXY protocol
+// lines: the config for a node whose echo helpers do not skip the header
+// (no api.FeatureProxyHeader), which would fail every probe otherwise.
+func WithoutProxyProtocol(data []byte) []byte {
+	lines := bytes.SplitAfter(data, []byte("\n"))
+	out := make([]byte, 0, len(data))
+	for _, l := range lines {
+		if bytes.HasPrefix(bytes.TrimSpace(l), []byte(proxyProtocolKey+" ")) {
+			continue
+		}
+		out = append(out, l...)
+	}
+	return out
+}
+
 // renderClient renders the node side: frpc.toml and unit. frpc binds
 // nothing (its admin webServer stays disabled); it dials the hub and the
 // fixed localIP:localPort of each proxy.
@@ -136,6 +159,7 @@ func renderClient(in backend.RenderInput, sp spec, proxies []proxy) backend.Rend
 		w.str("transport.tls.serverName", in.Secrets.ServerName)
 	}
 
+	proxyProto := in.Tunnel.Advanced != nil && in.Tunnel.Advanced.ProxyProtocol
 	for _, p := range proxies {
 		w.blank()
 		w.b.WriteString("[[proxies]]\n")
@@ -144,6 +168,11 @@ func renderClient(in backend.RenderInput, sp spec, proxies []proxy) backend.Rend
 		w.str("localIP", p.localIP)
 		w.num("localPort", p.localPort)
 		w.num("remotePort", p.listen)
+		if proxyProto && p.proto == config.ProtoTCP {
+			// The user's address reaches the service (DR-21); the node's
+			// echo and speed helpers skip the header.
+			w.str(proxyProtocolKey, ProxyProtocolVersion)
+		}
 	}
 
 	return backend.Rendered{

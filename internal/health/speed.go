@@ -101,6 +101,7 @@ func (s SpeedServer) Serve(ctx context.Context, ln net.Listener) error {
 // serveSpeedConn runs one test.
 func serveSpeedConn(c net.Conn, maxSecs int) {
 	_ = c.SetReadDeadline(time.Now().Add(speedGrace))
+	c = skipProxyHeader(c)
 	hdr := make([]byte, speedHeaderSize)
 	if _, err := io.ReadFull(c, hdr); err != nil || string(hdr[:len(speedMagic)]) != speedMagic {
 		return

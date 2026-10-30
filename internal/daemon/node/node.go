@@ -713,7 +713,7 @@ func (a *agent) later(delay time.Duration, fn func(ctx context.Context) error) {
 // (read now: an apply since the previous stream changes it).
 func (a *agent) hello() api.Hello {
 	h := a.helloV
-	h.Features = []string{api.FeatureTuneAuto, api.FeatureSignedUpdate, api.FeatureEchoProbe, api.FeatureNATScope}
+	h.Features = []string{api.FeatureTuneAuto, api.FeatureSignedUpdate, api.FeatureEchoProbe, api.FeatureNATScope, api.FeatureProxyHeader}
 	h.TuneProfile, h.TuneHash = a.tuneState()
 	return h
 }

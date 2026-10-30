@@ -72,6 +72,7 @@ A lab scenario measures without a pass/fail criterion of the spec:
 | Scenario | What it measures | Evidence |
 | --- | --- | --- |
 | S39 | the operator replaces the primary node (DR-23): a new node joins, `tunnel edit --node NEW --yes` makes it the tunnel's only node, `node remove OLD --yes` revokes the old one; the tunnel carries traffic through the new node, the old node runs no tunnel unit and its IP leaves `@nodes`. Measured: `tunnel edit` → first download through the new node | lab S39, run (7.2 s on ubuntu-24.04, [benchmarks](benchmarks.md#lab-results-2026-10-30)) |
+| S40 | `advanced.proxy_protocol` on `frp/tcp` (DR-21): the node's service sees `127.0.0.1` without it and the client's address with it (PROXY v1), `tunnel show` says `client_ip` `preserved`, the tunnel stays UP on the rung | lab S40, run (ubuntu-24.04) |
 | S35 | a filter that lets a flow pass for 12 packets and then cuts it (`lib.sh` `block --cut-after`): time to the switch, states, switches and the client's outage; `test-ladder` with such a cut (`DEY-B073` expected); a UDP-only tunnel whose traffic is cut while its units run | lab S35, **not run yet**; numbers go to `S35-measure.txt` |
 
 ## Section 18 — delivery checklist

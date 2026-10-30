@@ -31,6 +31,16 @@ All notable changes to DEYROUTE are documented here. The format follows
   tunnel carries traffic through the new node 7.2 s after the edit, the old
   node runs no tunnel unit and leaves `@nodes` (DR-23).
 
+### Added — the client IP on frp rungs
+
+- With a tunnel's `advanced.proxy_protocol: true`, every `frp/*` rung now
+  sends a PROXY protocol v1 line before the data of each TCP port, so the
+  service on the node sees the user's address (`client IP preserved`).
+  UDP ports stay masked. The service must accept PROXY protocol. The
+  node's echo, probe echo and speed helpers skip the line; a node of an
+  older release (no capability `proxy-header`) gets the rung without it
+  (DR-21).
+
 ## [0.3.1] - 2026-10-29
 
 ### Added

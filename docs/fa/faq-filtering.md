@@ -121,7 +121,21 @@ hub:
 
 ## پنل من IP واقعی کاربران را می‌بیند؟
 
-معمولاً نه. تقریباً در همه ترنسپورت‌ها سرویس روی Node به‌جای IP کاربر یک آدرس محلی یا آدرس سمت Hub را می‌بیند؛ `deyroute tunnel show main` عبارت `client IP masked` را نشان می‌دهد. فقط `direct/haproxy` می‌تواند IP واقعی را با PROXY protocol برساند، به شرطی که برای تانل `advanced.proxy_protocol: true` تنظیم شده باشد و سرویس شما هم PROXY protocol را بپذیرد؛ آن‌وقت `client IP preserved` نشان داده می‌شود. `direct/haproxy` هیچ پوششی ندارد، پس گزینه مقاومی در برابر فیلترینگ نیست.
+فقط با PROXY protocol. بدون آن، سرویس روی Node به‌جای IP کاربر یک آدرس محلی یا آدرس سمت Hub را می‌بیند؛ `deyroute tunnel show main` عبارت `client IP masked` را نشان می‌دهد. وقتی برای تانل `advanced.proxy_protocol: true` تنظیم شده باشد، دو نوع پله IP واقعی را می‌رسانند:
+
+- `direct/haproxy` (هیچ پوششی ندارد، پس گزینه مقاومی در برابر فیلترینگ نیست)؛
+- همه پله‌های `frp/*` (معکوس: Node داخل TLS به Hub وصل می‌شود). frpc قبل از داده‌های هر پورت **TCP** یک خط PROXY protocol v1 می‌فرستد؛ پورت‌های UDP همچنان masked می‌مانند.
+
+سرویس شما باید روی همان پورت‌ها PROXY protocol را بپذیرد (در Xray: `"acceptProxyProtocol": true` در `streamSettings.sockopt` اینباند)، وگرنه همه اتصال‌ها، از جمله health probe، شکست می‌خورند. آن‌وقت پله با `client IP preserved` نشان داده می‌شود. بقیه پله‌ها (backhaul، rathole، chisel، gost، waterwall، hysteria2، xray، WireGuard) همچنان IP را پنهان می‌کنند: نسخه‌های پین‌شده‌شان PROXY protocol به سمت سرویس ندارند.
+
+```yaml
+tunnels:
+  - id: main
+    advanced:
+      proxy_protocol: true
+```
+
+بعد `deyroute config apply`. Nodeای که نسخه قبل از 0.3.2 دارد، پله‌های `frp/*` را بدون این خط می‌گیرد (ابزارهای probe خودش با آن خراب می‌شوند) تا وقتی نسخه Hub را اجرا کند (`deyroute update`)؛ تا آن موقع سرویس از آن Node خط PROXY نمی‌بیند و `client IP preserved` برای آن Node درست نیست.
 
 ## گزارش میدانی از ایران (اکتبر ۲۰۲۶)
 

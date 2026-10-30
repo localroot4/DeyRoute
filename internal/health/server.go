@@ -53,6 +53,7 @@ const ProbeEchoTimeout = 10 * time.Second
 func ServeProbeEcho(ctx context.Context, ln net.Listener) error {
 	return serveConns(ctx, ln, "probe echo", EchoMaxConns, func(_ context.Context, c net.Conn) {
 		_ = c.SetDeadline(time.Now().Add(ProbeEchoTimeout))
+		c = skipProxyHeader(c)
 		var pkt [EchoPacketSize]byte
 		if _, err := io.ReadFull(c, pkt[:]); err != nil || string(pkt[:len(EchoMagic)]) != EchoMagic {
 			return
@@ -83,6 +84,8 @@ func (s TCPEchoServer) Serve(ctx context.Context, ln net.Listener) error {
 // echoConn copies c back to itself until EOF, an error, the byte limit or
 // the idle timeout.
 func echoConn(c net.Conn, maxBytes int64, idle time.Duration) {
+	_ = c.SetReadDeadline(time.Now().Add(idle))
+	c = skipProxyHeader(c)
 	buf := make([]byte, 32<<10)
 	var total int64
 	for total < maxBytes {

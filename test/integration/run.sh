@@ -5,7 +5,8 @@
 # S35-measure.txt beside the logs), S36 (links a backend user plants in
 # the tunnel log directory), S37 (nft flush ruleset on hub and node: table
 # inet deyroute comes back by itself), S38 (silent raw-TCP targets behind
-# the echo probe), S39 (the primary node replaced by a new one), S41 (a
+# the echo probe), S39 (the primary node replaced by a new one), S40 (the
+# client IP through an frp rung with PROXY protocol), S41 (a
 # hub that serves a tampered deyroute binary: the node refuses it) and S42
 # (Hysteria2 port hopping scoped to the hub) in Docker containers running
 # systemd.

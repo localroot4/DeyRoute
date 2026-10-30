@@ -166,6 +166,62 @@ func TestNextBackoff(t *testing.T) {
 
 // TestServeProbeEcho: the probe echo (DR-17) passes TCPEcho and answers
 // nothing but one DEYE packet per connection.
+// DR-21: frp puts a PROXY v1 header before the data of a tunnel with
+// advanced.proxy_protocol; the echo, the probe echo and the speed
+// generator skip it, also when it arrives in pieces.
+func TestHelpersSkipProxyHeader(t *testing.T) {
+	const hdr = "PROXY TCP4 203.0.113.7 10.0.0.1 51234 8443\r\n"
+	addr := runEcho(t, TCPEchoServer{})
+	for _, parts := range [][]string{{hdr + "hello"}, {"PRO", "XY TCP4 203.0.113.7 10.0", ".0.1 51234 8443\r", "\nhello"}} {
+		c, err := net.Dial("tcp", addr)
+		require.NoError(t, err)
+		for _, p := range parts {
+			_, err = c.Write([]byte(p))
+			require.NoError(t, err)
+			time.Sleep(10 * time.Millisecond)
+		}
+		got := make([]byte, 5)
+		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, err = io.ReadFull(c, got)
+		require.NoError(t, err)
+		require.Equal(t, "hello", string(got))
+		_ = c.Close()
+	}
+
+	// Data that only starts like a header is echoed unchanged.
+	c, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	defer c.Close()
+	_, err = c.Write([]byte("PROBE"))
+	require.NoError(t, err)
+	got := make([]byte, 5)
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, err = io.ReadFull(c, got)
+	require.NoError(t, err)
+	require.Equal(t, "PROBE", string(got))
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- ServeProbeEcho(ctx, ln) }()
+	t.Cleanup(func() {
+		cancel()
+		require.NoError(t, <-done)
+	})
+	pc, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer pc.Close()
+	pkt := newEchoPacket()
+	_, err = pc.Write(append([]byte(hdr), pkt[:]...))
+	require.NoError(t, err)
+	back := make([]byte, EchoPacketSize)
+	_ = pc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, err = io.ReadFull(pc, back)
+	require.NoError(t, err)
+	require.Equal(t, pkt[:], back)
+}
+
 func TestServeProbeEcho(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

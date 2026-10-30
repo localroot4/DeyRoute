@@ -928,6 +928,17 @@ stated default until the owner decides · **[ANSWERED]** closed.
     without it once its nodes run this release or later. Existing CAs keep
     their name until `rotate-ca`. Owner option: drop the leaf organization
     already in 0.3.x behind a node capability.
+80. **[DEFAULT] PROXY protocol on reverse rungs: frp only (DR-21).** Of
+    the reverse backends, only frp (v0.71.0, `transport.proxyProtocolVersion`
+    on tcp proxies) sends a PROXY header to the service on the node; the
+    pinned backhaul, rathole and chisel releases document none, and
+    backhaul's source could not be checked. Defaults: v1 (as
+    direct/haproxy), TCP ports only, driven by the existing
+    `advanced.proxy_protocol`, so no new config key. The node's echo, probe
+    echo and speed helpers skip a leading v1 header, because the hidden
+    probe echo map gets it too; the hub sends the header only to a node
+    announcing `proxy-header`. Owner options: v2, or another backend once
+    its release supports it.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
