@@ -71,3 +71,18 @@ func TestHubSendsProxyHeaderOnlyToCapableNodes(t *testing.T) {
 		return cfg == ppConfig
 	}, testWait, 10*time.Millisecond, "the updated node gets the PROXY protocol line")
 }
+
+// The status says client IP preserved for an frp rung only when its node
+// gets the header (DR-21): with proxy_protocol and api.FeatureProxyHeader.
+func TestClientIPPreservedNeedsProxyHeaderNode(t *testing.T) {
+	frpTr := backend.Transport{Backend: frp.Name, Name: "tcp", ClientIPPreserved: true}
+	direct := backend.Transport{Backend: "direct", Name: "native", ClientIPPreserved: true}
+	masked := backend.Transport{Backend: "backhaul", Name: "tcpmux"}
+	newNode := api.Hello{Features: []string{api.FeatureProxyHeader}}
+	oldNode := api.Hello{}
+	require.True(t, clientIPPreserved(frpTr, true, newNode))
+	require.False(t, clientIPPreserved(frpTr, true, oldNode))
+	require.False(t, clientIPPreserved(frpTr, false, newNode))
+	require.True(t, clientIPPreserved(direct, true, oldNode))
+	require.False(t, clientIPPreserved(masked, true, newNode))
+}
