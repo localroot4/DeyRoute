@@ -101,6 +101,15 @@ WireGuard module). One scenario at a time; the logs are
 | Node not an open proxy (S17) | 0 packets to 8.8.8.8:53 | 0 with xray/reality, hysteria2/udp, awg/userspace, direct/native | 1 |
 | awg/userspace carries TCP and UDP; `tunnel delete` leaves nothing (S33) | — | TCP 8443 and UDP 27015 carried; ruleset and interfaces equal before and after | 1 |
 
+### Lab results (2026-10-30)
+
+The same lab with deyroute `0.9.0-it.1` built from the tree of 2026-10-30
+(Go 1.26, linux/amd64), Ubuntu 24.04 containers, one scenario at a time.
+
+| Measurement | Goal | Lab result | Runs |
+| --- | --- | --- | --- |
+| Primary node replaced: `tunnel edit --node NEW --yes` → first download through the new node (S39) | — | 7.2 s | 1 |
+
 ### Resource budget
 
 | Item | Limit | Lab | Real servers (1 vCPU, 1 GB) |

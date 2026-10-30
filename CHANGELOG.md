@@ -24,6 +24,13 @@ All notable changes to DEYROUTE are documented here. The format follows
   peers; this release already accepts them without it, so a later minor
   release can drop it (DR-26).
 
+### Added — lab scenario for a node replacement
+
+- Lab S39: the operator replaces a tunnel's primary node (join the new
+  node, `tunnel edit --node NEW --yes`, `node remove OLD --yes`). The
+  tunnel carries traffic through the new node 7.2 s after the edit, the old
+  node runs no tunnel unit and leaves `@nodes` (DR-23).
+
 ## [0.3.1] - 2026-10-29
 
 ### Added
