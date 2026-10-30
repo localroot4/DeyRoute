@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,18 +25,20 @@ import (
 )
 
 func TestCACommonName(t *testing.T) {
-	require.Equal(t, "DEYROUTE CA ir-1", CACommonName("ir-1"))
-	require.Equal(t, "DEYROUTE CA ir-1", CACommonName("  ir-1 "))
-	require.Equal(t, "DEYROUTE CA ir-1", CACommonName("DEYROUTE CA ir-1"))
-	require.Equal(t, "DEYROUTE CA", CACommonName(""))
-	require.Equal(t, "DEYROUTE CA", CACommonName("DEYROUTE CA"))
+	require.Equal(t, "ir-1 CA", CACommonName("ir-1"))
+	require.Equal(t, "ir-1 CA", CACommonName("  ir-1 "))
+	// A legacy "DEYROUTE CA" prefix is dropped (DR-26).
+	require.Equal(t, "ir-1 CA", CACommonName("DEYROUTE CA ir-1"))
+	require.Equal(t, "CA", CACommonName(""))
+	require.Equal(t, "CA", CACommonName("DEYROUTE CA"))
 	// Only a real "DEYROUTE CA " prefix counts.
-	require.Equal(t, "DEYROUTE CA DEYROUTE CAx", CACommonName("DEYROUTE CAx"))
+	require.Equal(t, "DEYROUTE CAx CA", CACommonName("DEYROUTE CAx"))
 	// Control characters are dropped, long names cut to 64 characters.
-	require.Equal(t, "DEYROUTE CA ir-1", CACommonName("ir-\n1\x00"))
+	require.Equal(t, "ir-1 CA", CACommonName("ir-\n1\x00"))
 	long := CACommonName(strings.Repeat("ایران", 20))
 	require.Equal(t, 64, utf8.RuneCountInString(long))
-	require.True(t, strings.HasPrefix(long, "DEYROUTE CA ایران"))
+	require.True(t, strings.HasPrefix(long, "ایران"))
+	require.True(t, strings.HasSuffix(long, " "+CASuffix))
 }
 
 func TestNewCAUnusualNames(t *testing.T) {
@@ -44,7 +47,7 @@ func TestNewCAUnusualNames(t *testing.T) {
 		require.NoError(t, err, name)
 		cn := ca.Cert.Subject.CommonName
 		require.NoError(t, checkCN(cn), cn)
-		require.True(t, strings.HasPrefix(cn, CAPrefix+" "), cn)
+		require.True(t, strings.HasSuffix(cn, " "+CASuffix), cn)
 	}
 }
 
@@ -81,12 +84,40 @@ func TestIssuedRoles(t *testing.T) {
 		}
 	}
 
+	// A leaf without an organization keeps its role when an internal CA
+	// issued it (a later release drops the organization, DR-26).
+	bare := leafTpl("de-2", t0, t0.Add(time.Hour))
+	bare.SerialNumber = big.NewInt(42)
+	bare.Subject.Organization = nil
+	bare.Subject.OrganizationalUnit = []string{NodeOU}
+	bareDER, err := x509.CreateCertificate(rand.Reader, bare, ca.Cert, ca.Cert.PublicKey, ca.Key)
+	require.NoError(t, err)
+	bareCert, err := x509.ParseCertificate(bareDER)
+	require.NoError(t, err)
+	require.Equal(t, NodeOU, CertRole(bareCert))
+
 	// Foreign certificates have no role, even with a look-alike OU.
 	foreign := leafTpl("x", t0, t0.Add(time.Hour))
 	foreign.Subject.OrganizationalUnit = []string{HubOU}
 	require.Equal(t, "", CertRole(makeCert(t, foreign, nil).cert))
 	require.Equal(t, "", CertRole(nil))
 	require.False(t, hasRole(nil, HubOU))
+}
+
+// DR-26: the CA goes to every client of the control port with the hub
+// certificate, so its subject names no product; old CAs keep working.
+func TestCASubjectNamesNoProduct(t *testing.T) {
+	ca, err := NewCA("ir-1", t0)
+	require.NoError(t, err)
+	require.NotContains(t, strings.ToUpper(ca.Cert.Subject.String()), "DEYROUTE")
+	hubPEM, _, err := ca.IssueServer("ir-1", []net.IP{net.ParseIP("192.0.2.1")}, nil, 0)
+	require.NoError(t, err)
+	hub, err := ParseCert(hubPEM)
+	require.NoError(t, err)
+	require.NotContains(t, strings.ToUpper(hub.Issuer.String()), "DEYROUTE")
+	// Leaves keep the organization while 0.3.x peers may connect.
+	require.Equal(t, []string{Organization}, hub.Subject.Organization)
+	require.Equal(t, HubOU, CertRole(hub))
 }
 
 func TestIssueSANsIPLiteralsInDNS(t *testing.T) {
@@ -173,8 +204,8 @@ func TestNewCA(t *testing.T) {
 	ca, err := NewCA("ir-1", t0)
 	require.NoError(t, err)
 	c := ca.Cert
-	require.Equal(t, "DEYROUTE CA ir-1", c.Subject.CommonName)
-	require.Equal(t, []string{Organization}, c.Subject.Organization)
+	require.Equal(t, "ir-1 CA", c.Subject.CommonName)
+	require.Empty(t, c.Subject.Organization)
 	require.True(t, c.IsCA)
 	require.True(t, c.BasicConstraintsValid)
 	require.True(t, c.MaxPathLenZero)
@@ -315,7 +346,7 @@ func TestIssueServer(t *testing.T) {
 	leaf, err := ParseCert(certPEM)
 	require.NoError(t, err)
 	require.Equal(t, "deyroute-hub ir-1", leaf.Subject.CommonName)
-	require.Equal(t, "DEYROUTE CA ir-1", leaf.Issuer.CommonName)
+	require.Equal(t, "ir-1 CA", leaf.Issuer.CommonName)
 	require.Equal(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, leaf.ExtKeyUsage)
 	require.Equal(t, x509.KeyUsageDigitalSignature, leaf.KeyUsage)
 	require.False(t, leaf.IsCA)
@@ -380,7 +411,7 @@ func TestExpiredCARefusesToIssue(t *testing.T) {
 
 	_, _, err = ca.IssueServer("hub", nil, []string{"hub"}, 0)
 	e := requireCode(t, err, deyerr.T001)
-	require.Equal(t, "Certificate expired: DEYROUTE CA ir-1", e.Message())
+	require.Equal(t, "Certificate expired: ir-1 CA", e.Message())
 	require.Contains(t, e.Fix(), "deyroute security rotate-ca")
 
 	_, _, err = ca.IssueTunnel("main", []net.IP{net.ParseIP("5.6.7.8")}, nil, after)

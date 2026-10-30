@@ -435,7 +435,7 @@ func TestCollectorPorts(t *testing.T) {
 func TestCollectorCerts(t *testing.T) {
 	c, _, root := newCollector(t)
 	s := c.Certs()
-	require.Contains(t, s, "ca.crt  kind=ca  subject=DEYROUTE CA")
+	require.Contains(t, s, "ca.crt  kind=ca  subject=CA  ")
 	require.Contains(t, s, "tls/main/cert.pem  kind=tunnel")
 	require.Contains(t, s, "tls/main/acme/cert.pem  not a certificate")
 	require.Contains(t, s, "node.crt  not a certificate")

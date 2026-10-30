@@ -11,6 +11,13 @@ to a log.
 
 - During setup the hub creates an **internal CA** (Ed25519). The hub
   certificate and every node certificate (valid 10 years) come from it.
+- The hub sends this CA with its certificate to every client of the control
+  port, so the CA's name does not say DEYROUTE: a new CA is called
+  `<hub name> CA` (for example `ir-1 CA`) and has no organization. A CA made
+  by a release before 0.3.2 keeps its old name `DEYROUTE CA <hub name>`
+  until `deyroute security rotate-ca`. The hub and node certificates still
+  carry the organization `DEYROUTE`, because releases before 0.3.2 accept
+  a certificate only with it; a later minor release drops it.
 - A node connects to the hub's control port (44433 by default) with **mutual
   TLS**, TLS 1.3 only. Without a certificate from this CA the hub refuses
   the request (`DEY-N013`).
@@ -369,8 +376,8 @@ deyroute security audit
 ```
 
 Lists publicly open ports, file permissions, certificate expiry, nodes with
-an old version and unexpired join tokens. Run it after every
-security change. Menu: `8) Security` → `5) Audit`.
+an old version, unexpired join tokens and Telegram notifications. Run it
+after every security change. Menu: `8) Security` → `5) Audit`.
 
 ## Tunnel processes
 
@@ -628,6 +635,10 @@ transport from inside the transport itself.
   node's control connection (mutual TLS). The node uses it only for that
   request to `api.telegram.org`, the only address it posts to for the hub,
   and keeps it out of its logs. Use a bot made for these alerts only.
+  While notifications are on, `deyroute security audit` warns about it
+  (check `telegram`), so the audit is never clean with Telegram on. If a
+  node is lost or taken over, revoke the token in @BotFather and set the
+  new one with `deyroute notify telegram set`.
 
 ## Checklist
 

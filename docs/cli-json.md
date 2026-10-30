@@ -163,7 +163,8 @@ PAUSED|DISABLED), "active_node", "active_node_name", "active_transport",
 "rtt_ms", "up_since", "ports": [{"listen", "proto", "target", "probe"}],
 "nodes": [primary, backups…], "ladder_name", "ladder": [rung], "policy",
 "paused", "service_down", "client_ip" (preserved|masked), "proxy_protocol"
-(advanced.proxy_protocol: direct/haproxy keeps the client IP only with it),
+(advanced.proxy_protocol: direct/haproxy and frp/* keep the client IP only
+with it; frp/* on TCP ports only),
 "warnings", "traffic"?}`
 
 - `traffic` (TrafficNow, absent while monitoring is off or before the first
@@ -558,7 +559,10 @@ removed), never the token.
 ### `deyroute security audit`
 
 `{"schema", "clean", "items": [{"check", "severity" (ok|warn|error),
-"message"}]}`
+"message"}]}` — `check` is one of `public-ports`, `secret-permissions`,
+`certificates`, `node-versions`, `join-tokens`, `firewall`, `control-port`
+and `telegram` (warn while Telegram notifications are on: the bot token
+travels to the nodes).
 
 ### `deyroute notify telegram set`
 

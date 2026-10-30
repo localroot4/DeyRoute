@@ -48,6 +48,7 @@ const (
 	AuditJoinTokens = "join-tokens"
 	AuditFirewall   = "firewall"
 	AuditControl    = "control-port"
+	AuditTelegram   = "telegram"
 	// Audit severities.
 	sevOK    = "ok"
 	sevWarn  = "warn"
@@ -184,7 +185,8 @@ func (h *Hub) deyroutePorts(cfg *config.Config) []portProto {
 // public listening sockets that are neither tunnel ports, backend control
 // ports nor the control port; secret file permissions; certificate expiry;
 // nodes with an older version; unexpired join tokens; the firewall and the
-// control port restriction. Clean is true only when nothing warns.
+// control port restriction; Telegram notifications, whose bot token travels
+// to the nodes (DR-27). Clean is true only when nothing warns.
 func (l *local) SecurityAudit(ctx context.Context) (api.AuditReport, error) {
 	h := l.h
 	cfg := h.Config()
@@ -260,6 +262,13 @@ func (l *local) SecurityAudit(ctx context.Context) (api.AuditReport, error) {
 		add(AuditControl, sevWarn, fmt.Sprintf("security.restrict_control_to_nodes is false: control port %d/tcp accepts every address", cfg.Hub.ControlPort))
 	} else {
 		add(AuditControl, sevOK, fmt.Sprintf("control port %d/tcp accepts only joined nodes (and joins while a token is valid)", cfg.Hub.ControlPort))
+	}
+	if tg := cfg.Hub.Notify.Telegram; tg.Enabled {
+		// DR-27: the token is part of the Telegram API address, so every
+		// message hands it to a node; whoever holds it controls the bot.
+		add(AuditTelegram, sevWarn, "Telegram notifications are on: every message hands the bot token to an online node; use a bot made for these alerts only and revoke its token in @BotFather if a node is lost")
+	} else {
+		add(AuditTelegram, sevOK, "Telegram notifications are off: no bot token leaves the hub")
 	}
 	rep := api.AuditReport{Items: items, Clean: true}
 	for _, it := range items {

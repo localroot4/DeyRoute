@@ -44,7 +44,11 @@ type Info struct {
 
 // CertRole returns the role of a certificate: RoleCA for a CA certificate,
 // HubOU, NodeOU or TunnelOU for leaves issued by the internal CA (their
-// subject OU with Organization "DEYROUTE"), "" otherwise.
+// subject OU, with Organization "DEYROUTE", or with no organization when
+// the issuer is named like an internal CA: a later release issues leaves
+// without it, DR-26), "" otherwise. The control channel reads the role
+// only after the chain to the pinned CA is verified; the role is not
+// proof of origin by itself.
 func CertRole(c *x509.Certificate) string {
 	if c == nil {
 		return ""
@@ -52,7 +56,10 @@ func CertRole(c *x509.Certificate) string {
 	if c.IsCA {
 		return RoleCA
 	}
-	if !contains(c.Subject.Organization, Organization) {
+	switch {
+	case contains(c.Subject.Organization, Organization):
+	case len(c.Subject.Organization) == 0 && internalIssuer(c):
+	default:
 		return ""
 	}
 	for _, ou := range c.Subject.OrganizationalUnit {
@@ -62,6 +69,17 @@ func CertRole(c *x509.Certificate) string {
 		}
 	}
 	return ""
+}
+
+// internalIssuer reports whether the issuer of c is named like an internal
+// CA: organization "DEYROUTE" (CAs before DR-26) or a common name "CA" or
+// "<hub> CA" without an organization (CACommonName).
+func internalIssuer(c *x509.Certificate) bool {
+	is := c.Issuer
+	if contains(is.Organization, Organization) {
+		return true
+	}
+	return len(is.Organization) == 0 && (is.CommonName == CASuffix || strings.HasSuffix(is.CommonName, " "+CASuffix))
 }
 
 // hasRole reports whether c is a leaf of the internal CA with role.

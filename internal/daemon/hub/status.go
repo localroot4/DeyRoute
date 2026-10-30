@@ -9,6 +9,7 @@ import (
 
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/backend"
+	"github.com/localroot4/deyroute/internal/backend/frp"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/secrets"
 	"github.com/localroot4/deyroute/internal/daemon/setup"
@@ -94,6 +95,17 @@ func (h *Hub) hubStatus(cfg *config.Config) *api.HubStatus {
 			Events: append([]string(nil), tg.Events...)}
 	}
 	return hs
+}
+
+// clientIPPreserved reports whether transport tr hands the user's address
+// to the service: a PROXY protocol capable transport with the tunnel's
+// advanced.proxy_protocol. An frp rung sends the header only to a node
+// announcing api.FeatureProxyHeader (nodePayload, DR-21).
+func clientIPPreserved(tr backend.Transport, proxyProtocol bool, node api.Hello) bool {
+	if !tr.ClientIPPreserved || !proxyProtocol {
+		return false
+	}
+	return tr.Backend != frp.Name || node.HasFeature(api.FeatureProxyHeader)
 }
 
 // nodeInfos returns the nodes of cfg (config order) with their live state.
@@ -190,8 +202,9 @@ func (h *Hub) tunnelInfo(cfg *config.Config, t *config.Tunnel) api.TunnelInfo {
 	ti.Traffic = h.traffic.tunnelNow(t.ID, h.now())
 	if ti.ActiveTransport != "" {
 		ti.ClientIP = ClientIPMasked
-		if _, tr, err := backend.Lookup(ti.ActiveTransport); err == nil && tr.ClientIPPreserved &&
-			t.Advanced != nil && t.Advanced.ProxyProtocol {
+		hello, _ := h.nodeHello(ti.ActiveNode)
+		if _, tr, err := backend.Lookup(ti.ActiveTransport); err == nil &&
+			clientIPPreserved(tr, t.Advanced != nil && t.Advanced.ProxyProtocol, hello) {
 			ti.ClientIP = ClientIPPreserved
 		}
 	}

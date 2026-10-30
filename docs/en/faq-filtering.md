@@ -211,13 +211,35 @@ See [Security](security.md).
 
 ## Will my panel see the users' real IP?
 
-Usually not. For almost every transport the service on the node sees a local
+Only with PROXY protocol. Without it, the service on the node sees a local
 or hub-side address instead of the user's IP; `deyroute tunnel show main`
-prints `client IP masked`. Only `direct/haproxy` can pass the real IP, with
-PROXY protocol, when `advanced.proxy_protocol: true` is set for the tunnel and
-your service accepts PROXY protocol; it is then shown as
-`client IP preserved`. `direct/haproxy` has no disguise, so it is not a
-filtering-resistant option.
+prints `client IP masked`. Two kinds of rung can pass the real IP when
+`advanced.proxy_protocol: true` is set for the tunnel:
+
+- `direct/haproxy` (no disguise, so not a filtering-resistant option);
+- every `frp/*` rung (reverse: the node dials the hub inside TLS). frpc puts
+  a PROXY protocol v1 line before the data of each **TCP** port; UDP ports
+  stay masked.
+
+Your service must then accept PROXY protocol on those ports (Xray:
+`"acceptProxyProtocol": true` in the inbound's `streamSettings.sockopt`),
+or every connection fails, the health probe included. The rung is then shown as `client IP preserved`. The other rungs
+(backhaul, rathole, chisel, gost, waterwall, hysteria2, xray, WireGuard)
+still mask the IP: their pinned releases offer no PROXY protocol towards
+the service.
+
+```yaml
+tunnels:
+  - id: main
+    advanced:
+      proxy_protocol: true
+```
+
+Then `deyroute config apply`. A node that runs a release before 0.3.2 gets
+its `frp/*` rungs without the header (its own probe helpers would fail on
+it) until it runs the hub's version (`deyroute update`); until then the
+service sees no PROXY line from it, and `client IP preserved` is not true
+for that node.
 
 ## Field report: Iran, October 2026
 

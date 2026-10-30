@@ -202,7 +202,8 @@ func TestTransports(t *testing.T) {
 		require.Equal(t, w.stealth, tr.Stealth, tr.Name)
 		require.Equal(t, w.udp, tr.NeedsUDP, tr.Name)
 		require.True(t, tr.NeedsTLS, tr.Name)
-		require.False(t, tr.ClientIPPreserved)
+		// PROXY protocol with advanced.proxy_protocol (DR-21).
+		require.True(t, tr.ClientIPPreserved)
 		require.False(t, tr.Optional)
 		require.False(t, tr.NeverQuarantine)
 	}
@@ -439,6 +440,54 @@ func TestNodeDialsOnlyTargets(t *testing.T) {
 	for _, p := range cli.proxies {
 		require.Contains(t, srv.top["allowPorts"], "{ single = "+p["remotePort"]+" }")
 	}
+}
+
+// DR-21: with advanced.proxy_protocol every tcp proxy of frpc sends a
+// PROXY v1 header to its target, so the service sees the user's address;
+// udp proxies get none (frp sends it for tcp only), and without the flag
+// no proxy does.
+func TestProxyProtocolOnTCPProxies(t *testing.T) {
+	in := mixedFixture(t, KCP)
+	node, err := New().Render(in, backend.SideNode)
+	require.NoError(t, err)
+	for _, p := range parseTOML(t, node.Files[ClientFile]).proxies {
+		require.NotContains(t, p, "transport.proxyProtocolVersion", "%v", p)
+	}
+
+	in.Tunnel.Advanced = &config.Advanced{ProxyProtocol: true}
+	node, err = New().Render(in, backend.SideNode)
+	require.NoError(t, err)
+	tcp, udp := 0, 0
+	for _, p := range parseTOML(t, node.Files[ClientFile]).proxies {
+		switch p["type"] {
+		case `"tcp"`:
+			tcp++
+			require.Equal(t, `"v1"`, p["transport.proxyProtocolVersion"], "%v", p)
+		case `"udp"`:
+			udp++
+			require.NotContains(t, p, "transport.proxyProtocolVersion", "%v", p)
+		}
+	}
+	require.Positive(t, tcp)
+	require.Positive(t, udp)
+	for _, tr := range New().Transports() {
+		require.True(t, tr.ClientIPPreserved, tr.Name)
+	}
+}
+
+// WithoutProxyProtocol drops only the PROXY protocol lines (the config of
+// a node without api.FeatureProxyHeader, DR-21).
+func TestWithoutProxyProtocol(t *testing.T) {
+	in := mixedFixture(t, KCP)
+	in.Tunnel.Advanced = &config.Advanced{ProxyProtocol: true}
+	node, err := New().Render(in, backend.SideNode)
+	require.NoError(t, err)
+	with := node.Files[ClientFile]
+	require.Contains(t, string(with), "transport.proxyProtocolVersion")
+	in.Tunnel.Advanced = nil
+	plain, err := New().Render(in, backend.SideNode)
+	require.NoError(t, err)
+	require.Equal(t, string(plain.Files[ClientFile]), string(WithoutProxyProtocol(with)))
 }
 
 // TestTrustAnchorByTLSMode: with tls.mode acme/custom the hub presents a

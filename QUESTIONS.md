@@ -906,6 +906,49 @@ stated default until the owner decides · **[ANSWERED]** closed.
     a node without `nat-scope` keeps the unscoped rule. Owner option: scope
     by the source address the node sees on the hub's control connection
     instead of `hub.public_ip`.
+78. **[DEFAULT] The security audit warns while Telegram is on (DR-27).**
+    The bot token is part of the Telegram API address, and the hub posts
+    through an online node first, so every message hands the token to a
+    node. `deyroute security audit` therefore reports check `telegram` as
+    `warn` while `hub.notify.telegram.enabled` is true, and `ok` otherwise.
+    Default: warn, so `clean` is false with Telegram on; the message names
+    the remedy (a bot made for these alerts only, revoke the token in
+    @BotFather when a node is lost). Owner option: report it as `ok` with
+    the same text when the owner accepts the risk.
+79. **[DEFAULT] The internal CA has a neutral name; leaves keep the
+    organization (DR-26).** The hub presents its certificate and the CA to
+    every client of the control port, so both subjects fingerprint the
+    product. A new CA is now `<hub name> CA` without an organization (a
+    legacy `DEYROUTE CA` prefix in the name is dropped). Leaves (hub, node,
+    tunnel) keep `O=DEYROUTE`: releases before this one read the role of a
+    certificate only with it, so a hub leaf without it would cut every
+    0.3.x node off the control channel, including the channel that would
+    update it. This release accepts a leaf without the organization when an
+    internal CA issued it, so the next minor release can issue leaves
+    without it once its nodes run this release or later. Existing CAs keep
+    their name until `rotate-ca`. Owner option: drop the leaf organization
+    already in 0.3.x behind a node capability.
+80. **[DEFAULT] PROXY protocol on reverse rungs: frp only (DR-21).** Of
+    the reverse backends, only frp (v0.71.0, `transport.proxyProtocolVersion`
+    on tcp proxies) sends a PROXY header to the service on the node; the
+    pinned backhaul, rathole and chisel releases document none, and
+    backhaul's source could not be checked. Defaults: v1 (as
+    direct/haproxy), TCP ports only, driven by the existing
+    `advanced.proxy_protocol`, so no new config key. The node's echo, probe
+    echo and speed helpers skip a leading v1 header, because the hidden
+    probe echo map gets it too; the hub sends the header only to a node
+    announcing `proxy-header`. Owner options: v2, or another backend once
+    its release supports it.
+81. **[OPEN] S35 parts (b) and (c) did not measure (DR-24).** In the run of
+    2026-10-30 (ubuntu-24.04) the "passes, then cut" filter dropped 252
+    packets on the active rung of part (a) and 0 in parts (b) and (c): the
+    `test-ladder` rung `backhaul/tcpmux` and the UDP-only tunnel on
+    `backhaul/udp` were never cut, so `DEY-B073` and the UDP blind spot
+    stay unmeasured. Likely causes, not checked: the rung's flows start
+    before the conntrack accounting of the new block, or they use another
+    port than the control port. The same run had `xray/reality` and
+    `waterwall/reverse-reality` fail `test-ladder` with `DEY-B004`. Owner
+    decision: whether to fix the lab before the next measurement run.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

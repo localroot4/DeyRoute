@@ -6,6 +6,43 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-30
+
+### Added — Telegram in the security audit
+
+- `deyroute security audit` has a new check `telegram`: a warning while
+  Telegram notifications are on, because every message hands the bot token
+  to an online node; `ok` when they are off. With Telegram on, the audit is
+  no longer clean (DR-27).
+
+### Changed — a neutral name for the internal CA
+
+- A new internal CA (at `setup` or `security rotate-ca`) is named
+  `<hub name> CA` and has no organization; before, it was
+  `DEYROUTE CA <hub name>` with organization `DEYROUTE`. The hub sends the
+  CA with its certificate to every client of the control port. Existing
+  CAs keep their name until `rotate-ca`; nothing breaks either way.
+  Hub and node certificates keep the organization `DEYROUTE` for 0.3.x
+  peers; this release already accepts them without it, so a later minor
+  release can drop it (DR-26).
+
+### Added — lab scenario for a node replacement
+
+- Lab S39: the operator replaces a tunnel's primary node (join the new
+  node, `tunnel edit --node NEW --yes`, `node remove OLD --yes`). The
+  tunnel carries traffic through the new node 7.2 s after the edit, the old
+  node runs no tunnel unit and leaves `@nodes` (DR-23).
+
+### Added — the client IP on frp rungs
+
+- With a tunnel's `advanced.proxy_protocol: true`, every `frp/*` rung now
+  sends a PROXY protocol v1 line before the data of each TCP port, so the
+  service on the node sees the user's address (`client IP preserved`).
+  UDP ports stay masked. The service must accept PROXY protocol. The
+  node's echo, probe echo and speed helpers skip the line; a node of an
+  older release (no capability `proxy-header`) gets the rung without it
+  (DR-21).
+
 ## [0.3.1] - 2026-10-29
 
 ### Added

@@ -69,4 +69,14 @@ if on hub grep -q auto_update /etc/deyroute/config.yaml; then fail "a fresh conf
 if has_event auto_update_default_off; then fail "a fresh install recorded auto_update_default_off"; fi
 dey status --json | jq -e '[.warnings[]?.message | select(test("automatic update is now off"))] | length == 0' >/dev/null ||
   fail "a fresh install shows the automatic update notice"
+# DR-26: the hub sends its CA with its certificate to every client of the
+# control port; the CA a fresh hub makes names no product.
+chain=$(on node1 sh -c "openssl s_client -connect $HUB_IP:44433 -alpn h2 -showcerts </dev/null 2>/dev/null" || true)
+# The CA's subject (certificate 1) and every issuer line; the hub leaf
+# (certificate 0) keeps O = DEYROUTE for 0.3.x peers.
+ca_lines=$(grep -E '^ *1 s:|^ *i:' <<<"$chain" || true)
+[ -n "$ca_lines" ] || fail "no CA in the chain of the control port:"$'\n'"$chain"
+if grep -qi deyroute <<<"$ca_lines"; then
+  fail "the control port presents a CA that names the product:"$'\n'"$ca_lines"
+fi
 pass "hub ${th}s, node ${tn}s, join ${jms}ms"

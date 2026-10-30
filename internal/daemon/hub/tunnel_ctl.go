@@ -8,6 +8,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"slices"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/localroot4/deyroute/internal/api"
 	"github.com/localroot4/deyroute/internal/backend"
+	"github.com/localroot4/deyroute/internal/backend/frp"
 	"github.com/localroot4/deyroute/internal/config"
 	"github.com/localroot4/deyroute/internal/daemon/render"
 	deyerr "github.com/localroot4/deyroute/internal/errors"
@@ -908,13 +910,22 @@ func skippedDetail(skips []render.SkippedCandidate) string {
 // unknown fields and apply them unscoped anyway, and the hub must not
 // count a scope as delivered that the node never applies. Once it
 // announces the feature (an update, a reconnect) the payload changes and
-// the scoped rules are sent.
+// the scoped rules are sent. The same holds for the PROXY header of an frp
+// rung and api.FeatureProxyHeader.
 func (h *Hub) nodePayload(node, tunnel string, s render.Side) api.BackendRenderArgs {
 	p := render.NodePayload(tunnel, s)
-	if hello, _ := h.nodeHello(node); !hello.HasFeature(api.FeatureNATScope) {
+	hello, _ := h.nodeHello(node)
+	if !hello.HasFeature(api.FeatureNATScope) {
 		for i := range p.NAT {
 			p.NAT[i] = p.NAT[i].Unscoped()
 		}
+	}
+	// An frp rung sends the PROXY header (DR-21) only to a node whose echo
+	// helpers skip it; an older node's probes would fail on it.
+	if data, ok := p.Files[frp.ClientFile]; ok && !hello.HasFeature(api.FeatureProxyHeader) {
+		files := maps.Clone(p.Files)
+		files[frp.ClientFile] = frp.WithoutProxyProtocol(data)
+		p.Files = files
 	}
 	return p
 }
