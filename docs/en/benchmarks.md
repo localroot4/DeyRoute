@@ -110,6 +110,22 @@ The same lab with deyroute `0.9.0-it.1` built from the tree of 2026-10-30
 | --- | --- | --- | --- |
 | Primary node replaced: `tunnel edit --node NEW --yes` → first download through the new node (S39) | — | 7.2 s | 1 |
 
+#### S35: passes, then cut (DR-24)
+
+Flows of the active rung's control port are dropped after 12 packets
+(`lib.sh` `block --cut-after 12`), every new flow passes again for 12
+packets. One run, 438 s, `S35-measure.txt`:
+
+| Part | Result |
+| --- | --- |
+| (a) default ladder, `backhaul/wssmux` cut for 120 s (252 packets dropped) | first switch after 21.0 s to `backhaul/tcpmux`; 1 switch; states UP → DEGRADED @8 s → SWITCHING @18 s → UP on `backhaul/tcpmux` @21 s; longest SWITCHING 3 s, longest DEGRADED 10 s |
+| (a) the client during the cut | longest outage 19.0 s; 16 of 491 prober requests failed; back 189 ms after the switch; 8 MiB downloads at 256 KiB/s: 3 complete, 0 interrupted, 1 still running at the end (31.6 MiB in total) |
+| (b) `test-ladder` with `backhaul/tcpmux` cut | **not measured**: the cut dropped 0 packets, so `backhaul/tcpmux` passed (`DEY-B073` was not reached). `xray/reality` and `waterwall/reverse-reality` failed with `DEY-B004` in this lab run; not investigated |
+| (c) UDP-only tunnel on `backhaul/udp`, UDP control port cut for 60 s | **not measured**: the cut dropped 0 packets; the tunnel went DEGRADED @4 s and back UP @8 s with no switch, 43 of 43 echoes answered |
+
+The cut works on the long-lived flows of part (a). In parts (b) and (c) it
+never engaged; the reason is open (QUESTIONS.md C.81).
+
 ### Resource budget
 
 | Item | Limit | Lab | Real servers (1 vCPU, 1 GB) |

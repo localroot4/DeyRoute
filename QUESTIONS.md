@@ -939,6 +939,16 @@ stated default until the owner decides · **[ANSWERED]** closed.
     probe echo map gets it too; the hub sends the header only to a node
     announcing `proxy-header`. Owner options: v2, or another backend once
     its release supports it.
+81. **[OPEN] S35 parts (b) and (c) did not measure (DR-24).** In the run of
+    2026-10-30 (ubuntu-24.04) the "passes, then cut" filter dropped 252
+    packets on the active rung of part (a) and 0 in parts (b) and (c): the
+    `test-ladder` rung `backhaul/tcpmux` and the UDP-only tunnel on
+    `backhaul/udp` were never cut, so `DEY-B073` and the UDP blind spot
+    stay unmeasured. Likely causes, not checked: the rung's flows start
+    before the conntrack accounting of the new block, or they use another
+    port than the control port. The same run had `xray/reality` and
+    `waterwall/reverse-reality` fail `test-ladder` with `DEY-B004`. Owner
+    decision: whether to fix the lab before the next measurement run.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 
