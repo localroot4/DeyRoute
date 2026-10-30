@@ -13,6 +13,17 @@ All notable changes to DEYROUTE are documented here. The format follows
   to an online node; `ok` when they are off. With Telegram on, the audit is
   no longer clean (DR-27).
 
+### Changed — a neutral name for the internal CA
+
+- A new internal CA (at `setup` or `security rotate-ca`) is named
+  `<hub name> CA` and has no organization; before, it was
+  `DEYROUTE CA <hub name>` with organization `DEYROUTE`. The hub sends the
+  CA with its certificate to every client of the control port. Existing
+  CAs keep their name until `rotate-ca`; nothing breaks either way.
+  Hub and node certificates keep the organization `DEYROUTE` for 0.3.x
+  peers; this release already accepts them without it, so a later minor
+  release can drop it (DR-26).
+
 ## [0.3.1] - 2026-10-29
 
 ### Added

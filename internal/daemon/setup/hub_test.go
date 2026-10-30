@@ -115,7 +115,7 @@ func TestSetupHubEndToEnd(t *testing.T) {
 	ca, err := tlsutil.LoadCA(filepath.Join(sec, "ca.crt"), filepath.Join(sec, "ca.key"))
 	require.NoError(t, err)
 	require.Equal(t, res.CAFingerprint, ca.Fingerprint())
-	require.Equal(t, "DEYROUTE CA ir-1", ca.Cert.Subject.CommonName)
+	require.Equal(t, "ir-1 CA", ca.Cert.Subject.CommonName)
 	hubPEM, err := os.ReadFile(filepath.Join(sec, "hub.crt"))
 	require.NoError(t, err)
 	hub, err := tlsutil.ParseCert(hubPEM)

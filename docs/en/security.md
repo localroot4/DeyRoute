@@ -11,6 +11,13 @@ to a log.
 
 - During setup the hub creates an **internal CA** (Ed25519). The hub
   certificate and every node certificate (valid 10 years) come from it.
+- The hub sends this CA with its certificate to every client of the control
+  port, so the CA's name does not say DEYROUTE: a new CA is called
+  `<hub name> CA` (for example `ir-1 CA`) and has no organization. A CA made
+  by a release before 0.3.2 keeps its old name `DEYROUTE CA <hub name>`
+  until `deyroute security rotate-ca`. The hub and node certificates still
+  carry the organization `DEYROUTE`, because releases before 0.3.2 accept
+  a certificate only with it; a later minor release drops it.
 - A node connects to the hub's control port (44433 by default) with **mutual
   TLS**, TLS 1.3 only. Without a certificate from this CA the hub refuses
   the request (`DEY-N013`).

@@ -915,6 +915,19 @@ stated default until the owner decides · **[ANSWERED]** closed.
     the remedy (a bot made for these alerts only, revoke the token in
     @BotFather when a node is lost). Owner option: report it as `ok` with
     the same text when the owner accepts the risk.
+79. **[DEFAULT] The internal CA has a neutral name; leaves keep the
+    organization (DR-26).** The hub presents its certificate and the CA to
+    every client of the control port, so both subjects fingerprint the
+    product. A new CA is now `<hub name> CA` without an organization (a
+    legacy `DEYROUTE CA` prefix in the name is dropped). Leaves (hub, node,
+    tunnel) keep `O=DEYROUTE`: releases before this one read the role of a
+    certificate only with it, so a hub leaf without it would cut every
+    0.3.x node off the control channel, including the channel that would
+    update it. This release accepts a leaf without the organization when an
+    internal CA issued it, so the next minor release can issue leaves
+    without it once its nodes run this release or later. Existing CAs keep
+    their name until `rotate-ca`. Owner option: drop the leaf organization
+    already in 0.3.x behind a node capability.
 
 ## D. Known limitations after the v1.0 audit (follow-up work)
 

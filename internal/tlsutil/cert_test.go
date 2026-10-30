@@ -28,7 +28,7 @@ func TestCertInfoAndDaysLeft(t *testing.T) {
 	info, err := CertInfo(certPEM)
 	require.NoError(t, err)
 	require.Equal(t, "tunnel-main", info.Subject)
-	require.Equal(t, "DEYROUTE CA ir-1", info.Issuer)
+	require.Equal(t, "ir-1 CA", info.Issuer)
 	require.Equal(t, []string{"5.6.7.8"}, info.SANs)
 	require.Equal(t, time.UTC, info.NotAfter.Location())
 	require.True(t, ValidFingerprint(info.Fingerprint))

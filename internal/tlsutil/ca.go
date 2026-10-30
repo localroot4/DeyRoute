@@ -47,9 +47,17 @@ const (
 
 // Naming of issued certificates.
 const (
-	// CAPrefix starts the common name of every deyroute CA ("DEYROUTE CA ir-1").
+	// CAPrefix started the common name of CAs made before DR-26 ("DEYROUTE
+	// CA ir-1"). Those CAs stay valid; a new CA drops the prefix.
 	CAPrefix = "DEYROUTE CA"
-	// Organization is the subject organization of every issued certificate.
+	// CASuffix ends the common name of a CA: "ir-1 CA" (DR-26). The CA is
+	// sent with the hub certificate to every client of the control port,
+	// so its subject names no product.
+	CASuffix = "CA"
+	// Organization is the subject organization of every issued leaf
+	// certificate. Releases before DR-26 accept a role (CertRole) only
+	// with it, so leaves keep it while 0.3.x peers may connect; a CA has
+	// none.
 	Organization = "DEYROUTE"
 	// TunnelCNPrefix starts the common name of tunnel certificates.
 	TunnelCNPrefix = "tunnel-"
@@ -103,21 +111,23 @@ type CA struct {
 	Now func() time.Time
 }
 
-// CACommonName returns the CA common name for a hub: "DEYROUTE CA <hub>".
-// A name that already starts with "DEYROUTE CA" is kept as is. Non-printable
-// characters are dropped and the result is cut to the X.520 limit of 64
+// CACommonName returns the CA common name for a hub: "<hub> CA" (DR-26).
+// A legacy "DEYROUTE CA" prefix is dropped. Non-printable characters are
+// dropped and the hub part is cut so the result fits the X.520 limit of 64
 // characters (the CN is informational; the fingerprint is the identity).
 func CACommonName(hub string) string {
 	hub = strings.TrimSpace(hub)
-	cn := CAPrefix
-	switch {
-	case hub == "":
-	case hub == CAPrefix || strings.HasPrefix(hub, CAPrefix+" "):
-		cn = hub
-	default:
-		cn = CAPrefix + " " + hub
+	if hub == CAPrefix || strings.HasPrefix(hub, CAPrefix+" ") {
+		hub = strings.TrimSpace(strings.TrimPrefix(hub, CAPrefix))
 	}
-	return sanitizeCN(cn)
+	hub = sanitizeCN(hub)
+	if hub == "" {
+		return CASuffix
+	}
+	if r := []rune(hub); len(r) > maxCNLen-len(CASuffix)-1 {
+		hub = strings.TrimSpace(string(r[:maxCNLen-len(CASuffix)-1]))
+	}
+	return hub + " " + CASuffix
 }
 
 // sanitizeCN drops non-printable runes and truncates to maxCNLen runes.
@@ -152,7 +162,7 @@ func NewCA(cn string, now time.Time) (*CA, error) {
 	}
 	tpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: CACommonName(cn), Organization: []string{Organization}},
+		Subject:               pkix.Name{CommonName: CACommonName(cn)},
 		NotBefore:             now.Add(-ClockSkew).UTC(),
 		NotAfter:              now.Add(CAValidity).UTC(),
 		IsCA:                  true,
