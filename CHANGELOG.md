@@ -6,6 +6,8 @@ All notable changes to DEYROUTE are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-30
+
 ### Added — Telegram in the security audit
 
 - `deyroute security audit` has a new check `telegram`: a warning while
